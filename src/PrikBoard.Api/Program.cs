@@ -10,7 +10,7 @@ using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddDbContext<PrikBoardDbContext>((services, options) =>
-    options.UseSqlite(services.GetRequiredService<IConfiguration>().GetConnectionString("PrikBoard")));
+    options.UseNpgsql(services.GetRequiredService<IConfiguration>().GetConnectionString("PrikBoard")));
 
 // Strict number handling keeps numbers typed as plain integers in the OpenAPI schema (no "integer or string").
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict);

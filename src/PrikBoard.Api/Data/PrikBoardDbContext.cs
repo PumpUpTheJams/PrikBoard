@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Data;
@@ -10,12 +9,6 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
     public DbSet<Bucket> Buckets => Set<Bucket>();
     public DbSet<Note> Notes => Set<Note>();
     public DbSet<User> Users => Set<User>();
-
-    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
-    {
-        // SQLite cannot compare or sort DateTimeOffset values stored as text; store them as binary instead.
-        configurationBuilder.Properties<DateTimeOffset>().HaveConversion<DateTimeOffsetToBinaryConverter>();
-    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

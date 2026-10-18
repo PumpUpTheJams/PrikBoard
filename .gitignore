@@ -427,10 +427,5 @@ FodyWeavers.xsd
 # Official VS Code C# Dev Kit Extension exclusion
 #*.lscache
 
-# PrikBoard local SQLite databases
-*.db
-*.db-shm
-*.db-wal
-
 # JetBrains Rider / IntelliJ project settings
 .idea/

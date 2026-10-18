@@ -5,23 +5,39 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using PrikBoard.Api.Auth;
+using PrikBoard.Api.Data;
 
 namespace PrikBoard.Api.Tests;
 
-/// <summary>Runs the real API in memory against a throwaway SQLite database file.</summary>
+/// <summary>
+/// Runs the real API in memory against a throwaway PostgreSQL database, created on the server from
+/// <c>compose.yaml</c> (or the one in <c>PRIKBOARD_TEST_POSTGRES</c>) and dropped again on dispose.
+/// </summary>
 public class PrikBoardApiFactory : WebApplicationFactory<Program>
 {
     public const string TestProvider = "test";
     private const string TestLoginPath = "/test/login";
 
-    private readonly string _databasePath = Path.Combine(Path.GetTempPath(), $"prikboard-tests-{Guid.NewGuid():N}.db");
+    private const string DefaultServer = "Host=localhost;Port=5432;Username=prikboard;Password=prikboard";
+
+    private readonly string _connectionString = new NpgsqlConnectionStringBuilder(
+        Environment.GetEnvironmentVariable("PRIKBOARD_TEST_POSTGRES") ?? DefaultServer)
+    {
+        Database = $"prikboard_tests_{Guid.NewGuid():N}",
+    }.ConnectionString;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        // Pooling off so the file is released (and deletable) when the factory is disposed.
-        builder.UseSetting("ConnectionStrings:PrikBoard", $"Data Source={_databasePath};Pooling=False");
+        // Startup migrations create the database.
+        builder.UseSetting("ConnectionStrings:PrikBoard", _connectionString);
+        // Not Development, so the developer's user secrets stay out. appsettings.json ships a GitHub client id;
+        // clearing it starts every test without sign-in providers, and test classes add the ones they need.
+        builder.UseEnvironment("Testing");
+        builder.UseSetting("Auth:Providers:github:ClientId", "");
         builder.ConfigureTestServices(services => services.AddSingleton<IStartupFilter, TestLogin>());
     }
 
@@ -73,9 +89,12 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
         };
     }
 
-    protected override void Dispose(bool disposing)
+    public override async ValueTask DisposeAsync()
     {
-        base.Dispose(disposing);
-        File.Delete(_databasePath);
+        await using (var scope = Services.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>().Database.EnsureDeletedAsync();
+        }
+        await base.DisposeAsync();
     }
 }

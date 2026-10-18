@@ -4,7 +4,7 @@
 
 ```
  Browser (React SPA) ──┐
-                       ├──►  /api/*   ASP.NET Core minimal API  ──►  EF Core  ──►  SQLite
+                       ├──►  /api/*   ASP.NET Core minimal API  ──►  EF Core  ──►  PostgreSQL
  AI agent / script  ───┘     /openapi/v1.json  (contract)
 ```
 
@@ -67,11 +67,11 @@ React 19, TypeScript and Vite, with no state library and no UI kit yet.
 
 ## Tests
 
-`src/PrikBoard.Api.Tests` runs the real API in memory through `WebApplicationFactory`, with a throwaway SQLite file for each test class. The tests cover behaviour through HTTP, the same way clients use the API. One test checks that the OpenAPI document keeps its operationIds.
+`src/PrikBoard.Api.Tests` runs the real API in memory through `WebApplicationFactory`, with a throwaway PostgreSQL database for each test class, created on the `compose.yaml` server. The tests cover behaviour through HTTP, the same way clients use the API. One test checks that the OpenAPI document keeps its operationIds.
 
 ## Not decided yet
 
 - **Authorization.** Authentication is in place, but every signed-in user (and every token with `boards:write`) can see and change every board. Board ownership or membership comes later.
-- **Hosting, and SQLite versus a managed database.** See [`infra/README.md`](../infra/README.md).
+- **Hosting, and which managed PostgreSQL to use.** See [`infra/README.md`](../infra/README.md).
 - **Richer project-management fields.** For example assignee, due date and labels.
 - **An MCP server.** It would sit on top of the same endpoints, so AI assistants can use PrikBoard as a native tool.

@@ -1,0 +1,22 @@
+# Local development database. Start with `docker compose up -d`; data lives in the `postgres-data` volume and
+# survives `docker compose down` (only `docker compose down -v` deletes it).
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: prikboard
+      POSTGRES_PASSWORD: prikboard
+      POSTGRES_DB: prikboard
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prikboard -d prikboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

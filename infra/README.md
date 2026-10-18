@@ -1,6 +1,6 @@
 # Infrastructure
 
-Nothing is deployed yet. Local development needs no infrastructure: the API stores its data in a SQLite file and the Vite dev server proxies API calls.
+Nothing is deployed yet. Local development needs no infrastructure: the API stores its data in PostgreSQL from the root `compose.yaml` and the Vite dev server proxies API calls.
 
 This folder will hold everything needed to run PrikBoard somewhere other than a laptop:
 
@@ -14,5 +14,5 @@ The CI workflow lives in [`.github/workflows`](../.github/workflows), because Gi
 ## Open decisions
 
 - Hosting platform, for example Azure Container Apps or App Service.
-- Whether to stay on SQLite on a persistent volume or move to a managed database. EF Core makes switching providers a small change.
+- Whether to run PostgreSQL in a container with a persistent volume or use a managed PostgreSQL service.
 - Which sign-in providers to enable, and whether to restrict access with `Auth:AllowedEmails`/`AllowedEmailDomains`. Without an allowlist, anyone with an account at a configured provider can sign in and see every board.
