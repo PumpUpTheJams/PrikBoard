@@ -19,6 +19,45 @@ export interface BoardDetail extends BoardSummary {
   buckets: BucketDetail[]
   /** Bucket by bucket, loose notes last; not stacking order (see updatedAt). */
   notes: NoteDetail[]
+  /** On the canvas (noteId null) and attached to notes, oldest first. */
+  images: ImageDetail[]
+}
+
+/** File types the API accepts for images. */
+export const imageTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+
+export interface ImageDetail {
+  id: string
+  boardId: string
+  noteId: string | null
+  fileName: string
+  contentType: string
+  size: number
+  pixelWidth: number
+  pixelHeight: number
+  x: number
+  y: number
+  width: number
+  height: number
+  caption: string | null
+  addedBy: string
+  contentUrl: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ImagePlacement {
+  noteId?: string
+  x?: number
+  y?: number
+  width?: number
+}
+
+export interface ImageChanges {
+  x?: number
+  y?: number
+  width?: number
+  caption?: string
 }
 
 export interface BucketDetail {

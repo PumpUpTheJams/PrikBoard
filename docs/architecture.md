@@ -17,12 +17,14 @@ People sign in through an identity provider and hold a session cookie. Machines 
 ```
 Board 1──* Bucket
 Board 1──* Note *──0..1 Bucket
+Board 1──* Image *──0..1 Note
 User
 ```
 
 - **Board.** One project and a freeform canvas, with a name and an optional description. New boards start with the buckets *To do*, *Doing* and *Done* side by side.
 - **Bucket.** A named rectangle on the board (`x`, `y`, `width`, `height`). Deleting a bucket leaves its notes on the board.
 - **Note.** A 200×120 px post-it at `x`, `y`. It has a title, an optional body, a fill (`Butter`, `Mint`, `Sky`, `Coral` or `Lilac`), tags, assignees (people or agents), a checklist, links, and an `AgentWorking` flag that an agent sets while it works on the note. Tags are a PostgreSQL array and the other lists are `jsonb` columns on the note; all of them are always read and replaced whole.
+- **Image.** A PNG, JPEG, GIF or WebP file on the canvas (`x`, `y`, display `width`; the height follows the aspect ratio) or attached to a note. The bytes are stored in PostgreSQL (`bytea`) in their own `ImageContents` table, so board snapshots never load them. The server reads the format and pixel size from the file header (`Domain/ImageFormats.cs`) and never trusts the declared type.
 - **User.** Someone who signed in, identified by provider plus subject id. Boards are not owned yet: every signed-in user sees every board. Assignees are free-text names, not linked to users.
 
 The server owns the geometry (`Domain/Layout.cs`). It snaps every coordinate to a 20 px grid. A note's `BucketId` is not chosen directly. It is always the topmost bucket containing the note's centre (buckets stack in creation order), and the server recomputes it whenever a note or bucket is created, moved, resized or deleted. Moving a bucket moves its notes with it. A client that only knows a bucket, such as an agent, can move a note there with `bucketId`, and the server picks a free grid slot inside it. When a bucket is full, it grows downwards to make room.
@@ -62,6 +64,7 @@ React 19, TypeScript and Vite, with no state library and no UI kit. The visual d
 - `src/board/useBoard.ts`: loads the open board, runs every change and reloads afterwards, and re-reads the board every few seconds so changes made by agents show up. Refreshes pause while something is being dragged.
 - `src/board/BoardCanvas.tsx`: the zoomable canvas and its pointer gestures (move, pan, draw and resize buckets, stick post-its), plus the floating `ToolRail`, `ViewControls` (zoom and minimap) and `Inspector` (rename or delete a bucket).
 - `src/board/PostIt.tsx`: the post-it as shown on the board, with its title, tags, assignee stack and states (hover, selected, dragging, agent working).
+- `src/board/BoardImageView.tsx`: an image on the board, moved by dragging and resized from its corner handle. Images are added with the Image button (or `I`), by pasting, or by dropping files on the board; pasting or dropping into an expanded post-it attaches them to it.
 - `src/board/ExpandedNote.tsx`: an expanded post-it. A header band in its fill holds the title, tags and assignees. Below it, a mini board holds the Note, Checklist and Links widgets.
 - `src/board/layout.ts`: grid and bucket rules mirrored from the server.
 - `src/components/`: `Avatar` (people and agents), `Menu` (the board and settings menus), `ConfirmDialog` (asks before deleting a post-it or board) and `QuickAdd` (inline add forms).
@@ -77,7 +80,8 @@ React 19, TypeScript and Vite, with no state library and no UI kit. The visual d
 
 - **Authorization.** Authentication is in place, but every signed-in user (and every token with `boards:write`) can see and change every board. Board ownership or membership comes later.
 - **Hosting, and which managed PostgreSQL to use.** See [`infra/README.md`](../infra/README.md).
-- **Images and drawing.** The mockup also shows pasted images and GIFs, and freehand drawing on the board and on images. These need file storage first.
+- **Drawing.** The mockup also shows freehand drawing on the board and annotations on images. Images are in place; drawing is not built yet.
+- **Image storage at scale.** Images are stored in PostgreSQL, which is simple and fine for small teams. Very large boards may later want object storage (for example Azure Blob Storage) behind the same API.
 - **Assignees and users.** Assignees are free-text names. Linking them to signed-in users (for example "assign me") is a natural next step.
 - **More project-management fields.** For example a due date.
 - **An MCP server.** It would sit on top of the same endpoints, so AI assistants can use PrikBoard as a native tool.

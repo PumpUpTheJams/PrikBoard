@@ -1,16 +1,19 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
 import { api } from '../api/client'
-import type { BoardDetail, BucketDetail, NoteColor, NoteDetail, Point, Rect } from '../api/types'
-import { ConfirmDeleteNote } from '../components/ConfirmDialog'
+import type { BoardDetail, BucketDetail, ImageDetail, NoteColor, NoteDetail, Point, Rect } from '../api/types'
+import { ConfirmDeleteNote, ConfirmDialog } from '../components/ConfirmDialog'
+import { BoardImageView } from './BoardImageView'
 import { ExpandedNote } from './ExpandedNote'
+import { draggingFiles, imageFiles, pickImageFiles } from './files'
 import { ResizeIcon } from './icons'
-import { BucketInspector } from './Inspector'
+import { BucketInspector, ImageInspector } from './Inspector'
 import {
   MIN_BUCKET_HEIGHT,
   MIN_BUCKET_WIDTH,
   NOTE_HEIGHT,
   NOTE_WIDTH,
   bucketUnderNote,
+  imageSize,
   snap,
   snapPoint,
   spanRect,
@@ -23,7 +26,7 @@ import { ViewControls } from './ViewControls'
 import { stepZoom } from './zoom'
 
 interface Selection {
-  kind: 'note' | 'bucket'
+  kind: 'note' | 'bucket' | 'image'
   id: string
   /** Just created: its name or title is focused so it can be typed straight away. */
   fresh?: boolean
@@ -34,7 +37,8 @@ interface Selection {
  * reloaded, so the dropped item doesn't jump back to its old place while the request is in flight.
  */
 type Gesture = GestureTarget & { start: Point; current: Point; done?: boolean }
-type GestureTarget = { kind: 'note' | 'bucket' | 'resize'; id: string } | { kind: 'draw' }
+type ItemGesture = 'note' | 'bucket' | 'resize' | 'image' | 'image-resize'
+type GestureTarget = { kind: ItemGesture; id: string } | { kind: 'draw' }
 
 /** A pan in progress: where the pointer went down and the scroll position at that moment, in screen pixels. */
 interface Pan {
@@ -50,6 +54,8 @@ const DRAG_THRESHOLD = 4
 const CANVAS_MARGIN = 600
 /** Screen space left of the canvas, so the tool rail doesn't cover the left edge of the board. */
 const RAIL_INSET = 72
+/** Where a new image's top-left goes relative to the point it was dropped, pasted or added at. */
+const IMAGE_OFFSET = { x: 180, y: 120 }
 
 const hints: Partial<Record<Tool, string>> = {
   pan: 'Drag to look around the board',
@@ -75,17 +81,22 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
   const [fill, setFill] = useState<NoteColor>('Butter')
   const [selection, setSelection] = useState<Selection | null>(null)
   const [expanded, setExpanded] = useState<{ id: string; fresh: boolean } | null>(null)
-  /** A post-it waiting for the person to confirm its deletion (Delete key on the board). */
-  const [pendingDelete, setPendingDelete] = useState<string | null>(null)
+  /** Something waiting for the person to confirm its deletion (Delete key on the board, or the image panel). */
+  const [pendingDelete, setPendingDelete] = useState<{ kind: 'note' | 'image'; id: string } | null>(null)
   const [gesture, setGesture] = useState<Gesture | null>(null)
   const [pan, setPan] = useState<Pan | null>(null)
   const [zoom, setZoom] = useState(1)
+  /** Image uploads in flight, and whether files are being dragged over the board. */
+  const [uploads, setUploads] = useState(0)
+  const [fileOver, setFileOver] = useState(false)
   /** The scroll viewport, in screen pixels. */
   const [view, setView] = useState<Rect>({ x: 0, y: 0, width: 0, height: 0 })
   const scrollRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   /** A canvas point to keep under the same screen point once a new zoom level has rendered. */
   const zoomAnchor = useRef<{ canvas: Point; screen: Point } | null>(null)
+  /** Last pointer position over the canvas, in canvas pixels: where pasted images go. */
+  const lastPointer = useRef<Point | null>(null)
 
   // Background refreshes would fight with a drag in progress.
   useEffect(() => setPaused(gesture !== null), [gesture, setPaused])
@@ -137,20 +148,36 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (expanded || pendingDelete) return
-      if ((e.target as HTMLElement).closest('input, textarea, select, [role="menu"], [role="alertdialog"]')) return
+      if (e.target instanceof Element && e.target.closest('input, textarea, select, [role="menu"], [role="alertdialog"]')) return
       if (e.key === 'Escape') {
         setTool('select')
         setSelection(null)
-      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selection?.kind === 'note') {
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && (selection?.kind === 'note' || selection?.kind === 'image')) {
         e.preventDefault()
-        setPendingDelete(selection.id)
-      } else if (!e.ctrlKey && !e.metaKey && !e.altKey && toolKeys[e.key.toLowerCase()]) {
+        setPendingDelete({ kind: selection.kind, id: selection.id })
+      } else if (e.ctrlKey || e.metaKey || e.altKey) {
+        return
+      } else if (e.key.toLowerCase() === 'i') {
+        void addImagesFromPicker()
+      } else if (toolKeys[e.key.toLowerCase()]) {
         setTool(toolKeys[e.key.toLowerCase()])
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [expanded, pendingDelete, selection])
+  })
+
+  // Pasting an image puts it on the board where the pointer was, or attaches it to the open post-it.
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      const files = imageFiles(e.clipboardData)
+      if (files.length === 0) return
+      e.preventDefault()
+      void addImages(files, expanded ? { noteId: expanded.id } : { at: lastPointer.current ?? undefined })
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  })
 
   /** Runs a change through the board, then lets go of the finished gesture. */
   async function settle(action: () => Promise<unknown>) {
@@ -165,6 +192,42 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
     if (expanded?.id === id) setExpanded(null)
     setSelection(null)
     void settle(() => api.deleteNote(id))
+  }
+
+  function deleteImage(id: string) {
+    setPendingDelete(null)
+    if (selection?.id === id) setSelection(null)
+    void settle(() => api.deleteImage(id))
+  }
+
+  /** The middle of what is on screen, in canvas pixels. */
+  function viewportCenter(): Point {
+    return { x: (view.x - RAIL_INSET + view.width / 2) / zoom, y: (view.y + view.height / 2) / zoom }
+  }
+
+  /**
+   * Uploads images one after another: onto the board around `at` (default: the middle of the screen), cascading so
+   * they don't cover each other, or attached to a note. A single image on the board is selected afterwards.
+   */
+  async function addImages(files: File[], target: { at?: Point; noteId?: string }) {
+    if (files.length === 0) return
+    const at = target.at ?? viewportCenter()
+    setUploads((n) => n + 1)
+    await run(async () => {
+      let last: ImageDetail | undefined
+      for (const [i, file] of files.entries()) {
+        const placement = target.noteId
+          ? { noteId: target.noteId }
+          : snapPoint({ x: at.x - IMAGE_OFFSET.x + i * 40, y: at.y - IMAGE_OFFSET.y + i * 40 })
+        last = await api.uploadImage(board.id, file, placement)
+      }
+      if (last && !target.noteId && files.length === 1) setSelection({ kind: 'image', id: last.id })
+    })
+    setUploads((n) => n - 1)
+  }
+
+  async function addImagesFromPicker(target: { noteId?: string } = {}) {
+    await addImages(await pickImageFiles(), target)
   }
 
   // Live geometry: the server's layout, with the gesture in progress applied on top.
@@ -199,7 +262,15 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
     return note
   }
 
-  function toCanvas(e: PointerEvent): Point {
+  function imageRect(image: ImageDetail): Rect {
+    if (dragging?.id !== image.id) return image
+    const d = delta(dragging)
+    if (dragging.kind === 'image') return { ...image, ...snapPoint({ x: image.x + d.x, y: image.y + d.y }) }
+    if (dragging.kind === 'image-resize') return { ...image, ...imageSize(image, image.width + d.x) }
+    return image
+  }
+
+  function toCanvas(e: { clientX: number; clientY: number }): Point {
     const rect = canvasRef.current!.getBoundingClientRect()
     return { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom }
   }
@@ -210,12 +281,12 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
     setGesture({ ...target, start: point, current: point })
   }
 
-  function onItemPointerDown(e: PointerEvent<HTMLElement>, kind: 'note' | 'bucket' | 'resize', id: string) {
+  function onItemPointerDown(e: PointerEvent<HTMLElement>, kind: ItemGesture, id: string) {
     if (e.button !== 0 || tool !== 'select') return
     e.stopPropagation()
     e.preventDefault()
-    if (kind === 'note') e.currentTarget.focus({ preventScroll: true })
-    setSelection({ kind: kind === 'note' ? 'note' : 'bucket', id })
+    if (kind === 'note' || kind === 'image') e.currentTarget.focus({ preventScroll: true })
+    setSelection({ kind: kind === 'note' ? 'note' : kind === 'image' || kind === 'image-resize' ? 'image' : 'bucket', id })
     beginGesture(e, { kind, id })
   }
 
@@ -246,6 +317,7 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
   }
 
   function onCanvasPointerMove(e: PointerEvent) {
+    lastPointer.current = toCanvas(e)
     if (pan) {
       const el = scrollRef.current!
       el.scrollLeft = pan.left - (e.clientX - pan.x)
@@ -285,6 +357,9 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
     if (gesture.kind === 'note') {
       const note = board.notes.find((n) => n.id === id)!
       void settle(() => api.moveNote(id, notePoint(note)))
+    } else if (gesture.kind === 'image' || gesture.kind === 'image-resize') {
+      const { x, y, width } = imageRect(board.images.find((i) => i.id === id)!)
+      void settle(() => api.updateImage(id, gesture.kind === 'image' ? { x, y } : { width }))
     } else {
       const { x, y, width, height } = bucketRect(board.buckets.find((b) => b.id === id)!)
       void settle(() => api.updateBucket(id, gesture.kind === 'bucket' ? { x, y } : { width, height }))
@@ -292,6 +367,7 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
   }
 
   const buckets = board.buckets.map((bucket) => ({ bucket, rect: bucketRect(bucket) }))
+  const images = board.images.filter((i) => i.noteId === null).map((image) => ({ image, rect: imageRect(image) }))
   // Most recently updated on top, the note being dragged above everything.
   const notes = board.notes
     .toSorted((a, b) => a.updatedAt.localeCompare(b.updatedAt))
@@ -305,23 +381,56 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
   const extent = {
     width: Math.max(
       (view.width - RAIL_INSET) / zoom,
-      CANVAS_MARGIN + Math.max(0, ...buckets.map((b) => b.rect.x + b.rect.width), ...notes.map((n) => n.point.x + NOTE_WIDTH)),
+      CANVAS_MARGIN +
+        Math.max(
+          0,
+          ...buckets.map((b) => b.rect.x + b.rect.width),
+          ...notes.map((n) => n.point.x + NOTE_WIDTH),
+          ...images.map((i) => i.rect.x + i.rect.width),
+        ),
     ),
     height: Math.max(
       view.height / zoom,
-      CANVAS_MARGIN + Math.max(0, ...buckets.map((b) => b.rect.y + b.rect.height), ...notes.map((n) => n.point.y + NOTE_HEIGHT)),
+      CANVAS_MARGIN +
+        Math.max(
+          0,
+          ...buckets.map((b) => b.rect.y + b.rect.height),
+          ...notes.map((n) => n.point.y + NOTE_HEIGHT),
+          ...images.map((i) => i.rect.y + i.rect.height),
+        ),
     ),
   }
 
   const selectedBucket = selection?.kind === 'bucket' ? board.buckets.find((b) => b.id === selection.id) : undefined
+  const selectedImage = selection?.kind === 'image' ? board.images.find((i) => i.id === selection.id) : undefined
   const expandedNote = expanded && board.notes.find((n) => n.id === expanded.id)
-  const noteToDelete = pendingDelete ? board.notes.find((n) => n.id === pendingDelete) : undefined
+  const noteToDelete = pendingDelete?.kind === 'note' ? board.notes.find((n) => n.id === pendingDelete.id) : undefined
+  const imageToDelete = pendingDelete?.kind === 'image' ? board.images.find((i) => i.id === pendingDelete.id) : undefined
   const countIn = (bucketId: string) => board.notes.filter((n) => n.bucketId === bucketId).length
-  const hint = hints[tool]
+  const hint = uploads > 0 ? 'Uploading…' : fileOver ? 'Drop to add the image here' : hints[tool]
 
   return (
     <section className="board" aria-label={board.name}>
-      <div className="board-scroll" ref={scrollRef}>
+      <div
+        className={`board-scroll${fileOver ? ' file-over' : ''}`}
+        ref={scrollRef}
+        onDragOver={(e) => {
+          if (!draggingFiles(e.dataTransfer)) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'copy'
+          setFileOver(true)
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFileOver(false)
+        }}
+        onDrop={(e) => {
+          if (!draggingFiles(e.dataTransfer)) return
+          e.preventDefault()
+          setFileOver(false)
+          const at = toCanvas(e)
+          void addImages(imageFiles(e.dataTransfer), { at: { x: at.x + IMAGE_OFFSET.x - 20, y: at.y + IMAGE_OFFSET.y - 20 } })
+        }}
+      >
         <div className="canvas-sizer" style={{ width: extent.width * zoom + RAIL_INSET, height: extent.height * zoom }}>
           <div
             ref={canvasRef}
@@ -381,6 +490,18 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
               />
             )}
 
+            {images.map(({ image, rect }) => (
+              <BoardImageView
+                key={image.id}
+                image={image}
+                rect={rect}
+                selected={selectedImage?.id === image.id}
+                lifted={dragging?.id === image.id}
+                onPointerDown={(e) => onItemPointerDown(e, 'image', image.id)}
+                onResizePointerDown={(e) => onItemPointerDown(e, 'image-resize', image.id)}
+              />
+            ))}
+
             {draggedNote && (
               <div
                 className="post-it-slot"
@@ -404,7 +525,13 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
         </div>
       </div>
 
-      <ToolRail tool={tool} onToolChange={setTool} fill={fill} onFillChange={setFill} />
+      <ToolRail
+        tool={tool}
+        onToolChange={setTool}
+        fill={fill}
+        onFillChange={setFill}
+        onAddImage={() => void addImagesFromPicker()}
+      />
       {hint && <div className="canvas-hint">{hint}</div>}
       <ViewControls
         zoom={zoom}
@@ -414,6 +541,7 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
         viewport={{ x: (view.x - RAIL_INSET) / zoom, y: view.y / zoom, width: view.width / zoom, height: view.height / zoom }}
         buckets={board.buckets}
         notes={board.notes}
+        images={images.map((i) => i.image)}
         onNavigate={(center) => {
           const el = scrollRef.current!
           el.scrollLeft = center.x * zoom + RAIL_INSET - el.clientWidth / 2
@@ -436,14 +564,28 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
         />
       )}
 
+      {selectedImage && (
+        <ImageInspector
+          key={selectedImage.id}
+          image={selectedImage}
+          onSave={(changes) => settle(() => api.updateImage(selectedImage.id, changes))}
+          onDelete={() => setPendingDelete({ kind: 'image', id: selectedImage.id })}
+          onClose={() => setSelection(null)}
+        />
+      )}
+
       {expandedNote && (
         <ExpandedNote
           key={expandedNote.id}
           note={expandedNote}
           bucket={board.buckets.find((b) => b.id === expandedNote.bucketId)}
+          images={board.images.filter((i) => i.noteId === expandedNote.id)}
           focusTitle={expanded?.fresh ?? false}
           onChange={(changes) => settle(() => api.updateNote(expandedNote.id, changes))}
           onDelete={() => deleteNote(expandedNote.id)}
+          onAddImages={(files) => void addImages(files, { noteId: expandedNote.id })}
+          onPickImages={() => void addImagesFromPicker({ noteId: expandedNote.id })}
+          onDeleteImage={(id) => void settle(() => api.deleteImage(id))}
           onClose={() => setExpanded(null)}
         />
       )}
@@ -452,6 +594,16 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
         <ConfirmDeleteNote
           title={noteToDelete.title}
           onConfirm={() => deleteNote(noteToDelete.id)}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
+
+      {imageToDelete && (
+        <ConfirmDialog
+          title="Delete this image?"
+          message={`"${imageToDelete.caption ?? imageToDelete.fileName}" will be removed from the board. This can't be undone.`}
+          confirmLabel="Delete"
+          onConfirm={() => deleteImage(imageToDelete.id)}
           onCancel={() => setPendingDelete(null)}
         />
       )}

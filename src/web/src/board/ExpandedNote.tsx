@@ -5,17 +5,20 @@ import {
   type AssigneeKind,
   type BucketDetail,
   type ChecklistItem,
+  type ImageDetail,
   type NoteChanges,
   type NoteColor,
   type NoteDetail,
   type NoteLink,
 } from '../api/types'
 import { Avatar } from '../components/Avatar'
-import { ConfirmDeleteNote } from '../components/ConfirmDialog'
+import { ConfirmDeleteNote, ConfirmDialog } from '../components/ConfirmDialog'
+import { draggingFiles, imageFiles } from './files'
 import {
   BucketIcon,
   ChecklistIcon,
   CloseIcon,
+  ImageIcon,
   LinkIcon,
   NoteDocIcon,
   PullRequestIcon,
@@ -35,13 +38,22 @@ interface ExpandedNoteProps {
   onChange: (changes: NoteChanges) => Promise<boolean>
   /** Deletes the post-it; called after the person confirmed. */
   onDelete: () => void
+  /** Images attached to this post-it. */
+  images: ImageDetail[]
+  onAddImages: (files: File[]) => void
+  onPickImages: () => void
+  /** Deletes an attached image; called after the person confirmed. */
+  onDeleteImage: (imageId: string) => void
   onClose: () => void
 }
 
 /** A post-it opened up: a header band in its fill, and a mini board with its note, checklist and links. */
-export function ExpandedNote({ note, bucket, focusTitle, onChange, onDelete, onClose }: ExpandedNoteProps) {
+export function ExpandedNote(props: ExpandedNoteProps) {
+  const { note, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onDeleteImage, onClose } = props
   const [reveal, setReveal] = useState({ checklist: false, links: false })
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [imageToDelete, setImageToDelete] = useState<ImageDetail | null>(null)
+  const [fileOver, setFileOver] = useState(false)
   const dialogRef = useRef<HTMLElement>(null)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
   const checklistRef = useRef<HTMLInputElement>(null)
@@ -54,13 +66,13 @@ export function ExpandedNote({ note, bucket, focusTitle, onChange, onDelete, onC
   // Escape closes the post-it wherever focus is (it can end up on the page after saving the title). Fields and the
   // delete confirmation handle their own Escape first and stop it from getting here.
   useEffect(() => {
-    if (confirmingDelete) return
+    if (confirmingDelete || imageToDelete) return
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [confirmingDelete, onClose])
+  }, [confirmingDelete, imageToDelete, onClose])
 
   function show(widget: 'checklist' | 'links') {
     setReveal((r) => ({ ...r, [widget]: true }))
@@ -72,7 +84,25 @@ export function ExpandedNote({ note, bucket, focusTitle, onChange, onDelete, onC
     <div className="expanded-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <article
         ref={dialogRef}
-        className={`expanded fill-${note.color.toLowerCase()}`}
+        className={`expanded fill-${note.color.toLowerCase()}${fileOver ? ' file-over' : ''}`}
+        // Dropped images are attached to this post-it (pasting is handled by the board).
+        onDragOver={(e) => {
+          if (!draggingFiles(e.dataTransfer)) return
+          e.preventDefault()
+          e.stopPropagation()
+          e.dataTransfer.dropEffect = 'copy'
+          setFileOver(true)
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFileOver(false)
+        }}
+        onDrop={(e) => {
+          if (!draggingFiles(e.dataTransfer)) return
+          e.preventDefault()
+          e.stopPropagation()
+          setFileOver(false)
+          onAddImages(imageFiles(e.dataTransfer))
+        }}
         role="dialog"
         aria-modal="true"
         aria-label={note.title}
@@ -138,6 +168,7 @@ export function ExpandedNote({ note, bucket, focusTitle, onChange, onDelete, onC
             {(note.links.length > 0 || reveal.links) && (
               <LinksWidget links={note.links} inputRef={linkRef} onChange={(links) => onChange({ links })} />
             )}
+            {images.length > 0 && <ImagesWidget images={images} onDelete={setImageToDelete} />}
           </div>
 
           <div className="dock" role="toolbar" aria-label="Post-it tools">
@@ -153,6 +184,12 @@ export function ExpandedNote({ note, bucket, focusTitle, onChange, onDelete, onC
               <LinkIcon />
               Link
             </button>
+            <button type="button" className="dock-button" onClick={onPickImages}>
+              <ImageIcon size={16} />
+              Image
+            </button>
+            <span className="dock-divider" aria-hidden="true" />
+            <span className="dock-hint">Paste or drop anywhere</span>
             <span className="dock-divider" aria-hidden="true" />
             <button
               type="button"
@@ -176,6 +213,23 @@ export function ExpandedNote({ note, bucket, focusTitle, onChange, onDelete, onC
           }}
           onCancel={() => {
             setConfirmingDelete(false)
+            dialogRef.current?.focus()
+          }}
+        />
+      )}
+
+      {imageToDelete && (
+        <ConfirmDialog
+          title="Delete this image?"
+          message={`"${imageToDelete.caption ?? imageToDelete.fileName}" will be removed from this post-it. This can't be undone.`}
+          confirmLabel="Delete"
+          onConfirm={() => {
+            setImageToDelete(null)
+            onDeleteImage(imageToDelete.id)
+            dialogRef.current?.focus()
+          }}
+          onCancel={() => {
+            setImageToDelete(null)
             dialogRef.current?.focus()
           }}
         />
@@ -537,6 +591,40 @@ function LinksWidget({ links, inputRef, onChange }: LinksWidgetProps) {
         </button>
       </form>
       {invalid && <p className="widget-error">Use a full http or https address.</p>}
+    </section>
+  )
+}
+
+/** Images attached to the post-it. Click one to open the original. */
+function ImagesWidget({ images, onDelete }: { images: ImageDetail[]; onDelete: (image: ImageDetail) => void }) {
+  return (
+    <section className="widget widget-images">
+      <div className="widget-head">
+        <h2>Images</h2>
+        <span className="mono">{images.length}</span>
+      </div>
+      <ul className="attached-images">
+        {images.map((image) => {
+          const label = image.caption ?? image.fileName
+          return (
+            <li key={image.id}>
+              <a href={image.contentUrl} target="_blank" rel="noreferrer" className="attached-image" title="Open the original">
+                <img src={image.contentUrl} alt={label} loading="lazy" />
+                {image.contentType === 'image/gif' && <span className="gif-badge">GIF</span>}
+              </a>
+              <div className="attached-caption">
+                <span className="attached-name">{label}</span>
+                <span className="attached-by" title={`Added by ${image.addedBy}`}>
+                  added by {image.addedBy}
+                </span>
+                <button type="button" className="row-remove" aria-label={`Delete ${label}`} onClick={() => onDelete(image)}>
+                  <CloseIcon size={12} />
+                </button>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
     </section>
   )
 }

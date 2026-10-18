@@ -80,6 +80,7 @@ public static class BoardEndpoints
         var board = await db.Boards.AsNoTracking()
             .Include(b => b.Buckets)
             .Include(b => b.Notes)
+            .Include(b => b.Images)
             .AsSplitQuery()
             .FirstOrDefaultAsync(b => b.Id == boardId, ct);
 
