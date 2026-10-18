@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore.Migrations;
+﻿using System.Collections.Generic;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
@@ -13,34 +14,35 @@ namespace PrikBoard.Api.Data.Migrations
             migrationBuilder.AddColumn<bool>(
                 name: "AgentWorking",
                 table: "Notes",
-                type: "INTEGER",
+                type: "boolean",
                 nullable: false,
                 defaultValue: false);
 
             migrationBuilder.AddColumn<string>(
                 name: "Assignees",
                 table: "Notes",
-                type: "TEXT",
+                type: "jsonb",
                 nullable: true);
 
             migrationBuilder.AddColumn<string>(
                 name: "Checklist",
                 table: "Notes",
-                type: "TEXT",
+                type: "jsonb",
                 nullable: true);
 
             migrationBuilder.AddColumn<string>(
                 name: "Links",
                 table: "Notes",
-                type: "TEXT",
+                type: "jsonb",
                 nullable: true);
 
-            migrationBuilder.AddColumn<string>(
+            migrationBuilder.AddColumn<List<string>>(
                 name: "Tags",
                 table: "Notes",
-                type: "TEXT",
+                type: "text[]",
                 nullable: false,
-                defaultValue: "[]");
+                // Existing notes start without tags.
+                defaultValueSql: "'{}'");
 
             // Existing notes start with empty lists rather than NULL.
             migrationBuilder.Sql("""UPDATE "Notes" SET "Assignees" = '[]', "Checklist" = '[]', "Links" = '[]';""");

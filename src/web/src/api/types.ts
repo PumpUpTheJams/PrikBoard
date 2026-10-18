@@ -93,3 +93,18 @@ export interface NoteChanges {
   links?: NoteLink[]
   agentWorking?: boolean
 }
+
+export interface AuthProvider {
+  id: string
+  displayName: string
+}
+
+/** Who the request is authenticated as (whoAmI). The browser is always a Session. */
+export interface Caller {
+  kind: 'Session' | 'Token'
+  id: string
+  name: string
+  email: string | null
+  provider: string
+  scopes: string[]
+}

@@ -7,8 +7,9 @@ PrikBoard is a post-it board for small project management. It has a .NET 10 REST
 ## Commands
 
 ```bash
-dotnet run --project src/PrikBoard.Api            # API on http://localhost:5080; creates/migrates prikboard.db on startup
-dotnet test PrikBoard.slnx                        # all API tests (what CI runs)
+docker compose up -d                              # PostgreSQL 17 on localhost:5432 (user/password/db: prikboard), data in volume postgres-data
+dotnet run --project src/PrikBoard.Api            # API on http://localhost:5080; applies migrations on startup
+dotnet test PrikBoard.slnx                        # all API tests (what CI runs); needs the compose database
 dotnet test PrikBoard.slnx --filter "FullyQualifiedName~Moving_a_bucket_carries_its_notes_along"   # one test
 
 cd src/web && npm install && npm run dev          # SPA on http://localhost:5173, proxies /api and /openapi to :5080
@@ -18,6 +19,8 @@ cd src/web && npm run build                       # tsc -b type check + vite bui
 dotnet tool restore                               # pinned dotnet-ef from .config/dotnet-tools.json
 dotnet ef migrations add <Name> --project src/PrikBoard.Api --output-dir Data/Migrations
 ```
+
+No local Node here: run web checks in Docker, e.g. `sg docker -c 'docker run --rm -u "$(id -u):$(id -g)" -e npm_config_cache=/tmp/.npm -v "$PWD/src/web":/app -w /app node:22 sh -c "npm run lint && npm run build"'` (the `web-docker` launch config runs the dev server the same way).
 
 `.claude/launch.json` defines `api` and `web` preview servers. The frontend has no test suite. Set `PRIKBOARD_API_URL` to point the Vite proxy at a different API.
 
@@ -34,17 +37,19 @@ Domain: a board is a freeform canvas. `Board 1──* Bucket` (named rectangles)
 - **The server owns the geometry** (`Domain/Layout.cs`). Coordinates snap to a 20 px grid (`Layout.Snap`). `Note.BucketId` is derived, never set directly: it is the topmost bucket containing the note's centre, with buckets stacked by `CreatedAt`. Every create, move, resize or delete of a note or bucket must call `Layout.AssignBuckets`. Moving a bucket shifts its notes by the same delta. createNote and moveNote take either `bucketId` (the server picks `Layout.MakeRoomIn`, which grows a full bucket downwards) or both `x` and `y`, never both. `src/web/src/board/layout.ts` mirrors these rules for drag feedback, so keep the two in sync.
 - **PATCH semantics.** A null field means unchanged. Optional text fields go through `PatchText.Apply`, where empty or whitespace clears the value (sets it to null). A list that is given replaces the whole list (`ApplyLists` in `NoteEndpoints`). Tags are normalized by `NoteTags.Normalize`, and links must be absolute http(s) URLs. Moving a note is a separate `POST /notes/{id}/move` (`moveNote`), not part of `updateNote`. Buckets move and resize through `updateBucket`.
 - **Error shapes.** A bucket that isn't on the note's board, or an invalid `bucketId`/`x`/`y` combination, is a 400 `ValidationProblem` keyed on the field. Use 409 `TypedResults.Problem` for state conflicts.
-- **SQLite specifics.** `DateTimeOffset` is stored as binary through a global convention in `PrikBoardDbContext` so it can be sorted and compared. That format keeps only 0.1 ms precision, so use `AddMilliseconds`, not ticks, to separate timestamps. EF's SQLite table rebuilds run after every other operation in a migration, so dropping a table that a rebuilt table still references cascade-deletes rows. `ReplaceColumnsWithBuckets` rebuilds `Notes` in raw SQL for that reason. Text search uses `EF.Functions.Like` with escaped wildcards. Migrations run automatically on startup. JSON uses `JsonNumberHandling.Strict` to keep the OpenAPI integer types clean. Enums are serialized as strings (`NoteColor` fills are Butter, Mint, Sky, Coral and Lilac).
+- **Authentication** (`Auth/`, `docs/authentication.md`). Browsers sign in through a provider configured under `Auth:Providers` (generic OpenID Connect, plus a `GitHub` OAuth adapter) and get a cookie. `Auth:DefaultProvider` (github) is listed first. Machines send JWT access tokens (Client Credentials) from issuers under `Auth:Tokens:Issuers`; PrikBoard never issues tokens. The fallback policy `AuthSetup.ApiPolicy` requires a caller and, for tokens, scope `boards:read` (GET/HEAD) or `boards:write` (everything), so public endpoints need `.AllowAnonymous()`, which also clears their OpenAPI `security`. `ClaimsPrincipal.IsToken()` tells tokens from sessions, and `UserId()` only works for sessions. There is no dev login. `/scalar` (Scalar API reference) uses `.RedirectToSignIn()` to send anonymous visitors through the default provider. Keep `changeOrigin: false` on the Vite proxy (`/api`, `/openapi`, `/scalar`), because OAuth callback URLs are built from the Host header. External identities are mapped to `User` in `UserSignIn.OnTicketReceived`. In that event `context.Fail()` does not stop the sign-in, so reject with `HandleResponse()` and a redirect. Boards are shared by all signed-in users.
+- **PostgreSQL specifics** (Npgsql). `DateTimeOffset` maps to `timestamp with time zone`, which only accepts UTC offsets and keeps microsecond precision, so always use `DateTimeOffset.UtcNow` and use `AddMilliseconds`, not ticks, to separate timestamps. Note tags are a `text[]` column; assignees, checklist and links are `jsonb`. Text search uses `EF.Functions.ILike` (case-insensitive) with escaped wildcards. Npgsql's EF Core packages lag the Microsoft ones, so the API pins `Microsoft.EntityFrameworkCore.Relational` to the same version as `Microsoft.EntityFrameworkCore.Design`; without it the tests fail with CS1705. Migrations run automatically on startup. JSON uses `JsonNumberHandling.Strict` to keep the OpenAPI integer types clean. Enums are serialized as strings (`NoteColor` fills are Butter, Mint, Sky, Coral and Lilac).
 
 ### Tests (`src/PrikBoard.Api.Tests`)
 
-The tests are xUnit integration tests over HTTP only. `PrikBoardApiFactory` (a `WebApplicationFactory<Program>`) gives each test class its own temp SQLite file (`Pooling=False` so the file can be deleted). Tests in a class share that database, so each test creates its own board and doesn't assume global state.
+The tests are xUnit integration tests over HTTP only. `PrikBoardApiFactory` (a `WebApplicationFactory<Program>`) gives each test class its own PostgreSQL database `prikboard_tests_<guid>` on the compose server (override the server with `PRIKBOARD_TEST_POSTGRES`), dropped in `DisposeAsync`. CI runs the same image as a service container. Tests run in a `Testing` environment (no user secrets) with the GitHub client id from appsettings.json cleared, so they start without sign-in providers; test factories add the providers they need with `UseSetting`. Tests in a class share that database, so each test creates its own board and doesn't assume global state. Every `/api` call needs auth: use `factory.CreateSignedInClientAsync(email)`, which signs in through a test-only middleware the factory adds (the API has no sign-in shortcut), or a JWT from the in-memory issuers in `TokenAuthTests`.
 
 ### Web (`src/web`)
 
 - `src/api/types.ts` contains **hand-written** mirrors of the C# contracts, and `src/api/client.ts` has one method per operationId with the same name. They are not generated. When you add or change an endpoint or contract, update both, plus the endpoint table in `docs/api.md`.
+- `App` checks `whoAmI` and shows `SignIn` until there is a session. Any 401 from `client.ts` goes back to sign-in (`setUnauthorizedHandler`). The signed-in user's initials, theme switch, API reference link and sign-out live in the settings menu on the right of the top bar.
 - The design is the "Night shift" mockup (`docs/Scrum Board — Night shift.html`): Geist fonts, a floating tool rail, a zoom/minimap corner, frame-style buckets, post-its showing title, tags and assignees, and an expanded post-it view (`board/ExpandedNote`). Images and drawing from the mockup are not built yet.
-- No state library and no UI kit. `board/useBoard` (used in `App`) loads the board, polls it every few seconds so agent changes show up, and exposes `run()`, which calls the API and then reloads the full board. `BoardCanvas` wraps it in `settle()`. While a pointer gesture is in progress it renders the snapped position locally (`Gesture`) and pauses polling. On drop it sends one request and keeps the gesture until the reload lands, so items don't jump back.
+- No state library and no UI kit. `board/useBoard` (used in `App`'s `Workspace`) loads the board, polls it every few seconds so agent changes show up, and exposes `run()`, which calls the API and then reloads the full board. `BoardCanvas` wraps it in `settle()`. While a pointer gesture is in progress it renders the snapped position locally (`Gesture`) and pauses polling. On drop it sends one request and keeps the gesture until the reload lands, so items don't jump back.
 - The canvas is scaled with a CSS transform for zoom. `toCanvas()` divides by the zoom, and the canvas sits `RAIL_INSET` px right of the scroll origin so the tool rail doesn't cover it.
 - Dark is the default theme. `:root` in `index.css` holds the dark tokens, and `:root[data-theme='light']` overrides them. Post-it fills (`.fill-*`) and their ink are the same in both themes.
 - The selected board lives in the URL hash (`#/boards/{id}`).
@@ -52,5 +57,5 @@ The tests are xUnit integration tests over HTTP only. `PrikBoardApiFactory` (a `
 
 ## Constraints
 
-- There is no authentication yet. The API must not be exposed publicly (see `infra/README.md`). Nothing is deployed, and `infra/` contains only plans.
+- Nothing is deployed, and `infra/` contains only plans. Before deploying, persist the Data Protection keys and serve over HTTPS (`docs/authentication.md`).
 - Connection string key: `ConnectionStrings:PrikBoard` (env var `ConnectionStrings__PrikBoard`).

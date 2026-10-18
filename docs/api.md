@@ -2,9 +2,22 @@
 
 This guide is for people and AI agents. The machine-readable contract is the OpenAPI 3.1 document at `/openapi/v1.json`. Point an agent framework or a client generator at it.
 
+To explore and try the API in the browser, open the Scalar API reference at `/scalar` (in development http://localhost:5173/scalar, through the Vite proxy). It sends you through the default sign-in provider (GitHub) first, so "Test Request" runs with your session. To act as a machine instead, paste an access token into its Bearer field.
+
 - **Base URL (local):** `http://localhost:5080`
 - **Format:** JSON with camelCase properties. Enums such as `color` are strings.
-- **Authentication:** none yet. Run the API locally only.
+- **Authentication:** every `/api` endpoint needs a caller, except `listAuthProviders` and `logout`. Machines send an OAuth 2.0 access token: `Authorization: Bearer <token>`. The OpenAPI document and `/health` are public.
+
+## Authentication
+
+People sign in in the browser through an identity provider (GitHub by default, or Google, Microsoft, Auth0 and others) and then hold a session cookie. Machines and agents never go through that flow. They get an access token from a trusted identity provider, usually with the **Client Credentials** grant, for the audience `api://prikboard`.
+
+- `boards:read` allows `GET` requests, and `boards:write` allows everything.
+- A token without the needed scope gets `403`. A missing, invalid, expired or untrusted token gets `401` with `WWW-Authenticate: Bearer`.
+- Call `whoAmI` (`GET /api/me`) to check a token and see its scopes.
+- Boards are shared: every caller with access sees every board.
+
+Setting up providers and issuers is described in [Authentication](authentication.md).
 
 ## The board model
 
@@ -25,25 +38,28 @@ Besides a title, a note has an optional `body`, a `color` (fill), `tags`, `assig
 4. When you start working on a note yourself, assign yourself as an agent and set `agentWorking: true`. People see a lilac halo around the post-it until you set it back to `false`.
 
 ```bash
+export TOKEN=...   # an access token from your identity provider (see docs/authentication.md)
+alias pb='curl -H "Authorization: Bearer $TOKEN"'
+
 # Create a board (starts with the buckets To do / Doing / Done)
-curl -X POST localhost:5080/api/boards -H "Content-Type: application/json" \
+pb -X POST localhost:5080/api/boards -H "Content-Type: application/json" \
   -d '{"name":"Website relaunch"}'
 
 # Add a note (lands in the first bucket)
-curl -X POST localhost:5080/api/boards/{boardId}/notes -H "Content-Type: application/json" \
+pb -X POST localhost:5080/api/boards/{boardId}/notes -H "Content-Type: application/json" \
   -d '{"title":"Pick a colour palette","color":"Coral","tags":["design"]}'
 
 # Claim it as an agent and tick off part of the checklist
-curl -X PATCH localhost:5080/api/notes/{noteId} -H "Content-Type: application/json" \
+pb -X PATCH localhost:5080/api/notes/{noteId} -H "Content-Type: application/json" \
   -d '{"assignees":[{"name":"Claude","kind":"Agent"}],"agentWorking":true,
        "checklist":[{"text":"Three options","done":true},{"text":"Team vote","done":false}]}'
 
 # Move it into another bucket
-curl -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/json" \
+pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/json" \
   -d '{"bucketId":"{doneBucketId}"}'
 
 # Or put it at exact coordinates (its bucket follows from where it lands)
-curl -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/json" \
+pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/json" \
   -d '{"x":1400,"y":80}'
 ```
 
@@ -65,6 +81,11 @@ curl -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: applicatio
 | updateNote | `PATCH /api/notes/{noteId}` | Edit the title, body, fill, tags, assignees, checklist, links or `agentWorking` |
 | moveNote | `POST /api/notes/{noteId}/move` | Move into a bucket (`bucketId`) or to coordinates (`x` and `y`) |
 | deleteNote | `DELETE /api/notes/{noteId}` | Delete a note |
+| listAuthProviders | `GET /api/auth/providers` | Sign-in providers for the browser, the default first (public) |
+| logout | `POST /api/auth/logout` | End the browser session (public) |
+| whoAmI | `GET /api/me` | Who the request is authenticated as (`Session` or `Token`) and its scopes |
+
+The browser starts sign-in by navigating to `GET /api/auth/login/{provider}?returnUrl=/...`. It is left out of the OpenAPI document because it is a redirect, not an API call. The provider redirects back to `/api/auth/callback/{provider}`.
 
 `GET /health` returns `Healthy` when the API is up.
 
@@ -78,4 +99,4 @@ curl -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: applicatio
 - **Assignees** have a `name` and a `kind`, `Person` or `Agent`. People show as initials, agents as a sparkle. At most 10 per note.
 - **Links** need an absolute `http` or `https` URL.
 - **Colours.** Note fills are `Butter` (yellow), `Mint` (green), `Sky` (blue), `Coral` (salmon red) and `Lilac` (purple). Buckets also have a `color` (`Blue`, `Amber`, `Violet`, `Teal` or `Rose`); the web UI doesn't show it at the moment.
-- **Errors** use `application/problem+json`. Validation errors (400) list the offending fields under `errors`, for example a `bucketId` that is not on the note's board. A 404 means the resource does not exist.
+- **Errors** use `application/problem+json`. Validation errors (400) list the offending fields under `errors`, for example a `bucketId` that is not on the note's board. A 401 means the request is not signed in or the token is invalid, and a 403 means the token lacks the scope. A 404 means the resource does not exist.

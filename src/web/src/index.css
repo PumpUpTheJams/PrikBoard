@@ -1613,3 +1613,139 @@ li:hover .row-remove,
   background: var(--dock-hover);
   color: var(--text);
 }
+
+/* Account menu */
+
+.settings-trigger .me {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.menu-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+}
+
+.menu-user .me {
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.menu-user-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.menu-user-name,
+.menu-user-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-user-name {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.menu-user-detail {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Signing in */
+
+.sign-in {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 16px;
+  background-color: var(--bg);
+  background-image: radial-gradient(circle, var(--dot) 1px, transparent 1.4px);
+  background-size: 20px 20px;
+}
+
+.sign-in-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: min(100%, 360px);
+  padding: 32px 28px 28px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: var(--float-shadow);
+  text-align: center;
+}
+
+.sign-in-card h1 {
+  margin: 4px 0 0;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+}
+
+.sign-in-card p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.sign-in-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+a.button {
+  display: block;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font-weight: 500;
+  text-align: center;
+  text-decoration: none;
+}
+
+a.button:hover {
+  background: var(--hover);
+}
+
+a.button.primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+a.button.primary:hover {
+  opacity: 0.9;
+}
+
+.sign-in-error {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 14%, var(--panel));
+  color: var(--danger);
+}
+
+.sign-in-card .sign-in-error {
+  color: var(--danger);
+}
+
+.status-inline {
+  margin: 0;
+  color: var(--muted);
+}
+
+.status-inline code {
+  font-family: var(--mono);
+  font-size: 12px;
+}

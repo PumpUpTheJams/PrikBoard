@@ -6,9 +6,13 @@ using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
 
-public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiFactory>
+public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiFactory>, IAsyncLifetime
 {
-    private readonly HttpClient _client = factory.CreateClient();
+    private HttpClient _client = null!;
+
+    public async Task InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
+
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
     public async Task New_board_starts_with_default_buckets_side_by_side_and_is_listed()
@@ -295,6 +299,14 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
+    public async Task Without_sign_in_providers_the_api_reference_is_still_readable()
+    {
+        var response = await factory.CreateAnonymousClient().GetAsync("/scalar/");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
     public async Task OpenApi_document_exposes_named_operations_for_ai_clients()
     {
         using var document = JsonDocument.Parse(await _client.GetStringAsync("/openapi/v1.json"));
@@ -310,6 +322,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
             {
                 "listBoards", "getBoard", "createBucket", "updateBucket", "deleteBucket",
                 "createNote", "moveNote", "updateNote", "deleteNote",
+                "whoAmI", "listAuthProviders",
             },
             operationIds);
     }

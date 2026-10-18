@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
-import { api, errorMessage } from './api/client'
-import type { Assignee, BoardSummary } from './api/types'
+import { api, errorMessage, setUnauthorizedHandler } from './api/client'
+import type { Assignee, BoardSummary, Caller } from './api/types'
 import { BoardCanvas } from './board/BoardCanvas'
-import { CheckIcon, ChevronDownIcon, ExternalIcon, MoonIcon, PostItIcon, SunIcon, TrashIcon, UserIcon } from './board/icons'
+import { CheckIcon, ChevronDownIcon, ExternalIcon, MoonIcon, PostItIcon, SignOutIcon, SunIcon, TrashIcon } from './board/icons'
 import { useBoard } from './board/useBoard'
 import { AvatarStack } from './components/Avatar'
+import { initials } from './components/initials'
 import { Menu } from './components/Menu'
 import { QuickAdd } from './components/QuickAdd'
+import { SignIn } from './components/SignIn'
 
 const boardIdFromHash = () => window.location.hash.match(/^#\/boards\/([\w-]+)/)?.[1] ?? null
 
@@ -30,10 +32,9 @@ function boardAssignees(notes: { assignees: Assignee[] }[]): Assignee[] {
 }
 
 export default function App() {
-  const [boards, setBoards] = useState<BoardSummary[] | null>(null)
-  const [selectedId, setSelectedId] = useState(boardIdFromHash)
-  const [error, setError] = useState<string | null>(null)
   const [theme, setTheme] = useState(storedTheme)
+  // undefined while checking the session, null when signed out.
+  const [user, setUser] = useState<Caller | null | undefined>(undefined)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -43,6 +44,34 @@ export default function App() {
       // Storage can be unavailable (private mode); the theme then lasts for this visit only.
     }
   }, [theme])
+
+  useEffect(() => {
+    // Any 401, such as an expired session, drops back to the sign-in screen.
+    setUnauthorizedHandler(() => setUser(null))
+    api.whoAmI().then(setUser, () => setUser(null))
+  }, [])
+
+  async function signOut() {
+    await api.logout().catch(() => {})
+    setUser(null)
+  }
+
+  if (user === undefined) return <p className="status">Loading…</p>
+  if (user === null) return <SignIn />
+  return <Workspace user={user} theme={theme} onThemeChange={setTheme} onSignOut={() => void signOut()} />
+}
+
+interface WorkspaceProps {
+  user: Caller
+  theme: Theme
+  onThemeChange: (theme: Theme) => void
+  onSignOut: () => void
+}
+
+function Workspace({ user, theme, onThemeChange, onSignOut }: WorkspaceProps) {
+  const [boards, setBoards] = useState<BoardSummary[] | null>(null)
+  const [selectedId, setSelectedId] = useState(boardIdFromHash)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     api.listBoards().then(setBoards, (e) => setError(errorMessage(e)))
@@ -180,28 +209,43 @@ export default function App() {
             triggerClassName="settings-trigger"
             trigger={
               <>
-                <span className="me">
-                  <UserIcon />
-                </span>
+                <span className="me">{initials(user.name)}</span>
                 <ChevronDownIcon />
               </>
             }
           >
             {(close) => (
               <>
+                <div className="menu-user">
+                  <span className="me">{initials(user.name)}</span>
+                  <span className="menu-user-text">
+                    <span className="menu-user-name">{user.name}</span>
+                    <span className="menu-user-detail">{user.email ?? `Signed in with ${user.provider}`}</span>
+                  </span>
+                </div>
+                <span className="menu-divider" role="separator" />
                 <button
                   type="button"
                   role="menuitem"
                   className="menu-item"
-                  onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                  onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}
                 >
                   {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
                   {theme === 'dark' ? 'Light theme' : 'Night shift theme'}
                 </button>
+                <a role="menuitem" className="menu-item" href="/scalar" target="_blank" rel="noreferrer" onClick={close}>
+                  <ExternalIcon />
+                  API reference
+                </a>
                 <a role="menuitem" className="menu-item" href="/openapi/v1.json" target="_blank" rel="noreferrer" onClick={close}>
                   <ExternalIcon />
                   OpenAPI document
                 </a>
+                <span className="menu-divider" role="separator" />
+                <button type="button" role="menuitem" className="menu-item" onClick={onSignOut}>
+                  <SignOutIcon />
+                  Sign out
+                </button>
               </>
             )}
           </Menu>
