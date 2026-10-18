@@ -56,11 +56,24 @@ interface ProblemDetails {
   errors?: Record<string, string[]>
 }
 
+let liveConnectionId: string | null = null
+
+/**
+ * The open live-updates connection. Changes are sent with it, so the server does not echo them back to this tab,
+ * which reloads after its own changes anyway.
+ */
+export function setLiveConnectionId(id: string | null) {
+  liveConnectionId = id
+}
+
 /** A JSON request, or with a Blob body the file itself (sent with the file's own content type). */
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = {}
+  if (body !== undefined) headers['Content-Type'] = body instanceof Blob ? body.type : 'application/json'
+  if (method !== 'GET' && liveConnectionId) headers['X-PrikBoard-Live'] = liveConnectionId
   const response = await fetch(`/api${path}`, {
     method,
-    headers: body === undefined ? undefined : { 'Content-Type': body instanceof Blob ? body.type : 'application/json' },
+    headers,
     body: body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body),
   })
 

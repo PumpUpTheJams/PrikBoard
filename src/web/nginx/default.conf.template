@@ -10,6 +10,12 @@ map $http_x_forwarded_host $forwarded_host {
     ''      $http_host;
 }
 
+# WebSocket upgrades for the live-updates hub; plain requests keep a normal Connection header.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
 server {
     listen 8080;
     server_name _;
@@ -24,6 +30,20 @@ server {
         proxy_set_header Host $forwarded_host;
         proxy_set_header X-Forwarded-Proto $forwarded_proto;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # The live-updates hub (SignalR) holds WebSockets open; ^~ wins over the regex location above.
+    location ^~ /api/live {
+        proxy_pass ${API_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        # The hub compares the Origin of cookie connections with this host.
+        proxy_set_header Host $forwarded_host;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # SignalR pings every 15 s; anything quieter than this is a dead connection.
+        proxy_read_timeout 60s;
     }
 
     # Vite puts content-hashed files in /assets, so they can be cached forever.

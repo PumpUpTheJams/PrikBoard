@@ -11,7 +11,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': api,
+      // ws: the live-updates hub (/api/live) upgrades to a WebSocket.
+      '/api': { ...api, ws: true },
       '/openapi': api,
       // Through the proxy so signing in from the API reference uses the same callback URL as the app.
       '/scalar': api,

@@ -6,6 +6,7 @@
  Browser (React SPA) ──┐
                        ├──►  /api/*   ASP.NET Core minimal API  ──►  EF Core  ──►  PostgreSQL
  AI agent / script  ───┘     /openapi/v1.json  (contract)
+                             /api/live  SignalR hub (live updates, presence, drags)
 ```
 
 There is one API, and nothing is private to the UI. Anything a person can do in the browser, an AI agent can do over HTTP with the same endpoints. The OpenAPI document is the contract between them.
@@ -57,6 +58,10 @@ The API is built on these conventions:
 - **PATCH for partial updates.** Omitted fields stay unchanged.
 - **Board access is declared per endpoint.** `Auth/BoardAccess.cs` adds `.RequireBoardRole(role, BoardScope.X)`, an endpoint filter that finds the board from the route id (board, bucket, note or image) and the caller's membership in one query. Non-members get 404, too-low roles 403. Endpoints without a board use `.NoBoardScope()`, and a test fails if an `/api` endpoint has neither.
 - **No personal data.** Names, emails and provider subject ids from SSO are never stored; see [Authentication](authentication.md#users-linked-sign-ins-and-personal-data).
+- **Live updates** (`Live/`). `BoardHub` is a SignalR hub at `/api/live`. A connection joins one board at a time, after the same membership check as the REST API; `LiveViewers` keeps who is connected to which board with what role.
+  - `BoardAccess` announces every successful board-scoped write to the board's group (`BoardEvents.ChangedAsync`), so endpoints don't have to. Endpoints that change board lists or roles also call `BoardEvents` (renames, deletes, members, invites, display names).
+  - Drags in progress are relayed between clients as gesture deltas, never stored. Only the drop is saved, through REST.
+  - Live state lives in memory, so this works for one API instance. Several instances would need a SignalR backplane (Redis or Azure SignalR) and shared presence.
 - **Migrations on startup.** They are applied automatically, which is fine for a single instance. Revisit this once the API runs as several instances.
 
 To change the schema, edit the entities or `PrikBoardDbContext`, then add a migration. This uses the `dotnet-ef` tool pinned in `.config/dotnet-tools.json`:
@@ -71,7 +76,8 @@ dotnet ef migrations add <Name> --project src/PrikBoard.Api --output-dir Data/Mi
 React 19, TypeScript and Vite, with no state library and no UI kit. The visual design is the "Night shift" mockup in [`docs/Scrum Board — Night shift.html`](Scrum%20Board%20—%20Night%20shift.html), with Geist and Geist Mono as typefaces.
 
 - `src/api/`: a typed `fetch` client whose method names match the API's operationIds.
-- `src/board/useBoard.ts`: loads the open board, runs every change and reloads afterwards, and re-reads the board every few seconds so changes made by agents show up. Refreshes pause while something is being dragged.
+- `src/board/useBoard.ts`: loads the open board, runs every change and reloads afterwards, and reloads when told to by live updates. It also polls: every few seconds while live updates are down, every 30 seconds as a safety net otherwise. Refreshes wait while something is being dragged.
+- `src/live/useLive.ts`: the SignalR connection (`@microsoft/signalr`). It joins the open board, reports who else is here (`components/Presence`), and sends and receives drags in progress, which `BoardCanvas` applies to the layout like its own gesture, outlined in the person's colour.
 - `src/board/BoardCanvas.tsx`: the zoomable canvas and its pointer gestures (move, pan, draw and resize buckets, stick post-its), plus the floating `ToolRail`, `ViewControls` (zoom and minimap) and `Inspector` (rename or delete a bucket).
 - `src/board/PostIt.tsx`: the post-it as shown on the board, with its title, tags, assignee stack and states (hover, selected, dragging, agent working).
 - `src/board/BoardImageView.tsx`: an image on the board, moved by dragging and resized from its corner handle. Images are added with the Image button (or `I`), by pasting, or by dropping files on the board; pasting or dropping into an expanded post-it attaches them to it.
@@ -88,6 +94,7 @@ React 19, TypeScript and Vite, with no state library and no UI kit. The visual d
 
 ## Not decided yet
 
+- **Scaling out live updates.** The hub and its presence list live in one API process; a second instance needs a backplane.
 - **Hash key rotation.** Losing or changing `Auth:HashKey` orphans every account. Rotation would need a second key and re-hashing on sign-in.
 - **Assignees and members.** Note assignees are free text; linking them to board members comes later.
 - **Account deletion.** People can unlink sign-ins and leave boards, but cannot delete their account yet.

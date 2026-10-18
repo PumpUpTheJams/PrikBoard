@@ -2391,3 +2391,49 @@ a.button.primary:hover {
 .expanded.read-only .editable:focus-visible {
   outline: none;
 }
+
+/* Live updates: who else is here, and their drags in progress */
+
+.presence {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.presence .avatar + .avatar {
+  margin-left: -6px;
+}
+
+.presence-avatar {
+  box-shadow:
+    0 0 0 2px var(--bar),
+    0 0 0 4px var(--who);
+}
+
+.presence .avatar.more {
+  border: 2px solid var(--bar);
+}
+
+.remote-drag {
+  position: absolute;
+  z-index: 3;
+  border: 2px solid var(--who);
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+.remote-drag-name {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: -2px;
+  max-width: 180px;
+  overflow: hidden;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--who);
+  color: #14161a;
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

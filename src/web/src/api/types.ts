@@ -225,3 +225,46 @@ export interface AcceptedInvite {
   boardId: string
   role: BoardRole
 }
+
+// Live updates over SignalR (/api/live); mirrors Contracts/Live.cs.
+
+export type DragKind = 'Note' | 'Bucket' | 'Resize' | 'Image' | 'ImageResize'
+
+/** Someone looking at a board right now (listed once, however many tabs they have open). */
+export interface LiveViewer {
+  principalId: string
+  kind: PrincipalKind
+  displayName: string
+}
+
+export interface BoardPresence {
+  boardId: string
+  viewers: LiveViewer[]
+}
+
+export interface JoinedBoard {
+  boardId: string
+  role: BoardRole
+  /** This connection's key in drag messages. */
+  key: string
+  viewers: LiveViewer[]
+}
+
+export interface BoardChange {
+  boardId: string
+  by: string
+}
+
+/** A drag in progress: pointer travel since it started, in canvas pixels. */
+export interface DragUpdate {
+  kind: DragKind
+  id: string
+  dx: number
+  dy: number
+}
+
+export interface RemoteDrag extends DragUpdate {
+  key: string
+  principalId: string
+  displayName: string
+}

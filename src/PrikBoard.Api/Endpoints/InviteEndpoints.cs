@@ -7,6 +7,7 @@ using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
+using PrikBoard.Api.Live;
 
 namespace PrikBoard.Api.Endpoints;
 
@@ -109,7 +110,8 @@ public static class InviteEndpoints
     }
 
     private static async Task<Results<Ok<AcceptedInvite>, NotFound, ForbidHttpResult>> AcceptInvite(
-        InviteTokenRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
+        InviteTokenRequest request, ClaimsPrincipal principal, HttpContext http, PrikBoardDbContext db, BoardEvents events,
+        CancellationToken ct)
     {
         // An agent could have read the link on a note; joining boards that way would bypass the owner.
         if (principal.IsToken()) return TypedResults.Forbid();
@@ -140,6 +142,10 @@ public static class InviteEndpoints
 
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
+        // Not board-scoped, so the access filter does not announce it: the members list changed.
+        await events.ChangedAsync(invite.BoardId, http);
+        await events.AccessChangedAsync(invite.BoardId, userId, member.Role);
+        await events.BoardsChangedAsync([userId]);
         return TypedResults.Ok(new AcceptedInvite(invite.BoardId, member.Role));
     }
 }

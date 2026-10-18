@@ -27,6 +27,14 @@ public static partial class AuthSetup
     /// <summary>Signed in, and for Bearer tokens holding the scope the HTTP method needs (see <see cref="ApiScopes"/>).</summary>
     public const string ApiPolicy = "Api";
 
+    /// <summary>
+    /// The live hub: a signed-in person on PrikBoard's own pages, or a token with boards:read or boards:write. Not the
+    /// method-based API policy, because SignalR's long-polling fallback POSTs even for a read-only token; dragging checks
+    /// boards:write itself. Browsers send cookies on cross-site WebSocket upgrades without any CORS check, hence the
+    /// origin check, which runs on negotiate and connect alike.
+    /// </summary>
+    public const string LivePolicy = "Live";
+
     public static string CallbackPath(string provider) => $"/api/auth/callback/{provider}";
 
     // Prefixed so a token issuer and a sign-in provider can share an id such as "auth0".
@@ -100,6 +108,10 @@ public static partial class AuthSetup
         builder.Services.AddSingleton<IAuthorizationHandler, ApiScopes.Handler>();
         builder.Services.AddAuthorizationBuilder()
             .AddPolicy(ApiPolicy, apiPolicy)
+            .AddPolicy(LivePolicy, policy => policy.RequireAuthenticatedUser().RequireAssertion(context =>
+                context.User.IsToken()
+                    ? ApiScopes.Of(context.User) is var granted && (granted.Contains(ApiScopes.Read) || granted.Contains(ApiScopes.Write))
+                    : context.Resource is HttpContext http && SameOrigin.Check(http.Request)))
             // Every endpoint without its own authorization metadata gets the API policy.
             .SetFallbackPolicy(apiPolicy);
 

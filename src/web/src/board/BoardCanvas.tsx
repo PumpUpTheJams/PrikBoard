@@ -1,6 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { api } from '../api/client'
-import type { BoardDetail, BucketDetail, ImageDetail, NoteColor, NoteDetail, Point, Rect } from '../api/types'
+import type { BoardDetail, BucketDetail, DragKind, DragUpdate, ImageDetail, NoteColor, NoteDetail, Point, Rect } from '../api/types'
+import { presenceColor } from '../live/presence'
+import type { LiveDrag } from '../live/useLive'
 import { ConfirmDeleteNote, ConfirmDialog } from '../components/ConfirmDialog'
 import { BoardImageView } from './BoardImageView'
 import { ExpandedNote } from './ExpandedNote'
@@ -65,6 +67,22 @@ const hints: Partial<Record<Tool, string>> = {
 
 const delta = (g: Gesture): Point => ({ x: g.current.x - g.start.x, y: g.current.y - g.start.y })
 
+/** A drag applied on top of the server's layout: your own gesture, or someone else's relayed by live updates. */
+interface ActiveDrag {
+  kind: ItemGesture
+  id: string
+  d: Point
+}
+
+const fromDragKind: Record<DragKind, ItemGesture> = {
+  Note: 'note',
+  Bucket: 'bucket',
+  Resize: 'resize',
+  Image: 'image',
+  ImageResize: 'image-resize',
+}
+const toDragKind = Object.fromEntries(Object.entries(fromDragKind).map(([k, v]) => [v, k])) as Record<ItemGesture, DragKind>
+
 function isDrag(g: Gesture) {
   const d = delta(g)
   return Math.abs(d.x) >= DRAG_THRESHOLD || Math.abs(d.y) >= DRAG_THRESHOLD
@@ -74,9 +92,13 @@ interface BoardCanvasProps {
   board: BoardDetail
   run: BoardState['run']
   setPaused: BoardState['setPaused']
+  /** Other people's drags in progress (live updates). */
+  remoteDrags?: LiveDrag[]
+  /** Your drag in progress, for the others to see; null when it ends. */
+  onDrag?: (update: DragUpdate | null) => void
 }
 
-export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
+export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }: BoardCanvasProps) {
   /** Viewers can look around and open post-its, but not change anything. */
   const readOnly = board.yourRole === 'Viewer'
   const [tool, setTool] = useState<Tool>('select')
@@ -234,14 +256,27 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
     await addImages(await pickImageFiles(), target)
   }
 
-  // Live geometry: the server's layout, with the gesture in progress applied on top.
+  // Live geometry: the server's layout, with the drags in progress applied on top (yours wins over someone else's).
   const dragging = gesture && gesture.kind !== 'draw' && isDrag(gesture) ? gesture : null
+  const drags: ActiveDrag[] = [
+    ...(dragging ? [{ kind: dragging.kind, id: dragging.id, d: delta(dragging) }] : []),
+    ...remoteDrags.map((r) => ({ kind: fromDragKind[r.kind], id: r.id, d: { x: r.dx, y: r.dy } })),
+  ]
+  const dragOf = (id: string | null) => (id === null ? undefined : drags.find((g) => g.id === id))
+
+  // Tell the others about your drag while it is in progress (as a string, so an unchanged drag sends nothing).
+  const sentDrag =
+    dragging && !dragging.done
+      ? JSON.stringify({ kind: toDragKind[dragging.kind], id: dragging.id, dx: delta(dragging).x, dy: delta(dragging).y })
+      : null
+  useEffect(() => onDrag?.(sentDrag ? (JSON.parse(sentDrag) as DragUpdate) : null), [sentDrag, onDrag])
 
   function bucketRect(bucket: BucketDetail): Rect {
-    if (dragging?.id !== bucket.id) return bucket
-    const d = delta(dragging)
-    if (dragging.kind === 'bucket') return { ...bucket, ...snapPoint({ x: bucket.x + d.x, y: bucket.y + d.y }) }
-    if (dragging.kind === 'resize') {
+    const drag = dragOf(bucket.id)
+    if (!drag) return bucket
+    const { d } = drag
+    if (drag.kind === 'bucket') return { ...bucket, ...snapPoint({ x: bucket.x + d.x, y: bucket.y + d.y }) }
+    if (drag.kind === 'resize') {
       return {
         ...bucket,
         width: Math.max(MIN_BUCKET_WIDTH, snap(bucket.width + d.x)),
@@ -252,12 +287,9 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
   }
 
   function notePoint(note: NoteDetail): Point {
-    if (!dragging) return note
-    if (dragging.kind === 'note' && dragging.id === note.id) {
-      const d = delta(dragging)
-      return snapPoint({ x: note.x + d.x, y: note.y + d.y })
-    }
-    if (dragging.kind === 'bucket' && dragging.id === note.bucketId) {
+    const drag = dragOf(note.id)
+    if (drag?.kind === 'note') return snapPoint({ x: note.x + drag.d.x, y: note.y + drag.d.y })
+    if (dragOf(note.bucketId)?.kind === 'bucket') {
       // A moving bucket carries its notes along, as the server does.
       const bucket = board.buckets.find((b) => b.id === note.bucketId)!
       const moved = bucketRect(bucket)
@@ -267,11 +299,27 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
   }
 
   function imageRect(image: ImageDetail): Rect {
-    if (dragging?.id !== image.id) return image
-    const d = delta(dragging)
-    if (dragging.kind === 'image') return { ...image, ...snapPoint({ x: image.x + d.x, y: image.y + d.y }) }
-    if (dragging.kind === 'image-resize') return { ...image, ...imageSize(image, image.width + d.x) }
+    const drag = dragOf(image.id)
+    if (!drag) return image
+    const { d } = drag
+    if (drag.kind === 'image') return { ...image, ...snapPoint({ x: image.x + d.x, y: image.y + d.y }) }
+    if (drag.kind === 'image-resize') return { ...image, ...imageSize(image, image.width + d.x) }
     return image
+  }
+
+  /** Where someone else's drag is right now, to outline it with their name. */
+  function remoteRect(drag: LiveDrag): Rect | null {
+    const kind = fromDragKind[drag.kind]
+    if (kind === 'note') {
+      const note = board.notes.find((n) => n.id === drag.id)
+      return note ? { ...notePoint(note), width: NOTE_WIDTH, height: NOTE_HEIGHT } : null
+    }
+    if (kind === 'bucket' || kind === 'resize') {
+      const bucket = board.buckets.find((b) => b.id === drag.id)
+      return bucket ? bucketRect(bucket) : null
+    }
+    const image = board.images.find((i) => i.id === drag.id && i.noteId === null)
+    return image ? imageRect(image) : null
   }
 
   function toCanvas(e: { clientX: number; clientY: number }): Point {
@@ -528,11 +576,24 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
                 note={note}
                 point={point}
                 selected={selection?.kind === 'note' && selection.id === note.id}
-                lifted={draggedNote?.note.id === note.id}
+                lifted={draggedNote?.note.id === note.id || remoteDrags.some((r) => r.id === note.id && !r.endedAt)}
                 onPointerDown={(e) => onItemPointerDown(e, 'note', note.id)}
                 onExpand={() => setExpanded({ id: note.id, fresh: false })}
               />
             ))}
+
+            {remoteDrags
+              .filter((r) => !r.endedAt && r.id !== dragging?.id)
+              .map((r) => {
+                const rect = remoteRect(r)
+                if (!rect) return null
+                const style = { left: rect.x, top: rect.y, width: rect.width, height: rect.height, '--who': presenceColor(r.principalId) }
+                return (
+                  <div key={r.key} className="remote-drag" aria-hidden="true" style={style as CSSProperties}>
+                    <span className="remote-drag-name">{r.displayName}</span>
+                  </div>
+                )
+              })}
           </div>
         </div>
       </div>

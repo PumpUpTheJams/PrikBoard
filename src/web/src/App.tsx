@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, errorMessage, setUnauthorizedHandler } from './api/client'
 import type { Assignee, BoardSummary, Caller } from './api/types'
 import { BoardCanvas } from './board/BoardCanvas'
@@ -15,12 +15,14 @@ import {
   UserIcon,
 } from './board/icons'
 import { useBoard } from './board/useBoard'
+import { useLive } from './live/useLive'
 import { AccountDialog, DisplayNameDialog } from './components/AccountDialogs'
 import { AvatarStack } from './components/Avatar'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { initials } from './components/initials'
 import { InvitePage } from './components/InvitePage'
 import { Menu } from './components/Menu'
+import { Presence } from './components/Presence'
 import { QuickAdd } from './components/QuickAdd'
 import { ShareDialog } from './components/ShareDialog'
 import { SignIn } from './components/SignIn'
@@ -142,7 +144,17 @@ function Workspace({ user, onUserChange, theme, onThemeChange, onSignOut }: Work
     setSelectedId(null)
     void loadBoards()
   }, [loadBoards])
-  const { board, run, setPaused } = useBoard(activeBoard?.id ?? null, setError, onLost)
+  // Live updates tell the open board to reload when others save; until connected, the board polls.
+  const refreshBoard = useRef(() => {})
+  const live = useLive(activeBoard?.id ?? null, { onBoardChanged: () => refreshBoard.current(), onBoardsChanged: loadBoards })
+  const { board, run, setPaused, refresh } = useBoard(activeBoard?.id ?? null, setError, onLost, live.connected)
+  const { boardLoaded } = live
+  useEffect(() => {
+    refreshBoard.current = refresh
+  }, [refresh])
+  // Someone's finished drag stays where they dropped it until the reload shows where it landed.
+  useEffect(() => boardLoaded(), [board, boardLoaded])
+  const othersHere = live.viewers.filter((v) => v.principalId !== user.id)
   const assignees = board ? boardAssignees(board.notes) : []
   const provider = user.identities.find((i) => i.provider === user.provider)?.providerName ?? user.provider
 
@@ -288,6 +300,7 @@ function Workspace({ user, onUserChange, theme, onThemeChange, onSignOut }: Work
         </div>
 
         <div className="topbar-end">
+          <Presence viewers={othersHere} />
           {activeBoard && (
             <button type="button" className="share-button" onClick={() => setDialog('share')}>
               <PeopleIcon />
@@ -377,7 +390,14 @@ function Workspace({ user, onUserChange, theme, onThemeChange, onSignOut }: Work
           <p className="status">Loading…</p>
         ) : activeBoard ? (
           board ? (
-            <BoardCanvas key={activeBoard.id} board={board} run={run} setPaused={setPaused} />
+            <BoardCanvas
+              key={activeBoard.id}
+              board={board}
+              run={run}
+              setPaused={setPaused}
+              remoteDrags={live.drags}
+              onDrag={live.sendDrag}
+            />
           ) : (
             <p className="status">Loading board…</p>
           )

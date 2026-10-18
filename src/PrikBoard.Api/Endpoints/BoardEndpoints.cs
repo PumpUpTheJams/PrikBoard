@@ -5,6 +5,7 @@ using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
+using PrikBoard.Api.Live;
 
 namespace PrikBoard.Api.Endpoints;
 
@@ -102,7 +103,7 @@ public static class BoardEndpoints
     }
 
     private static async Task<Results<Ok<BoardSummary>, NotFound>> UpdateBoard(
-        Guid boardId, UpdateBoardRequest request, HttpContext http, PrikBoardDbContext db, CancellationToken ct)
+        Guid boardId, UpdateBoardRequest request, HttpContext http, PrikBoardDbContext db, BoardEvents events, CancellationToken ct)
     {
         var board = await db.Boards.FindAsync([boardId], ct);
         if (board is null) return TypedResults.NotFound();
@@ -112,13 +113,17 @@ public static class BoardEndpoints
         board.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
+        await events.BoardsChangedForMembersAsync(db, boardId, ct);
         return TypedResults.Ok(BoardSummary.From(board, http.BoardRole()));
     }
 
     private static async Task<Results<NoContent, NotFound>> DeleteBoard(
-        Guid boardId, PrikBoardDbContext db, CancellationToken ct)
+        Guid boardId, PrikBoardDbContext db, BoardEvents events, CancellationToken ct)
     {
+        var members = await BoardEvents.MembersOf(db, boardId, ct);
         var deleted = await db.Boards.Where(b => b.Id == boardId).ExecuteDeleteAsync(ct);
-        return deleted == 0 ? TypedResults.NotFound() : TypedResults.NoContent();
+        if (deleted == 0) return TypedResults.NotFound();
+        await events.BoardsChangedAsync(members);
+        return TypedResults.NoContent();
     }
 }
