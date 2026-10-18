@@ -15,4 +15,4 @@ The CI workflow lives in [`.github/workflows`](../.github/workflows), because Gi
 
 - Hosting platform, for example Azure Container Apps or App Service.
 - Whether to run PostgreSQL in a container with a persistent volume or use a managed PostgreSQL service.
-- Which sign-in providers to enable, and whether to restrict access with `Auth:AllowedEmails`/`AllowedEmailDomains`. Without an allowlist, anyone with an account at a configured provider can sign in and see every board.
+- Which sign-in providers to enable. Anyone with an account at a configured provider can sign in.

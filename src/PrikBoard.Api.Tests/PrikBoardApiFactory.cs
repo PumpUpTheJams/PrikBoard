@@ -62,7 +62,7 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
         return client;
     }
 
-    /// <summary>Signs in through the same user mapping and allowlist as a real provider callback.</summary>
+    /// <summary>Signs in through the same user mapping as a real provider callback.</summary>
     public static Task<HttpResponseMessage> TestSignInAsync(
         HttpClient client, string email, string? subject = null, string provider = TestProvider, bool verified = true) =>
         client.PostAsync(
@@ -81,7 +81,7 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
 
     /// <summary>
     /// Test-only stand-in for a provider round trip, added in front of the app so the API itself ships no sign-in shortcut.
-    /// Answers 204 with a session cookie, or 403 when the allowlist rejects the email.
+    /// Answers 204 with a session cookie.
     /// </summary>
     private class TestLogin : IStartupFilter
     {
@@ -96,7 +96,7 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
                     var session = await context.AuthenticateAsync(AuthSetup.CookieScheme);
                     var linkEmail = query["email"].ToString() is { Length: > 0 } e ? e : null;
                     var result = await UserSignIn.LinkAsync(context, session.Principal!.UserId(), query["provider"]!,
-                        query["subject"]!, linkEmail, linkEmail);
+                        query["subject"]!, linkEmail);
                     await context.Response.WriteAsync(result.ToString());
                     return;
                 }
@@ -109,12 +109,7 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
                 var email = query["email"].ToString();
                 var verified = query["verified"].ToString() != "False";
                 var principal = await UserSignIn.SignInAsync(context, query["provider"].ToString() is { Length: > 0 } p ? p : TestProvider,
-                    query["subject"].ToString() is { Length: > 0 } s ? s : email, email.Split('@')[0], email, verified ? email : null);
-                if (principal is null)
-                {
-                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                    return;
-                }
+                    query["subject"].ToString() is { Length: > 0 } s ? s : email, email.Split('@')[0], verified ? email : null);
 
                 await context.SignInAsync(AuthSetup.CookieScheme, principal);
                 context.Response.StatusCode = StatusCodes.Status204NoContent;

@@ -4,7 +4,6 @@ import type { AuthProvider } from '../api/types'
 import { PostItIcon } from '../board/icons'
 
 const authErrors: Record<string, string> = {
-  not_allowed: 'That account is not allowed to use this PrikBoard. Ask an administrator to add your email.',
   failed: 'Signing in did not work. Please try again.',
   identity_in_use: 'That sign-in already belongs to another PrikBoard account, so it was not connected.',
   link_failed: 'Connecting that sign-in did not work. Sign in again and retry from your account.',
