@@ -49,6 +49,73 @@ namespace PrikBoard.Api.Data.Migrations
                     b.ToTable("Boards");
                 });
 
+            modelBuilder.Entity("PrikBoard.Api.Domain.BoardImage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AddedBy")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("BoardId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Caption")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("NoteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("PixelHeight")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("PixelWidth")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("Size")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("X")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Y")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BoardId");
+
+                    b.HasIndex("NoteId");
+
+                    b.ToTable("Images");
+                });
+
             modelBuilder.Entity("PrikBoard.Api.Domain.Bucket", b =>
                 {
                     b.Property<Guid>("Id")
@@ -88,6 +155,20 @@ namespace PrikBoard.Api.Data.Migrations
                     b.HasIndex("BoardId");
 
                     b.ToTable("Buckets");
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.ImageContent", b =>
+                {
+                    b.Property<Guid>("ImageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("Data")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.HasKey("ImageId");
+
+                    b.ToTable("ImageContents");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.Note", b =>
@@ -183,6 +264,22 @@ namespace PrikBoard.Api.Data.Migrations
                     b.ToTable("Users");
                 });
 
+            modelBuilder.Entity("PrikBoard.Api.Domain.BoardImage", b =>
+                {
+                    b.HasOne("PrikBoard.Api.Domain.Board", "Board")
+                        .WithMany("Images")
+                        .HasForeignKey("BoardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PrikBoard.Api.Domain.Note", null)
+                        .WithMany()
+                        .HasForeignKey("NoteId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Board");
+                });
+
             modelBuilder.Entity("PrikBoard.Api.Domain.Bucket", b =>
                 {
                     b.HasOne("PrikBoard.Api.Domain.Board", "Board")
@@ -192,6 +289,15 @@ namespace PrikBoard.Api.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Board");
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.ImageContent", b =>
+                {
+                    b.HasOne("PrikBoard.Api.Domain.BoardImage", null)
+                        .WithOne("Content")
+                        .HasForeignKey("PrikBoard.Api.Domain.ImageContent", "ImageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.Note", b =>
@@ -294,7 +400,14 @@ namespace PrikBoard.Api.Data.Migrations
                 {
                     b.Navigation("Buckets");
 
+                    b.Navigation("Images");
+
                     b.Navigation("Notes");
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.BoardImage", b =>
+                {
+                    b.Navigation("Content");
                 });
 #pragma warning restore 612, 618
         }

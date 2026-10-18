@@ -16,6 +16,10 @@ public static class Layout
     public const int DefaultBucketHeight = 600;
     public const int MaxCoordinate = 100_000;
     public const int MaxBucketSize = 10_000;
+    public const int MinImageWidth = 80;
+    public const int MaxImageWidth = 4000;
+    /// <summary>Width a new image gets when none is given (smaller images keep their own width).</summary>
+    public const int DefaultImageWidth = 360;
 
     /// <summary>Gap between neighbouring notes and buckets, and the inset of notes from a bucket's edge.</summary>
     private const int Gap = 20;
@@ -87,6 +91,18 @@ public static class Layout
             }
         }
         return (Gap * 2, Gap * 2);
+    }
+
+    /// <summary>Where a new image goes when no position is given: to the right of everything on the board.</summary>
+    public static (int X, int Y) NextImageSpot(
+        IReadOnlyCollection<Bucket> buckets, IReadOnlyCollection<Note> notes, IReadOnlyCollection<BoardImage> images)
+    {
+        var right = buckets.Select(b => b.X + b.Width)
+            .Concat(notes.Select(n => n.X + NoteWidth))
+            .Concat(images.Where(i => i.NoteId is null).Select(i => i.X + i.Width))
+            .DefaultIfEmpty(0)
+            .Max();
+        return (Snap(right + Gap * 2), Gap * 2);
     }
 
     /// <summary>Where a new bucket goes when no position is given: to the right of the existing ones.</summary>

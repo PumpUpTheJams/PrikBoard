@@ -80,7 +80,11 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | getNote | `GET /api/notes/{noteId}` | A single note |
 | updateNote | `PATCH /api/notes/{noteId}` | Edit the title, body, fill, tags, assignees, checklist, links or `agentWorking` |
 | moveNote | `POST /api/notes/{noteId}/move` | Move into a bucket (`bucketId`) or to coordinates (`x` and `y`) |
-| deleteNote | `DELETE /api/notes/{noteId}` | Delete a note |
+| deleteNote | `DELETE /api/notes/{noteId}` | Delete a note (and the images attached to it) |
+| uploadImage | `POST /api/boards/{boardId}/images?fileName=&noteId=&x=&y=&width=&caption=` | Add an image or GIF: the file itself is the request body, with its content type. On the canvas at `x`/`y` (default: right of everything), or attached to a note with `noteId` |
+| getImageContent | `GET /api/images/{imageId}/content` | Download the image file |
+| updateImage | `PATCH /api/images/{imageId}` | Move (`x`, `y`), resize (`width`) or re-caption an image |
+| deleteImage | `DELETE /api/images/{imageId}` | Delete an image |
 | listAuthProviders | `GET /api/auth/providers` | Sign-in providers for the browser, the default first (public) |
 | logout | `POST /api/auth/logout` | End the browser session (public) |
 | whoAmI | `GET /api/me` | Who the request is authenticated as (`Session` or `Token`) and its scopes |
@@ -88,6 +92,18 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 The browser starts sign-in by navigating to `GET /api/auth/login/{provider}?returnUrl=/...`. It is left out of the OpenAPI document because it is a redirect, not an API call. The provider redirects back to `/api/auth/callback/{provider}`.
 
 `GET /health` returns `Healthy` when the API is up.
+
+## Images
+
+Images and GIFs live on the board canvas or are attached to a note (`noteId`), and getBoard lists them all under `images`. Upload the raw file as the request body, not as a form:
+
+```bash
+pb -X POST "localhost:5080/api/boards/{boardId}/images?fileName=ingest-errors.png&noteId={noteId}"   -H "Content-Type: image/png" --data-binary @ingest-errors.png
+```
+
+- **Formats.** PNG, JPEG, GIF and WebP up to 10 MB and 20000 pixels on a side. The server detects the format and pixel size from the file itself; SVG is refused because it can carry script.
+- **Size.** `width` is the display width in canvas pixels, snapped to the grid and between 80 and 4000. The height always follows the aspect ratio. Without a width, an image keeps its own width up to 360.
+- **Download** images from `contentUrl` with the same authentication as the rest of the API. The content of an image never changes, so it can be cached.
 
 ## Conventions
 

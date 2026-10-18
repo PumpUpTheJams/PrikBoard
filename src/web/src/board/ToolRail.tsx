@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react'
 import { noteColors, type NoteColor } from '../api/types'
-import { FrameIcon, PanIcon, PostItIcon, SelectIcon } from './icons'
+import { FrameIcon, ImageIcon, PanIcon, PostItIcon, SelectIcon } from './icons'
 import type { Tool } from './tools'
 
 interface ToolDef {
@@ -21,10 +21,12 @@ interface ToolRailProps {
   /** Fill for new post-its. */
   fill: NoteColor
   onFillChange: (fill: NoteColor) => void
+  /** Opens the file picker to add images (an action, not a tool you stay in). */
+  onAddImage: () => void
 }
 
 /** The floating tool rail on the left of the board. */
-export function ToolRail({ tool, onToolChange, fill, onFillChange }: ToolRailProps) {
+export function ToolRail({ tool, onToolChange, fill, onFillChange, onAddImage }: ToolRailProps) {
   const button = ({ tool: t, label, shortcut, Icon }: ToolDef, className = '') => (
     <button
       key={t}
@@ -62,6 +64,9 @@ export function ToolRail({ tool, onToolChange, fill, onFillChange }: ToolRailPro
         )}
       </div>
       {button({ tool: 'bucket', label: 'Bucket', shortcut: 'B', Icon: FrameIcon })}
+      <button type="button" className="rail-button" aria-label="Image" title="Image (I), or paste or drop one on the board" onClick={onAddImage}>
+        <ImageIcon />
+      </button>
     </nav>
   )
 }

@@ -9,6 +9,8 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
     public DbSet<Bucket> Buckets => Set<Bucket>();
     public DbSet<Note> Notes => Set<Note>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<BoardImage> Images => Set<BoardImage>();
+    public DbSet<ImageContent> ImageContents => Set<ImageContent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -54,6 +56,22 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
                 .OnDelete(DeleteBehavior.SetNull);
             note.HasIndex(n => n.BoardId);
         });
+
+        modelBuilder.Entity<BoardImage>(image =>
+        {
+            image.Property(i => i.FileName).HasMaxLength(255);
+            image.Property(i => i.ContentType).HasMaxLength(50);
+            image.Property(i => i.Caption).HasMaxLength(500);
+            image.Property(i => i.AddedBy).HasMaxLength(200);
+            image.HasOne(i => i.Board).WithMany(b => b.Images).HasForeignKey(i => i.BoardId).OnDelete(DeleteBehavior.Cascade);
+            // An attached image goes when its note goes.
+            image.HasOne<Note>().WithMany().HasForeignKey(i => i.NoteId).OnDelete(DeleteBehavior.Cascade);
+            image.HasOne(i => i.Content).WithOne().HasForeignKey<ImageContent>(c => c.ImageId).OnDelete(DeleteBehavior.Cascade);
+            image.HasIndex(i => i.BoardId);
+            image.HasIndex(i => i.NoteId);
+        });
+
+        modelBuilder.Entity<ImageContent>(content => content.HasKey(c => c.ImageId));
 
         modelBuilder.Entity<User>(user =>
         {

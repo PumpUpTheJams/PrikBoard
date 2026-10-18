@@ -1837,3 +1837,203 @@ a.button.primary:hover {
   font-family: var(--mono);
   font-size: 12px;
 }
+
+/* Images on the board: a frame with the picture and a mono caption underneath */
+
+.board-image {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  cursor: grab;
+  outline: none;
+}
+
+.canvas:not(.tool-select) .board-image {
+  cursor: inherit;
+}
+
+.board-image-frame {
+  position: relative;
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme='light'] .board-image-frame {
+  box-shadow: 0 10px 24px rgba(40, 38, 34, 0.18);
+}
+
+.board-image-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  object-fit: cover;
+  user-select: none;
+  pointer-events: none;
+}
+
+.board-image figcaption {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font: 11px var(--mono);
+  white-space: nowrap;
+}
+
+.board-image-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.board-image:focus-visible .board-image-frame,
+.board-image.selected .board-image-frame {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.board-image.lifted {
+  z-index: 2;
+  cursor: grabbing;
+}
+
+.board-image.lifted .board-image-frame {
+  box-shadow: 0 28px 60px rgba(0, 0, 0, 0.55);
+}
+
+.board-image .handle {
+  z-index: 1;
+}
+
+.resize-handle {
+  padding: 0;
+  cursor: nwse-resize;
+}
+
+.gif-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: #e6e8ec;
+  color: #111318;
+  font: 500 11px var(--mono);
+  pointer-events: none;
+}
+
+.minimap-image {
+  position: absolute;
+  border-radius: 1px;
+  background: var(--subtle);
+  opacity: 0.6;
+}
+
+/* Dropping files */
+
+.board-scroll.file-over .canvas {
+  outline: 2px dashed var(--accent);
+  outline-offset: -8px;
+}
+
+.expanded.file-over {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+}
+
+.dock-hint {
+  padding: 0 4px;
+  color: var(--subtle);
+  font: 11px var(--mono);
+  white-space: nowrap;
+}
+
+.inspector-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  color: var(--text);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+/* Images attached to a post-it */
+
+.widget-images {
+  grid-column: span 2;
+}
+
+@media (max-width: 900px) {
+  .widget-images {
+    grid-column: auto;
+  }
+}
+
+.attached-images {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attached-images li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.attached-image {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.attached-image img {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+}
+
+.attached-caption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font: 11px var(--mono);
+}
+
+.attached-caption > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attached-name {
+  flex: 1 1 auto;
+  min-width: 4em;
+  color: var(--text-2);
+}
+
+.attached-by {
+  flex: 0 1 auto;
+  max-width: 50%;
+}
+
+.attached-images li:hover .row-remove {
+  opacity: 1;
+}
+
+.attached-caption .row-remove {
+  margin: 0;
+}

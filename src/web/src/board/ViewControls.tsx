@@ -1,5 +1,5 @@
 import { type PointerEvent } from 'react'
-import type { BucketDetail, NoteDetail, Point, Rect } from '../api/types'
+import type { BucketDetail, ImageDetail, NoteDetail, Point, Rect } from '../api/types'
 import { MinusIcon, PlusIcon } from './icons'
 import { NOTE_HEIGHT, NOTE_WIDTH } from './layout'
 import { ZOOM_LEVELS } from './zoom'
@@ -18,12 +18,14 @@ interface ViewControlsProps {
   viewport: Rect
   buckets: BucketDetail[]
   notes: NoteDetail[]
+  /** Images on the canvas (not the ones attached to notes). */
+  images: ImageDetail[]
   /** Scroll so that this canvas point is in the middle of the view. */
   onNavigate: (center: Point) => void
 }
 
 /** Minimap and zoom buttons in the bottom-right corner of the board. */
-export function ViewControls({ zoom, onZoom, onZoomReset, extent, viewport, buckets, notes, onNavigate }: ViewControlsProps) {
+export function ViewControls({ zoom, onZoom, onZoomReset, extent, viewport, buckets, notes, images, onNavigate }: ViewControlsProps) {
   const scale = Math.min((MAP_WIDTH - 2 * MAP_PAD) / extent.width, (MAP_HEIGHT - 2 * MAP_PAD) / extent.height)
   const toMap = (r: Rect) => ({
     left: MAP_PAD + r.x * scale,
@@ -50,6 +52,9 @@ export function ViewControls({ zoom, onZoom, onZoomReset, extent, viewport, buck
       >
         {buckets.map((b) => (
           <span key={b.id} className="minimap-bucket" style={toMap(b)} />
+        ))}
+        {images.map((i) => (
+          <span key={i.id} className="minimap-image" style={toMap(i)} />
         ))}
         {notes.map((n) => (
           <span

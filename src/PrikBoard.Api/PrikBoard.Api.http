@@ -95,3 +95,10 @@ Content-Type: application/json
 ### Search notes
 GET {{host}}/api/boards/{{boardId}}/notes?search=palette
 Authorization: Bearer {{token}}
+
+### Add an image to the board (the file itself is the body; right of everything unless x and y are given)
+POST {{host}}/api/boards/{{boardId}}/images?fileName=diagram.png&width=360
+Authorization: Bearer {{token}}
+Content-Type: image/png
+
+< ./diagram.png

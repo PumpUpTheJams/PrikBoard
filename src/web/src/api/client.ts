@@ -6,6 +6,9 @@ import type {
   BucketColor,
   BucketDetail,
   Caller,
+  ImageChanges,
+  ImageDetail,
+  ImagePlacement,
   NoteChanges,
   NoteDetail,
   Point,
@@ -42,11 +45,12 @@ interface ProblemDetails {
   errors?: Record<string, string[]>
 }
 
+/** A JSON request, or with a Blob body the file itself (sent with the file's own content type). */
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const response = await fetch(`/api${path}`, {
     method,
-    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: body === undefined ? undefined : { 'Content-Type': body instanceof Blob ? body.type : 'application/json' },
+    body: body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body),
   })
 
   if (response.status === 401) onUnauthorized()
@@ -87,4 +91,13 @@ export const api = {
   moveNote: (noteId: string, to: { bucketId: string } | Point) =>
     request<NoteDetail>('POST', `/notes/${noteId}/move`, to),
   deleteNote: (noteId: string) => request<void>('DELETE', `/notes/${noteId}`),
+
+  /** Uploads a file onto the board (at x/y, or right of everything), or attached to a note with noteId. */
+  uploadImage: (boardId: string, file: File, placement: ImagePlacement = {}) => {
+    const query = new URLSearchParams({ fileName: file.name })
+    for (const [key, value] of Object.entries(placement)) if (value !== undefined) query.set(key, String(value))
+    return request<ImageDetail>('POST', `/boards/${boardId}/images?${query}`, file)
+  },
+  updateImage: (imageId: string, changes: ImageChanges) => request<ImageDetail>('PATCH', `/images/${imageId}`, changes),
+  deleteImage: (imageId: string) => request<void>('DELETE', `/images/${imageId}`),
 }

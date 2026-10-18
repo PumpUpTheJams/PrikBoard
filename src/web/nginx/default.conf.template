@@ -13,6 +13,8 @@ server {
     # callback URLs and the OpenAPI server URL from it.
     location ~ ^/(api|openapi|scalar)(/|$) {
         proxy_pass ${API_URL};
+        # Image uploads are up to 10 MB (ImageFormats.MaxBytes); nginx's default is 1 MB.
+        client_max_body_size 11m;
         proxy_set_header Host $http_host;
         proxy_set_header X-Forwarded-Proto $forwarded_proto;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

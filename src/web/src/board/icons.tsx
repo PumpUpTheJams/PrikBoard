@@ -50,6 +50,12 @@ export const FrameIcon = ({ size = 18 }: IconProps) => (
   </Icon>
 )
 
+export const ImageIcon = ({ size = 18 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M3 4h18v16H3zM21 16l-5-5-9 9M9 8.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3" />
+  </Icon>
+)
+
 export const BucketIcon = ({ size = 14 }: IconProps) => (
   <Icon size={size} width={2.2}>
     <rect x="3" y="4" width="18" height="16" rx="2" />

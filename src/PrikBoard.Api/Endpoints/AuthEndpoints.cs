@@ -69,11 +69,9 @@ public static class AuthEndpoints
 
         if (principal.IsToken())
         {
-            // Machine tokens carry no name; the client id is the most useful label (azp: Auth0/Entra, client_id: Okta/Keycloak).
+            // Machine tokens usually carry no name; DisplayName falls back to the client id.
             var subject = principal.FindFirstValue("sub") ?? "";
-            var name = principal.FindFirstValue("name") ?? principal.FindFirstValue("azp") ?? principal.FindFirstValue("client_id")
-                ?? principal.FindFirstValue("appid") ?? subject;
-            return TypedResults.Ok(new Caller(CallerKind.Token, subject, name, null,
+            return TypedResults.Ok(new Caller(CallerKind.Token, subject, principal.DisplayName(), null,
                 principal.FindFirstValue(ApiScopes.IssuerIdClaim)!, scopes));
         }
 

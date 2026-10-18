@@ -8,7 +8,16 @@ export const NOTE_HEIGHT = 120
 export const MIN_BUCKET_WIDTH = NOTE_WIDTH + 2 * GRID
 export const MIN_BUCKET_HEIGHT = NOTE_HEIGHT + 2 * GRID
 
+export const MIN_IMAGE_WIDTH = 80
+export const MAX_IMAGE_WIDTH = 4000
+
 export const snap = (value: number) => Math.round(value / GRID) * GRID
+
+/** An image's display size for a width, as the server computes it: snapped, within limits, keeping the aspect ratio. */
+export function imageSize(image: { pixelWidth: number; pixelHeight: number }, width: number) {
+  const w = Math.min(MAX_IMAGE_WIDTH, Math.max(MIN_IMAGE_WIDTH, snap(width)))
+  return { width: w, height: Math.max(1, Math.round((w * image.pixelHeight) / image.pixelWidth)) }
+}
 
 /** Snaps a top-left corner to the grid, keeping it on the canvas. */
 export const snapPoint = ({ x, y }: Point): Point => ({ x: Math.max(0, snap(x)), y: Math.max(0, snap(y)) })

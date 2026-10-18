@@ -87,5 +87,6 @@ api.MapAuthEndpoints();
 api.MapBoardEndpoints();
 api.MapBucketEndpoints();
 api.MapNoteEndpoints();
+api.MapImageEndpoints();
 
 app.Run();
