@@ -10,6 +10,7 @@ import { draggingFiles, imageFiles, pickImageFiles } from './files'
 import { ResizeIcon } from './icons'
 import { BucketInspector, ImageInspector } from './Inspector'
 import {
+  GRID,
   MIN_BUCKET_HEIGHT,
   MIN_BUCKET_WIDTH,
   NOTE_HEIGHT,
@@ -181,6 +182,9 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && (selection?.kind === 'note' || selection?.kind === 'image')) {
         e.preventDefault()
         setPendingDelete({ kind: selection.kind, id: selection.id })
+      } else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'd' && selection?.kind === 'note') {
+        e.preventDefault()
+        if (!e.repeat) duplicateNote(selection.id)
       } else if (e.ctrlKey || e.metaKey || e.altKey) {
         return
       } else if (e.key.toLowerCase() === 'i') {
@@ -218,6 +222,25 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
     if (expanded?.id === id) setExpanded(null)
     setSelection(null)
     void settle(() => api.deleteNote(id))
+  }
+
+  /** Copies a post-it's content one grid step down and right of it, and selects the copy. Attached images stay behind. */
+  function duplicateNote(id: string) {
+    const note = board.notes.find((n) => n.id === id)
+    if (!note) return
+    void settle(async () => {
+      const copy = await api.createNote(board.id, {
+        title: note.title,
+        body: note.body ?? undefined,
+        color: note.color,
+        tags: note.tags,
+        assignees: note.assignees,
+        checklist: note.checklist,
+        links: note.links,
+        ...snapPoint({ x: note.x + GRID, y: note.y + GRID }),
+      })
+      setSelection({ kind: 'note', id: copy.id })
+    })
   }
 
   function deleteImage(id: string) {
