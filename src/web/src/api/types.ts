@@ -3,6 +3,9 @@
 export const noteColors = ['Yellow', 'Pink', 'Blue', 'Green', 'Orange', 'Purple'] as const
 export type NoteColor = (typeof noteColors)[number]
 
+export const bucketColors = ['Blue', 'Amber', 'Violet', 'Teal', 'Rose'] as const
+export type BucketColor = (typeof bucketColors)[number]
+
 export interface BoardSummary {
   id: string
   name: string
@@ -12,26 +15,49 @@ export interface BoardSummary {
 }
 
 export interface BoardDetail extends BoardSummary {
-  columns: ColumnDetail[]
+  /** Back to front: later buckets are drawn on top. */
+  buckets: BucketDetail[]
+  /** Bucket by bucket, loose notes last; not stacking order (see updatedAt). */
+  notes: NoteDetail[]
 }
 
-export interface ColumnDetail {
+export interface BucketDetail {
   id: string
   boardId: string
   name: string
-  position: number
-  notes: NoteDetail[]
+  color: BucketColor
+  x: number
+  y: number
+  width: number
+  height: number
 }
 
 export interface NoteDetail {
   id: string
-  columnId: string
+  boardId: string
+  bucketId: string | null
   title: string
   body: string | null
   color: NoteColor
-  position: number
+  x: number
+  y: number
   createdAt: string
   updatedAt: string
+}
+
+export interface Point {
+  x: number
+  y: number
+}
+
+export interface Rect extends Point {
+  width: number
+  height: number
+}
+
+export interface BucketChanges extends Partial<Rect> {
+  name?: string
+  color?: BucketColor
 }
 
 export interface NoteChanges {

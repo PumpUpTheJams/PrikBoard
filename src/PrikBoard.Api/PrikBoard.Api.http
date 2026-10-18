@@ -18,12 +18,12 @@ Content-Type: application/json
 
 ###
 @boardId = {{createBoard.response.body.$.id}}
-@doneColumnId = {{createBoard.response.body.$.columns[2].id}}
+@doneBucketId = {{createBoard.response.body.$.buckets[2].id}}
 
 ### Full board snapshot
 GET {{host}}/api/boards/{{boardId}}
 
-### Stick a note on the board (lands in the first column)
+### Stick a note on the board (lands in a free spot in the first bucket)
 # @name createNote
 POST {{host}}/api/boards/{{boardId}}/notes
 Content-Type: application/json
@@ -37,12 +37,34 @@ Content-Type: application/json
 ###
 @noteId = {{createNote.response.body.$.id}}
 
-### Move the note to Done
+### Move the note into Done (the server picks a free spot)
 POST {{host}}/api/notes/{{noteId}}/move
 Content-Type: application/json
 
 {
-  "columnId": "{{doneColumnId}}"
+  "bucketId": "{{doneBucketId}}"
+}
+
+### Move the note to exact coordinates (its bucket follows from where it lands)
+POST {{host}}/api/notes/{{noteId}}/move
+Content-Type: application/json
+
+{
+  "x": 1400,
+  "y": 80
+}
+
+### Draw a bucket
+POST {{host}}/api/boards/{{boardId}}/buckets
+Content-Type: application/json
+
+{
+  "name": "Review",
+  "color": "Violet",
+  "x": 40,
+  "y": 680,
+  "width": 880,
+  "height": 300
 }
 
 ### Search notes

@@ -1,15 +1,38 @@
 import { useEffect, useState } from 'react'
 import { api, errorMessage } from './api/client'
 import type { BoardSummary } from './api/types'
-import { BoardView } from './components/BoardView'
+import { BoardCanvas } from './board/BoardCanvas'
+import { MoonIcon, SunIcon } from './board/icons'
 import { QuickAdd } from './components/QuickAdd'
 
 const boardIdFromHash = () => window.location.hash.match(/^#\/boards\/([\w-]+)/)?.[1] ?? null
+
+type Theme = 'dark' | 'light'
+const themeKey = 'prikboard-theme'
+
+/** Dark unless the viewer switched to light before. */
+function storedTheme(): Theme {
+  try {
+    return localStorage.getItem(themeKey) === 'light' ? 'light' : 'dark'
+  } catch {
+    return 'dark'
+  }
+}
 
 export default function App() {
   const [boards, setBoards] = useState<BoardSummary[] | null>(null)
   const [selectedId, setSelectedId] = useState(boardIdFromHash)
   const [error, setError] = useState<string | null>(null)
+  const [theme, setTheme] = useState(storedTheme)
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    try {
+      localStorage.setItem(themeKey, theme)
+    } catch {
+      // Storage can be unavailable (private mode); the theme then lasts for this visit only.
+    }
+  }, [theme])
 
   useEffect(() => {
     api.listBoards().then(setBoards, (e) => setError(errorMessage(e)))
@@ -74,8 +97,16 @@ export default function App() {
           </button>
         )}
         <a className="api-link" href="/openapi/v1.json" target="_blank" rel="noreferrer">
-          API
+          OpenAPI ↗
         </a>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+        >
+          {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+        </button>
       </header>
 
       {error && (
@@ -91,7 +122,7 @@ export default function App() {
         {boards === null ? (
           <p className="status">Loading…</p>
         ) : activeBoard ? (
-          <BoardView key={activeBoard.id} boardId={activeBoard.id} onError={setError} />
+          <BoardCanvas key={activeBoard.id} boardId={activeBoard.id} onError={setError} />
         ) : (
           <div className="empty">
             <h2>No boards yet</h2>

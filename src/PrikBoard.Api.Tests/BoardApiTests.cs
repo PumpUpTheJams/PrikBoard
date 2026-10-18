@@ -11,12 +11,14 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     private readonly HttpClient _client = factory.CreateClient();
 
     [Fact]
-    public async Task New_board_starts_with_default_columns_and_is_listed()
+    public async Task New_board_starts_with_default_buckets_side_by_side_and_is_listed()
     {
         var board = await CreateBoard("Launch");
 
-        Assert.Equal(["To do", "Doing", "Done"], board.Columns.Select(c => c.Name));
-        Assert.Equal([0, 1, 2], board.Columns.Select(c => c.Position));
+        Assert.Equal(["To do", "Doing", "Done"], board.Buckets.Select(b => b.Name));
+        Assert.Equal([40, 500, 960], board.Buckets.Select(b => b.X));
+        Assert.All(board.Buckets, b => Assert.Equal((40, 420, 600), (b.Y, b.Width, b.Height)));
+        Assert.Empty(board.Notes);
 
         var boards = await _client.GetFromJsonAsync<List<BoardSummary>>("/api/boards");
         Assert.Contains(boards!, b => b.Id == board.Id && b.Name == "Launch");
@@ -35,83 +37,153 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     public async Task Note_requests_are_validated()
     {
         var board = await CreateBoard("Validation");
+        var notesUrl = $"/api/boards/{board.Id}/notes";
 
-        var tooLong = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = new string('x', 201) });
-        var negative = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "Ok", position = -1 });
+        var tooLong = await _client.PostAsJsonAsync(notesUrl, new { title = new string('x', 201) });
+        var negative = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", x = -20, y = 0 });
+        var onlyX = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", x = 100 });
+        var both = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", bucketId = board.Buckets[0].Id, x = 0, y = 0 });
 
         Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, negative.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, onlyX.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, both.StatusCode);
     }
 
     [Fact]
-    public async Task Notes_default_to_first_column_and_can_move_between_columns()
+    public async Task Notes_default_to_free_spots_in_the_first_bucket()
     {
-        var board = await CreateBoard("Moves");
-        var (todo, done) = (board.Columns[0], board.Columns[2]);
+        var board = await CreateBoard("Defaults");
+        var todo = board.Buckets[0];
 
         var first = await CreateNote(board.Id, new { title = "First" });
         var second = await CreateNote(board.Id, new { title = "Second", color = "Pink" });
-        Assert.Equal(todo.Id, first.ColumnId);
+        var third = await CreateNote(board.Id, new { title = "Third" });
+
+        Assert.All([first, second, third], n => Assert.Equal(todo.Id, n.BucketId));
         Assert.Equal(NoteColor.Yellow, first.Color);
         Assert.Equal(NoteColor.Pink, second.Color);
-        Assert.Equal(1, second.Position);
+        Assert.Equal([(60, 80), (240, 80), (60, 240)], new[] { first, second, third }.Select(n => (n.X, n.Y)));
+    }
 
-        var moveResponse = await _client.PostAsJsonAsync($"/api/notes/{first.Id}/move", new { columnId = done.Id });
-        moveResponse.EnsureSuccessStatusCode();
+    [Fact]
+    public async Task Moving_a_note_to_a_bucket_puts_it_in_a_free_spot_inside()
+    {
+        var board = await CreateBoard("Moves");
+        var (todo, done) = (board.Buckets[0], board.Buckets[2]);
+        var first = await CreateNote(board.Id, new { title = "First" });
+        await CreateNote(board.Id, new { title = "Second", bucketId = done.Id });
+
+        var moved = await MoveNote(first.Id, new { bucketId = done.Id });
+
+        Assert.Equal(done.Id, moved.BucketId);
+        Assert.Equal((1160, 80), (moved.X, moved.Y));
 
         var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
-        var todoNotes = snapshot!.Columns[0].Notes;
-        var doneNotes = snapshot.Columns[2].Notes;
-        Assert.Equal("Second", Assert.Single(todoNotes).Title);
-        Assert.Equal(0, todoNotes[0].Position);
-        Assert.Equal("First", Assert.Single(doneNotes).Title);
+        Assert.DoesNotContain(snapshot!.Notes, n => n.BucketId == todo.Id);
+        Assert.Equal(["Second", "First"], snapshot.Notes.Select(n => n.Title));
     }
 
     [Theory]
-    [InlineData("C", 0, "C,A,B")]
-    [InlineData("A", 1, "B,A,C")]
-    [InlineData("A", null, "B,C,A")]
-    public async Task Notes_can_be_reordered_within_a_column(string title, int? position, string expectedOrder)
+    [InlineData(531, 289, 540, 280, "Doing")]
+    [InlineData(1370, 700, 1380, 700, null)]
+    public async Task Moving_a_note_to_coordinates_snaps_to_the_grid_and_picks_the_bucket_under_its_centre(
+        int x, int y, int expectedX, int expectedY, string? expectedBucket)
     {
-        var board = await CreateBoard("Reorder");
-        var notes = new Dictionary<string, NoteDetail>();
-        foreach (var t in new[] { "A", "B", "C" }) notes[t] = await CreateNote(board.Id, new { title = t });
+        var board = await CreateBoard("Coordinates");
+        var note = await CreateNote(board.Id, new { title = "Wanderer" });
 
-        var response = await _client.PostAsJsonAsync(
-            $"/api/notes/{notes[title].Id}/move", new { columnId = board.Columns[0].Id, position });
-        response.EnsureSuccessStatusCode();
+        var moved = await MoveNote(note.Id, new { x, y });
 
-        var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
-        var column = snapshot!.Columns[0].Notes;
-        Assert.Equal(expectedOrder, string.Join(",", column.Select(n => n.Title)));
-        Assert.Equal([0, 1, 2], column.Select(n => n.Position));
+        Assert.Equal((expectedX, expectedY), (moved.X, moved.Y));
+        Assert.Equal(board.Buckets.SingleOrDefault(b => b.Name == expectedBucket)?.Id, moved.BucketId);
     }
 
     [Fact]
-    public async Task Columns_can_be_inserted_and_reordered()
-    {
-        var board = await CreateBoard("Columns");
-
-        var created = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/columns", new { name = "Review", position = 2 });
-        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
-        var moved = await _client.PatchAsJsonAsync($"/api/columns/{board.Columns[2].Id}", new { position = 0 });
-        moved.EnsureSuccessStatusCode();
-
-        var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
-        Assert.Equal(["Done", "To do", "Doing", "Review"], snapshot!.Columns.Select(c => c.Name));
-        Assert.Equal([0, 1, 2, 3], snapshot.Columns.Select(c => c.Position));
-    }
-
-    [Fact]
-    public async Task Moving_to_a_column_on_another_board_is_rejected()
+    public async Task Moving_to_a_bucket_on_another_board_is_rejected()
     {
         var board = await CreateBoard("Source");
         var other = await CreateBoard("Other");
         var note = await CreateNote(board.Id, new { title = "Stay here" });
 
-        var response = await _client.PostAsJsonAsync($"/api/notes/{note.Id}/move", new { columnId = other.Columns[0].Id });
+        var response = await _client.PostAsJsonAsync($"/api/notes/{note.Id}/move", new { bucketId = other.Buckets[0].Id });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Moving_a_bucket_carries_its_notes_along()
+    {
+        var board = await CreateBoard("Carry");
+        var todo = board.Buckets[0];
+        var inside = await CreateNote(board.Id, new { title = "Inside" });
+        var loose = await CreateNote(board.Id, new { title = "Loose", x = 40, y = 700 });
+
+        var response = await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { x = 40, y = 800 });
+        response.EnsureSuccessStatusCode();
+
+        var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
+        var movedInside = snapshot!.Notes.Single(n => n.Id == inside.Id);
+        var stillLoose = snapshot.Notes.Single(n => n.Id == loose.Id);
+        Assert.Equal((60, 840, todo.Id), (movedInside.X, movedInside.Y, movedInside.BucketId));
+        Assert.Equal((40, 700), (stillLoose.X, stillLoose.Y));
+        Assert.Null(stillLoose.BucketId);
+    }
+
+    [Fact]
+    public async Task A_new_bucket_adopts_the_loose_notes_it_covers_and_sits_on_top()
+    {
+        var board = await CreateBoard("Adopt");
+        var loose = await CreateNote(board.Id, new { title = "Loose", x = 40, y = 700 });
+        var inTodo = await CreateNote(board.Id, new { title = "In to do" });
+
+        var created = await _client.PostAsJsonAsync(
+            $"/api/boards/{board.Id}/buckets", new { name = "Review", x = 20, y = 60, width = 300, height = 800 });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var review = (await created.Content.ReadFromJsonAsync<BucketDetail>())!;
+
+        var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
+        Assert.Equal("Review", snapshot!.Buckets[^1].Name);
+        Assert.Equal(review.Id, snapshot.Notes.Single(n => n.Id == loose.Id).BucketId);
+        Assert.Equal(review.Id, snapshot.Notes.Single(n => n.Id == inTodo.Id).BucketId);
+    }
+
+    [Fact]
+    public async Task Bucket_geometry_snaps_to_the_grid_with_a_minimum_size()
+    {
+        var board = await CreateBoard("Snap");
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/buckets/{board.Buckets[1].Id}", new { name = "In progress", x = 509, y = 31, width = 211, height = 200 });
+        var bucket = (await response.Content.ReadFromJsonAsync<BucketDetail>())!;
+
+        Assert.Equal(("In progress", 500, 40, 220, 200), (bucket.Name, bucket.X, bucket.Y, bucket.Width, bucket.Height));
+    }
+
+    [Fact]
+    public async Task Deleting_a_bucket_leaves_its_notes_loose_in_place()
+    {
+        var board = await CreateBoard("Unbucket");
+        var note = await CreateNote(board.Id, new { title = "Survivor" });
+
+        (await _client.DeleteAsync($"/api/buckets/{board.Buckets[0].Id}")).EnsureSuccessStatusCode();
+
+        var after = await _client.GetFromJsonAsync<NoteDetail>($"/api/notes/{note.Id}");
+        Assert.Equal((note.X, note.Y), (after!.X, after.Y));
+        Assert.Null(after.BucketId);
+    }
+
+    [Fact]
+    public async Task Notes_on_a_board_without_buckets_land_loose_in_free_spots()
+    {
+        var board = await CreateBoard("Empty");
+        foreach (var bucket in board.Buckets) (await _client.DeleteAsync($"/api/buckets/{bucket.Id}")).EnsureSuccessStatusCode();
+
+        var first = await CreateNote(board.Id, new { title = "First" });
+        var second = await CreateNote(board.Id, new { title = "Second" });
+
+        Assert.Null(first.BucketId);
+        Assert.NotEqual((first.X, first.Y), (second.X, second.Y));
     }
 
     [Fact]
@@ -125,17 +197,6 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var hits = await _client.GetFromJsonAsync<List<NoteDetail>>($"/api/boards/{board.Id}/notes?search=logo");
 
         Assert.Equal(["Design LOGO", "Write copy"], hits!.Select(n => n.Title));
-    }
-
-    [Fact]
-    public async Task Column_with_notes_cannot_be_deleted()
-    {
-        var board = await CreateBoard("Guarded");
-        await CreateNote(board.Id, new { title = "Blocker" });
-
-        var response = await _client.DeleteAsync($"/api/columns/{board.Columns[0].Id}");
-
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 
     [Fact]
@@ -162,7 +223,11 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
             .ToHashSet();
 
         Assert.Superset(
-            new HashSet<string?> { "listBoards", "getBoard", "createNote", "moveNote", "updateNote", "deleteNote" },
+            new HashSet<string?>
+            {
+                "listBoards", "getBoard", "createBucket", "updateBucket", "deleteBucket",
+                "createNote", "moveNote", "updateNote", "deleteNote",
+            },
             operationIds);
     }
 
@@ -177,6 +242,13 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     {
         var response = await _client.PostAsJsonAsync($"/api/boards/{boardId}/notes", request);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<NoteDetail>())!;
+    }
+
+    private async Task<NoteDetail> MoveNote(Guid noteId, object request)
+    {
+        var response = await _client.PostAsJsonAsync($"/api/notes/{noteId}/move", request);
+        response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<NoteDetail>())!;
     }
 }
