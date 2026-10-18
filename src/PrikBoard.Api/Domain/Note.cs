@@ -1,15 +1,18 @@
 namespace PrikBoard.Api.Domain;
 
-/// <summary>A post-it note: one unit of work living in a column.</summary>
-public class Note : IPositioned
+/// <summary>A post-it note: one unit of work stuck somewhere on a board, inside a bucket or loose.</summary>
+public class Note
 {
     public Guid Id { get; set; } = Guid.CreateVersion7();
-    public Guid ColumnId { get; set; }
-    public Column? Column { get; set; }
+    public Guid BoardId { get; set; }
+    public Board? Board { get; set; }
+    /// <summary>The bucket containing the note's centre, or null when it is loose. Maintained by <see cref="Layout"/>.</summary>
+    public Guid? BucketId { get; set; }
     public required string Title { get; set; }
     public string? Body { get; set; }
     public NoteColor Color { get; set; } = NoteColor.Yellow;
-    public int Position { get; set; }
+    public int X { get; set; }
+    public int Y { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

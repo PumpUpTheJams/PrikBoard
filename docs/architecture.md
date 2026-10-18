@@ -13,14 +13,15 @@ There is one API, and nothing is private to the UI. Anything a person can do in 
 ## Domain model
 
 ```
-Board 1──* Column 1──* Note
+Board 1──* Bucket
+Board 1──* Note *──0..1 Bucket
 ```
 
-- **Board.** One project, with a name and an optional description. New boards start with the columns *To do*, *Doing* and *Done*.
-- **Column.** An ordered lane on a board. A column can only be deleted when it is empty.
-- **Note.** A post-it with a title, an optional body and a colour (`Yellow`, `Pink`, `Blue`, `Green`, `Orange` or `Purple`). It is ordered within its column.
+- **Board.** One project and a freeform canvas, with a name and an optional description. New boards start with the buckets *To do*, *Doing* and *Done* side by side.
+- **Bucket.** A named, coloured rectangle on the board (`x`, `y`, `width`, `height`). Deleting a bucket leaves its notes on the board.
+- **Note.** A 160×140 px post-it at `x`, `y`, with a title, an optional body and a colour (`Yellow`, `Pink`, `Blue`, `Green`, `Orange` or `Purple`).
 
-Columns and notes have a zero-based `position`. The server owns the ordering: when an item is inserted or moved, the server renumbers its siblings to 0..n-1.
+The server owns the geometry (`Domain/Layout.cs`). It snaps every coordinate to a 20 px grid. A note's `BucketId` is not chosen directly. It is always the topmost bucket containing the note's centre (buckets stack in creation order), and the server recomputes it whenever a note or bucket is created, moved, resized or deleted. Moving a bucket moves its notes with it. A client that only knows a bucket, such as an agent, can move a note there with `bucketId`, and the server picks a free grid slot inside it.
 
 ## Backend: `src/PrikBoard.Api`
 
@@ -36,6 +37,7 @@ The API is built on these conventions:
 
 - **Minimal APIs with `TypedResults`.** Response types and status codes show up accurately in OpenAPI.
 - **Every endpoint has an `operationId`.** For example `getBoard` or `moveNote`, so generated clients and AI tool definitions get stable names.
+- **Geometry lives in `Domain/Layout.cs`.** Snapping, bucket membership, stacking order and free-spot search are in one place. `src/web/src/board/layout.ts` mirrors the parts the UI needs for live feedback while dragging.
 - **Validation and errors.** Requests are validated with DataAnnotations through .NET 10's built-in minimal API validation. Errors are returned as RFC 9457 `application/problem+json`.
 - **PATCH for partial updates.** Omitted fields stay unchanged.
 - **Migrations on startup.** They are applied automatically, which is fine for a single instance. Revisit this once the API runs as several instances.
@@ -52,8 +54,10 @@ dotnet ef migrations add <Name> --project src/PrikBoard.Api --output-dir Data/Mi
 React 19, TypeScript and Vite, with no state library and no UI kit yet.
 
 - `src/api/`: a typed `fetch` client whose method names match the API's operationIds.
-- `src/components/`: `BoardView` (columns and drag and drop), `NoteCard` (view and inline edit) and `QuickAdd` (inline "+ Add" forms).
-- After every change the board is reloaded from the API, so the UI always shows the server's ordering.
+- `src/board/`: `BoardCanvas` (the canvas, pointer gestures for moving notes and buckets, resizing and drawing buckets), `Toolbar` (Move, Draw bucket and Post-it tools), `Inspector` (edit the selected note or bucket) and `layout.ts` (grid and bucket rules mirrored from the server).
+- `src/components/QuickAdd`: the inline "+ New board" form.
+- During a drag the UI shows the snapped position locally. On drop it sends one request and reloads the board, so it always ends up showing the server's layout.
+- Dark is the default theme. The light theme is a `data-theme="light"` override, remembered in `localStorage`.
 - In development, Vite proxies `/api` and `/openapi` to `http://localhost:5080`. Set `PRIKBOARD_API_URL` to point the proxy somewhere else.
 
 ## Tests

@@ -43,7 +43,7 @@ namespace PrikBoard.Api.Data.Migrations
                     b.ToTable("Boards");
                 });
 
-            modelBuilder.Entity("PrikBoard.Api.Domain.Column", b =>
+            modelBuilder.Entity("PrikBoard.Api.Domain.Bucket", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -52,19 +52,36 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Property<Guid>("BoardId")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
-                    b.Property<int>("Position")
+                    b.Property<int>("Width")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("X")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Y")
                         .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("BoardId", "Position");
+                    b.HasIndex("BoardId");
 
-                    b.ToTable("Columns");
+                    b.ToTable("Buckets");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.Note", b =>
@@ -73,8 +90,14 @@ namespace PrikBoard.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid>("BoardId")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Body")
                         .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("BucketId")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Color")
@@ -82,13 +105,7 @@ namespace PrikBoard.Api.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("TEXT");
 
-                    b.Property<Guid>("ColumnId")
-                        .HasColumnType("TEXT");
-
                     b.Property<long>("CreatedAt")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("Position")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("Title")
@@ -99,17 +116,25 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Property<long>("UpdatedAt")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("X")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Y")
+                        .HasColumnType("INTEGER");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("ColumnId", "Position");
+                    b.HasIndex("BoardId");
+
+                    b.HasIndex("BucketId");
 
                     b.ToTable("Notes");
                 });
 
-            modelBuilder.Entity("PrikBoard.Api.Domain.Column", b =>
+            modelBuilder.Entity("PrikBoard.Api.Domain.Bucket", b =>
                 {
                     b.HasOne("PrikBoard.Api.Domain.Board", "Board")
-                        .WithMany("Columns")
+                        .WithMany("Buckets")
                         .HasForeignKey("BoardId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -119,22 +144,24 @@ namespace PrikBoard.Api.Data.Migrations
 
             modelBuilder.Entity("PrikBoard.Api.Domain.Note", b =>
                 {
-                    b.HasOne("PrikBoard.Api.Domain.Column", "Column")
+                    b.HasOne("PrikBoard.Api.Domain.Board", "Board")
                         .WithMany("Notes")
-                        .HasForeignKey("ColumnId")
+                        .HasForeignKey("BoardId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("Column");
+                    b.HasOne("PrikBoard.Api.Domain.Bucket", null)
+                        .WithMany()
+                        .HasForeignKey("BucketId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Board");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.Board", b =>
                 {
-                    b.Navigation("Columns");
-                });
+                    b.Navigation("Buckets");
 
-            modelBuilder.Entity("PrikBoard.Api.Domain.Column", b =>
-                {
                     b.Navigation("Notes");
                 });
 #pragma warning restore 612, 618

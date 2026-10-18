@@ -22,10 +22,11 @@ builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document,
         Version = "v1",
         Description = """
             PrikBoard is a post-it board for small project management.
-            A board holds ordered columns (by default "To do", "Doing" and "Done"); each column holds ordered notes (post-its).
+            A board is a freeform canvas holding buckets (named rectangles, by default "To do", "Doing" and "Done")
+            and notes (160x140 px post-its). A note belongs to the topmost bucket containing its centre, or is loose.
             Start with listBoards, then getBoard for a complete snapshot of a project.
-            Progress work by moving notes between columns with moveNote.
-            Positions are zero-based; omit a position to append at the end.
+            Progress work by moving notes between buckets with moveNote and a bucketId; the server finds a free spot.
+            Coordinates are canvas pixels from the top-left and snap to a 20 px grid.
             """,
     };
     return Task.CompletedTask;
@@ -47,7 +48,7 @@ app.MapHealthChecks("/health");
 
 var api = app.MapGroup("/api");
 api.MapBoardEndpoints();
-api.MapColumnEndpoints();
+api.MapBucketEndpoints();
 api.MapNoteEndpoints();
 
 app.Run();

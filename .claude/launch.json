@@ -12,6 +12,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "src/web"],
       "port": 5173
+    },
+    {
+      "name": "web-docker",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "docker run --rm --init --network host -u \"$(id -u):$(id -g)\" -e npm_config_cache=/tmp/.npm -v \"$PWD/src/web\":/app -w /app node:22 npm run dev"],
+      "port": 5173
     }
   ]
 }

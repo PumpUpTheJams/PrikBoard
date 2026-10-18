@@ -15,18 +15,18 @@ public static class BoardEndpoints
         boards.MapGet("/", ListBoards)
             .WithName("listBoards")
             .WithSummary("List boards")
-            .WithDescription("Returns every board without its columns and notes, newest first.");
+            .WithDescription("Returns every board without its buckets and notes, newest first.");
 
         boards.MapPost("/", CreateBoard)
             .WithName("createBoard")
             .WithSummary("Create a board")
-            .WithDescription("Creates a board with the default columns \"To do\", \"Doing\" and \"Done\".")
+            .WithDescription("Creates a board with the default buckets \"To do\", \"Doing\" and \"Done\" side by side.")
             .ProducesValidationProblem();
 
         boards.MapGet("/{boardId:guid}", GetBoard)
             .WithName("getBoard")
             .WithSummary("Get a full board snapshot")
-            .WithDescription("Returns the board with all columns and notes in display order. " +
+            .WithDescription("Returns the board with every bucket and note and where they sit on the canvas. " +
                              "This is the best single call to understand the current state of a project.");
 
         boards.MapPatch("/{boardId:guid}", UpdateBoard)
@@ -38,7 +38,7 @@ public static class BoardEndpoints
         boards.MapDelete("/{boardId:guid}", DeleteBoard)
             .WithName("deleteBoard")
             .WithSummary("Delete a board")
-            .WithDescription("Permanently deletes the board including all of its columns and notes.");
+            .WithDescription("Permanently deletes the board including all of its buckets and notes.");
 
         return api;
     }
@@ -53,7 +53,21 @@ public static class BoardEndpoints
         CreateBoardRequest request, PrikBoardDbContext db, CancellationToken ct)
     {
         var board = new Board { Name = request.Name, Description = PatchText.Apply(null, request.Description) };
-        board.Columns.AddRange(Board.DefaultColumnNames.Select((name, i) => new Column { Name = name, Position = i }));
+        foreach (var (name, color) in Board.DefaultBuckets)
+        {
+            var (x, y) = Layout.NextBucketSpot(board.Buckets);
+            board.Buckets.Add(new Bucket
+            {
+                Name = name,
+                Color = color,
+                X = x,
+                Y = y,
+                Width = Layout.DefaultBucketWidth,
+                Height = Layout.DefaultBucketHeight,
+                // Distinct timestamps keep the stacking order of the defaults well defined.
+                CreatedAt = board.CreatedAt.AddMilliseconds(board.Buckets.Count),
+            });
+        }
 
         db.Boards.Add(board);
         await db.SaveChangesAsync(ct);
@@ -64,7 +78,8 @@ public static class BoardEndpoints
         Guid boardId, PrikBoardDbContext db, CancellationToken ct)
     {
         var board = await db.Boards.AsNoTracking()
-            .Include(b => b.Columns).ThenInclude(c => c.Notes)
+            .Include(b => b.Buckets)
+            .Include(b => b.Notes)
             .AsSplitQuery()
             .FirstOrDefaultAsync(b => b.Id == boardId, ct);
 

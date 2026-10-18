@@ -1,4 +1,15 @@
-import type { BoardDetail, BoardSummary, ColumnDetail, NoteChanges, NoteColor, NoteDetail } from './types'
+import type {
+  BoardDetail,
+  BoardSummary,
+  BucketChanges,
+  BucketColor,
+  BucketDetail,
+  NoteChanges,
+  NoteColor,
+  NoteDetail,
+  Point,
+  Rect,
+} from './types'
 
 export class ApiError extends Error {
   readonly status: number
@@ -43,14 +54,17 @@ export const api = {
   getBoard: (boardId: string) => request<BoardDetail>('GET', `/boards/${boardId}`),
   deleteBoard: (boardId: string) => request<void>('DELETE', `/boards/${boardId}`),
 
-  createColumn: (boardId: string, name: string) =>
-    request<ColumnDetail>('POST', `/boards/${boardId}/columns`, { name }),
-  deleteColumn: (columnId: string) => request<void>('DELETE', `/columns/${columnId}`),
+  createBucket: (boardId: string, bucket: { name: string; color?: BucketColor } & Partial<Rect>) =>
+    request<BucketDetail>('POST', `/boards/${boardId}/buckets`, bucket),
+  updateBucket: (bucketId: string, changes: BucketChanges) =>
+    request<BucketDetail>('PATCH', `/buckets/${bucketId}`, changes),
+  deleteBucket: (bucketId: string) => request<void>('DELETE', `/buckets/${bucketId}`),
 
-  createNote: (boardId: string, note: { title: string; columnId?: string; color?: NoteColor }) =>
+  createNote: (boardId: string, note: { title: string; color?: NoteColor } & ({ bucketId?: string } | Point)) =>
     request<NoteDetail>('POST', `/boards/${boardId}/notes`, note),
   updateNote: (noteId: string, changes: NoteChanges) => request<NoteDetail>('PATCH', `/notes/${noteId}`, changes),
-  moveNote: (noteId: string, columnId: string, position?: number) =>
-    request<NoteDetail>('POST', `/notes/${noteId}/move`, { columnId, position }),
+  /** Into a free spot inside a bucket, or exactly to a point (the server then works out the bucket). */
+  moveNote: (noteId: string, to: { bucketId: string } | Point) =>
+    request<NoteDetail>('POST', `/notes/${noteId}/move`, to),
   deleteNote: (noteId: string) => request<void>('DELETE', `/notes/${noteId}`),
 }
