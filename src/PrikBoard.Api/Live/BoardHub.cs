@@ -73,7 +73,7 @@ public sealed class BoardHub(LiveViewers viewers, PrikBoardDbContext db) : Hub<I
     public async Task<JoinedBoard> Join(Guid boardId)
     {
         var entry = Current();
-        var role = await BoardAccess.RoleOnBoardAsync(db, boardId, entry.PrincipalId, Context.ConnectionAborted)
+        var role = await BoardAccess.RoleOnBoardAsync(db, boardId, Context.User!, Context.ConnectionAborted)
                    ?? throw new HubException("Board not found, or you are not a member.");
 
         if (entry.BoardId is { } previous && previous != boardId) await LeaveBoard(entry, previous);

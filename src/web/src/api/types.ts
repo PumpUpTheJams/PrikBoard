@@ -268,3 +268,25 @@ export interface RemoteDrag extends DragUpdate {
   principalId: string
   displayName: string
 }
+
+/** A personal access token, without the token itself (only shown when created). */
+export interface AccessToken {
+  id: string
+  name: string
+  /** The token's last four characters. */
+  hint: string
+  /** Viewer (read-only) or Editor; capped by your own role on each board. */
+  access: BoardRole
+  /** The only boards it can use, or null for all of yours. */
+  boardIds: string[] | null
+  agentId: string
+  createdAt: string
+  expiresAt: string
+  lastUsedAt: string | null
+}
+
+export interface CreatedAccessToken {
+  /** Shown once: `pb_pat_...`. */
+  token: string
+  details: AccessToken
+}

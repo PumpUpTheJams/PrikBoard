@@ -25,8 +25,10 @@ public static class BoardEndpoints
             .NoBoardScope()
             .WithName("createBoard")
             .WithSummary("Create a board")
-            .WithDescription("Creates a board with the default buckets \"To do\", \"Doing\" and \"Done\" side by side. You become its owner.")
-            .ProducesValidationProblem();
+            .WithDescription("Creates a board with the default buckets \"To do\", \"Doing\" and \"Done\" side by side. You become its owner " +
+                             "(with a personal access token, the token's owner does). Tokens limited to chosen boards cannot create boards.")
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
         boards.MapGet("/{boardId:guid}", GetBoard)
             .RequireBoardRole(BoardRole.Viewer)
@@ -51,20 +53,32 @@ public static class BoardEndpoints
         return api;
     }
 
-    private static async Task<Ok<List<BoardSummary>>> ListBoards(ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
+    internal static async Task<Ok<List<BoardSummary>>> ListBoards(ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
     {
-        var principalId = principal.PrincipalId();
+        // A personal access token lists its owner's boards, with its capped role and only the boards it is limited to.
+        var caller = BoardCaller.Of(principal);
         var memberships = await db.BoardMembers.AsNoTracking()
-            .Where(m => m.PrincipalId == principalId)
+            .Where(m => m.PrincipalId == caller.MemberId)
             .Include(m => m.Board)
             .OrderByDescending(m => m.Board!.CreatedAt)
             .ToListAsync(ct);
-        return TypedResults.Ok(memberships.Select(m => BoardSummary.From(m.Board!, m.Role)).ToList());
+        return TypedResults.Ok(memberships
+            .Select(m => (m.Board, Role: caller.Apply(m.BoardId, m.Role)))
+            .Where(m => m.Role is not null)
+            .Select(m => BoardSummary.From(m.Board!, m.Role!.Value))
+            .ToList());
     }
 
-    private static async Task<Created<BoardDetail>> CreateBoard(
+    private static async Task<Results<Created<BoardDetail>, ProblemHttpResult>> CreateBoard(
         CreateBoardRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
     {
+        var caller = BoardCaller.Of(principal);
+        if (caller.Boards is not null)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Limited access token",
+                detail: "This access token is limited to chosen boards, so it cannot create new ones.");
+        }
+
         var board = new Board { Name = request.Name, Description = PatchText.Apply(null, request.Description) };
         foreach (var (name, color) in Board.DefaultBuckets)
         {
@@ -82,14 +96,15 @@ public static class BoardEndpoints
             });
         }
 
-        board.Members.Add(new BoardMember { PrincipalId = principal.PrincipalId(), Role = BoardRole.Owner });
+        // A personal access token creates the board for its owner, who owns it; the token keeps its capped role.
+        board.Members.Add(new BoardMember { PrincipalId = caller.MemberId, Role = BoardRole.Owner });
 
         db.Boards.Add(board);
         await db.SaveChangesAsync(ct);
-        return TypedResults.Created($"/api/boards/{board.Id}", BoardDetail.From(board, BoardRole.Owner));
+        return TypedResults.Created($"/api/boards/{board.Id}", BoardDetail.From(board, caller.Apply(board.Id, BoardRole.Owner)!.Value));
     }
 
-    private static async Task<Results<Ok<BoardDetail>, NotFound>> GetBoard(
+    internal static async Task<Results<Ok<BoardDetail>, NotFound>> GetBoard(
         Guid boardId, HttpContext http, PrikBoardDbContext db, CancellationToken ct)
     {
         var board = await db.Boards.AsNoTracking()

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
@@ -68,6 +69,57 @@ public static class BoardAccess
         db.BoardMembers.Where(m => m.BoardId == boardId && m.PrincipalId == principalId)
             .Select(m => (BoardRole?)m.Role).FirstOrDefaultAsync(ct);
 
+    /// <summary>
+    /// The caller's role on a board, including personal access tokens, which act with their owner's role (capped and
+    /// limited to their boards; see <see cref="BoardCaller"/>). Null when they have no access.
+    /// </summary>
+    public static async Task<BoardRole?> RoleOnBoardAsync(PrikBoardDbContext db, Guid boardId, ClaimsPrincipal principal, CancellationToken ct)
+    {
+        var caller = BoardCaller.Of(principal);
+        return caller.Apply(boardId, await RoleOnBoardAsync(db, boardId, caller.MemberId, ct));
+    }
+
+    /// <summary>The outcome of <see cref="AuthorizeAsync"/>: the board and role, or the response to send instead.</summary>
+    public sealed record Authorization(Guid BoardId, BoardRole Role, IResult? Failure);
+
+    /// <summary>
+    /// Finds the board a board, note, bucket or image id belongs to and checks the caller's role on it in one query:
+    /// 404 when the caller has no access (so existence does not leak), 403 when the role is too low. On success the role
+    /// is available through <see cref="BoardRole(HttpContext)"/>. Used by the endpoint filter and by MCP tools.
+    /// </summary>
+    public static async Task<Authorization> AuthorizeAsync(HttpContext http, BoardScope scope, Guid id, BoardRole minimum)
+    {
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var boardIds = scope switch
+        {
+            BoardScope.Board => db.Boards.Where(b => b.Id == id).Select(b => b.Id),
+            BoardScope.Note => db.Notes.Where(n => n.Id == id).Select(n => n.BoardId),
+            BoardScope.Bucket => db.Buckets.Where(b => b.Id == id).Select(b => b.BoardId),
+            _ => db.Images.Where(i => i.Id == id).Select(i => i.BoardId),
+        };
+        var caller = BoardCaller.Of(http.User);
+        var membership = await db.BoardMembers
+            .Where(m => m.PrincipalId == caller.MemberId && boardIds.Contains(m.BoardId))
+            .Select(m => new { m.BoardId, m.Role })
+            .FirstOrDefaultAsync(http.RequestAborted);
+
+        if (membership is null || caller.Apply(membership.BoardId, membership.Role) is not { } role)
+        {
+            return new Authorization(Guid.Empty, default, TypedResults.NotFound());
+        }
+        if (role < minimum)
+        {
+            var detail = caller.Delegated && membership.Role >= minimum
+                ? $"This needs the {minimum} role on the board; this access token is limited to {role}."
+                : $"This needs the {minimum} role on the board; you are {role}.";
+            return new Authorization(membership.BoardId, role, TypedResults.Problem(
+                statusCode: StatusCodes.Status403Forbidden, title: "Insufficient board role", detail: detail));
+        }
+
+        http.Items[RoleItem] = role;
+        return new Authorization(membership.BoardId, role, null);
+    }
+
     private static async ValueTask<object?> Check(
         EndpointFilterInvocationContext context, EndpointFilterDelegate next, BoardRole minimum, BoardScope scope)
     {
@@ -81,36 +133,15 @@ public static class BoardAccess
         };
         if (!Guid.TryParse(http.Request.RouteValues[routeValue]?.ToString(), out var id)) return TypedResults.NotFound();
 
-        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
-        var boardIds = scope switch
-        {
-            BoardScope.Board => db.Boards.Where(b => b.Id == id).Select(b => b.Id),
-            BoardScope.Note => db.Notes.Where(n => n.Id == id).Select(n => n.BoardId),
-            BoardScope.Bucket => db.Buckets.Where(b => b.Id == id).Select(b => b.BoardId),
-            _ => db.Images.Where(i => i.Id == id).Select(i => i.BoardId),
-        };
-        var principalId = http.User.PrincipalId();
-        var membership = await db.BoardMembers
-            .Where(m => m.PrincipalId == principalId && boardIds.Contains(m.BoardId))
-            .Select(m => new { m.BoardId, m.Role })
-            .FirstOrDefaultAsync(http.RequestAborted);
+        var access = await AuthorizeAsync(http, scope, id, minimum);
+        if (access.Failure is not null) return access.Failure;
 
-        if (membership is null) return TypedResults.NotFound();
-        if (membership.Role < minimum)
-        {
-            return TypedResults.Problem(
-                statusCode: StatusCodes.Status403Forbidden,
-                title: "Insufficient board role",
-                detail: $"This needs the {minimum} role on the board; you are {membership.Role}.");
-        }
-
-        http.Items[RoleItem] = membership.Role;
         var result = await next(context);
 
         if (!HttpMethods.IsGet(http.Request.Method) && !HttpMethods.IsHead(http.Request.Method) && Succeeded(result)
             && http.GetEndpoint()?.Metadata.GetMetadata<QuietMarker>() is null)
         {
-            await http.RequestServices.GetRequiredService<BoardEvents>().ChangedAsync(membership.BoardId, http);
+            await http.RequestServices.GetRequiredService<BoardEvents>().ChangedAsync(access.BoardId, http);
         }
         return result;
     }

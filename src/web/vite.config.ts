@@ -14,6 +14,8 @@ export default defineConfig({
       // ws: the live-updates hub (/api/live) upgrades to a WebSocket.
       '/api': { ...api, ws: true },
       '/openapi': api,
+      // The MCP endpoint, so agents can be pointed at the dev server too.
+      '/mcp': api,
       // Through the proxy so signing in from the API reference uses the same callback URL as the app.
       '/scalar': api,
     },

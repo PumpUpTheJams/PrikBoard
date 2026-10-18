@@ -46,6 +46,16 @@ server {
         proxy_read_timeout 60s;
     }
 
+    # MCP (Streamable HTTP) may answer with a server-sent event stream; don't buffer it.
+    location = /mcp {
+        proxy_pass ${API_URL};
+        proxy_http_version 1.1;
+        proxy_buffering off;
+        proxy_set_header Host $forwarded_host;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
     # Vite puts content-hashed files in /assets, so they can be cached forever.
     location /assets/ {
         add_header Cache-Control "public, max-age=31536000, immutable";

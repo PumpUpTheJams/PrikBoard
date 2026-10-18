@@ -1,4 +1,6 @@
 import type {
+  AccessToken,
+  CreatedAccessToken,
   AuthProvider,
   BoardDetail,
   BoardSummary,
@@ -96,6 +98,10 @@ export const api = {
   updateMe: (changes: { displayName?: string }) => request<Caller>('PATCH', '/me', changes),
   unlinkIdentity: (identityId: string) => request<void>('DELETE', `/me/identities/${identityId}`),
   listTokenIssuers: () => request<TokenIssuer[]>('GET', '/auth/token-issuers'),
+  listAccessTokens: () => request<AccessToken[]>('GET', '/me/tokens'),
+  createAccessToken: (token: { name: string; access: BoardRole; boardIds?: string[]; expiresInDays?: number }) =>
+    request<CreatedAccessToken>('POST', '/me/tokens', token),
+  revokeAccessToken: (tokenId: string) => request<void>('DELETE', `/me/tokens/${tokenId}`),
 
   listBoards: () => request<BoardSummary[]>('GET', '/boards'),
   createBoard: (name: string, description?: string) =>

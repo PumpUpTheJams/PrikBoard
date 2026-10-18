@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { api, errorMessage, linkUrl } from '../api/client'
-import type { AuthProvider, Caller } from '../api/types'
+import type { AuthProvider, BoardSummary, Caller } from '../api/types'
+import { AccessTokens } from './AccessTokens'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Dialog } from './Dialog'
 
@@ -47,8 +48,16 @@ export function DisplayNameDialog({ user, onSaved }: { user: Caller; onSaved: (u
   )
 }
 
-/** Display name and linked sign-ins. Connecting a sign-in is a full-page trip to the provider and back. */
-export function AccountDialog({ user, onChange, onClose }: { user: Caller; onChange: (user: Caller) => void; onClose: () => void }) {
+interface AccountDialogProps {
+  user: Caller
+  /** Your boards, to limit access tokens to some of them. */
+  boards: BoardSummary[]
+  onChange: (user: Caller) => void
+  onClose: () => void
+}
+
+/** Display name, linked sign-ins and access tokens. Connecting a sign-in is a full-page trip to the provider and back. */
+export function AccountDialog({ user, boards, onChange, onClose }: AccountDialogProps) {
   const [name, setName] = useState(user.chosenDisplayName ?? '')
   const [providers, setProviders] = useState<AuthProvider[]>([])
   const [unlinking, setUnlinking] = useState<Caller['identities'][number] | null>(null)
@@ -79,7 +88,7 @@ export function AccountDialog({ user, onChange, onClose }: { user: Caller; onCha
   }
 
   return (
-    <Dialog title="Account" subtitle={`Shown to others as ${user.displayName}`} onClose={onClose}>
+    <Dialog title="Account" subtitle={`Shown to others as ${user.displayName}`} onClose={onClose} wide>
       <div className="dialog-body">
         <form className="dialog-section" onSubmit={saveName}>
           <h3>Display name</h3>
@@ -127,6 +136,8 @@ export function AccountDialog({ user, onChange, onClose }: { user: Caller; onCha
             </div>
           )}
         </section>
+
+        <AccessTokens boards={boards} />
         {error && <p className="widget-error">{error}</p>}
       </div>
 

@@ -39,7 +39,7 @@ public static class BucketEndpoints
         return api;
     }
 
-    private static async Task<Results<Created<BucketDetail>, NotFound>> CreateBucket(
+    internal static async Task<Results<Created<BucketDetail>, NotFound>> CreateBucket(
         Guid boardId, CreateBucketRequest request, PrikBoardDbContext db, CancellationToken ct)
     {
         if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
@@ -65,7 +65,7 @@ public static class BucketEndpoints
         return TypedResults.Created($"/api/buckets/{bucket.Id}", BucketDetail.From(bucket));
     }
 
-    private static async Task<Results<Ok<BucketDetail>, NotFound>> UpdateBucket(
+    internal static async Task<Results<Ok<BucketDetail>, NotFound>> UpdateBucket(
         Guid bucketId, UpdateBucketRequest request, PrikBoardDbContext db, CancellationToken ct)
     {
         var bucket = await db.Buckets.FindAsync([bucketId], ct);

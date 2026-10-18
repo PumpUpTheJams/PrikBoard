@@ -11,7 +11,10 @@ To explore and try the API in the browser, open the Scalar API reference at `/sc
 
 ## Authentication
 
-People sign in in the browser through an identity provider (GitHub by default, or Google, Microsoft, Auth0 and others) and then hold a session cookie. Machines and agents never go through that flow. They get an access token from a trusted identity provider, usually with the **Client Credentials** grant, for the audience `api://prikboard`.
+People sign in in the browser through an identity provider (GitHub by default, or Google, Microsoft, Auth0 and others) and then hold a session cookie. Machines and agents never go through that flow. They send a bearer token, one of two kinds:
+
+- **A personal access token** (`pb_pat_...`): a person creates it under Account → *Agents and access tokens* and pastes it into the agent. This is the quickest way to let Claude Code, Cursor or a script work on your boards. See [Personal access tokens](#personal-access-tokens).
+- **An OAuth access token** from a trusted identity provider, usually with the **Client Credentials** grant, for the audience `api://prikboard`. Owners add such clients to boards one by one (see below).
 
 - `boards:read` allows `GET` requests, and `boards:write` allows everything.
 - A token without the needed scope gets `403`. A missing, invalid, expired or untrusted token gets `401` with `WWW-Authenticate: Bearer`.
@@ -46,6 +49,47 @@ Boards an agent creates itself belong to it. Agents cannot accept invite links o
 Owners create single-use links with createBoardInvite. The response holds the token and a `path` (`/#/invite/{token}`) **once**; only a hash is stored. The link expires after 7 days by default (`expiresInDays`, 1 to 30), and owners can revoke it. The first signed-in person to accept it becomes a member with the link's role, or keeps their current role if that is higher. Tokens travel in POST bodies, never in query strings.
 
 Setting up providers and issuers is described in [Authentication](authentication.md).
+
+## Personal access tokens
+
+A personal access token acts as **its own agent on your boards**: what it does shows as that agent (its name is the token's name), never as you.
+
+- It can use every board you are a member of, or only the boards you chose when you created it.
+- Its role on a board is the **lower** of your role there and the token's access: *Read only* (Viewer, scope `boards:read`) or *Can edit* (Editor, scopes `boards:read boards:write`).
+  - Owner is never possible: tokens don't manage members, invites or tokens, and don't rename or delete boards.
+  - If you lose access to a board, so do your tokens.
+- Boards a token creates belong to you.
+- Tokens expire (90 days by default, at most a year). You can revoke them at any time, which takes effect at once.
+- Only a hash is stored. The token is shown once, when you create it.
+
+```bash
+curl -H "Authorization: Bearer pb_pat_..." http://localhost:5080/api/boards
+```
+
+Tokens are managed with listAccessTokens, createAccessToken and revokeAccessToken, from a browser session only: a token can never create another token. Each token is limited to 600 requests a minute (`RateLimits:AccessTokenRequestsPerMinute`).
+
+## MCP
+
+PrikBoard is also an [MCP](https://modelcontextprotocol.io) server at **`/mcp`** (Streamable HTTP, stateless). It authenticates with a bearer token only, a personal access token or an issuer token, never the session cookie. Add it to Claude Code with:
+
+```bash
+claude mcp add --transport http prikboard http://localhost:5173/mcp --header "Authorization: Bearer pb_pat_..."
+```
+
+| Tool | What it does |
+| --- | --- |
+| `list_boards` | Your boards with your role on each |
+| `get_board` | Compact overview: buckets in order with their notes (title, tags, assignees, checklist progress), plus loose notes |
+| `search_notes` | By bucket (name or id), tag, assignee or text |
+| `get_note` | Everything about one note |
+| `create_note` | In a bucket by name or id (default: the first bucket) |
+| `update_note` | Same PATCH rules as updateNote |
+| `move_note` | To a bucket by name or id; the server finds a free spot |
+| `set_working` | Assign yourself as an agent and show (or hide) the working halo |
+| `delete_note` | Marked destructive, so clients ask first |
+| `create_bucket`, `rename_bucket` | Bucket housekeeping |
+
+The tools use the same access checks, validation and layout rules as the REST endpoints, and people watching the board see the changes live. There are no tools for members, invites, tokens or deleting boards. A request with a foreign `Origin` header gets `403`. Tool errors (no access, read-only token, an unknown bucket name) come back as tool results with `isError`, written for the model to act on.
 
 ## The board model
 
@@ -116,6 +160,9 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | listAuthProviders | `GET /api/auth/providers` | Sign-in providers for the browser, the default first (public) |
 | logout | `POST /api/auth/logout` | End the browser session (public) |
 | listTokenIssuers | `GET /api/auth/token-issuers` | Ids of the configured token issuers, for adding agents |
+| listAccessTokens | `GET /api/me/tokens` | Your personal access tokens (never the tokens themselves). Sessions only |
+| createAccessToken | `POST /api/me/tokens` | New personal access token: `name`, `access` (Viewer or Editor), optional `boardIds` and `expiresInDays`. The token is in the response once. Sessions only |
+| revokeAccessToken | `DELETE /api/me/tokens/{tokenId}` | Revoke a token at once. Sessions only |
 | whoAmI | `GET /api/me` | Who you are: principal id, display name, linked sign-ins (sessions) or issuer and client id (tokens), and scopes |
 | updateMe | `PATCH /api/me` | Set your display name (`""` clears it) |
 | unlinkIdentity | `DELETE /api/me/identities/{identityId}` | Remove a linked sign-in (not the last one). Sessions only |

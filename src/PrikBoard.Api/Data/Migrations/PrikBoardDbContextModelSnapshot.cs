@@ -23,6 +23,57 @@ namespace PrikBoard.Api.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("PrikBoard.Api.Domain.AccessToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AgentId")
+                        .HasColumnType("uuid");
+
+                    b.PrimitiveCollection<List<Guid>>("BoardIds")
+                        .HasColumnType("uuid[]");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Hint")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
+                    b.Property<DateTimeOffset?>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MaxRole")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("bytea");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentId");
+
+                    b.HasIndex("OwnerId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.ToTable("AccessTokens");
+                });
+
             modelBuilder.Entity("PrikBoard.Api.Domain.Board", b =>
                 {
                     b.Property<Guid>("Id")
@@ -46,7 +97,7 @@ namespace PrikBoard.Api.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Boards", (string)null);
+                    b.ToTable("Boards");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.BoardImage", b =>
@@ -113,7 +164,7 @@ namespace PrikBoard.Api.Data.Migrations
 
                     b.HasIndex("NoteId");
 
-                    b.ToTable("Images", (string)null);
+                    b.ToTable("Images");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.BoardInvite", b =>
@@ -161,7 +212,7 @@ namespace PrikBoard.Api.Data.Migrations
                     b.HasIndex("TokenHash")
                         .IsUnique();
 
-                    b.ToTable("BoardInvites", (string)null);
+                    b.ToTable("BoardInvites");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.BoardMember", b =>
@@ -184,7 +235,7 @@ namespace PrikBoard.Api.Data.Migrations
 
                     b.HasIndex("PrincipalId");
 
-                    b.ToTable("BoardMembers", (string)null);
+                    b.ToTable("BoardMembers");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.Bucket", b =>
@@ -225,7 +276,7 @@ namespace PrikBoard.Api.Data.Migrations
 
                     b.HasIndex("BoardId");
 
-                    b.ToTable("Buckets", (string)null);
+                    b.ToTable("Buckets");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.ImageContent", b =>
@@ -239,7 +290,7 @@ namespace PrikBoard.Api.Data.Migrations
 
                     b.HasKey("ImageId");
 
-                    b.ToTable("ImageContents", (string)null);
+                    b.ToTable("ImageContents");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.Note", b =>
@@ -293,7 +344,7 @@ namespace PrikBoard.Api.Data.Migrations
 
                     b.HasIndex("BucketId");
 
-                    b.ToTable("Notes", (string)null);
+                    b.ToTable("Notes");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.Principal", b =>
@@ -361,7 +412,7 @@ namespace PrikBoard.Api.Data.Migrations
                     b.HasIndex("Provider", "SubjectHash")
                         .IsUnique();
 
-                    b.ToTable("UserIdentities", (string)null);
+                    b.ToTable("UserIdentities");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.Agent", b =>
@@ -378,6 +429,11 @@ namespace PrikBoard.Api.Data.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<Guid?>("OwnerId")
+                        .HasColumnType("uuid");
+
+                    b.HasIndex("OwnerId");
+
                     b.HasIndex("Issuer", "ClientId")
                         .IsUnique()
                         .HasFilter("\"Kind\" = 'Agent'");
@@ -390,6 +446,25 @@ namespace PrikBoard.Api.Data.Migrations
                     b.HasBaseType("PrikBoard.Api.Domain.Principal");
 
                     b.HasDiscriminator().HasValue("User");
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.AccessToken", b =>
+                {
+                    b.HasOne("PrikBoard.Api.Domain.Agent", "Agent")
+                        .WithMany()
+                        .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PrikBoard.Api.Domain.User", "Owner")
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Agent");
+
+                    b.Navigation("Owner");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.BoardImage", b =>
@@ -503,7 +578,7 @@ namespace PrikBoard.Api.Data.Migrations
 
                             b1.HasKey("NoteId", "__synthesizedOrdinal");
 
-                            b1.ToTable("Notes", (string)null);
+                            b1.ToTable("Notes");
 
                             b1
                                 .ToJson("Assignees")
@@ -527,7 +602,7 @@ namespace PrikBoard.Api.Data.Migrations
 
                             b1.HasKey("NoteId", "__synthesizedOrdinal");
 
-                            b1.ToTable("Notes", (string)null);
+                            b1.ToTable("Notes");
 
                             b1
                                 .ToJson("Checklist")
@@ -552,7 +627,7 @@ namespace PrikBoard.Api.Data.Migrations
 
                             b1.HasKey("NoteId", "__synthesizedOrdinal");
 
-                            b1.ToTable("Notes", (string)null);
+                            b1.ToTable("Notes");
 
                             b1
                                 .ToJson("Links")
@@ -580,6 +655,14 @@ namespace PrikBoard.Api.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.Agent", b =>
+                {
+                    b.HasOne("PrikBoard.Api.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.Board", b =>

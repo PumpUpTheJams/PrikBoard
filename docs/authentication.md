@@ -1,15 +1,16 @@
 # Authentication
 
-PrikBoard accepts two kinds of callers:
+PrikBoard accepts three kinds of callers:
 
 | Who | How | Scheme |
 | --- | --- | --- |
 | People in the browser | Sign in with an identity provider (GitHub by default), then hold an HttpOnly session cookie (`prikboard`, 14 days, sliding) | Cookie |
+| Agents acting for a person | A **personal access token** the person created in PrikBoard, sent as `Authorization: Bearer pb_pat_...` | `pat` (`Auth/AccessTokenHandler.cs`) |
 | Machines and other OAuth clients | An access token from a trusted issuer, sent as `Authorization: Bearer <token>`. Usually obtained with the **Client Credentials** grant | JWT bearer, one scheme per issuer |
 
-PrikBoard does not issue tokens itself. An external identity provider (Auth0, Entra ID, Okta, Keycloak and so on) does, and PrikBoard validates them: signature, issuer, audience and expiry.
+Apart from personal access tokens, PrikBoard does not issue tokens. An external identity provider (Auth0, Entra ID, Okta, Keycloak and so on) does, and PrikBoard validates them: signature, issuer, audience and expiry.
 
-A policy scheme picks the scheme per request. A request with a `Bearer` header is validated as a token. When several issuers are configured, the token's `iss` claim picks the issuer's scheme, which then validates everything. Every other request is checked for the cookie. The fallback authorization policy (`AuthSetup.ApiPolicy`) applies to every endpoint that does not say `AllowAnonymous()`.
+A policy scheme picks the scheme per request. A `Bearer` token starting with `pb_pat_` goes to the personal access token scheme. Any other request with a `Bearer` header is validated as an issuer token. When several issuers are configured, the token's `iss` claim picks the issuer's scheme, which then validates everything. Every other request is checked for the cookie. The fallback authorization policy (`AuthSetup.ApiPolicy`) applies to every endpoint that does not say `AllowAnonymous()`.
 
 ## Scopes
 
@@ -120,6 +121,22 @@ Boards are members-only. The roles are:
 The creator becomes the owner, and a board always keeps at least one. Owners add people by exact email, or with a single-use invite link (`/#/invite/{token}`, 7 days by default). Only a hash of the invite token is stored.
 
 Every machine token acts as an **agent** principal, keyed by issuer id and client id (azp, client_id or appid). An agent sees no boards until an owner adds it with *Share → Add an agent*. Agents become owners of the boards they create. Token scopes still apply on top of the role: a `boards:read` token cannot write even as an Editor. Agents cannot accept invite links or search people by email, so an agent that reads a link somewhere cannot use it to join a board.
+
+## Personal access tokens
+
+A signed-in person creates tokens under Account → *Agents and access tokens*, or with `POST /api/me/tokens` from a session. A token can't create tokens.
+
+- **What it is.** `pb_pat_`, then 32 random bytes in base64url, then a 6-character checksum. The prefix routes it to the right scheme without a database lookup, and lets secret scanners spot leaked tokens. The checksum rejects typos before the lookup.
+- **What is stored.** A SHA-256 of the token (it has 256 random bits, so no key or slow hash is needed), the last 4 characters as a hint, the access, the boards, and the expiry. The token is shown once.
+- **Who it acts as.** Each token has its own `Agent` principal (issuer `pat`, client id = token id, `OwnerId` = the person). Changes and live updates show that agent.
+  - Board access follows the **owner's** memberships, capped at the token's access (Viewer or Editor) and limited to its boards (`BoardCaller` in `Auth/AccessTokens.cs`, applied by `BoardAccess`).
+  - Viewer tokens get only `boards:read`.
+  - Tokens are refused, like issuer tokens, wherever a person is needed: invites, email lookup, linking sign-ins, managing tokens.
+- **Lifetime.** 90 days by default, 1 to 365 days, at most 50 per person.
+  - Lookups are cached for a minute. Revoking evicts the cache on the instance that handled it; on other instances, a revoked token works for up to a minute.
+  - `lastUsedAt` is updated at most once a minute.
+- **Rate limit.** 600 requests a minute per token (`RateLimits:AccessTokenRequestsPerMinute`).
+- **The `/mcp` endpoint** accepts personal access tokens and issuer tokens, never the cookie (`AuthSetup.McpPolicy`). It also refuses requests whose `Origin` header names another site, as the MCP spec requires.
 
 ## Machine-to-machine: Client Credentials
 

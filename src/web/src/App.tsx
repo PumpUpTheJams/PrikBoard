@@ -416,7 +416,7 @@ function Workspace({ user, onUserChange, theme, onThemeChange, onSignOut }: Work
       {dialog === 'share' && activeBoard && (
         <ShareDialog key={activeBoard.id} board={activeBoard} onClose={() => setDialog(null)} onLeft={() => left(activeBoard)} />
       )}
-      {dialog === 'account' && <AccountDialog user={user} onChange={onUserChange} onClose={() => setDialog(null)} />}
+      {dialog === 'account' && <AccountDialog user={user} boards={boards ?? []} onChange={onUserChange} onClose={() => setDialog(null)} />}
 
       {boardToLeave && (
         <ConfirmDialog

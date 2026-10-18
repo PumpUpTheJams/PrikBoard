@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Validators;
 
+using PrikBoard.Api.Domain;
+
 namespace PrikBoard.Api.Auth;
 
 /// <summary>
@@ -26,6 +28,16 @@ public static partial class AuthSetup
 
     /// <summary>Signed in, and for Bearer tokens holding the scope the HTTP method needs (see <see cref="ApiScopes"/>).</summary>
     public const string ApiPolicy = "Api";
+
+    /// <summary>
+    /// The MCP endpoint: bearer tokens only (personal access tokens or issuer tokens), never the session cookie, so another
+    /// site cannot drive it with a signed-in person's browser. Needs boards:read; write tools check boards:write. A
+    /// request with a foreign Origin header gets 403, as the MCP spec requires; agents send none.
+    /// </summary>
+    public const string McpPolicy = "Mcp";
+
+    /// <summary>Personal access tokens (<c>Bearer pb_pat_...</c>), issued by PrikBoard itself; see <see cref="AccessTokenHandler"/>.</summary>
+    public const string AccessTokenScheme = "pat";
 
     /// <summary>
     /// The live hub: a signed-in person on PrikBoard's own pages, or a token with boards:read or boards:write. Not the
@@ -73,7 +85,8 @@ public static partial class AuthSetup
                 // This is an API: answer with status codes instead of redirecting to a login page.
                 options.Events.OnRedirectToLogin = context => SetStatus(context, StatusCodes.Status401Unauthorized);
                 options.Events.OnRedirectToAccessDenied = context => SetStatus(context, StatusCodes.Status403Forbidden);
-            });
+            })
+            .AddScheme<AuthenticationSchemeOptions, AccessTokenHandler>(AccessTokenScheme, null);
 
         foreach (var (id, provider) in config.Providers)
         {
@@ -100,6 +113,10 @@ public static partial class AuthSetup
             {
                 throw new InvalidOperationException($"Token issuer id '{id}' must use lowercase letters, digits and dashes.");
             }
+            if (id == Agent.AccessTokenIssuer)
+            {
+                throw new InvalidOperationException($"Token issuer id '{id}' is reserved for personal access tokens.");
+            }
 
             AddTokenIssuer(auth, id, issuer, config.Tokens.Audience);
         }
@@ -108,6 +125,15 @@ public static partial class AuthSetup
         builder.Services.AddSingleton<IAuthorizationHandler, ApiScopes.Handler>();
         builder.Services.AddAuthorizationBuilder()
             .AddPolicy(ApiPolicy, apiPolicy)
+            .AddPolicy(McpPolicy, policy =>
+            {
+                policy.AuthenticationSchemes = [AccessTokenScheme, .. issuers.Select(i => TokenScheme(i.Key))];
+                policy.RequireAuthenticatedUser().RequireAssertion(context =>
+                    context.User.IsToken()
+                    && ApiScopes.Of(context.User) is var granted && (granted.Contains(ApiScopes.Read) || granted.Contains(ApiScopes.Write))
+                    && (context.Resource is not HttpContext http
+                        || string.IsNullOrEmpty(http.Request.Headers.Origin) || SameOrigin.Check(http.Request)));
+            })
             .AddPolicy(LivePolicy, policy => policy.RequireAuthenticatedUser().RequireAssertion(context =>
                 context.User.IsToken()
                     ? ApiScopes.Of(context.User) is var granted && (granted.Contains(ApiScopes.Read) || granted.Contains(ApiScopes.Write))
@@ -119,7 +145,7 @@ public static partial class AuthSetup
     }
 
     /// <summary>
-    /// Cookie unless there is a Bearer token. An empty "Bearer" header counts as none: Scalar sends one while its token
+    /// Cookie unless there is a Bearer token. Personal access tokens are recognised by their prefix. An empty "Bearer" header counts as none: Scalar sends one while its token
     /// field is blank, and a signed-in person's cookie should still work then. With several issuers, the token's (not yet validated) iss claim picks the
     /// scheme; that scheme then validates everything, including the issuer. An unknown issuer goes to the first scheme,
     /// which rejects it.
@@ -127,6 +153,7 @@ public static partial class AuthSetup
     private static string SelectScheme(HttpContext context, TokenOptions tokens, List<KeyValuePair<string, TokenIssuerOptions>> issuers)
     {
         var token = BearerToken(context.Request);
+        if (token is not null && AccessTokens.LooksLikeOne(token)) return AccessTokenScheme;
         if (token is null || issuers.Count == 0) return CookieScheme;
         if (issuers.Count == 1) return TokenScheme(issuers[0].Key);
 
