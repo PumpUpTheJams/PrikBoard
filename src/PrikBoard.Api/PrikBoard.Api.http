@@ -1,0 +1,49 @@
+@host = http://localhost:5080
+
+### OpenAPI document (the machine-readable contract for AI agents)
+GET {{host}}/openapi/v1.json
+
+### List boards
+GET {{host}}/api/boards
+
+### Create a board
+# @name createBoard
+POST {{host}}/api/boards
+Content-Type: application/json
+
+{
+  "name": "Website relaunch",
+  "description": "Everything needed to ship the new site"
+}
+
+###
+@boardId = {{createBoard.response.body.$.id}}
+@doneColumnId = {{createBoard.response.body.$.columns[2].id}}
+
+### Full board snapshot
+GET {{host}}/api/boards/{{boardId}}
+
+### Stick a note on the board (lands in the first column)
+# @name createNote
+POST {{host}}/api/boards/{{boardId}}/notes
+Content-Type: application/json
+
+{
+  "title": "Pick a colour palette",
+  "body": "Three options for the team to vote on",
+  "color": "Pink"
+}
+
+###
+@noteId = {{createNote.response.body.$.id}}
+
+### Move the note to Done
+POST {{host}}/api/notes/{{noteId}}/move
+Content-Type: application/json
+
+{
+  "columnId": "{{doneColumnId}}"
+}
+
+### Search notes
+GET {{host}}/api/boards/{{boardId}}/notes?search=palette
