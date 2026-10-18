@@ -29,6 +29,8 @@ In a second terminal, start the frontend on http://localhost:5173. Vite proxies 
 cd src/web && npm install && npm run dev
 ```
 
+Signing in needs a GitHub OAuth App (the default provider) with its client id and secret in user secrets. [`docs/authentication.md`](docs/authentication.md) walks through it, and covers Google, Microsoft, Auth0 and other OpenID Connect providers.
+
 Run the tests:
 
 ```bash
@@ -37,6 +39,8 @@ dotnet test PrikBoard.slnx
 
 ## Using the API (humans and AI agents)
 
+- Machines authenticate with an OAuth 2.0 access token (Client Credentials) from a trusted identity provider, sent as `Authorization: Bearer <token>`
+- Interactive API reference (Scalar): http://localhost:5173/scalar. Signs you in with GitHub first, so "Test Request" uses your session
 - OpenAPI document: http://localhost:5080/openapi/v1.json
 - Example requests: [`src/PrikBoard.Api/PrikBoard.Api.http`](src/PrikBoard.Api/PrikBoard.Api.http)
 - Guide: [`docs/api.md`](docs/api.md)

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { api, errorMessage } from './api/client'
-import type { BoardSummary } from './api/types'
+import { api, errorMessage, setUnauthorizedHandler } from './api/client'
+import type { BoardSummary, Caller } from './api/types'
 import { BoardCanvas } from './board/BoardCanvas'
 import { MoonIcon, SunIcon } from './board/icons'
 import { QuickAdd } from './components/QuickAdd'
+import { SignIn } from './components/SignIn'
 
 const boardIdFromHash = () => window.location.hash.match(/^#\/boards\/([\w-]+)/)?.[1] ?? null
 
@@ -20,10 +21,9 @@ function storedTheme(): Theme {
 }
 
 export default function App() {
-  const [boards, setBoards] = useState<BoardSummary[] | null>(null)
-  const [selectedId, setSelectedId] = useState(boardIdFromHash)
-  const [error, setError] = useState<string | null>(null)
   const [theme, setTheme] = useState(storedTheme)
+  // undefined while checking the session, null when signed out.
+  const [user, setUser] = useState<Caller | null | undefined>(undefined)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -33,6 +33,34 @@ export default function App() {
       // Storage can be unavailable (private mode); the theme then lasts for this visit only.
     }
   }, [theme])
+
+  useEffect(() => {
+    // Any 401, such as an expired session, drops back to the sign-in screen.
+    setUnauthorizedHandler(() => setUser(null))
+    api.whoAmI().then(setUser, () => setUser(null))
+  }, [])
+
+  async function signOut() {
+    await api.logout().catch(() => {})
+    setUser(null)
+  }
+
+  if (user === undefined) return <p className="status">Loading…</p>
+  if (user === null) return <SignIn />
+  return <Workspace user={user} theme={theme} onThemeChange={setTheme} onSignOut={() => void signOut()} />
+}
+
+interface WorkspaceProps {
+  user: Caller
+  theme: Theme
+  onThemeChange: (theme: Theme) => void
+  onSignOut: () => void
+}
+
+function Workspace({ user, theme, onThemeChange, onSignOut }: WorkspaceProps) {
+  const [boards, setBoards] = useState<BoardSummary[] | null>(null)
+  const [selectedId, setSelectedId] = useState(boardIdFromHash)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     api.listBoards().then(setBoards, (e) => setError(errorMessage(e)))
@@ -96,17 +124,25 @@ export default function App() {
             Delete board
           </button>
         )}
-        <a className="api-link" href="/openapi/v1.json" target="_blank" rel="noreferrer">
-          OpenAPI ↗
+        <a className="api-link" href="/scalar" target="_blank" rel="noreferrer">
+          API reference ↗
         </a>
         <button
           type="button"
           className="icon-button"
           aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}
         >
           {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
         </button>
+        <div className="user-menu">
+          <span className="user-name" title={user.email ?? undefined}>
+            {user.name}
+          </span>
+          <button type="button" onClick={onSignOut}>
+            Sign out
+          </button>
+        </div>
       </header>
 
       {error && (

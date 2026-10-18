@@ -10,16 +10,20 @@
 
 There is one API, and nothing is private to the UI. Anything a person can do in the browser, an AI agent can do over HTTP with the same endpoints. The OpenAPI document is the contract between them.
 
+People sign in through an identity provider and hold a session cookie. Machines and agents send an OAuth 2.0 access token (usually from the Client Credentials grant) from a trusted identity provider, limited by the scopes `boards:read` and `boards:write`. See [Authentication](authentication.md).
+
 ## Domain model
 
 ```
 Board 1──* Bucket
 Board 1──* Note *──0..1 Bucket
+User
 ```
 
 - **Board.** One project and a freeform canvas, with a name and an optional description. New boards start with the buckets *To do*, *Doing* and *Done* side by side.
 - **Bucket.** A named, coloured rectangle on the board (`x`, `y`, `width`, `height`). Deleting a bucket leaves its notes on the board.
 - **Note.** A 160×140 px post-it at `x`, `y`, with a title, an optional body and a colour (`Yellow`, `Pink`, `Blue`, `Green`, `Orange` or `Purple`).
+- **User.** Someone who signed in, identified by provider plus subject id. Boards are not owned yet: every signed-in user sees every board.
 
 The server owns the geometry (`Domain/Layout.cs`). It snaps every coordinate to a 20 px grid. A note's `BucketId` is not chosen directly. It is always the topmost bucket containing the note's centre (buckets stack in creation order), and the server recomputes it whenever a note or bucket is created, moved, resized or deleted. Moving a bucket moves its notes with it. A client that only knows a bucket, such as an agent, can move a note there with `bucketId`, and the server picks a free grid slot inside it.
 
@@ -27,11 +31,12 @@ The server owns the geometry (`Domain/Layout.cs`). It snaps every coordinate to 
 
 | Path | Responsibility |
 | --- | --- |
+| `Auth/` | Authentication schemes, sign-in providers, token issuers and scopes, sign-in mapping |
 | `Domain/` | Entities and the positioning helper |
 | `Data/` | `PrikBoardDbContext` and EF Core migrations |
 | `Contracts/` | Request and response records. Their XML doc comments become OpenAPI descriptions |
 | `Endpoints/` | One file per resource with route mappings and handlers |
-| `Program.cs` | Composition: services, OpenAPI, migrations on startup, route groups |
+| `Program.cs` | Composition: services, OpenAPI and the Scalar API reference (`/scalar`), migrations on startup, route groups |
 
 The API is built on these conventions:
 
@@ -66,7 +71,7 @@ React 19, TypeScript and Vite, with no state library and no UI kit yet.
 
 ## Not decided yet
 
-- **Authentication and authorization.** This is needed before the API is exposed publicly. Agents will probably use API keys or tokens.
+- **Authorization.** Authentication is in place, but every signed-in user (and every token with `boards:write`) can see and change every board. Board ownership or membership comes later.
 - **Hosting, and SQLite versus a managed database.** See [`infra/README.md`](../infra/README.md).
 - **Richer project-management fields.** For example assignee, due date and labels.
 - **An MCP server.** It would sit on top of the same endpoints, so AI assistants can use PrikBoard as a native tool.

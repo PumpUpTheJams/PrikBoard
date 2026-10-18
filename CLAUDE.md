@@ -19,6 +19,8 @@ dotnet tool restore                               # pinned dotnet-ef from .confi
 dotnet ef migrations add <Name> --project src/PrikBoard.Api --output-dir Data/Migrations
 ```
 
+No local Node here: run web checks in Docker, e.g. `sg docker -c 'docker run --rm -u "$(id -u):$(id -g)" -e npm_config_cache=/tmp/.npm -v "$PWD/src/web":/app -w /app node:22 sh -c "npm run lint && npm run build"'` (the `web-docker` launch config runs the dev server the same way).
+
 `.claude/launch.json` defines `api` and `web` preview servers. The frontend has no test suite. Set `PRIKBOARD_API_URL` to point the Vite proxy at a different API.
 
 ## Architecture
@@ -34,15 +36,17 @@ Domain: a board is a freeform canvas. `Board 1──* Bucket` (named rectangles)
 - **The server owns the geometry** (`Domain/Layout.cs`). Coordinates snap to a 20 px grid (`Layout.Snap`). `Note.BucketId` is derived, never set directly: it is the topmost bucket containing the note's centre, with buckets stacked by `CreatedAt`. Every create, move, resize or delete of a note or bucket must call `Layout.AssignBuckets`. Moving a bucket shifts its notes by the same delta. createNote and moveNote take either `bucketId` (the server picks `Layout.FreeSpotIn`) or both `x` and `y`, never both. `src/web/src/board/layout.ts` mirrors these rules for drag feedback, so keep the two in sync.
 - **PATCH semantics.** A null field means unchanged. Optional text fields go through `PatchText.Apply`, where empty or whitespace clears the value (sets it to null). Moving a note is a separate `POST /notes/{id}/move` (`moveNote`), not part of `updateNote`. Buckets move and resize through `updateBucket`.
 - **Error shapes.** A bucket that isn't on the note's board, or an invalid `bucketId`/`x`/`y` combination, is a 400 `ValidationProblem` keyed on the field. Use 409 `TypedResults.Problem` for state conflicts.
+- **Authentication** (`Auth/`, `docs/authentication.md`). Browsers sign in through a provider configured under `Auth:Providers` (generic OpenID Connect, plus a `GitHub` OAuth adapter) and get a cookie. `Auth:DefaultProvider` (github) is listed first. Machines send JWT access tokens (Client Credentials) from issuers under `Auth:Tokens:Issuers`; PrikBoard never issues tokens. The fallback policy `AuthSetup.ApiPolicy` requires a caller and, for tokens, scope `boards:read` (GET/HEAD) or `boards:write` (everything), so public endpoints need `.AllowAnonymous()`, which also clears their OpenAPI `security`. `ClaimsPrincipal.IsToken()` tells tokens from sessions, and `UserId()` only works for sessions. There is no dev login. `/scalar` (Scalar API reference) uses `.RedirectToSignIn()` to send anonymous visitors through the default provider. Keep `changeOrigin: false` on the Vite proxy (`/api`, `/openapi`, `/scalar`), because OAuth callback URLs are built from the Host header. External identities are mapped to `User` in `UserSignIn.OnTicketReceived`. In that event `context.Fail()` does not stop the sign-in, so reject with `HandleResponse()` and a redirect. Boards are shared by all signed-in users.
 - **SQLite specifics.** `DateTimeOffset` is stored as binary through a global convention in `PrikBoardDbContext` so it can be sorted and compared. That format keeps only 0.1 ms precision, so use `AddMilliseconds`, not ticks, to separate timestamps. EF's SQLite table rebuilds run after every other operation in a migration, so dropping a table that a rebuilt table still references cascade-deletes rows. `ReplaceColumnsWithBuckets` rebuilds `Notes` in raw SQL for that reason. Text search uses `EF.Functions.Like` with escaped wildcards. Migrations run automatically on startup. JSON uses `JsonNumberHandling.Strict` to keep the OpenAPI integer types clean. Enums are serialized as strings (`NoteColor`).
 
 ### Tests (`src/PrikBoard.Api.Tests`)
 
-The tests are xUnit integration tests over HTTP only. `PrikBoardApiFactory` (a `WebApplicationFactory<Program>`) gives each test class its own temp SQLite file (`Pooling=False` so the file can be deleted). Tests in a class share that database, so each test creates its own board and doesn't assume global state.
+The tests are xUnit integration tests over HTTP only. `PrikBoardApiFactory` (a `WebApplicationFactory<Program>`) gives each test class its own temp SQLite file (`Pooling=False` so the file can be deleted). Tests in a class share that database, so each test creates its own board and doesn't assume global state. Every `/api` call needs auth: use `factory.CreateSignedInClientAsync(email)`, which signs in through a test-only middleware the factory adds (the API has no sign-in shortcut), or a JWT from the in-memory issuers in `TokenAuthTests`.
 
 ### Web (`src/web`)
 
 - `src/api/types.ts` contains **hand-written** mirrors of the C# contracts, and `src/api/client.ts` has one method per operationId with the same name. They are not generated. When you add or change an endpoint or contract, update both, plus the endpoint table in `docs/api.md`.
+- `App` checks `whoAmI` and shows `SignIn` until there is a session. Any 401 from `client.ts` goes back to sign-in (`setUnauthorizedHandler`).
 - No state library and no UI kit. `board/BoardCanvas` runs every mutation through `run()`, which calls the API and then reloads the full board with `getBoard`. While a pointer gesture is in progress it renders the snapped position locally (`Gesture`). On drop it sends one request and keeps the gesture until the reload lands, so items don't jump back.
 - Dark is the default theme. `:root` in `index.css` holds the dark tokens, and `:root[data-theme='light']` overrides them.
 - The selected board lives in the URL hash (`#/boards/{id}`).
@@ -50,5 +54,5 @@ The tests are xUnit integration tests over HTTP only. `PrikBoardApiFactory` (a `
 
 ## Constraints
 
-- There is no authentication yet. The API must not be exposed publicly (see `infra/README.md`). Nothing is deployed, and `infra/` contains only plans.
+- Nothing is deployed, and `infra/` contains only plans. Before deploying, persist the Data Protection keys and serve over HTTPS (`docs/authentication.md`).
 - Connection string key: `ConnectionStrings:PrikBoard` (env var `ConnectionStrings__PrikBoard`).
