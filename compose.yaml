@@ -1,5 +1,10 @@
 # Local development database. Start with `docker compose up -d`; data lives in the `postgres-data` volume and
 # survives `docker compose down` (only `docker compose down -v` deletes it).
+#
+# The `app` profile also runs the API and web containers, built from this checkout, on http://localhost:8080:
+#   GITHUB_CLIENT_SECRET=... docker compose --profile app up -d --build
+# (or put GITHUB_CLIENT_SECRET in a .env file next to this one; it is gitignored). Register
+# http://localhost:8080/api/auth/callback/github as the callback URL of the GitHub OAuth App you use.
 services:
   postgres:
     image: postgres:17
@@ -18,5 +23,31 @@ services:
       retries: 10
     restart: unless-stopped
 
+  api:
+    profiles: [app]
+    build: src/PrikBoard.Api
+    image: prikboard-api
+    environment:
+      ConnectionStrings__PrikBoard: Host=postgres;Database=prikboard;Username=prikboard;Password=prikboard
+      Auth__Providers__github__ClientSecret: ${GITHUB_CLIENT_SECRET:-}
+    volumes:
+      - dataprotection-keys:/home/app/.aspnet/DataProtection-Keys
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    profiles: [app]
+    build: src/web
+    image: prikboard-web
+    ports:
+      - "8080:8080"
+    depends_on:
+      - api
+    restart: unless-stopped
+
 volumes:
   postgres-data:
+  # Keeps sign-in sessions valid across API container restarts.
+  dataprotection-keys:

@@ -1,0 +1,30 @@
+# Keep an X-Forwarded-Proto set by a TLS-terminating proxy in front of this container; otherwise use our own scheme.
+map $http_x_forwarded_proto $forwarded_proto {
+    default $http_x_forwarded_proto;
+    ''      $scheme;
+}
+
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+
+    # Like the Vite dev proxy (changeOrigin: false), pass the browser's Host through: the API builds OAuth
+    # callback URLs and the OpenAPI server URL from it.
+    location ~ ^/(api|openapi|scalar)(/|$) {
+        proxy_pass ${API_URL};
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # Vite puts content-hashed files in /assets, so they can be cached forever.
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache";
+    }
+}
