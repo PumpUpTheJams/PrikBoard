@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Data;
@@ -9,12 +8,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
     public DbSet<Board> Boards => Set<Board>();
     public DbSet<Bucket> Buckets => Set<Bucket>();
     public DbSet<Note> Notes => Set<Note>();
-
-    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
-    {
-        // SQLite cannot compare or sort DateTimeOffset values stored as text; store them as binary instead.
-        configurationBuilder.Properties<DateTimeOffset>().HaveConversion<DateTimeOffsetToBinaryConverter>();
-    }
+    public DbSet<User> Users => Set<User>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -50,6 +44,15 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
                 .HasForeignKey(n => n.BucketId)
                 .OnDelete(DeleteBehavior.SetNull);
             note.HasIndex(n => n.BoardId);
+        });
+
+        modelBuilder.Entity<User>(user =>
+        {
+            user.Property(u => u.Provider).HasMaxLength(50);
+            user.Property(u => u.Subject).HasMaxLength(255);
+            user.Property(u => u.Name).HasMaxLength(200);
+            user.Property(u => u.Email).HasMaxLength(320);
+            user.HasIndex(u => new { u.Provider, u.Subject }).IsUnique();
         });
     }
 }

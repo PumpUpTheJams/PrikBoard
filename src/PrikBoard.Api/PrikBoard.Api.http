@@ -1,14 +1,22 @@
 @host = http://localhost:5080
+# An access token from your identity provider, e.g. via Client Credentials (see docs/authentication.md).
+@token = paste-your-access-token-here
 
 ### OpenAPI document (the machine-readable contract for AI agents)
 GET {{host}}/openapi/v1.json
 
+### Who am I? (checks the token and shows its scopes)
+GET {{host}}/api/me
+Authorization: Bearer {{token}}
+
 ### List boards
 GET {{host}}/api/boards
+Authorization: Bearer {{token}}
 
 ### Create a board
 # @name createBoard
 POST {{host}}/api/boards
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -22,10 +30,12 @@ Content-Type: application/json
 
 ### Full board snapshot
 GET {{host}}/api/boards/{{boardId}}
+Authorization: Bearer {{token}}
 
 ### Stick a note on the board (lands in a free spot in the first bucket)
 # @name createNote
 POST {{host}}/api/boards/{{boardId}}/notes
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -39,6 +49,7 @@ Content-Type: application/json
 
 ### Move the note into Done (the server picks a free spot)
 POST {{host}}/api/notes/{{noteId}}/move
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -47,6 +58,7 @@ Content-Type: application/json
 
 ### Move the note to exact coordinates (its bucket follows from where it lands)
 POST {{host}}/api/notes/{{noteId}}/move
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -56,6 +68,7 @@ Content-Type: application/json
 
 ### Draw a bucket
 POST {{host}}/api/boards/{{boardId}}/buckets
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -69,3 +82,4 @@ Content-Type: application/json
 
 ### Search notes
 GET {{host}}/api/boards/{{boardId}}/notes?search=palette
+Authorization: Bearer {{token}}

@@ -62,8 +62,8 @@ public static class NoteEndpoints
         if (!string.IsNullOrWhiteSpace(search))
         {
             var pattern = $"%{search.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_")}%";
-            query = query.Where(n => EF.Functions.Like(n.Title, pattern, @"\")
-                                     || (n.Body != null && EF.Functions.Like(n.Body, pattern, @"\")));
+            query = query.Where(n => EF.Functions.ILike(n.Title, pattern, @"\")
+                                     || (n.Body != null && EF.Functions.ILike(n.Body, pattern, @"\")));
         }
 
         var notes = await query.ToListAsync(ct);

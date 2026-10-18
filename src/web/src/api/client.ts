@@ -1,9 +1,11 @@
 import type {
+  AuthProvider,
   BoardDetail,
   BoardSummary,
   BucketChanges,
   BucketColor,
   BucketDetail,
+  Caller,
   NoteChanges,
   NoteColor,
   NoteDetail,
@@ -24,6 +26,17 @@ export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+let onUnauthorized = () => {}
+
+/** Called whenever the API answers 401, for example when the session cookie expired. */
+export function setUnauthorizedHandler(handler: () => void) {
+  onUnauthorized = handler
+}
+
+/** Browser navigation that starts sign-in and comes back to returnUrl (a local path) afterwards. */
+export const loginUrl = (providerId: string, returnUrl: string) =>
+  `/api/auth/login/${encodeURIComponent(providerId)}?returnUrl=${encodeURIComponent(returnUrl)}`
+
 interface ProblemDetails {
   title?: string
   detail?: string
@@ -37,17 +50,23 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     body: body === undefined ? undefined : JSON.stringify(body),
   })
 
+  if (response.status === 401) onUnauthorized()
   if (!response.ok) {
     const problem: ProblemDetails | null = await response.json().catch(() => null)
     const firstError = problem?.errors && Object.values(problem.errors)[0]?.[0]
     throw new ApiError(response.status, firstError ?? problem?.detail ?? problem?.title ?? response.statusText)
   }
 
-  return response.status === 204 ? (undefined as T) : ((await response.json()) as T)
+  const text = await response.text()
+  return (text ? JSON.parse(text) : undefined) as T
 }
 
 // Method names match the operationIds in the OpenAPI document.
 export const api = {
+  listAuthProviders: () => request<AuthProvider[]>('GET', '/auth/providers'),
+  logout: () => request<void>('POST', '/auth/logout'),
+  whoAmI: () => request<Caller>('GET', '/me'),
+
   listBoards: () => request<BoardSummary[]>('GET', '/boards'),
   createBoard: (name: string, description?: string) =>
     request<BoardDetail>('POST', '/boards', { name, description }),
