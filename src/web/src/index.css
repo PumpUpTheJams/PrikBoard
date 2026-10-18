@@ -2037,3 +2037,357 @@ a.button.primary:hover {
 .attached-caption .row-remove {
   margin: 0;
 }
+
+/* Dialogs (share, account, display name) */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 24px 16px;
+  background: var(--dim);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(460px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  outline: none;
+}
+
+.dialog.wide {
+  width: min(640px, 100%);
+}
+
+.dialog-header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 16px 6px 20px;
+  background: var(--panel);
+}
+
+.dialog-header h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.dialog-subtitle {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 8px 20px 20px;
+}
+
+.dialog-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dialog-section + .dialog-section {
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.dialog-section h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dialog-text {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.dialog-hint {
+  margin: 0;
+  color: var(--subtle);
+  font-size: 12px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dialog-body > input {
+  width: 100%;
+}
+
+.inline-form {
+  display: flex;
+  gap: 8px;
+}
+
+.inline-form input {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-form {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr auto auto;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .agent-form {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Select: a dropdown that looks like the app's menus */
+
+.select-trigger {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 96px;
+  height: 34px;
+  padding: 0 8px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.select-trigger svg {
+  flex: none;
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+
+.select-trigger:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.select-trigger[aria-expanded='true'] {
+  border-color: var(--accent);
+}
+
+.select-trigger[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+
+.select-trigger:disabled {
+  opacity: 0.5;
+}
+
+.select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-panel {
+  position: fixed;
+  z-index: 60;
+  min-width: 0;
+  max-width: calc(100vw - 16px);
+}
+
+.select-option {
+  min-height: 0;
+  padding: 7px 10px;
+}
+
+.select-option:focus-visible {
+  outline: none;
+  background: var(--hover);
+}
+
+.select-option svg {
+  color: var(--accent);
+}
+
+.select-option-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.select-option-detail {
+  color: var(--subtle);
+  font-size: 12px;
+}
+
+.agent-form .select-trigger {
+  min-width: 0;
+}
+
+.row-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 4px 6px;
+  border-radius: 8px;
+}
+
+.row-list li:hover {
+  background: var(--row-hover);
+}
+
+.row-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-meta {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--muted);
+  font: 11px var(--mono);
+}
+
+.badge.agent {
+  background: #2a2140;
+  color: #d9c9ff;
+}
+
+.primary.small,
+.ghost.small {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.ghost.small {
+  color: var(--text-2);
+}
+
+.copy-field {
+  display: flex;
+  gap: 8px;
+}
+
+.copy-field input {
+  flex: 1;
+  min-width: 0;
+  font: 12px var(--mono);
+}
+
+.connect-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.connect-row form {
+  margin: 0;
+}
+
+.share-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.share-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.sign-in-providers button {
+  height: 40px;
+  font-size: 14px;
+}
+
+/* Viewers: everything visible, nothing editable */
+
+.read-only-badge {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  z-index: 4;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.expanded.read-only .band-fills,
+.expanded.read-only .band-add,
+.expanded.read-only .chip-remove,
+.expanded.read-only .row-remove,
+.expanded.read-only .widget-add,
+.expanded.read-only .dock {
+  display: none;
+}
+
+.expanded.read-only .agent-chip svg:last-child {
+  display: none;
+}
+
+.expanded.read-only .editable:focus-visible {
+  outline: none;
+}

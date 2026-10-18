@@ -9,10 +9,11 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Description">Optional free-text description of the project.</param>
 /// <param name="CreatedAt">When the board was created (UTC).</param>
 /// <param name="UpdatedAt">When the board name or description last changed (UTC).</param>
-public record BoardSummary(Guid Id, string Name, string? Description, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)
+/// <param name="YourRole">Your role on the board: Viewer, Editor or Owner.</param>
+public record BoardSummary(Guid Id, string Name, string? Description, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, BoardRole YourRole)
 {
-    public static BoardSummary From(Board board) =>
-        new(board.Id, board.Name, board.Description, board.CreatedAt, board.UpdatedAt);
+    public static BoardSummary From(Board board, BoardRole role) =>
+        new(board.Id, board.Name, board.Description, board.CreatedAt, board.UpdatedAt, role);
 }
 
 /// <summary>A full board snapshot: every bucket, note and image with its position on the canvas.</summary>
@@ -24,6 +25,7 @@ public record BoardSummary(Guid Id, string Name, string? Description, DateTimeOf
 /// <param name="Buckets">Buckets in stacking order, back to front (oldest first).</param>
 /// <param name="Notes">Notes grouped by bucket in the order of Buckets, loose notes last, each group top to bottom and left to right.</param>
 /// <param name="Images">Images on the canvas and attached to notes (see noteId), oldest first. Download them from contentUrl.</param>
+/// <param name="YourRole">Your role on the board: Viewer (read only), Editor or Owner.</param>
 public record BoardDetail(
     Guid Id,
     string Name,
@@ -32,13 +34,15 @@ public record BoardDetail(
     DateTimeOffset UpdatedAt,
     IReadOnlyList<BucketDetail> Buckets,
     IReadOnlyList<NoteDetail> Notes,
-    IReadOnlyList<ImageDetail> Images)
+    IReadOnlyList<ImageDetail> Images,
+    BoardRole YourRole)
 {
-    public static BoardDetail From(Board board) =>
+    public static BoardDetail From(Board board, BoardRole role) =>
         new(board.Id, board.Name, board.Description, board.CreatedAt, board.UpdatedAt,
             Layout.BackToFront(board.Buckets).Select(BucketDetail.From).ToList(),
             Layout.ReadingOrder(board.Notes, board.Buckets).Select(NoteDetail.From).ToList(),
-            board.Images.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id).Select(ImageDetail.From).ToList());
+            board.Images.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id).Select(ImageDetail.From).ToList(),
+            role);
 }
 
 /// <summary>Creates a board. It starts with the buckets "To do", "Doing" and "Done" side by side.</summary>

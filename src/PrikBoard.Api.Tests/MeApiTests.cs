@@ -1,0 +1,113 @@
+using System.Net;
+using System.Net.Http.Json;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using PrikBoard.Api.Auth;
+using PrikBoard.Api.Contracts;
+using PrikBoard.Api.Data;
+
+namespace PrikBoard.Api.Tests;
+
+public class MeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiFactory>
+{
+    [Fact]
+    public async Task People_choose_their_display_name_and_the_suggestion_goes_away()
+    {
+        var client = await factory.CreateSignedInClientAsync("grace@example.com");
+        Assert.Equal("grace", (await client.MeAsync()).SuggestedDisplayName);
+
+        var named = await Patch(client, new { displayName = "  Grace H.\u0007 " });
+        Assert.Equal(("Grace H.", "Grace H.", null), (named.DisplayName, named.ChosenDisplayName, named.SuggestedDisplayName));
+        // The cookie was re-issued without the provider's name.
+        Assert.Null((await client.MeAsync()).SuggestedDisplayName);
+
+        var cleared = await Patch(client, new { displayName = "" });
+        Assert.Null(cleared.ChosenDisplayName);
+        Assert.StartsWith("User ", cleared.DisplayName);
+        Assert.Null(cleared.SuggestedDisplayName);
+
+        var tooLong = await client.PatchAsJsonAsync("/api/me", new { displayName = new string('x', 101) });
+        Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_linked_sign_in_leads_to_the_same_user_and_can_be_unlinked_but_not_the_last_one()
+    {
+        var client = await factory.CreateSignedInClientAsync("linker@example.com", subject: "linker-test");
+        var me = await client.MeAsync();
+
+        Assert.Equal("Linked", await PrikBoardApiFactory.TestLinkAsync(client, "other", "linker-other"));
+        Assert.Equal("AlreadyLinked", await PrikBoardApiFactory.TestLinkAsync(client, "other", "linker-other"));
+
+        var viaOther = await factory.CreateSignedInClientAsync("linker@example.com", subject: "linker-other", provider: "other");
+        Assert.Equal(me.Id, (await viaOther.MeAsync()).Id);
+
+        var identities = (await client.MeAsync()).Identities;
+        Assert.Equal(["test", "other"], identities.Select(i => i.Provider));
+
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/me/identities/{identities[1].Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.DeleteAsync($"/api/me/identities/{identities[0].Id}")).StatusCode);
+
+        // The unlinked identity no longer leads here; signing in with it starts a new user.
+        var again = await factory.CreateSignedInClientAsync("linker@example.com", subject: "linker-other", provider: "other");
+        Assert.NotEqual(me.Id, (await again.MeAsync()).Id);
+    }
+
+    [Fact]
+    public async Task An_identity_of_another_user_cannot_be_linked()
+    {
+        await factory.CreateSignedInClientAsync("owner-of@example.com", subject: "taken", provider: "other");
+        var thief = await factory.CreateSignedInClientAsync("thief@example.com");
+
+        Assert.Equal("InUseByAnotherUser", await PrikBoardApiFactory.TestLinkAsync(thief, "other", "taken"));
+        Assert.Single((await thief.MeAsync()).Identities);
+    }
+
+    [Fact]
+    public async Task No_personal_data_is_stored()
+    {
+        var client = await factory.CreateSignedInClientAsync("private.person@example.com", subject: "private-subject");
+        var me = await client.MeAsync();
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+
+        var principalColumns = await Columns(db, "Principals");
+        Assert.DoesNotContain(principalColumns, c => c is "Name" or "Email" or "Subject" or "Provider");
+        Assert.Equal(["EmailHash", "Id", "LinkedAt", "Provider", "SubjectHash", "UserId"], (await Columns(db, "UserIdentities")).Order());
+
+        var identity = await db.UserIdentities.SingleAsync(i => i.UserId == me.Id);
+        var hasher = new KeyedHasher(PrikBoardApiFactory.HashKey);
+        Assert.Equal(hasher.Subject("test", "private-subject"), identity.SubjectHash);
+        Assert.Equal(hasher.Email("Private.Person@Example.com"), identity.EmailHash);
+        Assert.Null((await db.Principals.SingleAsync(p => p.Id == me.Id)).DisplayName);
+
+        // Nothing anywhere in the database holds the email or the provider's subject.
+        foreach (var (table, column) in await TextColumns(db))
+        {
+            var hits = await db.Database.SqlQueryRaw<int>(
+                $"""SELECT count(*)::int AS "Value" FROM "{table}" WHERE "{column}"::text ILIKE '%private%'""").SingleAsync();
+            Assert.True(hits == 0, $"{table}.{column} contains personal data");
+        }
+    }
+
+    private static async Task<Caller> Patch(HttpClient client, object body)
+    {
+        var response = await client.PatchAsJsonAsync("/api/me", body);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<Caller>())!;
+    }
+
+    private static Task<List<string>> Columns(PrikBoardDbContext db, string table) =>
+        db.Database.SqlQuery<string>(
+            $"""SELECT column_name AS "Value" FROM information_schema.columns WHERE table_name = {table}""").ToListAsync();
+
+    private static async Task<List<(string Table, string Column)>> TextColumns(PrikBoardDbContext db)
+    {
+        var rows = await db.Database.SqlQueryRaw<string>("""
+            SELECT table_name || '.' || column_name AS "Value" FROM information_schema.columns
+            WHERE table_schema = 'public' AND data_type IN ('text', 'character varying', 'jsonb')
+            """).ToListAsync();
+        return rows.Select(r => r.Split('.')).Select(p => (p[0], p[1])).ToList();
+    }
+}

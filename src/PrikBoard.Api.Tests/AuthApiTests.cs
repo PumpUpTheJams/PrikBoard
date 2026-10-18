@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.WebUtilities;
@@ -115,6 +116,40 @@ public class AuthApiTests(AuthApiTests.Factory factory) : IClassFixture<AuthApiT
         Assert.Equal(expected, ReturnUrlOf(response));
     }
 
+    [Fact]
+    public async Task Linking_a_sign_in_starts_from_this_site_with_a_session_only()
+    {
+        var client = await factory.CreateSignedInClientAsync("link-start@example.com");
+        var me = await client.MeAsync();
+
+        var linked = await Link(client, "http://localhost");
+        Assert.Equal(HttpStatusCode.Redirect, linked.StatusCode);
+        Assert.StartsWith("https://github.com/login/oauth/authorize", linked.Headers.Location!.ToString());
+        var state = StateOf(linked);
+        Assert.Equal(me.Id.ToString(), state!.Items[Api.Auth.UserSignIn.LinkUserItem]);
+        Assert.Equal("/#/boards/1", state.RedirectUri);
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await Link(client, "https://evil.example")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Link(client, origin: null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Link(factory.CreateAnonymousClient(), "http://localhost")).StatusCode);
+    }
+
+    private static Task<HttpResponseMessage> Link(HttpClient client, string? origin)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/link/github")
+        {
+            Content = new FormUrlEncodedContent([new("returnUrl", "/#/boards/1")]),
+        };
+        if (origin is not null) request.Headers.Add("Origin", origin);
+        return client.SendAsync(request);
+    }
+
+    private AuthenticationProperties? StateOf(HttpResponseMessage challenge)
+    {
+        var state = QueryHelpers.ParseQuery(challenge.Headers.Location!.Query)["state"].ToString();
+        return factory.Services.GetRequiredService<IOptionsMonitor<OAuthOptions>>().Get("github").StateDataFormat.Unprotect(state);
+    }
+
     /// <summary>The address the user returns to after GitHub, which travels encrypted in the OAuth state parameter.</summary>
     private string? ReturnUrlOf(HttpResponseMessage challenge)
     {
@@ -129,7 +164,12 @@ public class AuthApiTests(AuthApiTests.Factory factory) : IClassFixture<AuthApiT
         var client = await factory.CreateSignedInClientAsync("ada@example.com");
 
         var me = await client.GetFromJsonAsync<Caller>("/api/me");
-        Assert.Equal((CallerKind.Session, "ada", "ada@example.com", "test"), (me!.Kind, me.Name, me.Email, me.Provider));
+        Assert.Equal((CallerKind.Session, PrincipalKind.User, "test"), (me!.Kind, me.PrincipalKind, me.Provider));
+        // No name is stored: the provider's name is only a suggestion until the person picks one.
+        Assert.Equal($"User {me.Id.ToString("N")[^4..]}", me.DisplayName);
+        Assert.Null(me.ChosenDisplayName);
+        Assert.Equal("ada", me.SuggestedDisplayName);
+        Assert.Equal("test", Assert.Single(me.Identities).Provider);
         Assert.Equal(["boards:read", "boards:write"], me.Scopes);
 
         (await client.PostAsync("/api/auth/logout", null)).EnsureSuccessStatusCode();
@@ -158,6 +198,7 @@ public class AuthApiTests(AuthApiTests.Factory factory) : IClassFixture<AuthApiT
         var listProviders = root.GetProperty("paths").GetProperty("/api/auth/providers").GetProperty("get");
         Assert.Equal(0, listProviders.GetProperty("security").GetArrayLength());
         Assert.False(root.GetProperty("paths").TryGetProperty("/api/auth/login/{provider}", out _));
+        Assert.False(root.GetProperty("paths").TryGetProperty("/api/auth/link/{provider}", out _));
     }
 
 }

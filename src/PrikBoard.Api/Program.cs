@@ -1,4 +1,6 @@
+using System.Security.Claims;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
@@ -18,6 +20,22 @@ builder.Services.AddProblemDetails();
 builder.Services.AddValidation();
 builder.Services.AddHealthChecks();
 builder.AddPrikBoardAuth();
+
+// Per-principal limits on endpoints that take guessable input (email lookup, invite tokens).
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    void Policy(string name, string setting, int perMinute) =>
+        options.AddPolicy(name, context => RateLimitPartition.GetFixedWindowLimiter(
+            context.User.FindFirstValue(UserPrincipal.IdClaim) ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = builder.Configuration.GetValue($"RateLimits:{setting}", perMinute),
+                Window = TimeSpan.FromMinutes(1),
+            }));
+    Policy(MemberEndpoints.LookupLimit, "LookupsPerMinute", 10);
+    Policy(InviteEndpoints.InviteLimit, "InvitesPerMinute", 20);
+});
 builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document, _, _) =>
 {
     document.Info = new OpenApiInfo
@@ -27,7 +45,11 @@ builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document,
         Description = """
             PrikBoard is a post-it board for small project management.
             A board is a freeform canvas holding buckets (named rectangles, by default "To do", "Doing" and "Done")
-            and notes (160x140 px post-its). A note belongs to the topmost bucket containing its centre, or is loose.
+            and notes (200x120 px post-its). A note belongs to the topmost bucket containing its centre, or is loose.
+            Boards are members-only, with roles Viewer (read), Editor (change content) and Owner (manage the board and its members).
+            A 404 means "not found, or you are not a member"; a 403 means your role (or token scope) is too low.
+            Every access token acts as an agent principal: call whoAmI and ask a board owner to add your issuer and client id
+            (addBoardAgent). Boards an agent creates are its own.
             Start with listBoards, then getBoard for a complete snapshot of a project.
             Progress work by moving notes between buckets with moveNote and a bucketId; the server finds a free spot.
             Coordinates are canvas pixels from the top-left and snap to a 20 px grid.
@@ -63,10 +85,14 @@ await using (var scope = app.Services.CreateAsyncScope())
     await scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>().Database.MigrateAsync();
 }
 
+// Fail fast when Auth:HashKey is missing outside Development, rather than on the first sign-in.
+app.Services.GetRequiredService<KeyedHasher>();
+
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 // The OpenAPI document is the contract for AI agents and generated clients, so it is served in every environment
 // and without signing in.
@@ -88,5 +114,7 @@ api.MapBoardEndpoints();
 api.MapBucketEndpoints();
 api.MapNoteEndpoints();
 api.MapImageEndpoints();
+api.MapMemberEndpoints();
+api.MapInviteEndpoints();
 
 app.Run();

@@ -23,10 +23,12 @@ interface ToolRailProps {
   onFillChange: (fill: NoteColor) => void
   /** Opens the file picker to add images (an action, not a tool you stay in). */
   onAddImage: () => void
+  /** Viewers only get Select and Pan. */
+  readOnly?: boolean
 }
 
 /** The floating tool rail on the left of the board. */
-export function ToolRail({ tool, onToolChange, fill, onFillChange, onAddImage }: ToolRailProps) {
+export function ToolRail({ tool, onToolChange, fill, onFillChange, onAddImage, readOnly }: ToolRailProps) {
   const button = ({ tool: t, label, shortcut, Icon }: ToolDef, className = '') => (
     <button
       key={t}
@@ -44,29 +46,33 @@ export function ToolRail({ tool, onToolChange, fill, onFillChange, onAddImage }:
   return (
     <nav className="tool-rail" aria-label="Tools">
       {navigation.map((t) => button(t))}
-      <span className="rail-divider" aria-hidden="true" />
-      <div className="rail-note">
-        {button({ tool: 'note', label: 'Post-it', shortcut: 'N', Icon: PostItIcon }, `tone-${fill.toLowerCase()}`)}
-        {tool === 'note' && (
-          <div className="fill-flyout" role="group" aria-label="Fill for new post-its">
-            {noteColors.map((c) => (
-              <button
-                key={c}
-                type="button"
-                className={`swatch fill-${c.toLowerCase()}`}
-                title={c}
-                aria-label={c}
-                aria-pressed={c === fill}
-                onClick={() => onFillChange(c)}
-              />
-            ))}
+      {!readOnly && (
+        <>
+          <span className="rail-divider" aria-hidden="true" />
+          <div className="rail-note">
+            {button({ tool: 'note', label: 'Post-it', shortcut: 'N', Icon: PostItIcon }, `tone-${fill.toLowerCase()}`)}
+            {tool === 'note' && (
+              <div className="fill-flyout" role="group" aria-label="Fill for new post-its">
+                {noteColors.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    className={`swatch fill-${c.toLowerCase()}`}
+                    title={c}
+                    aria-label={c}
+                    aria-pressed={c === fill}
+                    onClick={() => onFillChange(c)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
-        )}
-      </div>
-      {button({ tool: 'bucket', label: 'Bucket', shortcut: 'B', Icon: FrameIcon })}
-      <button type="button" className="rail-button" aria-label="Image" title="Image (I), or paste or drop one on the board" onClick={onAddImage}>
-        <ImageIcon />
-      </button>
+          {button({ tool: 'bucket', label: 'Bucket', shortcut: 'B', Icon: FrameIcon })}
+          <button type="button" className="rail-button" aria-label="Image" title="Image (I), or paste or drop one on the board" onClick={onAddImage}>
+            <ImageIcon />
+          </button>
+        </>
+      )}
     </nav>
   )
 }

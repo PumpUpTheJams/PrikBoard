@@ -58,6 +58,12 @@ public class ProviderOptions
 
     /// <summary>Scopes requested on top of the defaults (openid, profile and email for OpenID Connect).</summary>
     public string[] Scopes { get; set; } = [];
+
+    /// <summary>
+    /// Treat this provider's email claim as verified even without email_verified (for example an Entra tenant you
+    /// control). Only verified emails make people findable through exact-email search. GitHub emails are always verified.
+    /// </summary>
+    public bool EmailsAreVerified { get; set; }
 }
 
 /// <summary>

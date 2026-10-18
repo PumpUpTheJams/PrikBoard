@@ -13,6 +13,8 @@ public class Board
     public List<Note> Notes { get; set; } = [];
     /// <summary>Images on the canvas and images attached to notes.</summary>
     public List<BoardImage> Images { get; set; } = [];
+    /// <summary>Who may see and change the board; there is always at least one owner.</summary>
+    public List<BoardMember> Members { get; set; } = [];
 
     public static readonly (string Name, BucketColor Color)[] DefaultBuckets =
         [("To do", BucketColor.Blue), ("Doing", BucketColor.Amber), ("Done", BucketColor.Teal)];

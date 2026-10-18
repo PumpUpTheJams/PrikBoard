@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, errorMessage } from '../api/client'
+import { api, ApiError, errorMessage } from '../api/client'
 import type { BoardDetail } from '../api/types'
 
 /** How often the open board is re-read, so changes made by AI agents and other people show up. */
@@ -14,7 +14,15 @@ export interface BoardState {
   setPaused: (paused: boolean) => void
 }
 
-export function useBoard(boardId: string | null, onError: (message: string) => void): BoardState {
+/** A 404 for the open board means it was deleted or you were removed from it. */
+const isGone = (error: unknown) => error instanceof ApiError && error.status === 404
+
+export function useBoard(
+  boardId: string | null,
+  onError: (message: string) => void,
+  /** Called when the board is gone or you lost access to it. */
+  onLost: () => void,
+): BoardState {
   const [loaded, setLoaded] = useState<BoardDetail | null>(null)
   const paused = useRef(false)
 
@@ -24,8 +32,12 @@ export function useBoard(boardId: string | null, onError: (message: string) => v
     const load = (background: boolean) =>
       api.getBoard(boardId).then(
         (board) => !ignore && (!background || !paused.current) && setLoaded(board),
-        // A failed background refresh keeps showing the last good board.
-        (error) => !ignore && !background && onError(errorMessage(error)),
+        (error) => {
+          if (ignore) return
+          if (isGone(error)) onLost()
+          // Otherwise a failed background refresh keeps showing the last good board.
+          else if (!background) onError(errorMessage(error))
+        },
       )
 
     void load(false)
@@ -36,7 +48,7 @@ export function useBoard(boardId: string | null, onError: (message: string) => v
       ignore = true
       window.clearInterval(timer)
     }
-  }, [boardId, onError])
+  }, [boardId, onError, onLost])
 
   const run = useCallback(
     async (action: () => Promise<unknown>) => {
@@ -51,12 +63,13 @@ export function useBoard(boardId: string | null, onError: (message: string) => v
         try {
           setLoaded(await api.getBoard(boardId))
         } catch (error) {
-          onError(errorMessage(error))
+          if (isGone(error)) onLost()
+          else onError(errorMessage(error))
         }
       }
       return ok
     },
-    [boardId, onError],
+    [boardId, onError, onLost],
   )
 
   const setPaused = useCallback((value: boolean) => {

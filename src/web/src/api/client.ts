@@ -5,7 +5,15 @@ import type {
   BucketChanges,
   BucketColor,
   BucketDetail,
+  AcceptedInvite,
+  BoardInvite,
+  BoardMember,
+  BoardRole,
   Caller,
+  CreatedInvite,
+  InvitePreview,
+  TokenIssuer,
+  UserMatch,
   ImageChanges,
   ImageDetail,
   ImagePlacement,
@@ -34,6 +42,9 @@ let onUnauthorized = () => {}
 export function setUnauthorizedHandler(handler: () => void) {
   onUnauthorized = handler
 }
+
+/** Form action that links another sign-in to the signed-in user (a POST navigation, see AuthEndpoints.Link). */
+export const linkUrl = (providerId: string) => `/api/auth/link/${encodeURIComponent(providerId)}`
 
 /** Browser navigation that starts sign-in and comes back to returnUrl (a local path) afterwards. */
 export const loginUrl = (providerId: string, returnUrl: string) =>
@@ -69,6 +80,9 @@ export const api = {
   listAuthProviders: () => request<AuthProvider[]>('GET', '/auth/providers'),
   logout: () => request<void>('POST', '/auth/logout'),
   whoAmI: () => request<Caller>('GET', '/me'),
+  updateMe: (changes: { displayName?: string }) => request<Caller>('PATCH', '/me', changes),
+  unlinkIdentity: (identityId: string) => request<void>('DELETE', `/me/identities/${identityId}`),
+  listTokenIssuers: () => request<TokenIssuer[]>('GET', '/auth/token-issuers'),
 
   listBoards: () => request<BoardSummary[]>('GET', '/boards'),
   createBoard: (name: string, description?: string) =>
@@ -100,4 +114,24 @@ export const api = {
   },
   updateImage: (imageId: string, changes: ImageChanges) => request<ImageDetail>('PATCH', `/images/${imageId}`, changes),
   deleteImage: (imageId: string) => request<void>('DELETE', `/images/${imageId}`),
+
+  listBoardMembers: (boardId: string) => request<BoardMember[]>('GET', `/boards/${boardId}/members`),
+  addBoardMember: (boardId: string, principalId: string, role: BoardRole) =>
+    request<BoardMember>('POST', `/boards/${boardId}/members`, { principalId, role }),
+  addBoardAgent: (boardId: string, agent: { issuer: string; clientId: string; role: BoardRole; displayName?: string }) =>
+    request<BoardMember>('POST', `/boards/${boardId}/agents`, agent),
+  updateBoardMember: (boardId: string, principalId: string, role: BoardRole) =>
+    request<BoardMember>('PATCH', `/boards/${boardId}/members/${principalId}`, { role }),
+  removeBoardMember: (boardId: string, principalId: string) =>
+    request<void>('DELETE', `/boards/${boardId}/members/${principalId}`),
+  /** Exact email only; the address goes in the body so it stays out of logs. */
+  findUserByEmail: (boardId: string, email: string) =>
+    request<UserMatch[]>('POST', `/boards/${boardId}/members/lookup`, { email }),
+
+  listBoardInvites: (boardId: string) => request<BoardInvite[]>('GET', `/boards/${boardId}/invites`),
+  createBoardInvite: (boardId: string, role: BoardRole, expiresInDays?: number) =>
+    request<CreatedInvite>('POST', `/boards/${boardId}/invites`, { role, expiresInDays }),
+  revokeBoardInvite: (boardId: string, inviteId: string) => request<void>('DELETE', `/boards/${boardId}/invites/${inviteId}`),
+  previewInvite: (token: string) => request<InvitePreview>('POST', '/invites/preview', { token }),
+  acceptInvite: (token: string) => request<AcceptedInvite>('POST', '/invites/accept', { token }),
 }
