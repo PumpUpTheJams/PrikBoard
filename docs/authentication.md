@@ -120,7 +120,7 @@ Boards are members-only. The roles are:
 
 The creator becomes the owner, and a board always keeps at least one. Owners add people by exact email, or with a single-use invite link (`/#/invite/{token}`, 7 days by default). Only a hash of the invite token is stored.
 
-Every machine token acts as an **agent** principal, keyed by issuer id and client id (azp, client_id or appid). An agent sees no boards until an owner adds it with *Share → Add an agent*. Agents become owners of the boards they create. Token scopes still apply on top of the role: a `boards:read` token cannot write even as an Editor. Agents cannot accept invite links or search people by email, so an agent that reads a link somewhere cannot use it to join a board.
+Every machine token acts as an **agent** principal, keyed by issuer id and client id (azp, client_id or appid). The exception is a client the issuer lists under `UserClients`, see [Interactive apps acting for a person](#interactive-apps-acting-for-a-person-vs-code-extension). An agent sees no boards until an owner adds it with *Share → Add an agent*. Agents become owners of the boards they create. Token scopes still apply on top of the role: a `boards:read` token cannot write even as an Editor. Agents cannot accept invite links or search people by email, so an agent that reads a link somewhere cannot use it to join a board.
 
 ## Personal access tokens
 
@@ -160,6 +160,8 @@ Register PrikBoard as an API at your identity provider, with the scopes `boards:
 | `Issuers:{id}:Authority` | The issuer's base URL. Its discovery document supplies the signing keys. An issuer without one is skipped |
 | `Issuers:{id}:Issuer` | The exact `iss` value, when it differs from the Authority |
 | `Issuers:{id}:Audience` | Overrides `Tokens:Audience` for this issuer |
+| `Issuers:{id}:UserClients` | Client ids of interactive apps (for example the VS Code extension) whose tokens act as the signed-in person. See below. Default none |
+| `Issuers:{id}:UserProvider` | The sign-in provider id the token's `sub` belongs to. Default: the issuer id |
 
 Provider notes:
 
@@ -175,7 +177,27 @@ TOKEN=$(curl -s https://your-tenant.eu.auth0.com/oauth/token -H 'Content-Type: a
 curl localhost:5080/api/me -H "Authorization: Bearer $TOKEN"
 ```
 
-Tokens a user obtains through an OAuth client (delegated, for example an agent acting for a person) are accepted the same way, provided they come from a trusted issuer with the right audience and scopes. They are treated as tokens (`kind: Token`), not as that person's browser session.
+## Interactive apps acting for a person (VS Code extension)
+
+An app that signs a person in itself, such as the VS Code extension (authorization code with PKCE), gets a delegated access token from the same trusted issuer. By default PrikBoard treats it like any other token: the client becomes one shared **agent**, and the person is nobody. To make a token act as the person instead, list the app's client id on the issuer:
+
+```json
+"Issuers": {
+  "auth0": {
+    "Authority": "https://your-tenant.eu.auth0.com/",
+    "UserClients": [ "<client id of the extension's application>" ]
+  }
+}
+```
+
+For a token whose client (azp, client_id or appid) is listed and that has a `sub`, PrikBoard finds or creates the user for `UserProvider` (default: the issuer id) and that `sub`, with the same keyed hash as a browser sign-in. For the person to be the *same* user as in the browser, give the issuer and the sign-in provider the same id and the same identity provider (Auth0 as both `Providers:auth0` and `Tokens:Issuers:auth0`), or set `UserProvider` to the provider's id. Otherwise they become a second user.
+
+- `whoAmI` shows `kind: Token` and `principalKind: User`. Boards, roles, display name and memberships are the person's. Scopes from the token still apply on top of the role.
+- Sign-ins are still managed in the browser. A token cannot link or unlink sign-ins, accept invite links or look people up by email.
+- Only list clients you control. Any token from a listed client with a valid `sub` acts as that person, so the client must authenticate the person properly. Public clients (no secret) rely on PKCE.
+- Register the app at the identity provider as a public/native client with PKCE, a redirect URI of the extension (for VS Code, `http://127.0.0.1:<port>` or `vscode://...`), and the `boards:read`/`boards:write` scopes for the audience.
+
+All other tokens, including Client Credentials ones, keep acting as agents. A delegated token from a client that is not listed is treated the same way (`kind: Token`, an agent keyed by the client id).
 
 ## API reference (Scalar)
 

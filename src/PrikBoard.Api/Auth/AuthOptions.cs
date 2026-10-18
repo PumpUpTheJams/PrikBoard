@@ -73,4 +73,17 @@ public class TokenIssuerOptions
 
     /// <summary>Overrides <see cref="TokenOptions.Audience"/> for this issuer.</summary>
     public string? Audience { get; set; }
+
+    /// <summary>
+    /// Client ids (azp, client_id or appid) of interactive apps, such as the VS Code extension, whose tokens act for the
+    /// person who signed in: the token's <c>sub</c> resolves to the same <c>User</c> as that person's browser sign-in.
+    /// Every other client of this issuer, for example one using Client Credentials, acts as an agent.
+    /// </summary>
+    public string[] UserClients { get; set; } = [];
+
+    /// <summary>
+    /// The sign-in provider id that <c>sub</c> belongs to for <see cref="UserClients"/> tokens; defaults to this issuer's id.
+    /// Must match the id of the sign-in provider of the same identity provider, or the person becomes a second user.
+    /// </summary>
+    public string? UserProvider { get; set; }
 }
