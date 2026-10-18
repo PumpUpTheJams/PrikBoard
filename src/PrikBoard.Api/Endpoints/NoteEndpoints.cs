@@ -16,7 +16,8 @@ public static class NoteEndpoints
             .WithName("listNotes")
             .WithSummary("List or search notes on a board")
             .WithDescription("Returns notes bucket by bucket (loose notes last), each group top to bottom and left to right. " +
-                             "Optionally filter by bucket and/or a case-insensitive text search on title and body.");
+                             "Optionally filter by bucket, tag, assignee name (case-insensitive) " +
+                             "and/or a case-insensitive text search on title and body.");
 
         notes.MapPost("/boards/{boardId:guid}/notes", CreateNote)
             .WithName("createNote")
@@ -32,7 +33,8 @@ public static class NoteEndpoints
         notes.MapPatch("/notes/{noteId:guid}", UpdateNote)
             .WithName("updateNote")
             .WithSummary("Edit a note")
-            .WithDescription("Changes the title, body and/or colour. Omitted fields stay unchanged. Use moveNote to move it.")
+            .WithDescription("Changes any of title, body, fill, tags, assignees, checklist, links and the agent-working flag. " +
+                             "Omitted fields stay unchanged; a list that is given replaces the whole list. Use moveNote to move it.")
             .ProducesValidationProblem();
 
         notes.MapPost("/notes/{noteId:guid}/move", MoveNote)
@@ -50,7 +52,7 @@ public static class NoteEndpoints
     }
 
     private static async Task<Results<Ok<List<NoteDetail>>, NotFound>> ListNotes(
-        Guid boardId, Guid? bucketId, string? search, PrikBoardDbContext db, CancellationToken ct)
+        Guid boardId, Guid? bucketId, string? tag, string? assignee, string? search, PrikBoardDbContext db, CancellationToken ct)
     {
         if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
 
@@ -67,6 +69,16 @@ public static class NoteEndpoints
         }
 
         var notes = await query.ToListAsync(ct);
+        // Tags and assignees live in JSON columns; boards are small, so filter them in memory.
+        if (!string.IsNullOrWhiteSpace(tag))
+        {
+            var wanted = NoteTags.Normalize(tag);
+            notes = notes.Where(n => n.Tags.Contains(wanted)).ToList();
+        }
+        if (!string.IsNullOrWhiteSpace(assignee))
+        {
+            notes = notes.Where(n => n.Assignees.Any(a => a.Name.Equals(assignee.Trim(), StringComparison.OrdinalIgnoreCase))).ToList();
+        }
         var buckets = await db.Buckets.AsNoTracking().Where(b => b.BoardId == boardId).ToListAsync(ct);
         return TypedResults.Ok(Layout.ReadingOrder(notes, buckets).Select(NoteDetail.From).ToList());
     }
@@ -81,8 +93,11 @@ public static class NoteEndpoints
             BoardId = boardId,
             Title = request.Title,
             Body = PatchText.Apply(null, request.Body),
-            Color = request.Color ?? NoteColor.Yellow,
+            Color = request.Color ?? NoteColor.Butter,
+            AgentWorking = request.AgentWorking ?? false,
         };
+        if (ApplyLists(note, request.Tags, request.Assignees, request.Checklist, request.Links) is { } invalid) return invalid;
+
         var buckets = await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct);
         var others = await db.Notes.Where(n => n.BoardId == boardId).ToListAsync(ct);
         var bucketId = request.BucketId ?? (request.X is null && request.Y is null ? Layout.BackToFront(buckets).FirstOrDefault()?.Id : null);
@@ -100,15 +115,17 @@ public static class NoteEndpoints
         return note is null ? TypedResults.NotFound() : TypedResults.Ok(NoteDetail.From(note));
     }
 
-    private static async Task<Results<Ok<NoteDetail>, NotFound>> UpdateNote(
+    private static async Task<Results<Ok<NoteDetail>, NotFound, ValidationProblem>> UpdateNote(
         Guid noteId, UpdateNoteRequest request, PrikBoardDbContext db, CancellationToken ct)
     {
         var note = await db.Notes.FindAsync([noteId], ct);
         if (note is null) return TypedResults.NotFound();
 
+        if (ApplyLists(note, request.Tags, request.Assignees, request.Checklist, request.Links) is { } invalid) return invalid;
         note.Title = request.Title ?? note.Title;
         note.Body = PatchText.Apply(note.Body, request.Body);
         note.Color = request.Color ?? note.Color;
+        note.AgentWorking = request.AgentWorking ?? note.AgentWorking;
         note.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
@@ -181,14 +198,60 @@ public static class NoteEndpoints
                     ["bucketId"] = ["The bucket does not exist on this board."],
                 });
             }
-            (note.X, note.Y) = Layout.FreeSpotIn(bucket, others);
+            (note.X, note.Y) = Layout.MakeRoomIn(bucket, others);
         }
         else
         {
             (note.X, note.Y) = Layout.FreeSpotOutside(buckets, others);
         }
 
-        Layout.AssignBuckets([note], buckets);
+        // A bucket that grew to make room can now cover loose notes too.
+        Layout.AssignBuckets([note, .. others], buckets);
         return null;
     }
+
+    /// <summary>Replaces each list that is given (null keeps it), normalizing tags. Returns a problem for an invalid value.</summary>
+    private static ValidationProblem? ApplyLists(
+        Note note, List<string>? tags, List<Assignee>? assignees, List<ChecklistItem>? checklist, List<NoteLink>? links)
+    {
+        if (tags is not null)
+        {
+            var normalized = NoteTags.Normalize(tags);
+            if (normalized.Find(t => t.Length > NoteTags.MaxLength) is { } tooLong)
+            {
+                return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["tags"] = [$"Tag \"{tooLong}\" is longer than {NoteTags.MaxLength} characters."],
+                });
+            }
+            note.Tags = normalized;
+        }
+        if (links?.Find(l => !IsWebUrl(l.Url)) is { } badLink)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["links"] = [$"\"{badLink.Url}\" is not an absolute http or https URL."],
+            });
+        }
+
+        if (assignees is not null)
+        {
+            note.Assignees = assignees
+                .Select(a => new AssigneeEntry { Name = a.Name.Trim(), Kind = a.Kind })
+                .DistinctBy(a => (a.Name.ToLowerInvariant(), a.Kind))
+                .ToList();
+        }
+        if (checklist is not null)
+        {
+            note.Checklist = checklist.Select(c => new ChecklistEntry { Text = c.Text.Trim(), Done = c.Done }).ToList();
+        }
+        if (links is not null)
+        {
+            note.Links = links.Select(l => new LinkEntry { Title = l.Title.Trim(), Url = l.Url.Trim() }).ToList();
+        }
+        return null;
+    }
+
+    private static bool IsWebUrl(string url) =>
+        Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 }

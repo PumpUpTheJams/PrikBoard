@@ -10,7 +10,14 @@ public class Note
     public Guid? BucketId { get; set; }
     public required string Title { get; set; }
     public string? Body { get; set; }
-    public NoteColor Color { get; set; } = NoteColor.Yellow;
+    public NoteColor Color { get; set; } = NoteColor.Butter;
+    /// <summary>Lower-case labels, see <see cref="NoteTags.Normalize(string)"/>.</summary>
+    public List<string> Tags { get; set; } = [];
+    public List<AssigneeEntry> Assignees { get; set; } = [];
+    public List<ChecklistEntry> Checklist { get; set; } = [];
+    public List<LinkEntry> Links { get; set; } = [];
+    /// <summary>Set while an AI agent is actively working on the note; the board shows a halo.</summary>
+    public bool AgentWorking { get; set; }
     public int X { get; set; }
     public int Y { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

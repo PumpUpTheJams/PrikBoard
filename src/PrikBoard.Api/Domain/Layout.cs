@@ -7,19 +7,18 @@ namespace PrikBoard.Api.Domain;
 public static class Layout
 {
     public const int Grid = 20;
-    public const int NoteWidth = 160;
-    public const int NoteHeight = 140;
-    public const int MinBucketWidth = 200;
-    public const int MinBucketHeight = 200;
-    public const int DefaultBucketWidth = 420;
+    public const int NoteWidth = 200;
+    public const int NoteHeight = 120;
+    /// <summary>Room for one column of notes with a gap on either side.</summary>
+    public const int MinBucketWidth = NoteWidth + 2 * Gap;
+    public const int MinBucketHeight = NoteHeight + 2 * Gap;
+    public const int DefaultBucketWidth = MinBucketWidth;
     public const int DefaultBucketHeight = 600;
     public const int MaxCoordinate = 100_000;
     public const int MaxBucketSize = 10_000;
 
     /// <summary>Gap between neighbouring notes and buckets, and the inset of notes from a bucket's edge.</summary>
     private const int Gap = 20;
-    /// <summary>Room above the first row of notes for the bucket's name label.</summary>
-    private const int BucketHeader = 40;
     /// <summary>How far right loose notes are laid out before starting a new row.</summary>
     private const int LooseAreaWidth = 1200;
 
@@ -53,19 +52,24 @@ public static class Layout
             .ToList();
     }
 
-    /// <summary>The first grid slot inside <paramref name="bucket"/> not covered by another note, else its top-left slot.</summary>
-    public static (int X, int Y) FreeSpotIn(Bucket bucket, IReadOnlyCollection<Note> notes)
+    /// <summary>
+    /// The first grid slot inside <paramref name="bucket"/>, row by row, not covered by another note. When the bucket is
+    /// full it grows downwards by a row to make room, so buckets fit their notes the way frames on a board do.
+    /// </summary>
+    public static (int X, int Y) MakeRoomIn(Bucket bucket, IReadOnlyCollection<Note> notes)
     {
         var left = bucket.X + Gap;
-        var top = bucket.Y + BucketHeader;
-        for (var y = top; y + NoteHeight <= bucket.Y + bucket.Height - Gap; y += NoteHeight + Gap)
+        var right = bucket.X + Math.Max(bucket.Width, MinBucketWidth) - Gap;
+        for (var y = bucket.Y + Gap; y + NoteHeight <= MaxCoordinate; y += NoteHeight + Gap)
         {
-            for (var x = left; x + NoteWidth <= bucket.X + bucket.Width - Gap; x += NoteWidth + Gap)
+            for (var x = left; x + NoteWidth <= right; x += NoteWidth + Gap)
             {
-                if (!notes.Any(n => Overlaps(n.X, n.Y, NoteWidth, NoteHeight, x, y))) return (x, y);
+                if (notes.Any(n => Overlaps(n.X, n.Y, NoteWidth, NoteHeight, x, y))) continue;
+                bucket.Height = Math.Min(MaxBucketSize, Math.Max(bucket.Height, y + NoteHeight + Gap - bucket.Y));
+                return (x, y);
             }
         }
-        return (left, top);
+        return (left, bucket.Y + Gap);
     }
 
     /// <summary>The first grid slot near the top-left of the board that is clear of every bucket and note.</summary>

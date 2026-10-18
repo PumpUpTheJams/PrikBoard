@@ -90,6 +90,9 @@ namespace PrikBoard.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("AgentWorking")
+                        .HasColumnType("INTEGER");
+
                     b.Property<Guid>("BoardId")
                         .HasColumnType("TEXT");
 
@@ -107,6 +110,10 @@ namespace PrikBoard.Api.Data.Migrations
 
                     b.Property<long>("CreatedAt")
                         .HasColumnType("INTEGER");
+
+                    b.PrimitiveCollection<string>("Tags")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("Title")
                         .IsRequired()
@@ -155,7 +162,87 @@ namespace PrikBoard.Api.Data.Migrations
                         .HasForeignKey("BucketId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.OwnsMany("PrikBoard.Api.Domain.AssigneeEntry", "Assignees", b1 =>
+                        {
+                            b1.Property<Guid>("NoteId");
+
+                            b1.Property<int>("__synthesizedOrdinal")
+                                .ValueGeneratedOnAddOrUpdate();
+
+                            b1.Property<string>("Kind")
+                                .IsRequired();
+
+                            b1.Property<string>("Name")
+                                .IsRequired();
+
+                            b1.HasKey("NoteId", "__synthesizedOrdinal");
+
+                            b1.ToTable("Notes");
+
+                            b1
+                                .ToJson("Assignees")
+                                .HasColumnType("TEXT");
+
+                            b1.WithOwner()
+                                .HasForeignKey("NoteId");
+                        });
+
+                    b.OwnsMany("PrikBoard.Api.Domain.ChecklistEntry", "Checklist", b1 =>
+                        {
+                            b1.Property<Guid>("NoteId");
+
+                            b1.Property<int>("__synthesizedOrdinal")
+                                .ValueGeneratedOnAddOrUpdate();
+
+                            b1.Property<bool>("Done");
+
+                            b1.Property<string>("Text")
+                                .IsRequired();
+
+                            b1.HasKey("NoteId", "__synthesizedOrdinal");
+
+                            b1.ToTable("Notes");
+
+                            b1
+                                .ToJson("Checklist")
+                                .HasColumnType("TEXT");
+
+                            b1.WithOwner()
+                                .HasForeignKey("NoteId");
+                        });
+
+                    b.OwnsMany("PrikBoard.Api.Domain.LinkEntry", "Links", b1 =>
+                        {
+                            b1.Property<Guid>("NoteId");
+
+                            b1.Property<int>("__synthesizedOrdinal")
+                                .ValueGeneratedOnAddOrUpdate();
+
+                            b1.Property<string>("Title")
+                                .IsRequired();
+
+                            b1.Property<string>("Url")
+                                .IsRequired();
+
+                            b1.HasKey("NoteId", "__synthesizedOrdinal");
+
+                            b1.ToTable("Notes");
+
+                            b1
+                                .ToJson("Links")
+                                .HasColumnType("TEXT");
+
+                            b1.WithOwner()
+                                .HasForeignKey("NoteId");
+                        });
+
+                    b.Navigation("Assignees");
+
                     b.Navigation("Board");
+
+                    b.Navigation("Checklist");
+
+                    b.Navigation("Links");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.Board", b =>

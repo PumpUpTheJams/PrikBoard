@@ -3,10 +3,10 @@
 import type { BucketDetail, Point, Rect } from '../api/types'
 
 export const GRID = 20
-export const NOTE_WIDTH = 160
-export const NOTE_HEIGHT = 140
-export const MIN_BUCKET_WIDTH = 200
-export const MIN_BUCKET_HEIGHT = 200
+export const NOTE_WIDTH = 200
+export const NOTE_HEIGHT = 120
+export const MIN_BUCKET_WIDTH = NOTE_WIDTH + 2 * GRID
+export const MIN_BUCKET_HEIGHT = NOTE_HEIGHT + 2 * GRID
 
 export const snap = (value: number) => Math.round(value / GRID) * GRID
 
