@@ -2437,3 +2437,61 @@ a.button.primary:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Access tokens (Account dialog) */
+
+.token-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.token-hint {
+  color: var(--subtle);
+  font: 400 12px var(--mono);
+}
+
+.token-form,
+.token-created {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.token-created {
+  border-color: var(--accent);
+}
+
+.token-created .dialog-hint {
+  margin: 4px 0 -4px;
+}
+
+.token-boards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 13px;
+}
+
+.token-boards label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.token-board-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow: auto;
+  padding-left: 22px;
+}

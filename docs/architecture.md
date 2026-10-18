@@ -7,6 +7,7 @@
                        ├──►  /api/*   ASP.NET Core minimal API  ──►  EF Core  ──►  PostgreSQL
  AI agent / script  ───┘     /openapi/v1.json  (contract)
                              /api/live  SignalR hub (live updates, presence, drags)
+                             /mcp       MCP server (tools for agents)
 ```
 
 There is one API, and nothing is private to the UI. Anything a person can do in the browser, an AI agent can do over HTTP with the same endpoints. The OpenAPI document is the contract between them.
@@ -58,6 +59,8 @@ The API is built on these conventions:
 - **PATCH for partial updates.** Omitted fields stay unchanged.
 - **Board access is declared per endpoint.** `Auth/BoardAccess.cs` adds `.RequireBoardRole(role, BoardScope.X)`, an endpoint filter that finds the board from the route id (board, bucket, note or image) and the caller's membership in one query. Non-members get 404, too-low roles 403. Endpoints without a board use `.NoBoardScope()`, and a test fails if an `/api` endpoint has neither.
 - **No personal data.** Names, emails and provider subject ids from SSO are never stored; see [Authentication](authentication.md#users-linked-sign-ins-and-personal-data).
+- **Personal access tokens** (`Auth/AccessTokens.cs`, `Auth/AccessTokenHandler.cs`). A token is its own agent, with its owner's board access capped by `BoardCaller`. `BoardAccess.AuthorizeAsync` applies the cap for REST, the live hub and MCP alike.
+- **MCP** (`Mcp/`). `ModelContextProtocol.AspNetCore`, stateless Streamable HTTP at `/mcp`. `BoardTools` are curated tools that call the REST handlers (made `internal` for this) after the same `BoardAccess.AuthorizeAsync` check, validate with the contracts' DataAnnotations, and announce changes through `BoardEvents`.
 - **Live updates** (`Live/`). `BoardHub` is a SignalR hub at `/api/live`. A connection joins one board at a time, after the same membership check as the REST API; `LiveViewers` keeps who is connected to which board with what role.
   - `BoardAccess` announces every successful board-scoped write to the board's group (`BoardEvents.ChangedAsync`), so endpoints don't have to. Endpoints that change board lists or roles also call `BoardEvents` (renames, deletes, members, invites, display names).
   - Drags in progress are relayed between clients as gesture deltas, never stored. Only the drop is saved, through REST.
@@ -94,6 +97,7 @@ React 19, TypeScript and Vite, with no state library and no UI kit. The visual d
 
 ## Not decided yet
 
+- **OAuth for MCP connectors.** claude.ai and Claude Desktop connectors need an OAuth flow (protected resource metadata, an authorization server), not a pasted token. See [the design](design-access-tokens-and-mcp.md#3-phases).
 - **Scaling out live updates.** The hub and its presence list live in one API process; a second instance needs a backplane.
 - **Hash key rotation.** Losing or changing `Auth:HashKey` orphans every account. Rotation would need a second key and re-hashing on sign-in.
 - **Assignees and members.** Note assignees are free text; linking them to board members comes later.

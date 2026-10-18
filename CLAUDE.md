@@ -47,6 +47,14 @@ Domain: a board is a freeform canvas. `Board 1──* Bucket` (named rectangles)
   - Membership changes lock the board row (`MemberEndpoints.LockBoard`) so a board always keeps an owner.
   - Email lookup, invite accept/preview and linking are sessions only.
   - Tests: `factory.CreateSignedInClientAsync(...)`, `TestLinkAsync`, and `TestApi` helpers (`MeAsync`, `CreateBoardAsync`, `ShareAsync`).
+- **Personal access tokens and MCP**:
+  - `Bearer pb_pat_...` goes to the `pat` scheme (`AccessTokenHandler`). The token acts as its own `Agent` (issuer `pat`), with its owner's memberships capped and limited by `BoardCaller` (`Auth/AccessTokens.cs`).
+  - Use `BoardCaller.Of(principal)` or `BoardAccess.RoleOnBoardAsync(db, boardId, principal, ct)` for any new board-role lookup; never query `BoardMembers` by `PrincipalId()` directly.
+  - Token management endpoints are sessions only.
+  - `/mcp` (`Mcp/BoardTools.cs`, policy `AuthSetup.McpPolicy`: bearer only, Origin check) calls the `internal` REST handlers after `McpCall.AuthorizeAsync`, validates with `McpCall.Validate`, and must `McpCall.AnnounceAsync` after writes.
+  - Tool errors are `McpException`s.
+  - MCP tools need `JsonSerializerOptions` with a `TypeInfoResolver` (`McpCall.Json`).
+  - Tests: `AccessTokenTests`, and `McpTests` with the official MCP client over the test server.
 - **Live updates** (`Live/`, SignalR hub `BoardHub` at `/api/live`, policy `AuthSetup.LivePolicy`, which also checks the Origin of cookie connections):
   - The `RequireBoardRole` filter announces successful board-scoped writes (`BoardChanged`) itself. Mark board-scoped POSTs that change nothing with `.Quiet()`. Changes to board lists, roles or names call `BoardEvents` explicitly (`BoardsChangedAsync`, `AccessChangedAsync`, `RenamedAsync`).
   - Presence and roles of open connections live in the `LiveViewers` singleton (one instance only). SignalR user ids are principal ids (`PrincipalUserIds`).

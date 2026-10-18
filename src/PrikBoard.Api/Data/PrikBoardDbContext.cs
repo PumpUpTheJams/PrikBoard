@@ -14,6 +14,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
     public DbSet<UserIdentity> UserIdentities => Set<UserIdentity>();
     public DbSet<BoardMember> BoardMembers => Set<BoardMember>();
     public DbSet<BoardInvite> BoardInvites => Set<BoardInvite>();
+    public DbSet<AccessToken> AccessTokens => Set<AccessToken>();
     public DbSet<BoardImage> Images => Set<BoardImage>();
     public DbSet<ImageContent> ImageContents => Set<ImageContent>();
 
@@ -97,6 +98,19 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             agent.Property(a => a.Issuer).HasMaxLength(50);
             agent.Property(a => a.ClientId).HasMaxLength(255);
             agent.HasIndex(a => new { a.Issuer, a.ClientId }).IsUnique().HasFilter("\"Kind\" = 'Agent'");
+            // Keeps the agent (and the name on what it did) when its owner goes; their tokens go with them.
+            agent.HasOne<User>().WithMany().HasForeignKey(a => a.OwnerId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<AccessToken>(token =>
+        {
+            token.Property(t => t.TokenHash).HasMaxLength(32);
+            token.HasIndex(t => t.TokenHash).IsUnique();
+            token.Property(t => t.Hint).HasMaxLength(8);
+            token.Property(t => t.MaxRole).HasConversion<string>().HasMaxLength(10);
+            token.HasOne(t => t.Owner).WithMany().HasForeignKey(t => t.OwnerId).OnDelete(DeleteBehavior.Cascade);
+            token.HasOne(t => t.Agent).WithMany().HasForeignKey(t => t.AgentId).OnDelete(DeleteBehavior.Cascade);
+            token.HasIndex(t => t.OwnerId);
         });
 
         modelBuilder.Entity<UserIdentity>(identity =>

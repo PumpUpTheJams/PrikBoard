@@ -58,7 +58,7 @@ public static class NoteEndpoints
         return api;
     }
 
-    private static async Task<Results<Ok<List<NoteDetail>>, NotFound>> ListNotes(
+    internal static async Task<Results<Ok<List<NoteDetail>>, NotFound>> ListNotes(
         Guid boardId, Guid? bucketId, string? tag, string? assignee, string? search, PrikBoardDbContext db, CancellationToken ct)
     {
         if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
@@ -90,7 +90,7 @@ public static class NoteEndpoints
         return TypedResults.Ok(Layout.ReadingOrder(notes, buckets).Select(NoteDetail.From).ToList());
     }
 
-    private static async Task<Results<Created<NoteDetail>, NotFound, ValidationProblem>> CreateNote(
+    internal static async Task<Results<Created<NoteDetail>, NotFound, ValidationProblem>> CreateNote(
         Guid boardId, CreateNoteRequest request, PrikBoardDbContext db, CancellationToken ct)
     {
         if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
@@ -115,14 +115,14 @@ public static class NoteEndpoints
         return TypedResults.Created($"/api/notes/{note.Id}", NoteDetail.From(note));
     }
 
-    private static async Task<Results<Ok<NoteDetail>, NotFound>> GetNote(
+    internal static async Task<Results<Ok<NoteDetail>, NotFound>> GetNote(
         Guid noteId, PrikBoardDbContext db, CancellationToken ct)
     {
         var note = await db.Notes.AsNoTracking().FirstOrDefaultAsync(n => n.Id == noteId, ct);
         return note is null ? TypedResults.NotFound() : TypedResults.Ok(NoteDetail.From(note));
     }
 
-    private static async Task<Results<Ok<NoteDetail>, NotFound, ValidationProblem>> UpdateNote(
+    internal static async Task<Results<Ok<NoteDetail>, NotFound, ValidationProblem>> UpdateNote(
         Guid noteId, UpdateNoteRequest request, PrikBoardDbContext db, CancellationToken ct)
     {
         var note = await db.Notes.FindAsync([noteId], ct);
@@ -139,7 +139,7 @@ public static class NoteEndpoints
         return TypedResults.Ok(NoteDetail.From(note));
     }
 
-    private static async Task<Results<Ok<NoteDetail>, NotFound, ValidationProblem>> MoveNote(
+    internal static async Task<Results<Ok<NoteDetail>, NotFound, ValidationProblem>> MoveNote(
         Guid noteId, MoveNoteRequest request, PrikBoardDbContext db, CancellationToken ct)
     {
         var note = await db.Notes.FindAsync([noteId], ct);
@@ -162,7 +162,7 @@ public static class NoteEndpoints
         return TypedResults.Ok(NoteDetail.From(note));
     }
 
-    private static async Task<Results<NoContent, NotFound>> DeleteNote(
+    internal static async Task<Results<NoContent, NotFound>> DeleteNote(
         Guid noteId, PrikBoardDbContext db, CancellationToken ct)
     {
         var deleted = await db.Notes.Where(n => n.Id == noteId).ExecuteDeleteAsync(ct);

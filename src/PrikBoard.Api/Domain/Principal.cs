@@ -34,14 +34,23 @@ public class User : Principal
     public override string FallbackName => $"User {Id.ToString("N")[^4..]}";
 }
 
-/// <summary>A machine client (for example an AI agent) that calls the API with access tokens from a trusted issuer.</summary>
+/// <summary>
+/// A machine client (for example an AI agent). Either a client of a trusted token issuer, which owners add to boards, or
+/// the agent behind a person's access token (<see cref="OwnerId"/> set), which works on its owner's boards.
+/// </summary>
 public class Agent : Principal
 {
-    /// <summary>Id of the configured token issuer (<c>Auth:Tokens:Issuers</c>).</summary>
+    /// <summary>Issuer id for personal access tokens.</summary>
+    public const string AccessTokenIssuer = "pat";
+
+    /// <summary>Id of the configured token issuer (<c>Auth:Tokens:Issuers</c>), or <see cref="AccessTokenIssuer"/>.</summary>
     public required string Issuer { get; set; }
 
-    /// <summary>The client id in its tokens (azp, client_id or appid): an app registration, not personal data.</summary>
+    /// <summary>The client id in its tokens (azp, client_id or appid), or the access token's id: an app registration, not personal data.</summary>
     public required string ClientId { get; set; }
+
+    /// <summary>The person whose access token this agent acts for; null for issuer clients.</summary>
+    public Guid? OwnerId { get; set; }
 
     public override string FallbackName => $"Agent {(ClientId.Length <= 60 ? ClientId : ClientId[..60])}";
 }
