@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type RefObject } from 'react'
 import {
   noteColors,
   type Assignee,
@@ -11,11 +11,11 @@ import {
   type NoteLink,
 } from '../api/types'
 import { Avatar } from '../components/Avatar'
+import { ConfirmDeleteNote } from '../components/ConfirmDialog'
 import {
   BucketIcon,
   ChecklistIcon,
   CloseIcon,
-  CollapseIcon,
   LinkIcon,
   NoteDocIcon,
   PullRequestIcon,
@@ -33,6 +33,7 @@ interface ExpandedNoteProps {
   /** Focus and select the title, for a post-it that was just stuck on. */
   focusTitle: boolean
   onChange: (changes: NoteChanges) => Promise<boolean>
+  /** Deletes the post-it; called after the person confirmed. */
   onDelete: () => void
   onClose: () => void
 }
@@ -40,6 +41,7 @@ interface ExpandedNoteProps {
 /** A post-it opened up: a header band in its fill, and a mini board with its note, checklist and links. */
 export function ExpandedNote({ note, bucket, focusTitle, onChange, onDelete, onClose }: ExpandedNoteProps) {
   const [reveal, setReveal] = useState({ checklist: false, links: false })
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const dialogRef = useRef<HTMLElement>(null)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
   const checklistRef = useRef<HTMLInputElement>(null)
@@ -49,11 +51,16 @@ export function ExpandedNote({ note, bucket, focusTitle, onChange, onDelete, onC
     if (!focusTitle) dialogRef.current?.focus()
   }, [focusTitle])
 
-  function onKeyDown(e: KeyboardEvent) {
-    if (e.key !== 'Escape') return
-    e.stopPropagation()
-    onClose()
-  }
+  // Escape closes the post-it wherever focus is (it can end up on the page after saving the title). Fields and the
+  // delete confirmation handle their own Escape first and stop it from getting here.
+  useEffect(() => {
+    if (confirmingDelete) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [confirmingDelete, onClose])
 
   function show(widget: 'checklist' | 'links') {
     setReveal((r) => ({ ...r, [widget]: true }))
@@ -62,7 +69,7 @@ export function ExpandedNote({ note, bucket, focusTitle, onChange, onDelete, onC
   }
 
   return (
-    <div className="expanded-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()} onKeyDown={onKeyDown}>
+    <div className="expanded-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <article
         ref={dialogRef}
         className={`expanded fill-${note.color.toLowerCase()}`}
@@ -91,14 +98,7 @@ export function ExpandedNote({ note, bucket, focusTitle, onChange, onDelete, onC
                   <CloseIcon size={12} />
                 </button>
               )}
-              <button type="button" className="band-button icon" aria-label="Delete post-it" title="Delete post-it" onClick={onDelete}>
-                <TrashIcon />
-              </button>
-              <button type="button" className="band-button" onClick={onClose}>
-                <CollapseIcon />
-                Collapse to post-it
-              </button>
-              <button type="button" className="band-button icon" aria-label="Close" onClick={onClose}>
+              <button type="button" className="band-button icon" aria-label="Close" title="Close" onClick={onClose}>
                 <CloseIcon />
               </button>
             </div>
@@ -140,7 +140,7 @@ export function ExpandedNote({ note, bucket, focusTitle, onChange, onDelete, onC
             )}
           </div>
 
-          <div className="dock" role="toolbar" aria-label="Add to this post-it">
+          <div className="dock" role="toolbar" aria-label="Post-it tools">
             <button type="button" className="dock-button" onClick={() => bodyRef.current?.focus()}>
               <NoteDocIcon />
               Note
@@ -153,9 +153,33 @@ export function ExpandedNote({ note, bucket, focusTitle, onChange, onDelete, onC
               <LinkIcon />
               Link
             </button>
+            <span className="dock-divider" aria-hidden="true" />
+            <button
+              type="button"
+              className="dock-button dock-delete"
+              aria-label="Delete post-it"
+              title="Delete post-it"
+              onClick={() => setConfirmingDelete(true)}
+            >
+              <TrashIcon />
+            </button>
           </div>
         </div>
       </article>
+
+      {confirmingDelete && (
+        <ConfirmDeleteNote
+          title={note.title}
+          onConfirm={() => {
+            setConfirmingDelete(false)
+            onDelete()
+          }}
+          onCancel={() => {
+            setConfirmingDelete(false)
+            dialogRef.current?.focus()
+          }}
+        />
+      )}
     </div>
   )
 }
