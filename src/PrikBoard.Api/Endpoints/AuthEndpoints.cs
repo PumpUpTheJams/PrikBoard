@@ -7,6 +7,7 @@ using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
+using PrikBoard.Api.Live;
 
 namespace PrikBoard.Api.Endpoints;
 
@@ -101,7 +102,7 @@ public static class AuthEndpoints
     private static async Task<Results<ChallengeHttpResult, NotFound, ForbidHttpResult>> Link(
         string provider, HttpContext http, ClaimsPrincipal principal, IOptions<AuthOptions> options)
     {
-        if (principal.IsToken() || !IsSameOrigin(http.Request)) return TypedResults.Forbid();
+        if (principal.IsToken() || !SameOrigin.Check(http.Request)) return TypedResults.Forbid();
         if (!options.Value.Providers.ContainsKey(provider)) return TypedResults.NotFound();
 
         // Read by hand rather than bound with [FromForm], which would require antiforgery tokens the SPA does not use.
@@ -123,7 +124,7 @@ public static class AuthEndpoints
 
     private static async Task<Results<Ok<Caller>, UnauthorizedHttpResult>> UpdateMe(
         UpdateMeRequest request, ClaimsPrincipal principal, HttpContext http, PrikBoardDbContext db,
-        IOptions<AuthOptions> options, CancellationToken ct)
+        IOptions<AuthOptions> options, BoardEvents events, CancellationToken ct)
     {
         var self = await db.Principals.FindAsync([principal.PrincipalId()], ct);
         if (self is null) return TypedResults.Unauthorized();
@@ -134,6 +135,7 @@ public static class AuthEndpoints
             self.DisplayName = name.Length == 0 ? null : name;
         }
         await db.SaveChangesAsync(ct);
+        await events.RenamedAsync(self.Id, self.ShownName);
 
         if (!principal.IsToken() && self is User user)
         {
@@ -190,19 +192,6 @@ public static class AuthEndpoints
         var suggested = user.DisplayName is null ? principal.FindFirstValue(UserPrincipal.SuggestedNameClaim) : null;
         return new Caller(CallerKind.Session, PrincipalKind.User, user.Id, user.ShownName, user.DisplayName, suggested,
             principal.FindFirstValue(UserPrincipal.ProviderClaim), null, identities, scopes);
-    }
-
-    /// <summary>The request comes from this site's own pages (Origin, or Sec-Fetch-Site when a browser omits Origin).</summary>
-    private static bool IsSameOrigin(HttpRequest request)
-    {
-        var origin = request.Headers.Origin.ToString();
-        // Compare hosts only: behind a TLS-terminating proxy the request scheme can differ from the browser's.
-        if (origin.Length > 0)
-        {
-            return Uri.TryCreate(origin, UriKind.Absolute, out var uri)
-                   && string.Equals(uri.Authority, request.Host.Value, StringComparison.OrdinalIgnoreCase);
-        }
-        return request.Headers["Sec-Fetch-Site"].ToString() == "same-origin";
     }
 
     /// <summary>Only same-site paths, so a crafted login link cannot bounce people to another site.</summary>

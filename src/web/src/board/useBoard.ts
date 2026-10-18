@@ -2,8 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError, errorMessage } from '../api/client'
 import type { BoardDetail } from '../api/types'
 
-/** How often the open board is re-read, so changes made by AI agents and other people show up. */
+/** How often the open board is re-read without live updates, so changes by agents and other people show up. */
 const POLL_MS = 4000
+/** With live updates connected, polling is only a safety net. */
+const LIVE_POLL_MS = 30_000
+/** Change notifications arriving within this window cause one reload. */
+const REFRESH_DEBOUNCE_MS = 100
 
 export interface BoardState {
   /** The loaded board, or null while it loads. */
@@ -12,6 +16,8 @@ export interface BoardState {
   run: (action: () => Promise<unknown>) => Promise<boolean>
   /** Holds off background refreshes, e.g. while something is being dragged. */
   setPaused: (paused: boolean) => void
+  /** Reloads soon in the background, e.g. because someone else changed the board; waits while paused. */
+  refresh: () => void
 }
 
 /** A 404 for the open board means it was deleted or you were removed from it. */
@@ -22,9 +28,14 @@ export function useBoard(
   onError: (message: string) => void,
   /** Called when the board is gone or you lost access to it. */
   onLost: () => void,
+  /** Live updates are connected, so the board only needs an occasional poll. */
+  live = false,
 ): BoardState {
   const [loaded, setLoaded] = useState<BoardDetail | null>(null)
   const paused = useRef(false)
+  /** A refresh was asked for while paused; it runs on unpause. */
+  const owed = useRef(false)
+  const reload = useRef<() => void>(() => {})
 
   useEffect(() => {
     if (!boardId) return
@@ -40,15 +51,26 @@ export function useBoard(
         },
       )
 
+    let debounce: number | undefined
+    reload.current = () => {
+      window.clearTimeout(debounce)
+      debounce = window.setTimeout(() => {
+        if (paused.current) owed.current = true
+        else void load(true)
+      }, REFRESH_DEBOUNCE_MS)
+    }
+
     void load(false)
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible' && !paused.current) void load(true)
-    }, POLL_MS)
+    }, live ? LIVE_POLL_MS : POLL_MS)
     return () => {
       ignore = true
       window.clearInterval(timer)
+      window.clearTimeout(debounce)
+      reload.current = () => {}
     }
-  }, [boardId, onError, onLost])
+  }, [boardId, onError, onLost, live])
 
   const run = useCallback(
     async (action: () => Promise<unknown>) => {
@@ -74,8 +96,14 @@ export function useBoard(
 
   const setPaused = useCallback((value: boolean) => {
     paused.current = value
+    if (!value && owed.current) {
+      owed.current = false
+      reload.current()
+    }
   }, [])
 
+  const refresh = useCallback(() => reload.current(), [])
+
   // A board loaded for a previously selected id is not shown for the new one.
-  return { board: loaded?.id === boardId ? loaded : null, run, setPaused }
+  return { board: loaded?.id === boardId ? loaded : null, run, setPaused, refresh }
 }

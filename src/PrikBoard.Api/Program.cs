@@ -2,11 +2,13 @@ using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
 using PrikBoard.Api.Auth;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Endpoints;
+using PrikBoard.Api.Live;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,6 +22,11 @@ builder.Services.AddProblemDetails();
 builder.Services.AddValidation();
 builder.Services.AddHealthChecks();
 builder.AddPrikBoardAuth();
+builder.Services.AddSignalR()
+    .AddJsonProtocol(options => options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+builder.Services.AddSingleton<IUserIdProvider, PrincipalUserIds>();
+builder.Services.AddSingleton<LiveViewers>();
+builder.Services.AddSingleton<BoardEvents>();
 
 // Per-principal limits on endpoints that take guessable input (email lookup, invite tokens).
 builder.Services.AddRateLimiter(options =>
@@ -116,5 +123,7 @@ api.MapNoteEndpoints();
 api.MapImageEndpoints();
 api.MapMemberEndpoints();
 api.MapInviteEndpoints();
+// Live updates (SignalR): checks board membership itself, per board joined.
+api.MapHub<BoardHub>("/live").RequireAuthorization(AuthSetup.LivePolicy).NoBoardScope();
 
 app.Run();

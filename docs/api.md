@@ -137,6 +137,30 @@ The browser starts sign-in by navigating to `GET /api/auth/login/{provider}?retu
 
 `GET /health` returns `Healthy` when the API is up.
 
+## Live updates
+
+Instead of polling getBoard, a client can follow a board live over **SignalR** at `/api/live` (WebSockets, falling back to server-sent events or long polling). It authenticates like the rest of the API: a session cookie from PrikBoard's own pages, or `Authorization: Bearer <token>` with `boards:read` or `boards:write`. Changes still go through the REST endpoints; the hub only tells you about them. Official SignalR clients exist for JavaScript, .NET, Java and Swift.
+
+| Hub method | Who | What |
+| --- | --- | --- |
+| `Join(boardId)` | Members | Follow one board (and stop following the previous one). Returns `{boardId, role, key, viewers}`; fails for boards you are not a member of |
+| `Leave()` | Anyone | Stop following the board |
+| `Drag({kind, id, dx, dy})` | Editors (tokens need `boards:write`) | Show others a drag in progress: `kind` is `Note`, `Bucket`, `Resize`, `Image` or `ImageResize`, and `dx`/`dy` the pointer travel in canvas pixels. Send at most every 50 ms |
+| `DragEnd()` | Editors | The drag is over |
+
+| Server message | Meaning |
+| --- | --- |
+| `BoardChanged({boardId, by})` | Something on the joined board was saved; call getBoard |
+| `Presence({boardId, viewers})` | Who is on the board now (`principalId`, `kind`, `displayName`), each person once |
+| `Dragging({key, principalId, displayName, kind, id, dx, dy})` | Someone else's drag in progress |
+| `DragEnded(key)` | They let go. Keep the item where it was until the next getBoard shows where it landed |
+| `BoardsChanged()` | Your list of boards changed (renamed, deleted, you were added or removed); call listBoards |
+| `AccessChanged(boardId)` | Your role on that board changed or you lost access: call `Join` again (it fails when access is gone) |
+
+- Changes you make yourself are announced to you too, unless you send your connection id in an `X-PrikBoard-Live` header with the change (the web app does, since it reloads after its own changes anyway).
+- Being removed from a board stops its messages at once.
+- Live updates are a convenience: reconnect when the connection drops, and call getBoard after reconnecting, because changes made in between are not replayed.
+
 ## Images
 
 Images and GIFs live on the board canvas or are attached to a note (`noteId`), and getBoard lists them all under `images`. Upload the raw file as the request body, not as a form:

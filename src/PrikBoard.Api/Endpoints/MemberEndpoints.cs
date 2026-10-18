@@ -6,6 +6,7 @@ using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
+using PrikBoard.Api.Live;
 
 namespace PrikBoard.Api.Endpoints;
 
@@ -57,6 +58,7 @@ public static class MemberEndpoints
 
         members.MapPost("/members/lookup", FindUserByEmail)
             .RequireBoardRole(BoardRole.Owner)
+            .Quiet()
             .RequireRateLimiting(LookupLimit)
             .WithName("findUserByEmail")
             .WithSummary("Find a person by exact email")
@@ -82,16 +84,17 @@ public static class MemberEndpoints
     }
 
     private static async Task<Results<Created<BoardMemberDetail>, NotFound, ProblemHttpResult>> AddBoardMember(
-        Guid boardId, AddBoardMemberRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
+        Guid boardId, AddBoardMemberRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, BoardEvents events,
+        CancellationToken ct)
     {
         var target = await db.Principals.FindAsync([request.PrincipalId], ct);
         if (target is null) return TypedResults.NotFound();
-        return await Add(db, boardId, target, request.Role, principal.PrincipalId(), ct);
+        return await Add(db, events, boardId, target, request.Role, principal.PrincipalId(), ct);
     }
 
     private static async Task<Results<Created<BoardMemberDetail>, NotFound, ProblemHttpResult, ValidationProblem>> AddBoardAgent(
         Guid boardId, AddBoardAgentRequest request, ClaimsPrincipal principal, PrikBoardDbContext db,
-        IOptions<AuthOptions> options, HttpContext http, CancellationToken ct)
+        IOptions<AuthOptions> options, HttpContext http, BoardEvents events, CancellationToken ct)
     {
         if (!options.Value.Tokens.Issuers.TryGetValue(request.Issuer, out var issuer) || string.IsNullOrWhiteSpace(issuer.Authority))
         {
@@ -105,7 +108,7 @@ public static class MemberEndpoints
         var agent = (await db.Agents.FindAsync([agentId], ct))!;
         if (agent.DisplayName is null && !string.IsNullOrWhiteSpace(request.DisplayName)) agent.DisplayName = request.DisplayName.Trim();
 
-        var result = await Add(db, boardId, agent, request.Role, principal.PrincipalId(), ct);
+        var result = await Add(db, events, boardId, agent, request.Role, principal.PrincipalId(), ct);
         return result.Result switch
         {
             Created<BoardMemberDetail> created => created,
@@ -116,7 +119,7 @@ public static class MemberEndpoints
     }
 
     private static async Task<Results<Created<BoardMemberDetail>, NotFound, ProblemHttpResult>> Add(
-        PrikBoardDbContext db, Guid boardId, Principal target, BoardRole role, Guid caller, CancellationToken ct)
+        PrikBoardDbContext db, BoardEvents events, Guid boardId, Principal target, BoardRole role, Guid caller, CancellationToken ct)
     {
         if (await db.BoardMembers.AnyAsync(m => m.BoardId == boardId && m.PrincipalId == target.Id, ct))
         {
@@ -127,12 +130,14 @@ public static class MemberEndpoints
         var member = new BoardMember { BoardId = boardId, Principal = target, PrincipalId = target.Id, Role = role };
         db.BoardMembers.Add(member);
         await db.SaveChangesAsync(ct);
+        await events.AccessChangedAsync(boardId, target.Id, role);
+        await events.BoardsChangedAsync([target.Id]);
         return TypedResults.Created($"/api/boards/{boardId}/members/{target.Id}", BoardMemberDetail.From(member, caller));
     }
 
     private static async Task<Results<Ok<BoardMemberDetail>, NotFound, ProblemHttpResult>> UpdateBoardMember(
         Guid boardId, Guid principalId, UpdateBoardMemberRequest request, ClaimsPrincipal principal,
-        PrikBoardDbContext db, CancellationToken ct)
+        PrikBoardDbContext db, BoardEvents events, CancellationToken ct)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         await LockBoard(db, boardId, ct);
@@ -148,11 +153,14 @@ public static class MemberEndpoints
         member.Role = request.Role;
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
+        await events.AccessChangedAsync(boardId, principalId, member.Role);
+        await events.BoardsChangedAsync([principalId]);
         return TypedResults.Ok(BoardMemberDetail.From(member, principal.PrincipalId()));
     }
 
     private static async Task<Results<NoContent, NotFound, ProblemHttpResult>> RemoveBoardMember(
-        Guid boardId, Guid principalId, ClaimsPrincipal principal, HttpContext http, PrikBoardDbContext db, CancellationToken ct)
+        Guid boardId, Guid principalId, ClaimsPrincipal principal, HttpContext http, PrikBoardDbContext db, BoardEvents events,
+        CancellationToken ct)
     {
         var self = principal.PrincipalId() == principalId;
         if (!self && http.BoardRole() != BoardRole.Owner)
@@ -171,6 +179,8 @@ public static class MemberEndpoints
         db.BoardMembers.Remove(member);
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
+        await events.AccessChangedAsync(boardId, principalId, null);
+        await events.BoardsChangedAsync([principalId]);
         return TypedResults.NoContent();
     }
 
