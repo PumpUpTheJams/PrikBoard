@@ -1,6 +1,6 @@
 namespace PrikBoard.Api.Auth;
 
-/// <summary>The <c>Auth</c> configuration section: sign-in providers and who may sign in.</summary>
+/// <summary>The <c>Auth</c> configuration section: sign-in providers and accepted access tokens.</summary>
 public class AuthOptions
 {
     public const string Section = "Auth";
@@ -14,24 +14,8 @@ public class AuthOptions
     /// <summary>The provider offered first, as the main sign-in button.</summary>
     public string? DefaultProvider { get; set; }
 
-    /// <summary>Emails that may sign in. When this and <see cref="AllowedEmailDomains"/> are both empty, anyone may.</summary>
-    public string[] AllowedEmails { get; set; } = [];
-
-    /// <summary>Email domains (for example "example.com") whose users may sign in.</summary>
-    public string[] AllowedEmailDomains { get; set; } = [];
-
     /// <summary>Access tokens that machines (Client Credentials) and other OAuth clients send as Bearer tokens.</summary>
     public TokenOptions Tokens { get; set; } = new();
-
-    public bool Allows(string? email)
-    {
-        if (AllowedEmails.Length == 0 && AllowedEmailDomains.Length == 0) return true;
-        if (email is null) return false;
-
-        var domain = email[(email.LastIndexOf('@') + 1)..];
-        return AllowedEmails.Contains(email, StringComparer.OrdinalIgnoreCase)
-               || AllowedEmailDomains.Contains(domain, StringComparer.OrdinalIgnoreCase);
-    }
 }
 
 public enum ProviderType
