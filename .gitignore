@@ -431,3 +431,6 @@ FodyWeavers.xsd
 *.db
 *.db-shm
 *.db-wal
+
+# JetBrains Rider / IntelliJ project settings
+.idea/
