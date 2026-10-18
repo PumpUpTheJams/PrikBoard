@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
+using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
@@ -13,6 +14,7 @@ public static class BucketEndpoints
         var buckets = api.MapGroup("/").WithTags("Buckets");
 
         buckets.MapPost("/boards/{boardId:guid}/buckets", CreateBucket)
+            .RequireBoardRole(BoardRole.Editor)
             .WithName("createBucket")
             .WithSummary("Draw a bucket on a board")
             .WithDescription("Creates a bucket at the given rectangle (or to the right of the existing buckets). " +
@@ -20,6 +22,7 @@ public static class BucketEndpoints
             .ProducesValidationProblem();
 
         buckets.MapPatch("/buckets/{bucketId:guid}", UpdateBucket)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Bucket)
             .WithName("updateBucket")
             .WithSummary("Rename, recolour, move or resize a bucket")
             .WithDescription("Changes any of name, colour, position and size. Omitted fields stay unchanged. " +
@@ -27,6 +30,7 @@ public static class BucketEndpoints
             .ProducesValidationProblem();
 
         buckets.MapDelete("/buckets/{bucketId:guid}", DeleteBucket)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Bucket)
             .WithName("deleteBucket")
             .WithSummary("Delete a bucket")
             .WithDescription("Deletes the bucket. Its notes stay where they are and become loose " +

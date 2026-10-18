@@ -23,8 +23,9 @@ public class BoardImage
     public int Width { get; set; }
     public int Height { get; set; }
     public string? Caption { get; set; }
-    /// <summary>Name of the person or machine that added the image.</summary>
-    public required string AddedBy { get; set; }
+    /// <summary>The user or agent that added the image; null once they no longer exist.</summary>
+    public Guid? AddedById { get; set; }
+    public Principal? AddedBy { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 

@@ -29,7 +29,8 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         // Default buckets end at 840; images go 40 px to the right, at most 360 px wide, keeping the aspect ratio.
         Assert.Equal((880, 40, 360, 270), (image.X, image.Y, image.Width, image.Height));
         Assert.Null(image.NoteId);
-        Assert.Equal("tester", image.AddedBy);
+        var me = await _client.MeAsync();
+        Assert.Equal((me.DisplayName, me.Id), (image.AddedBy, image.AddedById));
 
         var response = await _client.GetAsync(image.ContentUrl);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);

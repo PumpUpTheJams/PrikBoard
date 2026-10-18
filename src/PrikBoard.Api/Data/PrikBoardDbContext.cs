@@ -8,7 +8,12 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
     public DbSet<Board> Boards => Set<Board>();
     public DbSet<Bucket> Buckets => Set<Bucket>();
     public DbSet<Note> Notes => Set<Note>();
+    public DbSet<Principal> Principals => Set<Principal>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<Agent> Agents => Set<Agent>();
+    public DbSet<UserIdentity> UserIdentities => Set<UserIdentity>();
+    public DbSet<BoardMember> BoardMembers => Set<BoardMember>();
+    public DbSet<BoardInvite> BoardInvites => Set<BoardInvite>();
     public DbSet<BoardImage> Images => Set<BoardImage>();
     public DbSet<ImageContent> ImageContents => Set<ImageContent>();
 
@@ -62,7 +67,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             image.Property(i => i.FileName).HasMaxLength(255);
             image.Property(i => i.ContentType).HasMaxLength(50);
             image.Property(i => i.Caption).HasMaxLength(500);
-            image.Property(i => i.AddedBy).HasMaxLength(200);
+            image.HasOne(i => i.AddedBy).WithMany().HasForeignKey(i => i.AddedById).OnDelete(DeleteBehavior.SetNull);
             image.HasOne(i => i.Board).WithMany(b => b.Images).HasForeignKey(i => i.BoardId).OnDelete(DeleteBehavior.Cascade);
             // An attached image goes when its note goes.
             image.HasOne<Note>().WithMany().HasForeignKey(i => i.NoteId).OnDelete(DeleteBehavior.Cascade);
@@ -73,13 +78,54 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
 
         modelBuilder.Entity<ImageContent>(content => content.HasKey(c => c.ImageId));
 
-        modelBuilder.Entity<User>(user =>
+        // Users and agents share one table, so memberships, invites and images point at a single kind of id.
+        modelBuilder.Entity<Principal>(principal =>
         {
-            user.Property(u => u.Provider).HasMaxLength(50);
-            user.Property(u => u.Subject).HasMaxLength(255);
-            user.Property(u => u.Name).HasMaxLength(200);
-            user.Property(u => u.Email).HasMaxLength(320);
-            user.HasIndex(u => new { u.Provider, u.Subject }).IsUnique();
+            principal.ToTable("Principals");
+            principal.HasDiscriminator<string>("Kind").HasValue<User>("User").HasValue<Agent>("Agent");
+            principal.Property<string>("Kind").HasMaxLength(10);
+            principal.Property(p => p.DisplayName).HasMaxLength(100);
+            principal.Ignore(p => p.FallbackName);
+            principal.Ignore(p => p.ShownName);
+        });
+
+        modelBuilder.Entity<User>(user =>
+            user.HasMany(u => u.Identities).WithOne(i => i.User).HasForeignKey(i => i.UserId).OnDelete(DeleteBehavior.Cascade));
+
+        modelBuilder.Entity<Agent>(agent =>
+        {
+            agent.Property(a => a.Issuer).HasMaxLength(50);
+            agent.Property(a => a.ClientId).HasMaxLength(255);
+            agent.HasIndex(a => new { a.Issuer, a.ClientId }).IsUnique().HasFilter("\"Kind\" = 'Agent'");
+        });
+
+        modelBuilder.Entity<UserIdentity>(identity =>
+        {
+            identity.Property(i => i.Provider).HasMaxLength(50);
+            identity.Property(i => i.SubjectHash).HasMaxLength(32);
+            identity.Property(i => i.EmailHash).HasMaxLength(32);
+            identity.HasIndex(i => new { i.Provider, i.SubjectHash }).IsUnique();
+            identity.HasIndex(i => i.EmailHash);
+        });
+
+        modelBuilder.Entity<BoardMember>(member =>
+        {
+            member.HasKey(m => new { m.BoardId, m.PrincipalId });
+            member.Property(m => m.Role).HasConversion<string>().HasMaxLength(10);
+            member.HasOne(m => m.Board).WithMany(b => b.Members).HasForeignKey(m => m.BoardId).OnDelete(DeleteBehavior.Cascade);
+            member.HasOne(m => m.Principal).WithMany().HasForeignKey(m => m.PrincipalId).OnDelete(DeleteBehavior.Cascade);
+            member.HasIndex(m => m.PrincipalId);
+        });
+
+        modelBuilder.Entity<BoardInvite>(invite =>
+        {
+            invite.Property(i => i.Role).HasConversion<string>().HasMaxLength(10);
+            invite.Property(i => i.TokenHash).HasMaxLength(32);
+            invite.HasIndex(i => i.TokenHash).IsUnique();
+            invite.HasIndex(i => i.BoardId);
+            invite.HasOne<Board>().WithMany().HasForeignKey(i => i.BoardId).OnDelete(DeleteBehavior.Cascade);
+            invite.HasOne(i => i.CreatedBy).WithMany().HasForeignKey(i => i.CreatedById).OnDelete(DeleteBehavior.SetNull);
+            invite.HasOne<Principal>().WithMany().HasForeignKey(i => i.AcceptedById).OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

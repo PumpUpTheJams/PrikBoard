@@ -11,6 +11,7 @@ using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using PrikBoard.Api.Contracts;
+using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
 
@@ -94,7 +95,8 @@ public class TokenAuthTests(TokenAuthTests.Factory factory) : IClassFixture<Toke
     {
         var me = await Client(Token(Secondary, scope: "boards:read")).GetFromJsonAsync<Caller>("/api/me");
 
-        Assert.Equal((CallerKind.Token, "secondary", "machine-client"), (me!.Kind, me.Provider, me.Name));
+        Assert.Equal((CallerKind.Token, PrincipalKind.Agent, "secondary", "machine-client"), (me!.Kind, me.PrincipalKind, me.Provider, me.ClientId));
+        Assert.Equal("Agent machine-client", me.DisplayName);
         Assert.Equal(["boards:read"], me.Scopes);
     }
 
@@ -131,6 +133,63 @@ public class TokenAuthTests(TokenAuthTests.Factory factory) : IClassFixture<Toke
         }
     }
 
+    [Fact]
+    public async Task Every_token_client_is_one_stable_agent()
+    {
+        var first = await Client(Token(scope: "boards:read")).GetFromJsonAsync<Caller>("/api/me");
+        var second = await Client(Token(scope: "boards:write")).GetFromJsonAsync<Caller>("/api/me");
+        var other = await Client(Token(Secondary, scope: "boards:read")).GetFromJsonAsync<Caller>("/api/me");
+
+        Assert.Equal(first!.Id, second!.Id);
+        Assert.NotEqual(first.Id, other!.Id); // same client id, different issuer
+    }
+
+    [Fact]
+    public async Task Agents_reach_a_board_once_an_owner_adds_them_within_their_scopes()
+    {
+        var owner = await factory.CreateSignedInClientAsync("agent-owner@example.com");
+        var board = await owner.CreateBoardAsync("For the agent");
+        var agent = Client(Token(scope: "boards:write", clientId: "helper-bot"));
+        var reader = Client(Token(scope: "boards:read", clientId: "helper-bot"));
+
+        Assert.Equal(HttpStatusCode.NotFound, (await agent.GetAsync($"/api/boards/{board.Id}")).StatusCode);
+
+        var added = await owner.PostAsJsonAsync($"/api/boards/{board.Id}/agents",
+            new { issuer = "primary", clientId = "helper-bot", role = "Editor", displayName = "Helper" });
+        Assert.Equal(HttpStatusCode.Created, added.StatusCode);
+        var member = (await added.Content.ReadFromJsonAsync<BoardMemberDetail>())!;
+        Assert.Equal((PrincipalKind.Agent, "Helper", "primary", "helper-bot"), (member.Kind, member.DisplayName, member.Issuer, member.ClientId));
+
+        Assert.Equal(HttpStatusCode.Created, (await agent.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "From the agent" })).StatusCode);
+        // A read token stays read-only whatever the role.
+        Assert.Equal(HttpStatusCode.Forbidden, (await reader.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "Nope" })).StatusCode);
+
+        (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}/members/{member.PrincipalId}", new { role = "Viewer" })).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.Forbidden, (await agent.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "Nope" })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await reader.GetAsync($"/api/boards/{board.Id}")).StatusCode);
+
+        var unknownIssuer = await owner.PostAsJsonAsync($"/api/boards/{board.Id}/agents", new { issuer = "elsewhere", clientId = "x", role = "Viewer" });
+        Assert.Equal(HttpStatusCode.BadRequest, unknownIssuer.StatusCode);
+    }
+
+    [Fact]
+    public async Task Agents_own_the_boards_they_create_but_cannot_use_invites_or_search_people()
+    {
+        var agent = Client(Token(scope: "boards:write", clientId: "builder-bot"));
+        var created = await agent.PostAsJsonAsync("/api/boards", new { name = "Agent's own" });
+        var board = (await created.Content.ReadFromJsonAsync<BoardDetail>())!;
+        Assert.Equal(BoardRole.Owner, board.YourRole);
+
+        var lookup = await agent.PostAsJsonAsync($"/api/boards/{board.Id}/members/lookup", new { email = "someone@example.com" });
+        Assert.Equal(HttpStatusCode.Forbidden, lookup.StatusCode);
+        var invite = await (await agent.PostAsJsonAsync($"/api/boards/{board.Id}/invites", new { role = "Viewer" })).Content.ReadFromJsonAsync<CreatedInvite>();
+        var otherAgent = Client(Token(scope: "boards:write", clientId: "sneaky-bot"));
+        Assert.Equal(HttpStatusCode.Forbidden, (await otherAgent.PostAsJsonAsync("/api/invites/accept", new { token = invite!.Token })).StatusCode);
+
+        var renamed = await agent.PatchAsJsonAsync("/api/me", new { displayName = "Builder" });
+        Assert.Equal("Builder", (await renamed.Content.ReadFromJsonAsync<Caller>())!.DisplayName);
+    }
+
     private HttpClient Client(string token)
     {
         var client = factory.CreateAnonymousClient();
@@ -140,10 +199,11 @@ public class TokenAuthTests(TokenAuthTests.Factory factory) : IClassFixture<Toke
 
     /// <summary>A Client Credentials style access token: the subject is the machine client, with no user claims.</summary>
     private static string Token(
-        Issuer? issuer = null, string? scope = null, string audience = Audience, DateTime? expires = null, Claim[]? extra = null)
+        Issuer? issuer = null, string? scope = null, string audience = Audience, DateTime? expires = null, Claim[]? extra = null,
+        string clientId = "machine-client")
     {
         issuer ??= Primary;
-        List<Claim> claims = [new("sub", "machine-client@clients"), new("azp", "machine-client"), .. extra ?? []];
+        List<Claim> claims = [new("sub", $"{clientId}@clients"), new("azp", clientId), .. extra ?? []];
         if (scope is not null) claims.Add(new Claim("scope", scope));
 
         var expiry = expires ?? DateTime.UtcNow.AddMinutes(10);

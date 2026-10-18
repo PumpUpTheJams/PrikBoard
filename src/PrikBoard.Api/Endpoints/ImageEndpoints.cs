@@ -16,6 +16,7 @@ public static class ImageEndpoints
         var images = api.MapGroup("/").WithTags("Images");
 
         images.MapPost("/boards/{boardId:guid}/images", UploadImage)
+            .RequireBoardRole(BoardRole.Editor)
             .WithName("uploadImage")
             .WithSummary("Add an image or GIF to a board")
             .WithDescription("Send the file itself as the request body with its content type (image/png, image/jpeg, image/gif or " +
@@ -29,11 +30,13 @@ public static class ImageEndpoints
             .ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
 
         images.MapGet("/images/{imageId:guid}/content", GetImageContent)
+            .RequireBoardRole(BoardRole.Viewer, BoardScope.Image)
             .WithName("getImageContent")
             .WithSummary("Download an image")
             .WithDescription("Returns the image file with its content type. An image's content never changes, so it can be cached.");
 
         images.MapPatch("/images/{imageId:guid}", UpdateImage)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Image)
             .WithName("updateImage")
             .WithSummary("Move, resize or re-caption an image")
             .WithDescription("Changes any of position, display width (the height follows the aspect ratio) and caption. " +
@@ -41,6 +44,7 @@ public static class ImageEndpoints
             .ProducesValidationProblem();
 
         images.MapDelete("/images/{imageId:guid}", DeleteImage)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Image)
             .WithName("deleteImage")
             .WithSummary("Delete an image");
 
@@ -94,7 +98,7 @@ public static class ImageEndpoints
             PixelWidth = info.Width,
             PixelHeight = info.Height,
             Caption = PatchText.Apply(null, caption),
-            AddedBy = Truncate(principal.DisplayName(), 200),
+            AddedBy = await db.Principals.FindAsync([principal.PrincipalId()], ct),
             Content = new ImageContent { Data = data },
         };
         image.Resize(width ?? Math.Min(info.Width, Layout.DefaultImageWidth));
@@ -132,7 +136,7 @@ public static class ImageEndpoints
     private static async Task<Results<Ok<ImageDetail>, NotFound, ValidationProblem>> UpdateImage(
         Guid imageId, UpdateImageRequest request, PrikBoardDbContext db, CancellationToken ct)
     {
-        var image = await db.Images.FindAsync([imageId], ct);
+        var image = await db.Images.Include(i => i.AddedBy).FirstOrDefaultAsync(i => i.Id == imageId, ct);
         if (image is null) return TypedResults.NotFound();
 
         image.X = request.X is { } x ? Layout.Snap(x) : image.X;

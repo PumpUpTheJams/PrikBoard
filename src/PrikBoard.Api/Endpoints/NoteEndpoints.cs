@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
+using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
@@ -13,6 +14,7 @@ public static class NoteEndpoints
         var notes = api.MapGroup("/").WithTags("Notes");
 
         notes.MapGet("/boards/{boardId:guid}/notes", ListNotes)
+            .RequireBoardRole(BoardRole.Viewer)
             .WithName("listNotes")
             .WithSummary("List or search notes on a board")
             .WithDescription("Returns notes bucket by bucket (loose notes last), each group top to bottom and left to right. " +
@@ -20,6 +22,7 @@ public static class NoteEndpoints
                              "and/or a case-insensitive text search on title and body.");
 
         notes.MapPost("/boards/{boardId:guid}/notes", CreateNote)
+            .RequireBoardRole(BoardRole.Editor)
             .WithName("createNote")
             .WithSummary("Stick a new note on a board")
             .WithDescription("Creates a note in a free spot inside the given bucket (default: the board's first bucket), " +
@@ -27,10 +30,12 @@ public static class NoteEndpoints
             .ProducesValidationProblem();
 
         notes.MapGet("/notes/{noteId:guid}", GetNote)
+            .RequireBoardRole(BoardRole.Viewer, BoardScope.Note)
             .WithName("getNote")
             .WithSummary("Get a note");
 
         notes.MapPatch("/notes/{noteId:guid}", UpdateNote)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Note)
             .WithName("updateNote")
             .WithSummary("Edit a note")
             .WithDescription("Changes any of title, body, fill, tags, assignees, checklist, links and the agent-working flag. " +
@@ -38,6 +43,7 @@ public static class NoteEndpoints
             .ProducesValidationProblem();
 
         notes.MapPost("/notes/{noteId:guid}/move", MoveNote)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Note)
             .WithName("moveNote")
             .WithSummary("Move a note")
             .WithDescription("Moves the note into a bucket on the same board (e.g. from \"Doing\" to \"Done\"), " +
@@ -45,6 +51,7 @@ public static class NoteEndpoints
             .ProducesValidationProblem();
 
         notes.MapDelete("/notes/{noteId:guid}", DeleteNote)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Note)
             .WithName("deleteNote")
             .WithSummary("Delete a note");
 

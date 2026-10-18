@@ -45,6 +45,11 @@ public static partial class AuthSetup
             }
         });
 
+        // Resolved (and so validated) at startup in Program.cs; see KeyedHasher.FromConfiguration.
+        builder.Services.AddSingleton(services =>
+            KeyedHasher.FromConfiguration(services.GetRequiredService<IConfiguration>(), services.GetRequiredService<IHostEnvironment>()));
+        builder.Services.AddMemoryCache();
+
         var config = section.Get<AuthOptions>() ?? new AuthOptions();
         var issuers = config.Tokens.Issuers.Where(i => !string.IsNullOrWhiteSpace(i.Value.Authority)).ToList();
 
@@ -148,10 +153,14 @@ public static partial class AuthSetup
             if (issuer.Issuer is not null) options.TokenValidationParameters.ValidIssuer = issuer.Issuer;
             options.Events = new()
             {
-                OnTokenValidated = context =>
+                OnTokenValidated = async context =>
                 {
-                    ((ClaimsIdentity)context.Principal!.Identity!).AddClaim(new Claim(ApiScopes.IssuerIdClaim, id));
-                    return Task.CompletedTask;
+                    // Every token client acts as an agent principal, which board owners can add as a member.
+                    var identity = (ClaimsIdentity)context.Principal!.Identity!;
+                    identity.AddClaim(new Claim(ApiScopes.IssuerIdClaim, id));
+                    var agentId = await AgentRegistry.ResolveAsync(
+                        context.HttpContext.RequestServices, id, AgentRegistry.ClientId(context.Principal), context.HttpContext.RequestAborted);
+                    identity.AddClaim(new Claim(UserPrincipal.PrincipalClaim, agentId.ToString()));
                 },
             };
         });
@@ -227,7 +236,12 @@ public static partial class AuthSetup
         var identity = context.Identity!;
         identity.AddClaim(new("sub", profile.GetProperty("id").GetInt64().ToString()));
         identity.AddClaim(new("name", profile.TryGetProperty("name", out var name) && name.GetString() is { Length: > 0 } n ? n : login!));
-        if (email is not null) identity.AddClaim(new("email", email));
+        if (email is not null)
+        {
+            identity.AddClaim(new("email", email));
+            // Only GitHub's verified primary address is picked above.
+            identity.AddClaim(new("email_verified", "true"));
+        }
     }
 
     private static async Task<JsonDocument> GetGitHubJson(OAuthCreatingTicketContext context, string url)
