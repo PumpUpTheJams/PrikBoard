@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
 import { api } from '../api/client'
 import type { BoardDetail, BucketDetail, NoteColor, NoteDetail, Point, Rect } from '../api/types'
+import { ConfirmDeleteNote } from '../components/ConfirmDialog'
 import { ExpandedNote } from './ExpandedNote'
 import { ResizeIcon } from './icons'
 import { BucketInspector } from './Inspector'
@@ -74,6 +75,8 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
   const [fill, setFill] = useState<NoteColor>('Butter')
   const [selection, setSelection] = useState<Selection | null>(null)
   const [expanded, setExpanded] = useState<{ id: string; fresh: boolean } | null>(null)
+  /** A post-it waiting for the person to confirm its deletion (Delete key on the board). */
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null)
   const [gesture, setGesture] = useState<Gesture | null>(null)
   const [pan, setPan] = useState<Pan | null>(null)
   const [zoom, setZoom] = useState(1)
@@ -133,23 +136,35 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (expanded || (e.target as HTMLElement).closest('input, textarea, select, [role="menu"]')) return
+      if (expanded || pendingDelete) return
+      if ((e.target as HTMLElement).closest('input, textarea, select, [role="menu"], [role="alertdialog"]')) return
       if (e.key === 'Escape') {
         setTool('select')
         setSelection(null)
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selection?.kind === 'note') {
+        e.preventDefault()
+        setPendingDelete(selection.id)
       } else if (!e.ctrlKey && !e.metaKey && !e.altKey && toolKeys[e.key.toLowerCase()]) {
         setTool(toolKeys[e.key.toLowerCase()])
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [expanded])
+  }, [expanded, pendingDelete, selection])
 
   /** Runs a change through the board, then lets go of the finished gesture. */
   async function settle(action: () => Promise<unknown>) {
     const ok = await run(action)
     setGesture(null)
     return ok
+  }
+
+  /** Deletes a post-it the person has confirmed, closing it if it was open. */
+  function deleteNote(id: string) {
+    setPendingDelete(null)
+    if (expanded?.id === id) setExpanded(null)
+    setSelection(null)
+    void settle(() => api.deleteNote(id))
   }
 
   // Live geometry: the server's layout, with the gesture in progress applied on top.
@@ -300,6 +315,7 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
 
   const selectedBucket = selection?.kind === 'bucket' ? board.buckets.find((b) => b.id === selection.id) : undefined
   const expandedNote = expanded && board.notes.find((n) => n.id === expanded.id)
+  const noteToDelete = pendingDelete ? board.notes.find((n) => n.id === pendingDelete) : undefined
   const countIn = (bucketId: string) => board.notes.filter((n) => n.bucketId === bucketId).length
   const hint = hints[tool]
 
@@ -427,13 +443,16 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
           bucket={board.buckets.find((b) => b.id === expandedNote.bucketId)}
           focusTitle={expanded?.fresh ?? false}
           onChange={(changes) => settle(() => api.updateNote(expandedNote.id, changes))}
-          onDelete={() => {
-            if (!window.confirm(`Delete "${expandedNote.title}"?`)) return
-            setExpanded(null)
-            setSelection(null)
-            void settle(() => api.deleteNote(expandedNote.id))
-          }}
+          onDelete={() => deleteNote(expandedNote.id)}
           onClose={() => setExpanded(null)}
+        />
+      )}
+
+      {noteToDelete && (
+        <ConfirmDeleteNote
+          title={noteToDelete.title}
+          onConfirm={() => deleteNote(noteToDelete.id)}
+          onCancel={() => setPendingDelete(null)}
         />
       )}
     </section>

@@ -62,12 +62,6 @@ export const ExpandIcon = ({ size = 14 }: IconProps) => (
   </Icon>
 )
 
-export const CollapseIcon = ({ size = 15 }: IconProps) => (
-  <Icon size={size} width={2.2}>
-    <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" />
-  </Icon>
-)
-
 export const CloseIcon = ({ size = 16 }: IconProps) => (
   <Icon size={size} width={2.2}>
     <path d="M6 6l12 12M18 6L6 18" />

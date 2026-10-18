@@ -5,6 +5,7 @@ import { BoardCanvas } from './board/BoardCanvas'
 import { CheckIcon, ChevronDownIcon, ExternalIcon, MoonIcon, PostItIcon, SignOutIcon, SunIcon, TrashIcon } from './board/icons'
 import { useBoard } from './board/useBoard'
 import { AvatarStack } from './components/Avatar'
+import { ConfirmDialog } from './components/ConfirmDialog'
 import { initials } from './components/initials'
 import { Menu } from './components/Menu'
 import { QuickAdd } from './components/QuickAdd'
@@ -72,6 +73,7 @@ function Workspace({ user, theme, onThemeChange, onSignOut }: WorkspaceProps) {
   const [boards, setBoards] = useState<BoardSummary[] | null>(null)
   const [selectedId, setSelectedId] = useState(boardIdFromHash)
   const [error, setError] = useState<string | null>(null)
+  const [boardToDelete, setBoardToDelete] = useState<BoardSummary | null>(null)
 
   useEffect(() => {
     api.listBoards().then(setBoards, (e) => setError(errorMessage(e)))
@@ -115,7 +117,7 @@ function Workspace({ user, theme, onThemeChange, onSignOut }: WorkspaceProps) {
   }
 
   async function deleteBoard(target: BoardSummary) {
-    if (!window.confirm(`Delete "${target.name}" and all of its post-its?`)) return
+    setBoardToDelete(null)
     try {
       await api.deleteBoard(target.id)
       setBoards((current) => current?.filter((b) => b.id !== target.id) ?? null)
@@ -183,7 +185,7 @@ function Workspace({ user, theme, onThemeChange, onSignOut }: WorkspaceProps) {
                       className="menu-item danger"
                       onClick={() => {
                         close()
-                        void deleteBoard(activeBoard)
+                        setBoardToDelete(activeBoard)
                       }}
                     >
                       <TrashIcon />
@@ -281,6 +283,16 @@ function Workspace({ user, theme, onThemeChange, onSignOut }: WorkspaceProps) {
           </div>
         )}
       </main>
+
+      {boardToDelete && (
+        <ConfirmDialog
+          title="Delete this board?"
+          message={`"${boardToDelete.name}" and all of its buckets and post-its will be deleted. This can't be undone.`}
+          confirmLabel="Delete board"
+          onConfirm={() => void deleteBoard(boardToDelete)}
+          onCancel={() => setBoardToDelete(null)}
+        />
+      )}
     </div>
   )
 }

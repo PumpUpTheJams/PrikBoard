@@ -52,6 +52,7 @@ The tests are xUnit integration tests over HTTP only. `PrikBoardApiFactory` (a `
 - No state library and no UI kit. `board/useBoard` (used in `App`'s `Workspace`) loads the board, polls it every few seconds so agent changes show up, and exposes `run()`, which calls the API and then reloads the full board. `BoardCanvas` wraps it in `settle()`. While a pointer gesture is in progress it renders the snapped position locally (`Gesture`) and pauses polling. On drop it sends one request and keeps the gesture until the reload lands, so items don't jump back.
 - The canvas is scaled with a CSS transform for zoom. `toCanvas()` divides by the zoom, and the canvas sits `RAIL_INSET` px right of the scroll origin so the tool rail doesn't cover it.
 - Dark is the default theme. `:root` in `index.css` holds the dark tokens, and `:root[data-theme='light']` overrides them. Post-it fills (`.fill-*`) and their ink are the same in both themes.
+- Ask before destructive actions with `components/ConfirmDialog`, never `window.confirm`: embedded browsers such as the Claude desktop browser pane suppress native dialogs and answer "cancel", so the action silently never happens. A selected post-it is deleted with Delete/Backspace (after confirming) or the red trash button in the expanded post-it's dock.
 - The selected board lives in the URL hash (`#/boards/{id}`).
 - Linting is oxlint (`.oxlintrc.json`), not ESLint. TypeScript is strict about unused locals and parameters, and `verbatimModuleSyntax` requires `import type` for type-only imports.
 

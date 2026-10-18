@@ -24,6 +24,7 @@
   --accent-ink: #0e1622;
   --accent-bg: #263142;
   --danger: #ff8a80;
+  --danger-strong: #e5484d;
   --frame-bg: rgba(20, 23, 29, 0.8);
   --dot: rgba(255, 255, 255, 0.1);
   --mini-bg: #111419;
@@ -76,6 +77,7 @@
   --accent-ink: #ffffff;
   --accent-bg: #dcebfa;
   --danger: #c62828;
+  --danger-strong: #d93036;
   --frame-bg: rgba(255, 255, 255, 0.72);
   --dot: rgba(0, 0, 0, 0.14);
   --mini-bg: #f7f6f2;
@@ -1612,6 +1614,92 @@ li:hover .row-remove,
 .dock-button:hover {
   background: var(--dock-hover);
   color: var(--text);
+}
+
+.dock-divider {
+  width: 1px;
+  height: 22px;
+  margin: 0 6px;
+  background: var(--line-strong);
+}
+
+.dock-button.dock-delete {
+  color: var(--danger);
+}
+
+.dock-button.dock-delete:hover {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+
+/* Confirmation dialog for destructive actions */
+
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--dim);
+}
+
+.confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(400px, 100%);
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.confirm h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.confirm p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.confirm-actions .ghost {
+  height: 34px;
+  padding: 0 14px;
+  color: var(--text);
+}
+
+.destructive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--danger-strong);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.destructive:hover {
+  background: color-mix(in srgb, var(--danger-strong) 85%, #000000);
 }
 
 /* Account menu */
