@@ -79,7 +79,47 @@ A GitHub OAuth App has exactly one callback URL, so register a separate app for 
 
 **Microsoft:** Entra admin centre → App registrations → New registration, platform Web, redirect URI `.../api/auth/callback/microsoft`, then create a client secret. The template's `common` authority accepts any work, school or personal account. Use `organizations`, `consumers` or a tenant id to narrow that down.
 
-A user is identified by provider plus subject id, never by email, so the same email at two providers is two separate users.
+## Users, linked sign-ins and personal data
+
+PrikBoard stores **no personal data** about people: no name, no email and no raw provider id.
+
+- A **user** is a GUID with an optional display name the person chooses (`PATCH /api/me`). Until they pick one, others see a fallback such as `User 1a2b`. The provider's name is offered once as a suggestion. It travels only in the encrypted session cookie and is never stored.
+- Each **sign-in** a user has (GitHub, Google, ...) is a `UserIdentity`. It holds the provider id plus two keyed hashes:
+  - an HMAC-SHA256 of the provider's subject id, used to recognise the person when they sign in again;
+  - an HMAC-SHA256 of their verified email, used for exact-email search.
+- **Email search** only finds people whose provider vouched for the email. That means GitHub's verified primary address, `email_verified: true`, or a provider with `EmailsAreVerified: true`. Microsoft does not send `email_verified`, so Microsoft users are not findable by default.
+- **Linking.** A signed-in person adds another sign-in from Account → *Connect another*. Under the hood that is a form post to `POST /api/auth/link/{provider}`.
+  - The form post only works from PrikBoard's own pages: the `Origin` must match, and the SameSite=Lax cookie is not sent on cross-site posts.
+  - The user id travels in the encrypted OAuth state. On the way back it must match the session again, so a callback replayed in someone else's browser does nothing.
+  - Accounts are never merged. A sign-in that already belongs to another user is refused (`?authError=identity_in_use`).
+- **No linking by email.** Sign-ins are never joined just because their emails match: a provider with weak email checks could otherwise take over accounts.
+- **Unlinking.** People remove sign-ins in the same place. The last one cannot be removed.
+
+### Hash key (`Auth:HashKey`)
+
+The hashes are keyed with a secret, so a leaked database alone reveals nothing. Generate it once, base64, at least 32 bytes:
+
+```bash
+openssl rand -base64 32
+```
+
+Set it with `dotnet user-secrets set "Auth:HashKey" "<key>" --project src/PrikBoard.Api`, or the environment variable `Auth__HashKey`. Outside Development the API refuses to start without it. Development and the tests fall back to a fixed, public development key.
+
+**Losing or changing the key orphans every account.** People's next sign-in creates a new, empty user, and email search stops finding anyone. There is no key rotation yet.
+
+## Boards, roles and agents
+
+Boards are members-only. The roles are:
+
+| Role | Can |
+| --- | --- |
+| **Viewer** | Read the board. |
+| **Editor** | Also change buckets, notes and images. |
+| **Owner** | Also rename or delete the board, and manage members and invite links. |
+
+The creator becomes the owner, and a board always keeps at least one. Owners add people by exact email, or with a single-use invite link (`/#/invite/{token}`, 7 days by default). Only a hash of the invite token is stored.
+
+Every machine token acts as an **agent** principal, keyed by issuer id and client id (azp, client_id or appid). An agent sees no boards until an owner adds it with *Share → Add an agent*. Agents become owners of the boards they create. Token scopes still apply on top of the role: a `boards:read` token cannot write even as an Editor. Agents cannot accept invite links or search people by email, so an agent that reads a link somewhere cannot use it to join a board.
 
 ## Machine-to-machine: Client Credentials
 
@@ -126,7 +166,7 @@ Tokens a user obtains through an OAuth client (delegated, for example an agent a
 
 ## Who may sign in
 
-By default anyone who can sign in with a configured provider gets in, and **all signed-in users see all boards**. To restrict browser sign-in, set either or both of:
+By default anyone who can sign in with a configured provider gets in. They see only boards they are a member of. To restrict browser sign-in, set either or both of:
 
 ```json
 "Auth": { "AllowedEmails": ["ada@example.com"], "AllowedEmailDomains": ["example.com"] }
@@ -136,10 +176,16 @@ The check uses the email claim, and an email the provider marks `email_verified:
 
 ## Local development
 
-There is no development shortcut for signing in. Register a GitHub OAuth App for `http://localhost:5173` (see above) and put its id and secret in user secrets. The integration tests sign in through a test-only hook in `PrikBoardApiFactory` and get tokens from in-memory issuers in `TokenAuthTests`.
+There is no development shortcut for signing in. Register a GitHub OAuth App for `http://localhost:5173` (see above) and put its id and secret in user secrets. Development uses a built-in hash key unless you set `Auth:HashKey`.
+
+The integration tests:
+- sign in and link sign-ins through test-only hooks in `PrikBoardApiFactory` (`/test/login`, `/test/link`);
+- use a fixed `Auth:HashKey`;
+- get tokens from in-memory issuers in `TokenAuthTests`.
 
 ## Before deploying
 
 - Persist the ASP.NET Core Data Protection keys (for example `AddDataProtection().PersistKeysToFileSystem(...)` on a volume, or Azure Key Vault/Blob). Otherwise every restart or extra instance invalidates all sessions and in-flight sign-ins.
 - Serve over HTTPS. The OAuth correlation cookies need it, and so do most providers' callback URL rules for non-localhost hosts.
 - Register production callback URLs (a separate GitHub OAuth App) and the token issuers.
+- Set `Auth:HashKey` (see [Hash key](#hash-key-authhashkey)). Back it up together with the database, and use the same value on every instance. Without it the API does not start. If you lose it, every account is orphaned.

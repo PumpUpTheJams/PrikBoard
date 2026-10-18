@@ -7,6 +7,7 @@ To explore and try the API in the browser, open the Scalar API reference at `/sc
 - **Base URL (local):** `http://localhost:5080`
 - **Format:** JSON with camelCase properties. Enums such as `color` are strings.
 - **Authentication:** every `/api` endpoint needs a caller, except `listAuthProviders` and `logout`. Machines send an OAuth 2.0 access token: `Authorization: Bearer <token>`. The OpenAPI document and `/health` are public.
+- **Access:** boards are members-only. A 404 means "not found, or you are not a member"; a 403 means your role (or token scope) is too low.
 
 ## Authentication
 
@@ -14,8 +15,35 @@ People sign in in the browser through an identity provider (GitHub by default, o
 
 - `boards:read` allows `GET` requests, and `boards:write` allows everything.
 - A token without the needed scope gets `403`. A missing, invalid, expired or untrusted token gets `401` with `WWW-Authenticate: Bearer`.
-- Call `whoAmI` (`GET /api/me`) to check a token and see its scopes.
-- Boards are shared: every caller with access sees every board.
+- Call `whoAmI` (`GET /api/me`) to check a token and see its scopes, issuer and client id.
+
+## Members and roles
+
+Every board has members, each with a role:
+
+| Role | Can |
+| --- | --- |
+| **Viewer** | Read the board, its notes and images. |
+| **Editor** | Also create, change and delete buckets, notes and images. |
+| **Owner** | Also rename or delete the board, manage members and create invite links. |
+
+- listBoards and getBoard include `yourRole`. Whoever creates a board becomes its owner, and a board always keeps at least one owner (changing or removing the last one gives `409`).
+- A token's scope applies on top of its role: a `boards:read` token cannot write even as an Editor.
+- Members are people (`kind: User`) and agents (`kind: Agent`). Nobody's email or SSO name is stored, so members show with the display name they chose themselves.
+
+### Getting an agent onto a board
+
+Every token client is an **agent**, identified by its issuer id and client id. A new agent sees no boards.
+
+1. Call `whoAmI` with the token. It returns `principalKind: Agent`, your `id` and your `clientId`.
+2. Ask a board owner to add you: *Share → Add an agent* in the browser, or `POST /api/boards/{boardId}/agents` with `{"issuer": "...", "clientId": "...", "role": "Editor"}`.
+3. Optionally set your display name with `PATCH /api/me` (`{"displayName": "Release bot"}`).
+
+Boards an agent creates itself belong to it. Agents cannot accept invite links or look people up by email; those are browser-only, so a link an agent comes across cannot get it onto a board.
+
+### Invite links
+
+Owners create single-use links with createBoardInvite. The response holds the token and a `path` (`/#/invite/{token}`) **once**; only a hash is stored. The link expires after 7 days by default (`expiresInDays`, 1 to 30), and owners can revoke it. The first signed-in person to accept it becomes a member with the link's role, or keeps their current role if that is higher. Tokens travel in POST bodies, never in query strings.
 
 Setting up providers and issuers is described in [Authentication](authentication.md).
 
@@ -87,9 +115,25 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | deleteImage | `DELETE /api/images/{imageId}` | Delete an image |
 | listAuthProviders | `GET /api/auth/providers` | Sign-in providers for the browser, the default first (public) |
 | logout | `POST /api/auth/logout` | End the browser session (public) |
-| whoAmI | `GET /api/me` | Who the request is authenticated as (`Session` or `Token`) and its scopes |
+| listTokenIssuers | `GET /api/auth/token-issuers` | Ids of the configured token issuers, for adding agents |
+| whoAmI | `GET /api/me` | Who you are: principal id, display name, linked sign-ins (sessions) or issuer and client id (tokens), and scopes |
+| updateMe | `PATCH /api/me` | Set your display name (`""` clears it) |
+| unlinkIdentity | `DELETE /api/me/identities/{identityId}` | Remove a linked sign-in (not the last one). Sessions only |
+| listBoardMembers | `GET /api/boards/{boardId}/members` | People and agents on the board, with their roles (Viewer) |
+| addBoardMember | `POST /api/boards/{boardId}/members` | Add a person by `principalId` with a role (Owner) |
+| addBoardAgent | `POST /api/boards/{boardId}/agents` | Add an agent by `issuer` and `clientId` with a role (Owner) |
+| updateBoardMember | `PATCH /api/boards/{boardId}/members/{principalId}` | Change a member's role (Owner) |
+| removeBoardMember | `DELETE /api/boards/{boardId}/members/{principalId}` | Remove a member (Owner), or leave the board yourself |
+| findUserByEmail | `POST /api/boards/{boardId}/members/lookup` | Find people by their exact, verified email (Owner, sessions only, rate-limited) |
+| listBoardInvites | `GET /api/boards/{boardId}/invites` | Pending invite links (Owner) |
+| createBoardInvite | `POST /api/boards/{boardId}/invites` | New single-use invite link with a role (Owner) |
+| revokeBoardInvite | `DELETE /api/boards/{boardId}/invites/{inviteId}` | Revoke an invite link (Owner) |
+| previewInvite | `POST /api/invites/preview` | Board name and role behind an invite token (sessions only) |
+| acceptInvite | `POST /api/invites/accept` | Spend an invite token and join the board (sessions only) |
 
-The browser starts sign-in by navigating to `GET /api/auth/login/{provider}?returnUrl=/...`. It is left out of the OpenAPI document because it is a redirect, not an API call. The provider redirects back to `/api/auth/callback/{provider}`.
+Board, bucket, note and image endpoints need the **Viewer** role to read and **Editor** to change anything; updateBoard and deleteBoard need **Owner**.
+
+The browser starts sign-in by navigating to `GET /api/auth/login/{provider}?returnUrl=/...`. It is left out of the OpenAPI document because it is a redirect, not an API call, and so is the form post `POST /api/auth/link/{provider}` that connects another sign-in to the signed-in user. The provider redirects back to `/api/auth/callback/{provider}`.
 
 `GET /health` returns `Healthy` when the API is up.
 
@@ -115,4 +159,4 @@ pb -X POST "localhost:5080/api/boards/{boardId}/images?fileName=ingest-errors.pn
 - **Assignees** have a `name` and a `kind`, `Person` or `Agent`. People show as initials, agents as a sparkle. At most 10 per note.
 - **Links** need an absolute `http` or `https` URL.
 - **Colours.** Note fills are `Butter` (yellow), `Mint` (green), `Sky` (blue), `Coral` (salmon red) and `Lilac` (purple). Buckets also have a `color` (`Blue`, `Amber`, `Violet`, `Teal` or `Rose`); the web UI doesn't show it at the moment.
-- **Errors** use `application/problem+json`. Validation errors (400) list the offending fields under `errors`, for example a `bucketId` that is not on the note's board. A 401 means the request is not signed in or the token is invalid, and a 403 means the token lacks the scope. A 404 means the resource does not exist.
+- **Errors** use `application/problem+json`. Validation errors (400) list the offending fields under `errors`, for example a `bucketId` that is not on the note's board. A 401 means the request is not signed in or the token is invalid. A 403 means your role or the token's scope is too low. A 404 means the resource does not exist or you are not a member of its board. A 429 means you hit a rate limit (email lookups and invite links).

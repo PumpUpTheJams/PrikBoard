@@ -45,11 +45,13 @@ interface ExpandedNoteProps {
   /** Deletes an attached image; called after the person confirmed. */
   onDeleteImage: (imageId: string) => void
   onClose: () => void
+  /** Viewers see the post-it without any way to change it (the API refuses changes anyway). */
+  readOnly?: boolean
 }
 
 /** A post-it opened up: a header band in its fill, and a mini board with its note, checklist and links. */
 export function ExpandedNote(props: ExpandedNoteProps) {
-  const { note, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onDeleteImage, onClose } = props
+  const { note, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onDeleteImage, onClose, readOnly } = props
   const [reveal, setReveal] = useState({ checklist: false, links: false })
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [imageToDelete, setImageToDelete] = useState<ImageDetail | null>(null)
@@ -84,10 +86,10 @@ export function ExpandedNote(props: ExpandedNoteProps) {
     <div className="expanded-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <article
         ref={dialogRef}
-        className={`expanded fill-${note.color.toLowerCase()}${fileOver ? ' file-over' : ''}`}
+        className={`expanded fill-${note.color.toLowerCase()}${fileOver ? ' file-over' : ''}${readOnly ? ' read-only' : ''}`}
         // Dropped images are attached to this post-it (pasting is handled by the board).
         onDragOver={(e) => {
-          if (!draggingFiles(e.dataTransfer)) return
+          if (readOnly || !draggingFiles(e.dataTransfer)) return
           e.preventDefault()
           e.stopPropagation()
           e.dataTransfer.dropEffect = 'copy'
@@ -97,7 +99,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFileOver(false)
         }}
         onDrop={(e) => {
-          if (!draggingFiles(e.dataTransfer)) return
+          if (readOnly || !draggingFiles(e.dataTransfer)) return
           e.preventDefault()
           e.stopPropagation()
           setFileOver(false)
@@ -120,6 +122,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
                 <button
                   type="button"
                   className="agent-chip"
+                  disabled={readOnly}
                   title="The agent has finished: clear the halo"
                   onClick={() => void onChange({ agentWorking: false })}
                 >
@@ -138,7 +141,8 @@ export function ExpandedNote(props: ExpandedNoteProps) {
             label="Title"
             value={note.title}
             maxLength={200}
-            autoFocus={focusTitle}
+            autoFocus={focusTitle && !readOnly}
+            readOnly={readOnly}
             onSave={(title) => title.length > 0 && void onChange({ title })}
           />
           <div className="band-row">
@@ -157,13 +161,14 @@ export function ExpandedNote(props: ExpandedNoteProps) {
                 value={note.body ?? ''}
                 maxLength={4000}
                 multiline
+                readOnly={readOnly}
                 placeholder="Add details: context, decisions, anything that doesn't fit on the post-it."
                 inputRef={bodyRef}
                 onSave={(body) => void onChange({ body })}
               />
             </section>
             {(note.checklist.length > 0 || reveal.checklist) && (
-              <ChecklistWidget items={note.checklist} inputRef={checklistRef} onChange={(checklist) => onChange({ checklist })} />
+              <ChecklistWidget items={note.checklist} inputRef={checklistRef} readOnly={readOnly} onChange={(checklist) => onChange({ checklist })} />
             )}
             {(note.links.length > 0 || reveal.links) && (
               <LinksWidget links={note.links} inputRef={linkRef} onChange={(links) => onChange({ links })} />
@@ -247,6 +252,7 @@ interface EditableTextProps {
   multiline?: boolean
   placeholder?: string
   autoFocus?: boolean
+  readOnly?: boolean
   inputRef?: RefObject<HTMLTextAreaElement | null>
 }
 
@@ -254,7 +260,7 @@ interface EditableTextProps {
  * A growing text area that saves on blur (and on Enter unless multiline). Escape cancels.
  * While it isn't focused it follows the server's value, so edits made by agents show up.
  */
-function EditableText({ value, onSave, label, className, maxLength, multiline, placeholder, autoFocus, inputRef }: EditableTextProps) {
+function EditableText({ value, onSave, label, className, maxLength, multiline, placeholder, autoFocus, readOnly, inputRef }: EditableTextProps) {
   const [draft, setDraft] = useState<string | null>(null)
   const cancelled = useRef(false)
   const local = useRef<HTMLTextAreaElement | null>(null)
@@ -279,8 +285,9 @@ function EditableText({ value, onSave, label, className, maxLength, multiline, p
       rows={1}
       value={shown}
       maxLength={maxLength}
-      placeholder={placeholder}
+      placeholder={readOnly ? undefined : placeholder}
       autoFocus={autoFocus}
+      readOnly={readOnly}
       onFocus={(e) => {
         setDraft(value)
         if (autoFocus) e.target.select()
@@ -457,10 +464,11 @@ function AssigneeEditor({ assignees, onChange }: { assignees: Assignee[]; onChan
 interface ChecklistWidgetProps {
   items: ChecklistItem[]
   inputRef: RefObject<HTMLInputElement | null>
+  readOnly?: boolean
   onChange: (items: ChecklistItem[]) => Promise<boolean>
 }
 
-function ChecklistWidget({ items, inputRef, onChange }: ChecklistWidgetProps) {
+function ChecklistWidget({ items, inputRef, readOnly, onChange }: ChecklistWidgetProps) {
   const [text, setText] = useState('')
   const done = items.filter((i) => i.done).length
 
@@ -486,6 +494,7 @@ function ChecklistWidget({ items, inputRef, onChange }: ChecklistWidgetProps) {
             <label>
               <input
                 type="checkbox"
+                disabled={readOnly}
                 checked={item.done}
                 onChange={() => void onChange(items.map((it, j) => (j === i ? { ...it, done: !it.done } : it)))}
               />

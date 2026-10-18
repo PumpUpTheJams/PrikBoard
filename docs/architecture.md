@@ -18,14 +18,22 @@ People sign in through an identity provider and hold a session cookie. Machines 
 Board 1──* Bucket
 Board 1──* Note *──0..1 Bucket
 Board 1──* Image *──0..1 Note
-User
+Board 1──* BoardMember *──1 Principal (User | Agent)
+Board 1──* BoardInvite
+User 1──* UserIdentity
 ```
 
 - **Board.** One project and a freeform canvas, with a name and an optional description. New boards start with the buckets *To do*, *Doing* and *Done* side by side.
 - **Bucket.** A named rectangle on the board (`x`, `y`, `width`, `height`). Deleting a bucket leaves its notes on the board.
 - **Note.** A 200×120 px post-it at `x`, `y`. It has a title, an optional body, a fill (`Butter`, `Mint`, `Sky`, `Coral` or `Lilac`), tags, assignees (people or agents), a checklist, links, and an `AgentWorking` flag that an agent sets while it works on the note. Tags are a PostgreSQL array and the other lists are `jsonb` columns on the note; all of them are always read and replaced whole.
 - **Image.** A PNG, JPEG, GIF or WebP file on the canvas (`x`, `y`, display `width`; the height follows the aspect ratio) or attached to a note. The bytes are stored in PostgreSQL (`bytea`) in their own `ImageContents` table, so board snapshots never load them. The server reads the format and pixel size from the file header (`Domain/ImageFormats.cs`) and never trusts the declared type.
-- **User.** Someone who signed in, identified by provider plus subject id. Boards are not owned yet: every signed-in user sees every board. Assignees are free-text names, not linked to users.
+- **Principal.** Anyone who can be a board member: a GUID plus an optional display name they chose. Stored in one `Principals` table (TPH, discriminator `Kind`):
+  - a **User** is a person. Each of their sign-ins is a **UserIdentity** holding the provider and keyed hashes of the subject id and verified email (`Auth/KeyedHasher.cs`), never the raw values;
+  - an **Agent** is a token client, identified by issuer id and client id, and created the first time its token is seen (`Auth/AgentRegistry.cs`).
+- **BoardMember.** A principal's role on a board: `Viewer`, `Editor` or `Owner`. Boards are members-only.
+- **BoardInvite.** A single-use, expiring invite link with a role. Only the SHA-256 of its token is stored.
+
+Assignees are still free-text names, not linked to members.
 
 The server owns the geometry (`Domain/Layout.cs`). It snaps every coordinate to a 20 px grid. A note's `BucketId` is not chosen directly. It is always the topmost bucket containing the note's centre (buckets stack in creation order), and the server recomputes it whenever a note or bucket is created, moved, resized or deleted. Moving a bucket moves its notes with it. A client that only knows a bucket, such as an agent, can move a note there with `bucketId`, and the server picks a free grid slot inside it. When a bucket is full, it grows downwards to make room.
 
@@ -47,6 +55,8 @@ The API is built on these conventions:
 - **Geometry lives in `Domain/Layout.cs`.** Snapping, bucket membership, stacking order and free-spot search are in one place. `src/web/src/board/layout.ts` mirrors the parts the UI needs for live feedback while dragging.
 - **Validation and errors.** Requests are validated with DataAnnotations through .NET 10's built-in minimal API validation. Errors are returned as RFC 9457 `application/problem+json`.
 - **PATCH for partial updates.** Omitted fields stay unchanged.
+- **Board access is declared per endpoint.** `Auth/BoardAccess.cs` adds `.RequireBoardRole(role, BoardScope.X)`, an endpoint filter that finds the board from the route id (board, bucket, note or image) and the caller's membership in one query. Non-members get 404, too-low roles 403. Endpoints without a board use `.NoBoardScope()`, and a test fails if an `/api` endpoint has neither.
+- **No personal data.** Names, emails and provider subject ids from SSO are never stored; see [Authentication](authentication.md#users-linked-sign-ins-and-personal-data).
 - **Migrations on startup.** They are applied automatically, which is fine for a single instance. Revisit this once the API runs as several instances.
 
 To change the schema, edit the entities or `PrikBoardDbContext`, then add a migration. This uses the `dotnet-ef` tool pinned in `.config/dotnet-tools.json`:
@@ -78,7 +88,9 @@ React 19, TypeScript and Vite, with no state library and no UI kit. The visual d
 
 ## Not decided yet
 
-- **Authorization.** Authentication is in place, but every signed-in user (and every token with `boards:write`) can see and change every board. Board ownership or membership comes later.
+- **Hash key rotation.** Losing or changing `Auth:HashKey` orphans every account. Rotation would need a second key and re-hashing on sign-in.
+- **Assignees and members.** Note assignees are free text; linking them to board members comes later.
+- **Account deletion.** People can unlink sign-ins and leave boards, but cannot delete their account yet.
 - **Hosting, and which managed PostgreSQL to use.** See [`infra/README.md`](../infra/README.md).
 - **Drawing.** The mockup also shows freehand drawing on the board and annotations on images. Images are in place; drawing is not built yet.
 - **Image storage at scale.** Images are stored in PostgreSQL, which is simple and fine for small teams. Very large boards may later want object storage (for example Azure Blob Storage) behind the same API.

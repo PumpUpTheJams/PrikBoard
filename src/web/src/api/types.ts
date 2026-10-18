@@ -6,12 +6,20 @@ export type NoteColor = (typeof noteColors)[number]
 export const bucketColors = ['Blue', 'Amber', 'Violet', 'Teal', 'Rose'] as const
 export type BucketColor = (typeof bucketColors)[number]
 
+/** Ordered: each role includes the ones before it. */
+export const boardRoles = ['Viewer', 'Editor', 'Owner'] as const
+export type BoardRole = (typeof boardRoles)[number]
+
+/** Whether `role` is at least `minimum`. */
+export const hasRole = (role: BoardRole, minimum: BoardRole) => boardRoles.indexOf(role) >= boardRoles.indexOf(minimum)
+
 export interface BoardSummary {
   id: string
   name: string
   description: string | null
   createdAt: string
   updatedAt: string
+  yourRole: BoardRole
 }
 
 export interface BoardDetail extends BoardSummary {
@@ -40,7 +48,9 @@ export interface ImageDetail {
   width: number
   height: number
   caption: string | null
+  /** Current display name of whoever added it, or "Unknown". */
   addedBy: string
+  addedById: string | null
   contentUrl: string
   createdAt: string
   updatedAt: string
@@ -138,12 +148,80 @@ export interface AuthProvider {
   displayName: string
 }
 
-/** Who the request is authenticated as (whoAmI). The browser is always a Session. */
+export type PrincipalKind = 'User' | 'Agent'
+
+export interface LinkedIdentity {
+  id: string
+  provider: string
+  providerName: string
+  linkedAt: string
+}
+
+/** Who the request is authenticated as (whoAmI). The browser is always a Session. No email is ever returned. */
 export interface Caller {
   kind: 'Session' | 'Token'
+  principalKind: PrincipalKind
+  /** The principal id that board members refer to. */
   id: string
-  name: string
-  email: string | null
-  provider: string
+  /** What others see: the chosen name or a fallback like "User 1a2b". */
+  displayName: string
+  chosenDisplayName: string | null
+  /** The sign-in provider's name, offered once while no name is chosen; never stored. */
+  suggestedDisplayName: string | null
+  provider: string | null
+  clientId: string | null
+  identities: LinkedIdentity[]
   scopes: string[]
+}
+
+export interface TokenIssuer {
+  id: string
+}
+
+export interface BoardMember {
+  principalId: string
+  kind: PrincipalKind
+  displayName: string
+  role: BoardRole
+  addedAt: string
+  isYou: boolean
+  issuer: string | null
+  clientId: string | null
+}
+
+export interface UserMatch {
+  principalId: string
+  displayName: string
+  role: BoardRole | null
+}
+
+export interface BoardInvite {
+  id: string
+  role: BoardRole
+  createdBy: string | null
+  createdAt: string
+  expiresAt: string
+}
+
+export interface CreatedInvite {
+  id: string
+  role: BoardRole
+  expiresAt: string
+  token: string
+  /** e.g. "/#/invite/…"; prefix the site's origin to share it. */
+  path: string
+}
+
+export interface InvitePreview {
+  boardId: string
+  boardName: string
+  role: BoardRole
+  invitedBy: string | null
+  expiresAt: string
+  yourRole: BoardRole | null
+}
+
+export interface AcceptedInvite {
+  boardId: string
+  role: BoardRole
 }

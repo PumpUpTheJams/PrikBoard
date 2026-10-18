@@ -77,6 +77,8 @@ interface BoardCanvasProps {
 }
 
 export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
+  /** Viewers can look around and open post-its, but not change anything. */
+  const readOnly = board.yourRole === 'Viewer'
   const [tool, setTool] = useState<Tool>('select')
   const [fill, setFill] = useState<NoteColor>('Butter')
   const [selection, setSelection] = useState<Selection | null>(null)
@@ -152,6 +154,8 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
       if (e.key === 'Escape') {
         setTool('select')
         setSelection(null)
+      } else if (readOnly) {
+        if (e.key.toLowerCase() === 'v' || e.key.toLowerCase() === 'h') setTool(toolKeys[e.key.toLowerCase()])
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && (selection?.kind === 'note' || selection?.kind === 'image')) {
         e.preventDefault()
         setPendingDelete({ kind: selection.kind, id: selection.id })
@@ -171,7 +175,7 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
   useEffect(() => {
     function onPaste(e: ClipboardEvent) {
       const files = imageFiles(e.clipboardData)
-      if (files.length === 0) return
+      if (readOnly || files.length === 0) return
       e.preventDefault()
       void addImages(files, expanded ? { noteId: expanded.id } : { at: lastPointer.current ?? undefined })
     }
@@ -285,6 +289,14 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
     if (e.button !== 0 || tool !== 'select') return
     e.stopPropagation()
     e.preventDefault()
+    if (readOnly) {
+      // Post-its can still be selected (and opened with Enter); nothing moves and no panels open.
+      if (kind === 'note') {
+        e.currentTarget.focus({ preventScroll: true })
+        setSelection({ kind: 'note', id })
+      }
+      return
+    }
     if (kind === 'note' || kind === 'image') e.currentTarget.focus({ preventScroll: true })
     setSelection({ kind: kind === 'note' ? 'note' : kind === 'image' || kind === 'image-resize' ? 'image' : 'bucket', id })
     beginGesture(e, { kind, id })
@@ -407,7 +419,7 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
   const noteToDelete = pendingDelete?.kind === 'note' ? board.notes.find((n) => n.id === pendingDelete.id) : undefined
   const imageToDelete = pendingDelete?.kind === 'image' ? board.images.find((i) => i.id === pendingDelete.id) : undefined
   const countIn = (bucketId: string) => board.notes.filter((n) => n.bucketId === bucketId).length
-  const hint = uploads > 0 ? 'Uploading…' : fileOver ? 'Drop to add the image here' : hints[tool]
+  const hint = uploads > 0 ? 'Uploading…' : fileOver ? 'Drop to add the image here' : readOnly ? undefined : hints[tool]
 
   return (
     <section className="board" aria-label={board.name}>
@@ -415,7 +427,7 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
         className={`board-scroll${fileOver ? ' file-over' : ''}`}
         ref={scrollRef}
         onDragOver={(e) => {
-          if (!draggingFiles(e.dataTransfer)) return
+          if (readOnly || !draggingFiles(e.dataTransfer)) return
           e.preventDefault()
           e.dataTransfer.dropEffect = 'copy'
           setFileOver(true)
@@ -424,7 +436,7 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFileOver(false)
         }}
         onDrop={(e) => {
-          if (!draggingFiles(e.dataTransfer)) return
+          if (readOnly || !draggingFiles(e.dataTransfer)) return
           e.preventDefault()
           setFileOver(false)
           const at = toCanvas(e)
@@ -531,7 +543,9 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
         fill={fill}
         onFillChange={setFill}
         onAddImage={() => void addImagesFromPicker()}
+        readOnly={readOnly}
       />
+      {readOnly && <div className="read-only-badge">View only</div>}
       {hint && <div className="canvas-hint">{hint}</div>}
       <ViewControls
         zoom={zoom}
@@ -587,6 +601,7 @@ export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
           onPickImages={() => void addImagesFromPicker({ noteId: expandedNote.id })}
           onDeleteImage={(id) => void settle(() => api.deleteImage(id))}
           onClose={() => setExpanded(null)}
+          readOnly={readOnly}
         />
       )}
 
