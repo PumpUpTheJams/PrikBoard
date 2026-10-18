@@ -13,7 +13,6 @@ namespace PrikBoard.Api.Auth;
 /// </summary>
 public static class UserSignIn
 {
-    public const string NotAllowedError = "not_allowed";
     public const string FailedError = "failed";
     public const string LinkFailedError = "link_failed";
     public const string IdentityInUseError = "identity_in_use";
@@ -29,22 +28,18 @@ public static class UserSignIn
         Linked,
         AlreadyLinked,
         InUseByAnotherUser,
-        NotAllowed,
         UnknownUser,
     }
 
     /// <summary>
-    /// Finds or creates the user for a provider identity and returns the principal for the session cookie, or null when
-    /// the allowlist rejects <paramref name="email"/>. <paramref name="verifiedEmail"/> (only when the provider vouches
+    /// Finds or creates the user for a provider identity and returns the principal for the session cookie. Anyone with an
+    /// account at a configured provider may sign in. <paramref name="verifiedEmail"/> (only when the provider vouches
     /// for it) is hashed for exact-email search. Never links identities by email: that would let a provider with weak
     /// email checks take over accounts.
     /// </summary>
-    public static async Task<ClaimsPrincipal?> SignInAsync(
-        HttpContext context, string provider, string subject, string? name, string? email, string? verifiedEmail)
+    public static async Task<ClaimsPrincipal> SignInAsync(
+        HttpContext context, string provider, string subject, string? name, string? verifiedEmail)
     {
-        var options = context.RequestServices.GetRequiredService<IOptions<AuthOptions>>().Value;
-        if (!options.Allows(email)) return null;
-
         var db = context.RequestServices.GetRequiredService<PrikBoardDbContext>();
         var hasher = context.RequestServices.GetRequiredService<KeyedHasher>();
         var subjectHash = hasher.Subject(provider, subject);
@@ -67,11 +62,8 @@ public static class UserSignIn
 
     /// <summary>Adds a provider identity to an existing user. Accounts are never merged: an identity of another user is refused.</summary>
     public static async Task<LinkResult> LinkAsync(
-        HttpContext context, Guid userId, string provider, string subject, string? email, string? verifiedEmail)
+        HttpContext context, Guid userId, string provider, string subject, string? verifiedEmail)
     {
-        var options = context.RequestServices.GetRequiredService<IOptions<AuthOptions>>().Value;
-        if (!options.Allows(email)) return LinkResult.NotAllowed;
-
         var db = context.RequestServices.GetRequiredService<PrikBoardDbContext>();
         var hasher = context.RequestServices.GetRequiredService<KeyedHasher>();
         if (!await db.Users.AnyAsync(u => u.Id == userId, context.RequestAborted)) return LinkResult.UnknownUser;
@@ -105,29 +97,21 @@ public static class UserSignIn
 
         var email = external.FindFirstValue("email");
         var emailVerified = external.FindFirstValue("email_verified");
-        // An email the provider says is unverified could belong to anyone, so it must not pass the allowlist.
-        if (string.Equals(emailVerified, "false", StringComparison.OrdinalIgnoreCase)) email = null;
-        // Search is stricter: only an email the provider positively vouches for may make someone findable.
+        // Only an email the provider vouches for may make someone findable; an explicit false always wins.
         var options = context.HttpContext.RequestServices.GetRequiredService<IOptions<AuthOptions>>().Value;
         var trusted = string.Equals(emailVerified, "true", StringComparison.OrdinalIgnoreCase)
-                      || (options.Providers.TryGetValue(provider, out var settings) && settings.EmailsAreVerified);
+                      || (!string.Equals(emailVerified, "false", StringComparison.OrdinalIgnoreCase)
+                          && options.Providers.TryGetValue(provider, out var settings) && settings.EmailsAreVerified);
         var verifiedEmail = trusted ? email : null;
 
         if (context.Properties?.Items.TryGetValue(LinkUserItem, out var linkUser) == true && linkUser is not null)
         {
-            await LinkAsync(context, provider, subject, email, verifiedEmail, linkUser);
+            await LinkAsync(context, provider, subject, verifiedEmail, linkUser);
             return;
         }
 
         var name = external.FindFirstValue("name") ?? external.FindFirstValue("preferred_username");
-        var principal = await SignInAsync(context.HttpContext, provider, subject, name, email, verifiedEmail);
-        if (principal is null)
-        {
-            Reject(context, NotAllowedError);
-            return;
-        }
-
-        context.Principal = principal;
+        context.Principal = await SignInAsync(context.HttpContext, provider, subject, name, verifiedEmail);
     }
 
     /// <summary>
@@ -135,7 +119,7 @@ public static class UserSignIn
     /// explicitly; it must belong to the user who started the link, which stops a callback replayed in someone else's browser.
     /// </summary>
     private static async Task LinkAsync(
-        TicketReceivedContext context, string provider, string subject, string? email, string? verifiedEmail, string linkUser)
+        TicketReceivedContext context, string provider, string subject, string? verifiedEmail, string linkUser)
     {
         var session = await context.HttpContext.AuthenticateAsync(AuthSetup.CookieScheme);
         if (!session.Succeeded || session.Principal!.IsToken() || session.Principal.UserId().ToString() != linkUser)
@@ -144,14 +128,11 @@ public static class UserSignIn
             return;
         }
 
-        var result = await LinkAsync(context.HttpContext, session.Principal.UserId(), provider, subject, email, verifiedEmail);
+        var result = await LinkAsync(context.HttpContext, session.Principal.UserId(), provider, subject, verifiedEmail);
         switch (result)
         {
             case LinkResult.InUseByAnotherUser:
                 Reject(context, IdentityInUseError);
-                return;
-            case LinkResult.NotAllowed:
-                Reject(context, NotAllowedError);
                 return;
             case LinkResult.UnknownUser:
                 Reject(context, LinkFailedError);

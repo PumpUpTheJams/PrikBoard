@@ -202,37 +202,3 @@ public class AuthApiTests(AuthApiTests.Factory factory) : IClassFixture<AuthApiT
     }
 
 }
-
-public class AllowlistTests(AllowlistTests.Factory factory) : IClassFixture<AllowlistTests.Factory>
-{
-    public class Factory : PrikBoardApiFactory
-    {
-        protected override void ConfigureWebHost(IWebHostBuilder builder)
-        {
-            base.ConfigureWebHost(builder);
-            builder.UseSetting("Auth:AllowedEmailDomains:0", "example.com");
-            builder.UseSetting("Auth:AllowedEmails:0", "guest@partner.test");
-        }
-    }
-
-    [Theory]
-    [InlineData("someone@example.com")]
-    [InlineData("GUEST@partner.test")]
-    public async Task Allowed_emails_and_domains_can_sign_in(string email)
-    {
-        var client = await factory.CreateSignedInClientAsync(email);
-
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/me")).StatusCode);
-    }
-
-    [Fact]
-    public async Task Other_emails_get_no_session()
-    {
-        var client = factory.CreateAnonymousClient();
-
-        var response = await PrikBoardApiFactory.TestSignInAsync(client, "intruder@elsewhere.test");
-
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/me")).StatusCode);
-    }
-}

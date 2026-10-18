@@ -166,13 +166,7 @@ Tokens a user obtains through an OAuth client (delegated, for example an agent a
 
 ## Who may sign in
 
-By default anyone who can sign in with a configured provider gets in. They see only boards they are a member of. To restrict browser sign-in, set either or both of:
-
-```json
-"Auth": { "AllowedEmails": ["ada@example.com"], "AllowedEmailDomains": ["example.com"] }
-```
-
-The check uses the email claim, and an email the provider marks `email_verified: false` does not count. Microsoft does not send `email_verified`, so with an allowlist prefer a tenant-specific Microsoft authority. A rejected sign-in returns to `/?authError=not_allowed`, and a failed provider round trip returns to `/?authError=failed`. The allowlist does not apply to machine tokens: control those through which clients your identity provider grants the scopes to.
+Anyone who can sign in with a configured provider gets in; there is no allowlist. They see only boards they are a member of, so enable only providers whose users you trust. A failed provider round trip returns to `/?authError=failed`.
 
 ## Local development
 
