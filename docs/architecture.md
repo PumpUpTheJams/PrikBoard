@@ -21,11 +21,11 @@ User
 ```
 
 - **Board.** One project and a freeform canvas, with a name and an optional description. New boards start with the buckets *To do*, *Doing* and *Done* side by side.
-- **Bucket.** A named, coloured rectangle on the board (`x`, `y`, `width`, `height`). Deleting a bucket leaves its notes on the board.
-- **Note.** A 160×140 px post-it at `x`, `y`, with a title, an optional body and a colour (`Yellow`, `Pink`, `Blue`, `Green`, `Orange` or `Purple`).
-- **User.** Someone who signed in, identified by provider plus subject id. Boards are not owned yet: every signed-in user sees every board.
+- **Bucket.** A named rectangle on the board (`x`, `y`, `width`, `height`). Deleting a bucket leaves its notes on the board.
+- **Note.** A 200×120 px post-it at `x`, `y`. It has a title, an optional body, a fill (`Butter`, `Mint`, `Sky`, `Coral` or `Lilac`), tags, assignees (people or agents), a checklist, links, and an `AgentWorking` flag that an agent sets while it works on the note. Tags are a PostgreSQL array and the other lists are `jsonb` columns on the note; all of them are always read and replaced whole.
+- **User.** Someone who signed in, identified by provider plus subject id. Boards are not owned yet: every signed-in user sees every board. Assignees are free-text names, not linked to users.
 
-The server owns the geometry (`Domain/Layout.cs`). It snaps every coordinate to a 20 px grid. A note's `BucketId` is not chosen directly. It is always the topmost bucket containing the note's centre (buckets stack in creation order), and the server recomputes it whenever a note or bucket is created, moved, resized or deleted. Moving a bucket moves its notes with it. A client that only knows a bucket, such as an agent, can move a note there with `bucketId`, and the server picks a free grid slot inside it.
+The server owns the geometry (`Domain/Layout.cs`). It snaps every coordinate to a 20 px grid. A note's `BucketId` is not chosen directly. It is always the topmost bucket containing the note's centre (buckets stack in creation order), and the server recomputes it whenever a note or bucket is created, moved, resized or deleted. Moving a bucket moves its notes with it. A client that only knows a bucket, such as an agent, can move a note there with `bucketId`, and the server picks a free grid slot inside it. When a bucket is full, it grows downwards to make room.
 
 ## Backend: `src/PrikBoard.Api`
 
@@ -56,13 +56,17 @@ dotnet ef migrations add <Name> --project src/PrikBoard.Api --output-dir Data/Mi
 
 ## Frontend: `src/web`
 
-React 19, TypeScript and Vite, with no state library and no UI kit yet.
+React 19, TypeScript and Vite, with no state library and no UI kit. The visual design is the "Night shift" mockup in [`docs/Scrum Board — Night shift.html`](Scrum%20Board%20—%20Night%20shift.html), with Geist and Geist Mono as typefaces.
 
 - `src/api/`: a typed `fetch` client whose method names match the API's operationIds.
-- `src/board/`: `BoardCanvas` (the canvas, pointer gestures for moving notes and buckets, resizing and drawing buckets), `Toolbar` (Move, Draw bucket and Post-it tools), `Inspector` (edit the selected note or bucket) and `layout.ts` (grid and bucket rules mirrored from the server).
-- `src/components/QuickAdd`: the inline "+ New board" form.
+- `src/board/useBoard.ts`: loads the open board, runs every change and reloads afterwards, and re-reads the board every few seconds so changes made by agents show up. Refreshes pause while something is being dragged.
+- `src/board/BoardCanvas.tsx`: the zoomable canvas and its pointer gestures (move, pan, draw and resize buckets, stick post-its), plus the floating `ToolRail`, `ViewControls` (zoom and minimap) and `Inspector` (rename or delete a bucket).
+- `src/board/PostIt.tsx`: the post-it as shown on the board, with its title, tags, assignee stack and states (hover, selected, dragging, agent working).
+- `src/board/ExpandedNote.tsx`: an expanded post-it. A header band in its fill holds the title, tags and assignees. Below it, a mini board holds the Note, Checklist and Links widgets.
+- `src/board/layout.ts`: grid and bucket rules mirrored from the server.
+- `src/components/`: `Avatar` (people and agents), `Menu` (the board and settings menus) and `QuickAdd` (inline add forms).
 - During a drag the UI shows the snapped position locally. On drop it sends one request and reloads the board, so it always ends up showing the server's layout.
-- Dark is the default theme. The light theme is a `data-theme="light"` override, remembered in `localStorage`.
+- Dark ("night shift") is the default theme. The light theme is a `data-theme="light"` override, remembered in `localStorage`.
 - In development, Vite proxies `/api` and `/openapi` to `http://localhost:5080`. Set `PRIKBOARD_API_URL` to point the proxy somewhere else.
 
 ## Tests
@@ -73,5 +77,7 @@ React 19, TypeScript and Vite, with no state library and no UI kit yet.
 
 - **Authorization.** Authentication is in place, but every signed-in user (and every token with `boards:write`) can see and change every board. Board ownership or membership comes later.
 - **Hosting, and which managed PostgreSQL to use.** See [`infra/README.md`](../infra/README.md).
-- **Richer project-management fields.** For example assignee, due date and labels.
+- **Images and drawing.** The mockup also shows pasted images and GIFs, and freehand drawing on the board and on images. These need file storage first.
+- **Assignees and users.** Assignees are free-text names. Linking them to signed-in users (for example "assign me") is a natural next step.
+- **More project-management fields.** For example a due date.
 - **An MCP server.** It would sit on top of the same endpoints, so AI assistants can use PrikBoard as a native tool.

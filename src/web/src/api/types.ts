@@ -1,6 +1,6 @@
 // Mirrors the API contracts in src/PrikBoard.Api/Contracts (see /openapi/v1.json).
 
-export const noteColors = ['Yellow', 'Pink', 'Blue', 'Green', 'Orange', 'Purple'] as const
+export const noteColors = ['Butter', 'Mint', 'Sky', 'Coral', 'Lilac'] as const
 export type NoteColor = (typeof noteColors)[number]
 
 export const bucketColors = ['Blue', 'Amber', 'Violet', 'Teal', 'Rose'] as const
@@ -32,6 +32,23 @@ export interface BucketDetail {
   height: number
 }
 
+export type AssigneeKind = 'Person' | 'Agent'
+
+export interface Assignee {
+  name: string
+  kind: AssigneeKind
+}
+
+export interface ChecklistItem {
+  text: string
+  done: boolean
+}
+
+export interface NoteLink {
+  title: string
+  url: string
+}
+
 export interface NoteDetail {
   id: string
   boardId: string
@@ -39,6 +56,11 @@ export interface NoteDetail {
   title: string
   body: string | null
   color: NoteColor
+  tags: string[]
+  assignees: Assignee[]
+  checklist: ChecklistItem[]
+  links: NoteLink[]
+  agentWorking: boolean
   x: number
   y: number
   createdAt: string
@@ -60,10 +82,16 @@ export interface BucketChanges extends Partial<Rect> {
   color?: BucketColor
 }
 
+/** A PATCH: omitted fields stay unchanged, a given list replaces the whole list. */
 export interface NoteChanges {
   title?: string
   body?: string
   color?: NoteColor
+  tags?: string[]
+  assignees?: Assignee[]
+  checklist?: ChecklistItem[]
+  links?: NoteLink[]
+  agentWorking?: boolean
 }
 
 export interface AuthProvider {

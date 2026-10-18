@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react'
-import { api, errorMessage } from '../api/client'
-import { bucketColors, type BoardDetail, type BucketDetail, type NoteColor, type NoteDetail, type Point, type Rect } from '../api/types'
-import { BucketInspector, NoteInspector } from './Inspector'
-import { GripIcon, ResizeIcon } from './icons'
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
+import { api } from '../api/client'
+import type { BoardDetail, BucketDetail, NoteColor, NoteDetail, Point, Rect } from '../api/types'
+import { ExpandedNote } from './ExpandedNote'
+import { ResizeIcon } from './icons'
+import { BucketInspector } from './Inspector'
 import {
   MIN_BUCKET_HEIGHT,
   MIN_BUCKET_WIDTH,
@@ -13,12 +14,17 @@ import {
   snapPoint,
   spanRect,
 } from './layout'
-import { Toolbar, type Tool } from './Toolbar'
+import { PostIt } from './PostIt'
+import { ToolRail } from './ToolRail'
+import { toolKeys, type Tool } from './tools'
+import type { BoardState } from './useBoard'
+import { ViewControls } from './ViewControls'
+import { stepZoom } from './zoom'
 
 interface Selection {
   kind: 'note' | 'bucket'
   id: string
-  /** Just created: the inspector focuses its name so it can be typed straight away. */
+  /** Just created: its name or title is focused so it can be typed straight away. */
   fresh?: boolean
 }
 
@@ -29,10 +35,26 @@ interface Selection {
 type Gesture = GestureTarget & { start: Point; current: Point; done?: boolean }
 type GestureTarget = { kind: 'note' | 'bucket' | 'resize'; id: string } | { kind: 'draw' }
 
+/** A pan in progress: where the pointer went down and the scroll position at that moment, in screen pixels. */
+interface Pan {
+  x: number
+  y: number
+  left: number
+  top: number
+}
+
 /** Pointer travel (px) before a press on a post-it or bucket counts as a drag rather than a click. */
 const DRAG_THRESHOLD = 4
 /** Empty canvas kept beyond the furthest item, so there is always room to drag things further out. */
-const CANVAS_MARGIN = 400
+const CANVAS_MARGIN = 600
+/** Screen space left of the canvas, so the tool rail doesn't cover the left edge of the board. */
+const RAIL_INSET = 72
+
+const hints: Partial<Record<Tool, string>> = {
+  pan: 'Drag to look around the board',
+  note: 'Click anywhere to stick a post-it',
+  bucket: 'Drag across the board to draw a bucket',
+}
 
 const delta = (g: Gesture): Point => ({ x: g.current.x - g.start.x, y: g.current.y - g.start.y })
 
@@ -42,58 +64,93 @@ function isDrag(g: Gesture) {
 }
 
 interface BoardCanvasProps {
-  boardId: string
-  onError: (message: string) => void
+  board: BoardDetail
+  run: BoardState['run']
+  setPaused: BoardState['setPaused']
 }
 
-export function BoardCanvas({ boardId, onError }: BoardCanvasProps) {
-  const [board, setBoard] = useState<BoardDetail | null>(null)
-  const [tool, setTool] = useState<Tool>('move')
-  const [noteColor, setNoteColor] = useState<NoteColor>('Yellow')
+export function BoardCanvas({ board, run, setPaused }: BoardCanvasProps) {
+  const [tool, setTool] = useState<Tool>('select')
+  const [fill, setFill] = useState<NoteColor>('Butter')
   const [selection, setSelection] = useState<Selection | null>(null)
+  const [expanded, setExpanded] = useState<{ id: string; fresh: boolean } | null>(null)
   const [gesture, setGesture] = useState<Gesture | null>(null)
+  const [pan, setPan] = useState<Pan | null>(null)
+  const [zoom, setZoom] = useState(1)
+  /** The scroll viewport, in screen pixels. */
+  const [view, setView] = useState<Rect>({ x: 0, y: 0, width: 0, height: 0 })
+  const scrollRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
+  /** A canvas point to keep under the same screen point once a new zoom level has rendered. */
+  const zoomAnchor = useRef<{ canvas: Point; screen: Point } | null>(null)
 
-  useEffect(() => {
-    let ignore = false
-    api.getBoard(boardId).then(
-      (loaded) => !ignore && setBoard(loaded),
-      (error) => onError(errorMessage(error)),
-    )
+  // Background refreshes would fight with a drag in progress.
+  useEffect(() => setPaused(gesture !== null), [gesture, setPaused])
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current!
+    const update = () => setView({ x: el.scrollLeft, y: el.scrollTop, width: el.clientWidth, height: el.clientHeight })
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    el.addEventListener('scroll', update, { passive: true })
     return () => {
-      ignore = true
+      observer.disconnect()
+      el.removeEventListener('scroll', update)
     }
-  }, [boardId, onError])
+  }, [])
+
+  useLayoutEffect(() => {
+    const anchor = zoomAnchor.current
+    if (!anchor) return
+    zoomAnchor.current = null
+    const el = scrollRef.current!
+    el.scrollLeft = anchor.canvas.x * zoom + RAIL_INSET - anchor.screen.x
+    el.scrollTop = anchor.canvas.y * zoom - anchor.screen.y
+  }, [zoom])
+
+  /** Zooms keeping the canvas point under `screen` (relative to the viewport; default its centre) in place. */
+  function zoomTo(next: number, screen?: Point) {
+    if (next === zoom) return
+    const el = scrollRef.current!
+    const at = screen ?? { x: el.clientWidth / 2, y: el.clientHeight / 2 }
+    zoomAnchor.current = { canvas: { x: (el.scrollLeft + at.x - RAIL_INSET) / zoom, y: (el.scrollTop + at.y) / zoom }, screen: at }
+    setZoom(next)
+  }
+
+  // Ctrl/Cmd + wheel zooms around the pointer. React's wheel listener is passive, so register it by hand.
+  useEffect(() => {
+    const el = scrollRef.current!
+    function onWheel(e: WheelEvent) {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      const rect = el.getBoundingClientRect()
+      zoomTo(stepZoom(zoom, e.deltaY < 0 ? 1 : -1), { x: e.clientX - rect.left, y: e.clientY - rect.top })
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  })
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key !== 'Escape' || (e.target as HTMLElement).closest('input, textarea, select')) return
-      setTool('move')
-      setSelection(null)
+      if (expanded || (e.target as HTMLElement).closest('input, textarea, select, [role="menu"]')) return
+      if (e.key === 'Escape') {
+        setTool('select')
+        setSelection(null)
+      } else if (!e.ctrlKey && !e.metaKey && !e.altKey && toolKeys[e.key.toLowerCase()]) {
+        setTool(toolKeys[e.key.toLowerCase()])
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [expanded])
 
-  /** Runs a mutation, then reloads the board so the UI always shows the server's layout. */
-  async function run(action: () => Promise<unknown>): Promise<boolean> {
-    let ok = true
-    try {
-      await action()
-    } catch (error) {
-      onError(errorMessage(error))
-      ok = false
-    }
-    try {
-      setBoard(await api.getBoard(boardId))
-    } catch (error) {
-      onError(errorMessage(error))
-    }
+  /** Runs a change through the board, then lets go of the finished gesture. */
+  async function settle(action: () => Promise<unknown>) {
+    const ok = await run(action)
     setGesture(null)
     return ok
   }
-
-  if (!board) return <p className="status">Loading board…</p>
 
   // Live geometry: the server's layout, with the gesture in progress applied on top.
   const dragging = gesture && gesture.kind !== 'draw' && isDrag(gesture) ? gesture : null
@@ -120,7 +177,7 @@ export function BoardCanvas({ boardId, onError }: BoardCanvasProps) {
     }
     if (dragging.kind === 'bucket' && dragging.id === note.bucketId) {
       // A moving bucket carries its notes along, as the server does.
-      const bucket = board!.buckets.find((b) => b.id === note.bucketId)!
+      const bucket = board.buckets.find((b) => b.id === note.bucketId)!
       const moved = bucketRect(bucket)
       return { x: Math.max(0, note.x + moved.x - bucket.x), y: Math.max(0, note.y + moved.y - bucket.y) }
     }
@@ -129,7 +186,7 @@ export function BoardCanvas({ boardId, onError }: BoardCanvasProps) {
 
   function toCanvas(e: PointerEvent): Point {
     const rect = canvasRef.current!.getBoundingClientRect()
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    return { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom }
   }
 
   function beginGesture(e: PointerEvent, target: GestureTarget) {
@@ -138,15 +195,23 @@ export function BoardCanvas({ boardId, onError }: BoardCanvasProps) {
     setGesture({ ...target, start: point, current: point })
   }
 
-  function onItemPointerDown(e: PointerEvent, kind: 'note' | 'bucket' | 'resize', id: string) {
-    if (e.button !== 0 || tool !== 'move') return
+  function onItemPointerDown(e: PointerEvent<HTMLElement>, kind: 'note' | 'bucket' | 'resize', id: string) {
+    if (e.button !== 0 || tool !== 'select') return
     e.stopPropagation()
     e.preventDefault()
+    if (kind === 'note') e.currentTarget.focus({ preventScroll: true })
     setSelection({ kind: kind === 'note' ? 'note' : 'bucket', id })
     beginGesture(e, { kind, id })
   }
 
   function onCanvasPointerDown(e: PointerEvent) {
+    if (e.button === 1 || (e.button === 0 && tool === 'pan')) {
+      e.preventDefault()
+      const el = scrollRef.current!
+      canvasRef.current!.setPointerCapture(e.pointerId)
+      setPan({ x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop })
+      return
+    }
     if (e.button !== 0) return
     if (tool === 'bucket') {
       e.preventDefault()
@@ -154,10 +219,11 @@ export function BoardCanvas({ boardId, onError }: BoardCanvasProps) {
     } else if (tool === 'note') {
       const p = toCanvas(e)
       const at = snapPoint({ x: p.x - NOTE_WIDTH / 2, y: p.y - NOTE_HEIGHT / 2 })
-      void run(async () => {
-        const note = await api.createNote(board!.id, { title: 'New post-it', color: noteColor, ...at })
-        setSelection({ kind: 'note', id: note.id, fresh: true })
-        setTool('move')
+      void settle(async () => {
+        const note = await api.createNote(board.id, { title: 'New post-it', color: fill, ...at })
+        setSelection({ kind: 'note', id: note.id })
+        setExpanded({ id: note.id, fresh: true })
+        setTool('select')
       })
     } else {
       setSelection(null)
@@ -165,10 +231,20 @@ export function BoardCanvas({ boardId, onError }: BoardCanvasProps) {
   }
 
   function onCanvasPointerMove(e: PointerEvent) {
-    if (gesture && !gesture.done) setGesture({ ...gesture, current: toCanvas(e) })
+    if (pan) {
+      const el = scrollRef.current!
+      el.scrollLeft = pan.left - (e.clientX - pan.x)
+      el.scrollTop = pan.top - (e.clientY - pan.y)
+    } else if (gesture && !gesture.done) {
+      setGesture({ ...gesture, current: toCanvas(e) })
+    }
   }
 
   function onCanvasPointerUp() {
+    if (pan) {
+      setPan(null)
+      return
+    }
     if (!gesture || gesture.done) return
     if (gesture.kind === 'draw') {
       const rect = spanRect(snapPoint(gesture.start), snapPoint(gesture.current))
@@ -177,11 +253,10 @@ export function BoardCanvas({ boardId, onError }: BoardCanvasProps) {
         return
       }
       setGesture({ ...gesture, done: true })
-      const color = bucketColors[board!.buckets.length % bucketColors.length]
-      void run(async () => {
-        const bucket = await api.createBucket(board!.id, { name: 'New bucket', color, ...rect })
+      void settle(async () => {
+        const bucket = await api.createBucket(board.id, { name: 'New bucket', ...rect })
         setSelection({ kind: 'bucket', id: bucket.id, fresh: true })
-        setTool('move')
+        setTool('select')
       })
       return
     }
@@ -193,11 +268,11 @@ export function BoardCanvas({ boardId, onError }: BoardCanvasProps) {
     setGesture({ ...gesture, done: true })
     const { id } = gesture
     if (gesture.kind === 'note') {
-      const note = board!.notes.find((n) => n.id === id)!
-      void run(() => api.moveNote(id, notePoint(note)))
+      const note = board.notes.find((n) => n.id === id)!
+      void settle(() => api.moveNote(id, notePoint(note)))
     } else {
-      const { x, y, width, height } = bucketRect(board!.buckets.find((b) => b.id === id)!)
-      void run(() => api.updateBucket(id, gesture.kind === 'bucket' ? { x, y } : { width, height }))
+      const { x, y, width, height } = bucketRect(board.buckets.find((b) => b.id === id)!)
+      void settle(() => api.updateBucket(id, gesture.kind === 'bucket' ? { x, y } : { width, height }))
     }
   }
 
@@ -211,66 +286,77 @@ export function BoardCanvas({ boardId, onError }: BoardCanvasProps) {
   const draft =
     gesture?.kind === 'draw' && !gesture.done ? spanRect(snapPoint(gesture.start), snapPoint(gesture.current)) : null
 
+  // The canvas reaches past the furthest item and always fills the viewport.
   const extent = {
-    width: Math.max(0, ...buckets.map((b) => b.rect.x + b.rect.width), ...notes.map((n) => n.point.x + NOTE_WIDTH)),
-    height: Math.max(0, ...buckets.map((b) => b.rect.y + b.rect.height), ...notes.map((n) => n.point.y + NOTE_HEIGHT)),
+    width: Math.max(
+      (view.width - RAIL_INSET) / zoom,
+      CANVAS_MARGIN + Math.max(0, ...buckets.map((b) => b.rect.x + b.rect.width), ...notes.map((n) => n.point.x + NOTE_WIDTH)),
+    ),
+    height: Math.max(
+      view.height / zoom,
+      CANVAS_MARGIN + Math.max(0, ...buckets.map((b) => b.rect.y + b.rect.height), ...notes.map((n) => n.point.y + NOTE_HEIGHT)),
+    ),
   }
 
-  const selectedNote = selection?.kind === 'note' ? board.notes.find((n) => n.id === selection.id) : undefined
   const selectedBucket = selection?.kind === 'bucket' ? board.buckets.find((b) => b.id === selection.id) : undefined
+  const expandedNote = expanded && board.notes.find((n) => n.id === expanded.id)
   const countIn = (bucketId: string) => board.notes.filter((n) => n.bucketId === bucketId).length
-  const looseCount = board.notes.filter((n) => n.bucketId === null).length
+  const hint = hints[tool]
 
   return (
-    <section className="board">
-      <Toolbar tool={tool} onToolChange={setTool} color={noteColor} onColorChange={setNoteColor} />
-
-      <div className="board-body">
-        <div className="board-scroll">
+    <section className="board" aria-label={board.name}>
+      <div className="board-scroll" ref={scrollRef}>
+        <div className="canvas-sizer" style={{ width: extent.width * zoom + RAIL_INSET, height: extent.height * zoom }}>
           <div
             ref={canvasRef}
-            className={`canvas tool-${tool}`}
-            style={{ width: extent.width + CANVAS_MARGIN, height: extent.height + CANVAS_MARGIN }}
+            className={`canvas tool-${tool}${pan ? ' panning' : ''}`}
+            style={{ left: RAIL_INSET, width: extent.width, height: extent.height, transform: `scale(${zoom})` }}
             onPointerDown={onCanvasPointerDown}
             onPointerMove={onCanvasPointerMove}
             onPointerUp={onCanvasPointerUp}
-            onPointerCancel={() => setGesture(null)}
+            onPointerCancel={() => {
+              setGesture(null)
+              setPan(null)
+            }}
           >
-            {buckets.map(({ bucket, rect }) => (
-              <section
-                key={bucket.id}
-                aria-label={bucket.name}
-                className={[
-                  'bucket',
-                  `bucket-${bucket.color.toLowerCase()}`,
-                  dropTarget?.id === bucket.id && 'drop-target',
-                  selectedBucket?.id === bucket.id && 'selected',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
-              >
-                <button
-                  type="button"
-                  className="bucket-label"
-                  title="Drag to move the bucket and its post-its"
-                  onPointerDown={(e) => onItemPointerDown(e, 'bucket', bucket.id)}
-                  onClick={() => setSelection({ kind: 'bucket', id: bucket.id })}
+            {buckets.map(({ bucket, rect }) => {
+              const count = countIn(bucket.id)
+              return (
+                <section
+                  key={bucket.id}
+                  aria-label={bucket.name}
+                  className={[
+                    'bucket',
+                    dropTarget?.id === bucket.id && 'drop-target',
+                    selectedBucket?.id === bucket.id && 'selected',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
                 >
-                  <GripIcon />
-                  {bucket.name}
-                  <span className="bucket-count">{countIn(bucket.id)}</span>
-                </button>
-                <button
-                  type="button"
-                  className="bucket-resize"
-                  aria-label={`Resize ${bucket.name}`}
-                  onPointerDown={(e) => onItemPointerDown(e, 'resize', bucket.id)}
-                >
-                  <ResizeIcon />
-                </button>
-              </section>
-            ))}
+                  <button
+                    type="button"
+                    className="bucket-head"
+                    title="Drag to move the bucket and its post-its"
+                    onPointerDown={(e) => onItemPointerDown(e, 'bucket', bucket.id)}
+                    onClick={() => setSelection({ kind: 'bucket', id: bucket.id })}
+                  >
+                    <span className="bucket-name">{bucket.name}</span>
+                    <span className="count" aria-label={count === 1 ? '1 post-it' : `${count} post-its`}>
+                      {count}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="bucket-resize"
+                    aria-label={`Resize ${bucket.name}`}
+                    onPointerDown={(e) => onItemPointerDown(e, 'resize', bucket.id)}
+                  >
+                    <ResizeIcon />
+                  </button>
+                </section>
+              )
+            })}
 
             {draft && (
               <div
@@ -279,65 +365,77 @@ export function BoardCanvas({ boardId, onError }: BoardCanvasProps) {
               />
             )}
 
+            {draggedNote && (
+              <div
+                className="post-it-slot"
+                aria-hidden="true"
+                style={{ left: draggedNote.note.x, top: draggedNote.note.y, width: NOTE_WIDTH, height: NOTE_HEIGHT }}
+              />
+            )}
+
             {notes.map(({ note, point }) => (
-              <button
+              <PostIt
                 key={note.id}
-                type="button"
-                className={[
-                  'note',
-                  `note-${note.color.toLowerCase()}`,
-                  draggedNote?.note.id === note.id && 'lifted',
-                  selectedNote?.id === note.id && 'selected',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                style={{ left: point.x, top: point.y, width: NOTE_WIDTH, height: NOTE_HEIGHT }}
+                note={note}
+                point={point}
+                selected={selection?.kind === 'note' && selection.id === note.id}
+                lifted={draggedNote?.note.id === note.id}
                 onPointerDown={(e) => onItemPointerDown(e, 'note', note.id)}
-                onClick={() => setSelection({ kind: 'note', id: note.id })}
-              >
-                <span className="note-title">{note.title}</span>
-                {note.body && <span className="note-body">{note.body}</span>}
-              </button>
+                onExpand={() => setExpanded({ id: note.id, fresh: false })}
+              />
             ))}
           </div>
         </div>
-
-        {selectedNote && (
-          <NoteInspector
-            key={selectedNote.id}
-            note={selectedNote}
-            bucket={board.buckets.find((b) => b.id === selectedNote.bucketId)}
-            autoFocus={!!selection?.fresh}
-            onSave={(changes) => run(() => api.updateNote(selectedNote.id, changes))}
-            onDelete={() => {
-              setSelection(null)
-              void run(() => api.deleteNote(selectedNote.id))
-            }}
-            onClose={() => setSelection(null)}
-          />
-        )}
-        {selectedBucket && (
-          <BucketInspector
-            key={selectedBucket.id}
-            bucket={selectedBucket}
-            noteCount={countIn(selectedBucket.id)}
-            autoFocus={!!selection?.fresh}
-            onSave={(changes) => run(() => api.updateBucket(selectedBucket.id, changes))}
-            onDelete={() => {
-              setSelection(null)
-              void run(() => api.deleteBucket(selectedBucket.id))
-            }}
-            onClose={() => setSelection(null)}
-          />
-        )}
       </div>
 
-      <footer className="board-footer">
-        <span>{board.description}</span>
-        <span>
-          {board.buckets.length} buckets · {board.notes.length} post-its · {looseCount} loose
-        </span>
-      </footer>
+      <ToolRail tool={tool} onToolChange={setTool} fill={fill} onFillChange={setFill} />
+      {hint && <div className="canvas-hint">{hint}</div>}
+      <ViewControls
+        zoom={zoom}
+        onZoom={(direction) => zoomTo(stepZoom(zoom, direction))}
+        onZoomReset={() => zoomTo(1)}
+        extent={extent}
+        viewport={{ x: (view.x - RAIL_INSET) / zoom, y: view.y / zoom, width: view.width / zoom, height: view.height / zoom }}
+        buckets={board.buckets}
+        notes={board.notes}
+        onNavigate={(center) => {
+          const el = scrollRef.current!
+          el.scrollLeft = center.x * zoom + RAIL_INSET - el.clientWidth / 2
+          el.scrollTop = center.y * zoom - el.clientHeight / 2
+        }}
+      />
+
+      {selectedBucket && (
+        <BucketInspector
+          key={selectedBucket.id}
+          bucket={selectedBucket}
+          noteCount={countIn(selectedBucket.id)}
+          autoFocus={!!selection?.fresh}
+          onSave={(changes) => settle(() => api.updateBucket(selectedBucket.id, changes))}
+          onDelete={() => {
+            setSelection(null)
+            void settle(() => api.deleteBucket(selectedBucket.id))
+          }}
+          onClose={() => setSelection(null)}
+        />
+      )}
+
+      {expandedNote && (
+        <ExpandedNote
+          key={expandedNote.id}
+          note={expandedNote}
+          bucket={board.buckets.find((b) => b.id === expandedNote.bucketId)}
+          focusTitle={expanded?.fresh ?? false}
+          onChange={(changes) => settle(() => api.updateNote(expandedNote.id, changes))}
+          onDelete={() => {
+            if (!window.confirm(`Delete "${expandedNote.title}"?`)) return
+            setExpanded(null)
+            setSelection(null)
+            void settle(() => api.deleteNote(expandedNote.id))
+          }}
+          onClose={() => setExpanded(null)}
+        />
+      )}
     </section>
   )
 }

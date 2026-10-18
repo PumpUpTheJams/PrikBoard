@@ -41,11 +41,23 @@ Content-Type: application/json
 {
   "title": "Pick a colour palette",
   "body": "Three options for the team to vote on",
-  "color": "Pink"
+  "color": "Coral",
+  "tags": ["design"],
+  "assignees": [{ "name": "Mila V." }],
+  "checklist": [{ "text": "Three options" }, { "text": "Team vote" }]
 }
 
 ###
 @noteId = {{createNote.response.body.$.id}}
+
+### An agent picks the note up: assign it and show the "agent working" halo
+PATCH {{host}}/api/notes/{{noteId}}
+Content-Type: application/json
+
+{
+  "assignees": [{ "name": "Mila V." }, { "name": "Claude", "kind": "Agent" }],
+  "agentWorking": true
+}
 
 ### Move the note into Done (the server picks a free spot)
 POST {{host}}/api/notes/{{noteId}}/move

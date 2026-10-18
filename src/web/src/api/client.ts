@@ -7,7 +7,6 @@ import type {
   BucketDetail,
   Caller,
   NoteChanges,
-  NoteColor,
   NoteDetail,
   Point,
   Rect,
@@ -71,6 +70,8 @@ export const api = {
   createBoard: (name: string, description?: string) =>
     request<BoardDetail>('POST', '/boards', { name, description }),
   getBoard: (boardId: string) => request<BoardDetail>('GET', `/boards/${boardId}`),
+  updateBoard: (boardId: string, changes: { name?: string; description?: string }) =>
+    request<BoardSummary>('PATCH', `/boards/${boardId}`, changes),
   deleteBoard: (boardId: string) => request<void>('DELETE', `/boards/${boardId}`),
 
   createBucket: (boardId: string, bucket: { name: string; color?: BucketColor } & Partial<Rect>) =>
@@ -79,7 +80,7 @@ export const api = {
     request<BucketDetail>('PATCH', `/buckets/${bucketId}`, changes),
   deleteBucket: (bucketId: string) => request<void>('DELETE', `/buckets/${bucketId}`),
 
-  createNote: (boardId: string, note: { title: string; color?: NoteColor } & ({ bucketId?: string } | Point)) =>
+  createNote: (boardId: string, note: Omit<NoteChanges, 'title'> & { title: string } & ({ bucketId?: string } | Point)) =>
     request<NoteDetail>('POST', `/boards/${boardId}/notes`, note),
   updateNote: (noteId: string, changes: NoteChanges) => request<NoteDetail>('PATCH', `/notes/${noteId}`, changes),
   /** Into a free spot inside a bucket, or exactly to a point (the server then works out the bucket). */

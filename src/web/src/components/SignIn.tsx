@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, errorMessage, loginUrl } from '../api/client'
 import type { AuthProvider } from '../api/types'
+import { PostItIcon } from '../board/icons'
 
 const authErrors: Record<string, string> = {
   not_allowed: 'That account is not allowed to use this PrikBoard. Ask an administrator to add your email.',
@@ -31,10 +32,10 @@ export function SignIn() {
   return (
     <div className="sign-in">
       <div className="sign-in-card">
-        <h1 className="brand">
-          <span className="brand-mark" aria-hidden="true" />
-          PrikBoard
-        </h1>
+        <span className="board-tile large" aria-hidden="true">
+          <PostItIcon size={28} />
+        </span>
+        <h1>PrikBoard</h1>
         <p>Sign in to see your boards.</p>
         {error && (
           <p className="sign-in-error" role="alert">

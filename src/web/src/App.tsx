@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
 import { api, errorMessage, setUnauthorizedHandler } from './api/client'
-import type { BoardSummary, Caller } from './api/types'
+import type { Assignee, BoardSummary, Caller } from './api/types'
 import { BoardCanvas } from './board/BoardCanvas'
-import { MoonIcon, SunIcon } from './board/icons'
+import { CheckIcon, ChevronDownIcon, ExternalIcon, MoonIcon, PostItIcon, SignOutIcon, SunIcon, TrashIcon } from './board/icons'
+import { useBoard } from './board/useBoard'
+import { AvatarStack } from './components/Avatar'
+import { initials } from './components/initials'
+import { Menu } from './components/Menu'
 import { QuickAdd } from './components/QuickAdd'
 import { SignIn } from './components/SignIn'
 
@@ -11,13 +15,20 @@ const boardIdFromHash = () => window.location.hash.match(/^#\/boards\/([\w-]+)/)
 type Theme = 'dark' | 'light'
 const themeKey = 'prikboard-theme'
 
-/** Dark unless the viewer switched to light before. */
+/** Dark ("night shift") unless the viewer switched to light before. */
 function storedTheme(): Theme {
   try {
     return localStorage.getItem(themeKey) === 'light' ? 'light' : 'dark'
   } catch {
     return 'dark'
   }
+}
+
+/** Everyone assigned to something on the board, people first. */
+function boardAssignees(notes: { assignees: Assignee[] }[]): Assignee[] {
+  const unique = new Map<string, Assignee>()
+  for (const a of notes.flatMap((n) => n.assignees)) unique.set(`${a.kind}:${a.name.toLowerCase()}`, a)
+  return [...unique.values()].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'Person' ? -1 : 1))
 }
 
 export default function App() {
@@ -72,6 +83,8 @@ function Workspace({ user, theme, onThemeChange, onSignOut }: WorkspaceProps) {
 
   // Fall back to the newest board when nothing (or something stale) is selected.
   const activeBoard = boards?.find((b) => b.id === selectedId) ?? boards?.[0] ?? null
+  const { board, run, setPaused } = useBoard(activeBoard?.id ?? null, setError)
+  const assignees = board ? boardAssignees(board.notes) : []
 
   function selectBoard(id: string | null) {
     window.location.hash = id ? `/boards/${id}` : ''
@@ -80,9 +93,9 @@ function Workspace({ user, theme, onThemeChange, onSignOut }: WorkspaceProps) {
 
   async function createBoard(name: string) {
     try {
-      const board = await api.createBoard(name)
-      setBoards((current) => [board, ...(current ?? [])])
-      selectBoard(board.id)
+      const created = await api.createBoard(name)
+      setBoards((current) => [created, ...(current ?? [])])
+      selectBoard(created.id)
       return true
     } catch (e) {
       setError(errorMessage(e))
@@ -90,11 +103,22 @@ function Workspace({ user, theme, onThemeChange, onSignOut }: WorkspaceProps) {
     }
   }
 
-  async function deleteBoard(board: BoardSummary) {
-    if (!window.confirm(`Delete "${board.name}" and all of its notes?`)) return
+  async function renameBoard(target: BoardSummary, name: string) {
     try {
-      await api.deleteBoard(board.id)
-      setBoards((current) => current?.filter((b) => b.id !== board.id) ?? null)
+      const renamed = await api.updateBoard(target.id, { name })
+      setBoards((current) => current?.map((b) => (b.id === renamed.id ? renamed : b)) ?? null)
+      return true
+    } catch (e) {
+      setError(errorMessage(e))
+      return false
+    }
+  }
+
+  async function deleteBoard(target: BoardSummary) {
+    if (!window.confirm(`Delete "${target.name}" and all of its post-its?`)) return
+    try {
+      await api.deleteBoard(target.id)
+      setBoards((current) => current?.filter((b) => b.id !== target.id) ?? null)
       selectBoard(null)
     } catch (e) {
       setError(errorMessage(e))
@@ -104,44 +128,127 @@ function Workspace({ user, theme, onThemeChange, onSignOut }: WorkspaceProps) {
   return (
     <div className="app">
       <header className="topbar">
-        <h1 className="brand">
-          <span className="brand-mark" aria-hidden="true" />
-          PrikBoard
-        </h1>
-        {activeBoard && (
-          <select aria-label="Board" value={activeBoard.id} onChange={(e) => selectBoard(e.target.value)}>
-            {boards!.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
-        )}
-        <QuickAdd label="New board" placeholder="Project name" onAdd={createBoard} />
-        <div className="spacer" />
-        {activeBoard && (
-          <button type="button" className="danger" onClick={() => void deleteBoard(activeBoard)}>
-            Delete board
-          </button>
-        )}
-        <a className="api-link" href="/scalar" target="_blank" rel="noreferrer">
-          API reference ↗
-        </a>
-        <button
-          type="button"
-          className="icon-button"
-          aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-          onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}
-        >
-          {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
-        </button>
-        <div className="user-menu">
-          <span className="user-name" title={user.email ?? undefined}>
-            {user.name}
+        <div className="topbar-start">
+          <span className="board-tile" aria-hidden="true">
+            <PostItIcon size={16} />
           </span>
-          <button type="button" onClick={onSignOut}>
-            Sign out
-          </button>
+          <h1 className="visually-hidden">{activeBoard?.name ?? 'PrikBoard'}</h1>
+          <Menu
+            label="Boards"
+            triggerClassName="board-switcher"
+            trigger={
+              <>
+                <span className="board-name" title={activeBoard?.description ?? undefined}>
+                  {activeBoard?.name ?? 'PrikBoard'}
+                </span>
+                <ChevronDownIcon />
+              </>
+            }
+          >
+            {(close) => (
+              <>
+                {boards && boards.length > 0 && <p className="menu-label">Boards</p>}
+                {boards?.map((b) => (
+                  <button
+                    key={b.id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={b.id === activeBoard?.id}
+                    className="menu-item"
+                    onClick={() => {
+                      selectBoard(b.id)
+                      close()
+                    }}
+                  >
+                    <span className="menu-item-text">{b.name}</span>
+                    {b.id === activeBoard?.id && <CheckIcon />}
+                  </button>
+                ))}
+                <span className="menu-divider" role="separator" />
+                <QuickAdd
+                  label="New board"
+                  placeholder="Project name"
+                  onAdd={async (name) => {
+                    const ok = await createBoard(name)
+                    if (ok) close()
+                    return ok
+                  }}
+                />
+                {activeBoard && (
+                  <>
+                    <QuickAdd label="Rename board" placeholder={activeBoard.name} onAdd={(name) => renameBoard(activeBoard, name)} />
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="menu-item danger"
+                      onClick={() => {
+                        close()
+                        void deleteBoard(activeBoard)
+                      }}
+                    >
+                      <TrashIcon />
+                      Delete board
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+          </Menu>
+        </div>
+
+        <div className="topbar-end">
+          {assignees.length > 0 && (
+            <div className="topbar-people" aria-label="Assigned on this board">
+              <AvatarStack assignees={assignees} max={3} size="md" />
+            </div>
+          )}
+          <span className="topbar-divider" aria-hidden="true" />
+          <Menu
+            label="Your settings"
+            align="end"
+            triggerClassName="settings-trigger"
+            trigger={
+              <>
+                <span className="me">{initials(user.name)}</span>
+                <ChevronDownIcon />
+              </>
+            }
+          >
+            {(close) => (
+              <>
+                <div className="menu-user">
+                  <span className="me">{initials(user.name)}</span>
+                  <span className="menu-user-text">
+                    <span className="menu-user-name">{user.name}</span>
+                    <span className="menu-user-detail">{user.email ?? `Signed in with ${user.provider}`}</span>
+                  </span>
+                </div>
+                <span className="menu-divider" role="separator" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="menu-item"
+                  onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}
+                >
+                  {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+                  {theme === 'dark' ? 'Light theme' : 'Night shift theme'}
+                </button>
+                <a role="menuitem" className="menu-item" href="/scalar" target="_blank" rel="noreferrer" onClick={close}>
+                  <ExternalIcon />
+                  API reference
+                </a>
+                <a role="menuitem" className="menu-item" href="/openapi/v1.json" target="_blank" rel="noreferrer" onClick={close}>
+                  <ExternalIcon />
+                  OpenAPI document
+                </a>
+                <span className="menu-divider" role="separator" />
+                <button type="button" role="menuitem" className="menu-item" onClick={onSignOut}>
+                  <SignOutIcon />
+                  Sign out
+                </button>
+              </>
+            )}
+          </Menu>
         </div>
       </header>
 
@@ -158,11 +265,19 @@ function Workspace({ user, theme, onThemeChange, onSignOut }: WorkspaceProps) {
         {boards === null ? (
           <p className="status">Loading…</p>
         ) : activeBoard ? (
-          <BoardCanvas key={activeBoard.id} boardId={activeBoard.id} onError={setError} />
+          board ? (
+            <BoardCanvas key={activeBoard.id} board={board} run={run} setPaused={setPaused} />
+          ) : (
+            <p className="status">Loading board…</p>
+          )
         ) : (
           <div className="empty">
+            <span className="board-tile large" aria-hidden="true">
+              <PostItIcon size={28} />
+            </span>
             <h2>No boards yet</h2>
-            <p>Create a board for your project, then start sticking notes on it.</p>
+            <p>Create a board for your project, then start sticking post-its on it.</p>
+            <QuickAdd label="Create a board" placeholder="Project name" onAdd={createBoard} />
           </div>
         )}
       </main>
