@@ -27,7 +27,7 @@ export function AssigneePicker({ anchor, assignees, people, onChange, onClose }:
   const [query, setQuery] = useState('')
 
   // Everyone with a name: the board's people, plus anyone on the note who has since left the board.
-  const known = new Map<string, Pick<Assignee, 'name' | 'kind'>>(people.map((p) => [p.principalId, p]))
+  const known = new Map<string, Pick<Assignee, 'name' | 'kind' | 'avatarUrl'>>(people.map((p) => [p.principalId, p]))
   for (const a of assignees) if (!known.has(a.principalId)) known.set(a.principalId, a)
   const full = draft.length >= MAX_ASSIGNEES
   const toggle = (id: string) => change(draft.includes(id) ? draft.filter((x) => x !== id) : [...draft, id])

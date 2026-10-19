@@ -53,9 +53,10 @@ public static partial class UserSignIn
     /// becomes the admin. After that a newcomer needs an open invite link (<see cref="InviteIsOpenAsync"/>), which they
     /// then accept as usual. <paramref name="verifiedEmail"/> (only when the provider vouches for it) is hashed for
     /// exact-email search. Never links identities by email: that would let a provider with weak email checks take over accounts.
+    /// <paramref name="picture"/> is the provider's picture URL: a copy becomes the avatar unless the person opted out.
     /// </summary>
     public static async Task<ClaimsPrincipal?> SignInAsync(
-        HttpContext context, string provider, string subject, string? name, string? verifiedEmail, SignUp signUp)
+        HttpContext context, string provider, string subject, string? name, string? verifiedEmail, SignUp signUp, string? picture = null)
     {
         var db = context.RequestServices.GetRequiredService<PrikBoardDbContext>();
         var hasher = context.RequestServices.GetRequiredService<KeyedHasher>();
@@ -85,7 +86,13 @@ public static partial class UserSignIn
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
 
-        return UserPrincipal.Create(identity.User, provider, name, AuthSetup.CookieScheme);
+        // Refreshed on every sign-in, so a new picture at the provider shows up. A failed download keeps the old one.
+        if (ProviderAvatars.IsTrusted(picture) && !identity.User.AvatarOptedOut)
+        {
+            await context.RequestServices.GetRequiredService<ProviderAvatars>().TakeAsync(db, identity.User, picture!, ct);
+        }
+
+        return UserPrincipal.Create(identity.User, provider, name, AuthSetup.CookieScheme, picture);
     }
 
     /// <summary>Whether <paramref name="token"/> is an invite link that is neither used nor expired, so its holder may join.</summary>
@@ -154,7 +161,7 @@ public static partial class UserSignIn
 
     /// <summary>
     /// Handles the end of a provider round trip. Providers are mapped (MapInboundClaims off, GitHub by hand)
-    /// to the raw OpenID Connect claim names sub, name, email and email_verified.
+    /// to the raw OpenID Connect claim names sub, name, email, email_verified and picture.
     /// </summary>
     public static async Task OnTicketReceived(TicketReceivedContext context, string provider)
     {
@@ -184,7 +191,7 @@ public static partial class UserSignIn
 
         var name = external.FindFirstValue("name") ?? external.FindFirstValue("preferred_username");
         var principal = await SignInAsync(context.HttpContext, provider, subject, name, verifiedEmail,
-            SignUp.Invite(InviteTokenIn(context.ReturnUri)));
+            SignUp.Invite(InviteTokenIn(context.ReturnUri)), external.FindFirstValue("picture"));
         if (principal is null)
         {
             // A newcomer without an open invite link: nothing was stored about them.

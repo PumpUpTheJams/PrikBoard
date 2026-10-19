@@ -57,7 +57,7 @@ public class AdminApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
 
         var boards = (await admin.GetFromJsonAsync<List<AdminBoard>>("/api/admin/boards"))!;
         var seen = Assert.Single(boards, b => b.Id == board.Id);
-        Assert.Equal(new AdminBoardMember(ownerId, PrincipalKind.User, "Lister", BoardRole.Owner), Assert.Single(seen.Members));
+        Assert.Equal(new AdminBoardMember(ownerId, PrincipalKind.User, "Lister", BoardRole.Owner, null), Assert.Single(seen.Members));
         using var raw = JsonDocument.Parse(await admin.GetStringAsync("/api/admin/boards"));
         Assert.False(raw.RootElement[0].TryGetProperty("notes", out _));
 
@@ -165,6 +165,21 @@ public class AdminApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var kept = (await colleague.GetFromJsonAsync<NoteDetail>($"/api/notes/{note.Id}"))!;
         Assert.Equal("Stays", kept.Title);
         Assert.Equal(HttpStatusCode.NotFound, (await admin.DeleteAsync($"/api/admin/users/{leavingId}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Admins_see_avatars_and_deleting_a_user_deletes_their_picture()
+    {
+        var admin = await Admin();
+        var pictured = await factory.CreateSignedInClientAsync("pictured@example.com", avatar: PrikBoardApiFactory.GitHubAvatar);
+        var me = await pictured.MeAsync();
+        Assert.NotNull(me.AvatarUrl);
+
+        var users = await admin.GetFromJsonAsync<List<AdminUser>>("/api/admin/users");
+        Assert.Equal(me.AvatarUrl, users!.Single(u => u.Id == me.Id).AvatarUrl);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/admin/users/{me.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.GetAsync(me.AvatarUrl)).StatusCode);
     }
 
     [Fact]

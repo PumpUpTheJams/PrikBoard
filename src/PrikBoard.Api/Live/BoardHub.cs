@@ -55,6 +55,7 @@ public sealed class BoardHub(LiveViewers viewers, PrikBoardDbContext db) : Hub<I
             principal.Id,
             principal is Agent ? PrincipalKind.Agent : PrincipalKind.User,
             principal.ShownName,
+            Avatars.UrlOf(principal),
             ApiScopes.Of(user).Contains(ApiScopes.Write)));
         await base.OnConnectedAsync();
     }

@@ -54,10 +54,13 @@ public record NoteDetail(
 /// <param name="PrincipalId">Their principal id: what assigneeIds in createNote and updateNote take (see people in getBoard).</param>
 /// <param name="Name">Their current display name, e.g. "Jaap V." or "Claude Code"; "Unknown" once they no longer exist. People are shown by their initials.</param>
 /// <param name="Kind">Person or Agent. Agents are first-class assignees that can own work.</param>
-public record Assignee(Guid PrincipalId, string Name, AssigneeKind Kind)
+/// <param name="AvatarUrl">The person's chosen picture (see getAvatar), shown instead of their initials; null without one.</param>
+public record Assignee(Guid PrincipalId, string Name, AssigneeKind Kind, string? AvatarUrl)
 {
     public static Assignee Of(Guid id, IReadOnlyDictionary<Guid, Principal> principals) =>
-        principals.TryGetValue(id, out var principal) ? new(id, principal.ShownName, KindOf(principal)) : new(id, "Unknown", AssigneeKind.Person);
+        principals.TryGetValue(id, out var principal)
+            ? new(id, principal.ShownName, KindOf(principal), Avatars.UrlOf(principal))
+            : new(id, "Unknown", AssigneeKind.Person, null);
 
     public static AssigneeKind KindOf(Principal principal) => principal is Agent ? AssigneeKind.Agent : AssigneeKind.Person;
 }

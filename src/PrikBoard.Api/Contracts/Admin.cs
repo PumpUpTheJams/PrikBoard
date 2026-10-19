@@ -15,10 +15,12 @@ public record AdminBoard(Guid Id, string Name, DateTimeOffset CreatedAt, DateTim
 /// <param name="Kind">User (a person) or Agent (a machine client).</param>
 /// <param name="DisplayName">The name the member chose, or a fallback such as "User 1a2b".</param>
 /// <param name="Role">Viewer, Editor or Owner.</param>
-public record AdminBoardMember(Guid PrincipalId, PrincipalKind Kind, string DisplayName, BoardRole Role)
+/// <param name="AvatarUrl">People only: their chosen picture (see getAvatar); null without one.</param>
+public record AdminBoardMember(Guid PrincipalId, PrincipalKind Kind, string DisplayName, BoardRole Role, string? AvatarUrl)
 {
     public static AdminBoardMember From(BoardMember member) => new(member.PrincipalId,
-        member.Principal is Agent ? PrincipalKind.Agent : PrincipalKind.User, member.Principal!.ShownName, member.Role);
+        member.Principal is Agent ? PrincipalKind.Agent : PrincipalKind.User, member.Principal!.ShownName, member.Role,
+        Avatars.UrlOf(member.Principal));
 }
 
 /// <summary>A person with a PrikBoard account, as listed for admins. No email or sign-in details are stored or shown.</summary>
@@ -30,6 +32,7 @@ public record AdminBoardMember(Guid PrincipalId, PrincipalKind Kind, string Disp
 /// <param name="LastSeenAt">When they last signed in (UTC).</param>
 /// <param name="BoardCount">How many boards they are a member of.</param>
 /// <param name="SoleOwnerOf">Boards they are the only owner of. They cannot be deleted until each has another owner.</param>
+/// <param name="AvatarUrl">Their chosen picture (see getAvatar); null without one.</param>
 public record AdminUser(
     Guid Id,
     string DisplayName,
@@ -38,7 +41,8 @@ public record AdminUser(
     DateTimeOffset CreatedAt,
     DateTimeOffset LastSeenAt,
     int BoardCount,
-    IReadOnlyList<AdminBoardRef> SoleOwnerOf);
+    IReadOnlyList<AdminBoardRef> SoleOwnerOf,
+    string? AvatarUrl);
 
 /// <summary>A board named in an admin answer.</summary>
 /// <param name="Id">The board id.</param>

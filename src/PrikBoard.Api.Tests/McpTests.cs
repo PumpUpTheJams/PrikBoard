@@ -97,7 +97,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         Assert.True(saved.AgentWorking);
         var agentId = overview.GetProperty("people").EnumerateArray()
             .Single(p => p.GetProperty("name").GetString() == "Claude Code").GetProperty("principalId").GetGuid();
-        Assert.Contains(saved.Assignees, a => a == new Assignee(agentId, "Claude Code", AssigneeKind.Agent));
+        Assert.Contains(saved.Assignees, a => a == new Assignee(agentId, "Claude Code", AssigneeKind.Agent, null));
         Assert.Equal(saved.CreatedBy, overview.GetProperty("buckets")[0].GetProperty("notes")[0].GetProperty("createdBy").GetString());
 
         var created = await CallAsync(mcp, "create_note", new()

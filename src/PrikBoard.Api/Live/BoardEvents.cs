@@ -63,22 +63,22 @@ public sealed class BoardEvents(IHubContext<BoardHub, IBoardClient> hub, LiveVie
         await hub.Clients.User(principalId.ToString()).AccessChanged(boardId);
     });
 
-    /// <summary>Someone picked a new display name; the boards they are on show it.</summary>
-    public Task RenamedAsync(Guid principalId, string displayName) => Safely(async () =>
+    /// <summary>Someone picked a new display name or avatar; the boards they are on show it.</summary>
+    public Task ProfileChangedAsync(Principal principal) => Safely(async () =>
     {
         var boards = new HashSet<Guid>();
-        foreach (var entry in viewers.OfPrincipal(principalId))
+        foreach (var entry in viewers.OfPrincipal(principal.Id))
         {
-            viewers.Update(entry.ConnectionId, e => e with { DisplayName = displayName });
+            viewers.Update(entry.ConnectionId, e => e with { DisplayName = principal.ShownName, AvatarUrl = Avatars.UrlOf(principal) });
             if (entry.BoardId is { } boardId) boards.Add(boardId);
         }
         foreach (var boardId in boards) await PresenceAsync(boardId);
     });
 
     /// <summary>
-    /// The caller picked a new display name, which notes show (creator, assignee): every board they can reach reloads.
+    /// The caller picked a new display name or avatar, which notes show (creator, assignee): every board they can reach reloads.
     /// </summary>
-    public async Task NameShownOnBoardsAsync(PrikBoardDbContext db, HttpContext http, CancellationToken ct)
+    public async Task ProfileShownOnBoardsAsync(PrikBoardDbContext db, HttpContext http, CancellationToken ct)
     {
         var caller = BoardCaller.Of(http.User);
         var memberships = await db.BoardMembers.Where(m => m.PrincipalId == caller.MemberId)

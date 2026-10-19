@@ -3,7 +3,7 @@ import { api, errorMessage } from '../api/client'
 import type { BoardInvite, BoardMember, BoardRole, BoardSummary, CreatedInvite } from '../api/types'
 import { SparkleIcon } from '../board/icons'
 import { Dialog } from './Dialog'
-import { initials } from './initials'
+import { Face } from './Avatar'
 import { RoleSelect } from './RoleSelect'
 
 interface ShareDialogProps {
@@ -67,7 +67,7 @@ export function ShareDialog({ board, onClose, onLeft }: ShareDialogProps) {
               {members.map((m) => (
                 <li key={m.principalId}>
                   <span className={`avatar avatar-md${m.kind === 'Agent' ? ' agent' : ''}`} aria-hidden="true">
-                    {m.kind === 'Agent' ? <SparkleIcon size={13} /> : initials(m.displayName)}
+                    {m.kind === 'Agent' ? <SparkleIcon size={13} /> : <Face name={m.displayName} avatarUrl={m.avatarUrl} />}
                   </span>
                   <span className="row-main">
                     {m.displayName}

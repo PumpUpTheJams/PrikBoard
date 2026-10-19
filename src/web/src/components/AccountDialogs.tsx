@@ -2,12 +2,13 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { api, errorMessage, linkUrl } from '../api/client'
 import type { AuthProvider, BoardSummary, Caller } from '../api/types'
 import { AccessTokens } from './AccessTokens'
+import { Face } from './Avatar'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Dialog } from './Dialog'
 
 /**
- * Asked once after signing in, while no name is chosen: the provider's name is only a suggestion and is not
- * stored unless the person accepts it (or types another).
+ * Asked once after signing in, while no name is chosen: the provider's name is only a suggestion and is not stored
+ * unless the person accepts it (or types another). A GitHub picture is already shown; this says where to remove it.
  */
 export function DisplayNameDialog({ user, onSaved }: { user: Caller; onSaved: (user: Caller) => void }) {
   const [name, setName] = useState(user.suggestedDisplayName ?? '')
@@ -34,6 +35,14 @@ export function DisplayNameDialog({ user, onSaved }: { user: Caller; onSaved: (u
           shared boards; you can change it any time.
         </p>
         <input autoFocus aria-label="Display name" value={name} maxLength={100} placeholder="Your name" onChange={(e) => setName(e.target.value)} />
+        {user.avatarUrl && (
+          <p className="picture-choice dialog-hint">
+            <span className="avatar avatar-lg" aria-hidden="true">
+              <Face name={name || user.displayName} avatarUrl={user.avatarUrl} />
+            </span>
+            Others see your {providerLabel(user)} picture. You can remove it under Account.
+          </p>
+        )}
         {error && <p className="widget-error">{error}</p>}
         <div className="dialog-actions">
           <button type="button" className="ghost" onClick={() => void save('')}>
@@ -46,6 +55,12 @@ export function DisplayNameDialog({ user, onSaved }: { user: Caller; onSaved: (u
       </form>
     </Dialog>
   )
+}
+
+/** The provider a session signed in with, for labels such as "your GitHub picture". */
+function providerLabel(user: Caller, providers: AuthProvider[] = []) {
+  const id = user.provider ?? ''
+  return providers.find((p) => p.id === id)?.displayName ?? (id === 'github' ? 'GitHub' : 'sign-in')
 }
 
 interface AccountDialogProps {
@@ -77,6 +92,14 @@ export function AccountDialog({ user, boards, onChange, onClose }: AccountDialog
     }
   }
 
+  async function changePicture(take: boolean) {
+    try {
+      onChange(await (take ? api.useSignInAvatar() : api.removeAvatar()))
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+  }
+
   async function unlink(identityId: string) {
     setUnlinking(null)
     try {
@@ -100,6 +123,32 @@ export function AccountDialog({ user, boards, onChange, onClose }: AccountDialog
           </div>
           <p className="dialog-hint">Leave it empty to appear as “User {user.id.replace(/-/g, '').slice(-4)}”.</p>
         </form>
+
+        <section className="dialog-section">
+          <h3>Picture</h3>
+          <div className="inline-form picture-row">
+            <span className="avatar avatar-lg" aria-hidden="true">
+              <Face name={user.displayName} avatarUrl={user.avatarUrl} />
+            </span>
+            {user.suggestedAvatarUrl !== null && (
+              <button type="button" className="ghost small" onClick={() => void changePicture(true)}>
+                {user.avatarUrl ? `Update from ${providerLabel(user, providers)}` : `Use my ${providerLabel(user, providers)} picture`}
+              </button>
+            )}
+            {user.avatarUrl !== null && (
+              <button type="button" className="ghost small" onClick={() => void changePicture(false)}>
+                Remove
+              </button>
+            )}
+          </div>
+          <p className="dialog-hint">
+            {user.avatarUrl !== null
+              ? 'PrikBoard keeps a copy of your picture and refreshes it when you sign in. Remove it to show your initials and keep it off.'
+              : user.avatarOptedOut
+                ? 'You removed your picture, so signing in won’t bring it back. Others see your initials.'
+                : 'Signing in with GitHub shows your GitHub picture; until then others see your initials.'}
+          </p>
+        </section>
 
         <section className="dialog-section">
           <h3>Sign-ins</h3>

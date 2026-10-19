@@ -140,7 +140,8 @@ public static class AdminEndpoints
         return TypedResults.Ok(users.Select(u => new AdminUser(u.Id, u.ShownName, u.IsAdmin, u.Id == caller, u.CreatedAt,
                 u.LastSeenAt, boardCounts.GetValueOrDefault(u.Id),
                 soleOwners[u.Id].Select(id => new AdminBoardRef(id, boardNames[id]))
-                    .OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase).ToList()))
+                    .OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase).ToList(),
+                Avatars.UrlOf(u)))
             .ToList());
     }
 

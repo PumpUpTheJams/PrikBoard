@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
+using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
 
@@ -28,6 +29,58 @@ public class MeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardAp
 
         var tooLong = await client.PatchAsJsonAsync("/api/me", new { displayName = new string('x', 101) });
         Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_GitHub_sign_in_shows_a_copy_of_the_picture_to_others_until_the_person_opts_out()
+    {
+        const string email = "picture@example.com";
+        var client = await factory.CreateSignedInClientAsync(email, avatar: PrikBoardApiFactory.GitHubAvatar);
+        var me = await client.MeAsync();
+        Assert.StartsWith($"/api/avatars/{me.Id}?v=", me.AvatarUrl);
+        Assert.Equal(PrikBoardApiFactory.GitHubAvatar, me.SuggestedAvatarUrl);
+
+        // Another person sees the copy on a shared board; the GitHub URL is never handed out.
+        var other = await factory.CreateSignedInClientAsync("picture-viewer@example.com");
+        var board = await client.CreateBoardAsync();
+        await client.ShareAsync(board.Id, other, BoardRole.Viewer);
+        var seen = await other.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
+        Assert.Equal(me.AvatarUrl, seen!.People.Single(p => p.PrincipalId == me.Id).AvatarUrl);
+
+        var picture = await other.GetAsync(me.AvatarUrl);
+        Assert.Equal("image/png", picture.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(PrikBoardApiFactory.TestAvatar, await picture.Content.ReadAsByteArrayAsync());
+
+        // Signing in again with the same picture keeps the version, so caches stay valid.
+        var again = await factory.CreateSignedInClientAsync(email, avatar: PrikBoardApiFactory.GitHubAvatar);
+        Assert.Equal(me.AvatarUrl, (await again.MeAsync()).AvatarUrl);
+
+        // Removing it opts out: later sign-ins leave the initials alone.
+        var removed = await (await client.DeleteAsync("/api/me/avatar")).Content.ReadFromJsonAsync<Caller>();
+        Assert.Equal((null, true), (removed!.AvatarUrl, removed.AvatarOptedOut));
+        Assert.Equal(HttpStatusCode.NotFound, (await other.GetAsync(me.AvatarUrl)).StatusCode);
+        var afterOptOut = await factory.CreateSignedInClientAsync(email, avatar: PrikBoardApiFactory.GitHubAvatar);
+        Assert.Null((await afterOptOut.MeAsync()).AvatarUrl);
+
+        // Taking it back opts in again.
+        var taken = await (await afterOptOut.PutAsync("/api/me/avatar", null)).Content.ReadFromJsonAsync<Caller>();
+        Assert.False(taken!.AvatarOptedOut);
+        Assert.StartsWith($"/api/avatars/{me.Id}?v=", taken.AvatarUrl);
+    }
+
+    [Fact]
+    public async Task Pictures_from_other_hosts_are_ignored_and_a_failed_download_does_not_stop_the_sign_in()
+    {
+        var client = await factory.CreateSignedInClientAsync("no-picture@example.com", avatar: "https://tracker.example/me.png");
+        var me = await client.MeAsync();
+        Assert.Equal((null, null), (me.AvatarUrl, me.SuggestedAvatarUrl));
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsync("/api/me/avatar", null)).StatusCode);
+
+        // A trusted host that has no such picture: the sign-in works, without an avatar, and taking it fails.
+        var missing = await factory.CreateSignedInClientAsync("gone-picture@example.com",
+            avatar: "https://avatars.githubusercontent.com/missing");
+        Assert.Null((await missing.MeAsync()).AvatarUrl);
+        Assert.Equal(HttpStatusCode.BadGateway, (await missing.PutAsync("/api/me/avatar", null)).StatusCode);
     }
 
     [Fact]

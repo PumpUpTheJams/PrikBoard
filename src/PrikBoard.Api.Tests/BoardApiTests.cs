@@ -259,7 +259,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         });
 
         Assert.Equal(["backend", "ingest", "tile-index"], created.Tags);
-        Assert.Equal([new Assignee(me.Id, me.DisplayName, AssigneeKind.Person)], created.Assignees);
+        Assert.Equal([new Assignee(me.Id, me.DisplayName, AssigneeKind.Person, null)], created.Assignees);
         var (checklist, links) = (created.Blocks[0], created.Blocks[1]);
         Assert.Equal((NoteBlockKind.Checklist, "Acceptance criteria", null), (checklist.Kind, checklist.Title, checklist.Text));
         Assert.Equal([new ChecklistItem("Backoff with jitter", true), new ChecklistItem("Exhausted tiles go to the DLQ")], checklist.Items!);

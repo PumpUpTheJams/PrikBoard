@@ -299,6 +299,10 @@ public static partial class AuthSetup
         var identity = context.Identity!;
         identity.AddClaim(new("sub", profile.GetProperty("id").GetInt64().ToString()));
         identity.AddClaim(new("name", profile.TryGetProperty("name", out var name) && name.GetString() is { Length: > 0 } n ? n : login!));
+        if (profile.TryGetProperty("avatar_url", out var avatar) && avatar.GetString() is { Length: > 0 } picture)
+        {
+            identity.AddClaim(new("picture", picture));
+        }
         if (email is not null)
         {
             identity.AddClaim(new("email", email));

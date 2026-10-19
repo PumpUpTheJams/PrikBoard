@@ -467,6 +467,25 @@ namespace PrikBoard.Api.Data.Migrations
                     b.UseTphMappingStrategy();
                 });
 
+            modelBuilder.Entity("PrikBoard.Api.Domain.UserAvatar", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<byte[]>("Data")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("UserAvatars");
+                });
+
             modelBuilder.Entity("PrikBoard.Api.Domain.UserIdentity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -534,6 +553,12 @@ namespace PrikBoard.Api.Data.Migrations
             modelBuilder.Entity("PrikBoard.Api.Domain.User", b =>
                 {
                     b.HasBaseType("PrikBoard.Api.Domain.Principal");
+
+                    b.Property<bool>("AvatarOptedOut")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("AvatarUpdatedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("IsAdmin")
                         .HasColumnType("boolean");
@@ -685,6 +710,15 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Navigation("Board");
 
                     b.Navigation("CreatedBy");
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.UserAvatar", b =>
+                {
+                    b.HasOne("PrikBoard.Api.Domain.User", null)
+                        .WithOne()
+                        .HasForeignKey("PrikBoard.Api.Domain.UserAvatar", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.UserIdentity", b =>

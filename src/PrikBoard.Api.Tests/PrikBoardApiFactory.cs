@@ -43,7 +43,27 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.UseSetting("Auth:Providers:github:ClientId", "");
         builder.UseSetting("Auth:HashKey", Convert.ToBase64String(HashKey));
-        builder.ConfigureTestServices(services => services.AddSingleton<IStartupFilter, TestLogin>());
+        builder.ConfigureTestServices(services =>
+        {
+            services.AddSingleton<IStartupFilter, TestLogin>();
+            // Tests never reach GitHub: its avatar host answers with TestAvatar for /u/... and 404 for anything else.
+            services.AddHttpClient<ProviderAvatars>().ConfigurePrimaryHttpMessageHandler(() => new FakeAvatarHost());
+        });
+    }
+
+    /// <summary>The picture the fake GitHub avatar host serves: a 1×1 PNG.</summary>
+    public static readonly byte[] TestAvatar = Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
+
+    /// <summary>A GitHub picture URL as the provider would hand it out.</summary>
+    public const string GitHubAvatar = "https://avatars.githubusercontent.com/u/583231?v=4";
+
+    private class FakeAvatarHost : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(request.RequestUri!.AbsolutePath.StartsWith("/u/")
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(TestAvatar) }
+                : new HttpResponseMessage(HttpStatusCode.NotFound));
     }
 
     /// <summary>A client without redirects, so tests can inspect login responses.</summary>
@@ -52,12 +72,14 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
     /// <summary>
     /// A client holding a session cookie, as if the person had signed in with a provider. The subject defaults to the
     /// email, the provider's name to the email's local part, and the email counts as verified unless told otherwise.
+    /// <paramref name="avatar"/> is the provider's picture URL.
     /// </summary>
     public async Task<HttpClient> CreateSignedInClientAsync(
-        string email = "tester@example.com", string? subject = null, string provider = TestProvider, bool verified = true)
+        string email = "tester@example.com", string? subject = null, string provider = TestProvider, bool verified = true,
+        string? avatar = null)
     {
         var client = CreateAnonymousClient();
-        var response = await TestSignInAsync(client, email, subject, provider, verified);
+        var response = await TestSignInAsync(client, email, subject, provider, verified, avatar: avatar);
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         return client;
     }
@@ -68,11 +90,12 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
     /// </summary>
     public static Task<HttpResponseMessage> TestSignInAsync(
         HttpClient client, string email, string? subject = null, string provider = TestProvider, bool verified = true,
-        string? returnUrl = null) =>
+        string? returnUrl = null, string? avatar = null) =>
         client.PostAsync(
             $"{TestLoginPath}?email={Uri.EscapeDataString(email)}&subject={Uri.EscapeDataString(subject ?? email)}" +
             $"&provider={Uri.EscapeDataString(provider)}&verified={verified}" +
-            (returnUrl is null ? "" : $"&returnUrl={Uri.EscapeDataString(returnUrl)}"), null);
+            (returnUrl is null ? "" : $"&returnUrl={Uri.EscapeDataString(returnUrl)}") +
+            (avatar is null ? "" : $"&avatar={Uri.EscapeDataString(avatar)}"), null);
 
     /// <summary>Links another provider identity to the signed-in user, like a link round trip. Answers with the LinkResult name.</summary>
     public static async Task<string> TestLinkAsync(HttpClient client, string provider, string subject, string? email = null)
@@ -118,7 +141,8 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
                     ? UserSignIn.SignUp.Invite(UserSignIn.InviteTokenIn(query["returnUrl"]))
                     : UserSignIn.SignUp.Always;
                 var principal = await UserSignIn.SignInAsync(context, query["provider"].ToString() is { Length: > 0 } p ? p : TestProvider,
-                    query["subject"].ToString() is { Length: > 0 } s ? s : email, email.Split('@')[0], verified ? email : null, signUp);
+                    query["subject"].ToString() is { Length: > 0 } s ? s : email, email.Split('@')[0], verified ? email : null, signUp,
+                    query["avatar"].ToString() is { Length: > 0 } a ? a : null);
                 if (principal is null)
                 {
                     context.Response.StatusCode = StatusCodes.Status403Forbidden;

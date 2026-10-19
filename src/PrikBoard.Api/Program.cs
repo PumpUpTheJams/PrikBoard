@@ -30,6 +30,11 @@ builder.Services.AddSignalR()
 builder.Services.AddSingleton<IUserIdProvider, PrincipalUserIds>();
 builder.Services.AddSingleton<LiveViewers>();
 builder.Services.AddSingleton<BoardEvents>();
+builder.Services.AddHttpClient<ProviderAvatars>(http =>
+{
+    http.Timeout = TimeSpan.FromSeconds(10);
+    http.DefaultRequestHeaders.UserAgent.ParseAdd("PrikBoard/1.0");
+});
 
 // MCP (Streamable HTTP, stateless): curated tools over the same handlers as the REST API; see Mcp/BoardTools.cs.
 builder.Services.AddHttpContextAccessor();

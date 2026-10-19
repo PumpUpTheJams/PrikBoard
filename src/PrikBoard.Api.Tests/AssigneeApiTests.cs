@@ -44,7 +44,7 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         var created = await PostNoteAsync(owner, board.Id, new { title = "Pair", assigneeIds = new[] { milaId, ownerId, milaId } });
 
         Assert.Equal(
-            [new Assignee(milaId, "Mila V.", AssigneeKind.Person), new Assignee(ownerId, "Owen", AssigneeKind.Person)],
+            [new Assignee(milaId, "Mila V.", AssigneeKind.Person, null), new Assignee(ownerId, "Owen", AssigneeKind.Person, null)],
             created.Assignees);
         var cleared = await owner.PatchAsJsonAsync($"/api/notes/{created.Id}", new { assigneeIds = Array.Empty<Guid>() });
         Assert.Empty((await cleared.Content.ReadFromJsonAsync<NoteDetail>())!.Assignees);
@@ -71,7 +71,7 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         Assert.Equal(HttpStatusCode.BadRequest, limitedResponse.StatusCode);
         Assert.Equal(HttpStatusCode.OK, reachingResponse.StatusCode);
         Assert.Equal(
-            [new Assignee(reaching.Details.AgentId!.Value, "Reaching", AssigneeKind.Agent)],
+            [new Assignee(reaching.Details.AgentId!.Value, "Reaching", AssigneeKind.Agent, null)],
             (await reachingResponse.Content.ReadFromJsonAsync<NoteDetail>())!.Assignees);
     }
 
@@ -141,7 +141,7 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         var again = await (await agent.PostAsJsonAsync(url, new { working = true })).Content.ReadFromJsonAsync<NoteDetail>();
         var stopped = await (await agent.PostAsJsonAsync(url, new { working = false })).Content.ReadFromJsonAsync<NoteDetail>();
 
-        var me = new Assignee(token.Details.AgentId!.Value, "Claude Code", AssigneeKind.Agent);
+        var me = new Assignee(token.Details.AgentId!.Value, "Claude Code", AssigneeKind.Agent, null);
         Assert.True(started!.AgentWorking);
         Assert.Equal([me], started.Assignees);
         Assert.Equal([me], again!.Assignees);

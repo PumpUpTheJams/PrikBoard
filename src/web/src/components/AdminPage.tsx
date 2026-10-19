@@ -4,7 +4,7 @@ import { boardRoles, type AdminBoard, type AdminBoardMember, type AdminUser, typ
 import { isDrag } from '../board/gesture'
 import { CloseIcon, PeopleIcon, SearchIcon, ShieldIcon, SparkleIcon, TrashIcon } from '../board/icons'
 import { ConfirmDialog } from './ConfirmDialog'
-import { initials } from './initials'
+import { Face } from './Avatar'
 
 interface AdminPageProps {
   /** Your own admin rights changed (you handed them over), so the caller needs reloading. */
@@ -283,7 +283,7 @@ export function AdminPage({ onYouChanged, onBack }: AdminPageProps) {
                   onLostPointerCapture={endDrag}
                 >
                   <span className="avatar avatar-md" aria-hidden="true">
-                    {initials(u.displayName)}
+                    <Face name={u.displayName} avatarUrl={u.avatarUrl} />
                   </span>
                   <span className="row-main">
                     {u.displayName}
@@ -403,7 +403,7 @@ export function AdminPage({ onYouChanged, onBack }: AdminPageProps) {
       {drag?.active && (
         <div className="drag-ghost admin-ghost" style={{ left: drag.current.x + 12, top: drag.current.y + 8 }}>
           <span className="avatar avatar-sm" aria-hidden="true">
-            {initials(drag.user.displayName)}
+            <Face name={drag.user.displayName} avatarUrl={drag.user.avatarUrl} />
           </span>
           {drag.user.displayName}
         </div>

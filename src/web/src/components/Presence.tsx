@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react'
 import type { LiveViewer } from '../api/types'
 import { SparkleIcon } from '../board/icons'
 import { presenceColor } from '../live/presence'
-import { initials } from './initials'
+import { Face } from './Avatar'
 
 const MAX_SHOWN = 4
 
@@ -21,7 +21,7 @@ export function Presence({ viewers }: { viewers: LiveViewer[] }) {
           style={{ '--who': presenceColor(v.principalId) } as CSSProperties}
           title={`${v.displayName}${v.kind === 'Agent' ? ' (agent)' : ''} is here`}
         >
-          {v.kind === 'Agent' ? <SparkleIcon size={13} /> : initials(v.displayName)}
+          {v.kind === 'Agent' ? <SparkleIcon size={13} /> : <Face name={v.displayName} avatarUrl={v.avatarUrl} />}
         </span>
       ))}
       {rest.length > 0 && (

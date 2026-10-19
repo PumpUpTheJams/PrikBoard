@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.Net.Http.Headers;
 using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
@@ -63,11 +64,34 @@ public static class AuthEndpoints
             .WithDescription("Sets the name others see on boards (at most 100 characters); an empty string clears it.")
             .ProducesValidationProblem();
 
+        me.MapPut("/avatar", UseSignInAvatar)
+            .WithName("useSignInAvatar")
+            .WithSummary("Take your sign-in picture as avatar")
+            .WithDescription("Copies the picture of the provider you signed in with (suggestedAvatarUrl in whoAmI; GitHub only) " +
+                             "and shows it instead of your initials. GitHub sign-ins do this by themselves unless you removed your " +
+                             "avatar; this undoes that. People in the browser only.")
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status502BadGateway);
+
+        me.MapDelete("/avatar", RemoveAvatar)
+            .WithName("removeAvatar")
+            .WithSummary("Remove your avatar")
+            .WithDescription("Deletes your picture, so your initials are shown again, and stops later sign-ins from taking it " +
+                             "(avatarOptedOut). People in the browser only.");
+
         me.MapDelete("/identities/{identityId:guid}", UnlinkIdentity)
             .WithName("unlinkIdentity")
             .WithSummary("Unlink a sign-in")
             .WithDescription("Removes one of your linked sign-ins. The last one cannot be removed. People only.")
             .ProducesProblem(StatusCodes.Status409Conflict);
+
+        api.MapGet("/avatars/{principalId:guid}", GetAvatar)
+            .WithTags("Auth")
+            .NoBoardScope()
+            .WithName("getAvatar")
+            .WithSummary("Download a person's avatar")
+            .WithDescription("Returns the picture a person chose (avatarUrl on people in other answers). The v query parameter " +
+                             "changes with each new picture, so an answer can be cached.");
 
         return api;
     }
@@ -150,17 +174,78 @@ public static class AuthEndpoints
             self.DisplayName = name.Length == 0 ? null : name;
         }
         await db.SaveChangesAsync(ct);
-        await events.RenamedAsync(self.Id, self.ShownName);
-        if (request.DisplayName is not null) await events.NameShownOnBoardsAsync(db, http, ct);
+        await events.ProfileChangedAsync(self);
+        if (request.DisplayName is not null) await events.ProfileShownOnBoardsAsync(db, http, ct);
 
         if (!principal.IsToken() && self is User user)
         {
             // Re-issue the cookie without the provider's name suggestion: the person has now decided.
-            principal = UserPrincipal.Create(user, principal.FindFirstValue(UserPrincipal.ProviderClaim) ?? "", null, AuthSetup.CookieScheme);
+            principal = UserPrincipal.Create(user, principal.FindFirstValue(UserPrincipal.ProviderClaim) ?? "", null,
+                AuthSetup.CookieScheme, principal.FindFirstValue(UserPrincipal.SuggestedAvatarClaim));
             await http.SignInAsync(AuthSetup.CookieScheme, principal);
         }
 
         return TypedResults.Ok((await CallerOf(principal, db, options.Value, ct))!);
+    }
+
+    private static async Task<Results<Ok<Caller>, UnauthorizedHttpResult, ForbidHttpResult, ProblemHttpResult>> UseSignInAvatar(
+        ClaimsPrincipal principal, HttpContext http, PrikBoardDbContext db, ProviderAvatars pictures,
+        IOptions<AuthOptions> options, BoardEvents events, CancellationToken ct)
+    {
+        if (principal.IsToken()) return TypedResults.Forbid();
+        var picture = principal.FindFirstValue(UserPrincipal.SuggestedAvatarClaim);
+        if (picture is null)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "No picture",
+                detail: "The provider you signed in with offered no picture. Sign in with GitHub to take yours.");
+        }
+
+        var user = await db.Users.FindAsync([principal.UserId()], ct);
+        if (user is null) return TypedResults.Unauthorized();
+        if (!await pictures.TakeAsync(db, user, picture, ct))
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status502BadGateway, title: "Picture unavailable",
+                detail: "Your picture could not be fetched from the provider. Try again later.");
+        }
+
+        await AvatarChangedAsync(user, db, http, events, ct);
+        return TypedResults.Ok((await CallerOf(principal, db, options.Value, ct))!);
+    }
+
+    private static async Task<Results<Ok<Caller>, UnauthorizedHttpResult, ForbidHttpResult>> RemoveAvatar(
+        ClaimsPrincipal principal, HttpContext http, PrikBoardDbContext db, IOptions<AuthOptions> options, BoardEvents events,
+        CancellationToken ct)
+    {
+        if (principal.IsToken()) return TypedResults.Forbid();
+        var user = await db.Users.FindAsync([principal.UserId()], ct);
+        if (user is null) return TypedResults.Unauthorized();
+
+        var had = user.AvatarUpdatedAt is not null;
+        await db.UserAvatars.Where(a => a.UserId == user.Id).ExecuteDeleteAsync(ct);
+        user.AvatarUpdatedAt = null;
+        user.AvatarOptedOut = true;
+        await db.SaveChangesAsync(ct);
+        if (had) await AvatarChangedAsync(user, db, http, events, ct);
+        return TypedResults.Ok((await CallerOf(principal, db, options.Value, ct))!);
+    }
+
+    /// <summary>Presence and every board the person can reach show the new picture.</summary>
+    private static async Task AvatarChangedAsync(User user, PrikBoardDbContext db, HttpContext http, BoardEvents events, CancellationToken ct)
+    {
+        await events.ProfileChangedAsync(user);
+        await events.ProfileShownOnBoardsAsync(db, http, ct);
+    }
+
+    private static async Task<Results<FileContentHttpResult, NotFound>> GetAvatar(
+        Guid principalId, HttpResponse response, PrikBoardDbContext db, CancellationToken ct)
+    {
+        var avatar = await db.UserAvatars.AsNoTracking().FirstOrDefaultAsync(a => a.UserId == principalId, ct);
+        if (avatar is null) return TypedResults.NotFound();
+
+        response.Headers[HeaderNames.XContentTypeOptions] = "nosniff";
+        // The URL is versioned (avatarUrl's v), and every request is authenticated, so private caching is safe.
+        response.Headers[HeaderNames.CacheControl] = "private, max-age=31536000, immutable";
+        return TypedResults.File(avatar.Data, avatar.ContentType);
     }
 
     private static async Task<Results<NoContent, NotFound, ForbidHttpResult, ProblemHttpResult>> UnlinkIdentity(
@@ -195,12 +280,12 @@ public static class AuthEndpoints
             {
                 case Agent agent:
                     return new Caller(CallerKind.Token, PrincipalKind.Agent, agent.Id, agent.ShownName, agent.DisplayName, null,
-                        agent.Issuer, agent.ClientId, [], scopes, false);
+                        agent.Issuer, agent.ClientId, [], scopes, false, null, null, false);
                 // A token from one of the issuer's UserClients: the person themselves, limited to the token's scopes.
                 // Sign-ins are managed in the browser, so none are listed.
                 case User person:
                     return new Caller(CallerKind.Token, PrincipalKind.User, person.Id, person.ShownName, person.DisplayName, null,
-                        issuer, AgentRegistry.ClientId(principal), [], scopes, false);
+                        issuer, AgentRegistry.ClientId(principal), [], scopes, false, Avatars.UrlOf(person), null, person.AvatarOptedOut);
                 default:
                     return null;
             }
@@ -216,7 +301,8 @@ public static class AuthEndpoints
             .ToList();
         var suggested = user.DisplayName is null ? principal.FindFirstValue(UserPrincipal.SuggestedNameClaim) : null;
         return new Caller(CallerKind.Session, PrincipalKind.User, user.Id, user.ShownName, user.DisplayName, suggested,
-            principal.FindFirstValue(UserPrincipal.ProviderClaim), null, identities, scopes, user.IsAdmin);
+            principal.FindFirstValue(UserPrincipal.ProviderClaim), null, identities, scopes, user.IsAdmin,
+            Avatars.UrlOf(user), principal.FindFirstValue(UserPrincipal.SuggestedAvatarClaim), user.AvatarOptedOut);
     }
 
     /// <summary>Only same-site paths, so a crafted login link cannot bounce people to another site.</summary>
