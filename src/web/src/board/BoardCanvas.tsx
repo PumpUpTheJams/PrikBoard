@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../api/client'
 import type { BoardDetail, BoardTag, BucketDetail, DragKind, DragUpdate, ImageDetail, NoteColor, NoteDetail, Point, Rect } from '../api/types'
 import { presenceColor } from '../live/presence'
@@ -6,10 +7,11 @@ import type { LiveDrag } from '../live/useLive'
 import { ConfirmDeleteNote, ConfirmDialog } from '../components/ConfirmDialog'
 import { AssigneePicker } from './AssigneePicker'
 import { BoardImageView } from './BoardImageView'
-import { ExpandedNote } from './ExpandedNote'
+import { ExpandedNote, type ExpandedNoteHandle } from './ExpandedNote'
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
+import { delta, isDrag } from './gesture'
 import { ResizeIcon } from './icons'
-import { noteIdFromHash, notePath } from './links'
+import { noteIdFromHash, notePath, noteRoute } from './links'
 import { BucketInspector, ImageInspector } from './Inspector'
 import {
   GRID,
@@ -18,7 +20,9 @@ import {
   NOTE_HEIGHT,
   NOTE_WIDTH,
   bucketUnderNote,
+  defaultBlockSize,
   imageSize,
+  onNoteCanvas,
   snap,
   snapPoint,
   spanRect,
@@ -28,7 +32,9 @@ import { TagFilter } from './TagFilter'
 import { TagPicker } from './TagPicker'
 import { ToolRail } from './ToolRail'
 import { toolKeys, type Tool } from './tools'
+import type { IncomingImage } from './NoteCanvas'
 import type { BoardState } from './useBoard'
+import { useZoom } from './useZoom'
 import { ViewControls } from './ViewControls'
 import { stepZoom } from './zoom'
 
@@ -50,6 +56,18 @@ type Gesture = GestureTarget & { start: Point; current: Point; done?: boolean }
 type ItemGesture = 'note' | 'bucket' | 'resize' | 'image' | 'image-resize'
 type GestureTarget = { kind: ItemGesture; id: string } | { kind: 'draw' }
 
+/**
+ * Where a dragged post-it would be linked on release: the open post-it's window (`window`; `at` is the point on its
+ * canvas, when over the canvas) or another post-it on the board.
+ */
+interface LinkDrop {
+  note: NoteDetail
+  window: boolean
+  at?: Point
+  /** The pointer, in screen pixels. */
+  client: Point
+}
+
 /** A pan in progress: where the pointer went down and the scroll position at that moment, in screen pixels. */
 interface Pan {
   x: number
@@ -58,8 +76,6 @@ interface Pan {
   top: number
 }
 
-/** Pointer travel (px) before a press on a post-it or bucket counts as a drag rather than a click. */
-const DRAG_THRESHOLD = 4
 /** Empty canvas kept beyond the furthest item, so there is always room to drag things further out. */
 const CANVAS_MARGIN = 600
 /** Screen space left of the canvas, so the tool rail doesn't cover the left edge of the board. */
@@ -72,8 +88,6 @@ const hints: Partial<Record<Tool, string>> = {
   note: 'Click anywhere to stick a post-it',
   bucket: 'Drag across the board to draw a bucket',
 }
-
-const delta = (g: Gesture): Point => ({ x: g.current.x - g.start.x, y: g.current.y - g.start.y })
 
 /** A drag applied on top of the server's layout: your own gesture, or someone else's relayed by live updates. */
 interface ActiveDrag {
@@ -97,11 +111,6 @@ function caretAt(x: number, y: number): number | undefined {
   const node = position?.offsetNode ?? document.caretRangeFromPoint?.(x, y)?.startContainer
   const offset = position?.offset ?? document.caretRangeFromPoint?.(x, y)?.startOffset
   return node?.parentElement?.closest('.post-it-title') ? offset : undefined
-}
-
-function isDrag(g: Gesture) {
-  const d = delta(g)
-  return Math.abs(d.x) >= DRAG_THRESHOLD || Math.abs(d.y) >= DRAG_THRESHOLD
 }
 
 interface BoardCanvasProps {
@@ -143,7 +152,13 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
   const notePresses = useRef<[string | null, string | null]>([null, null])
   const [gesture, setGesture] = useState<Gesture | null>(null)
   const [pan, setPan] = useState<Pan | null>(null)
-  const [zoom, setZoom] = useState(1)
+  /** A drag in progress on the open post-it's canvas. */
+  const [noteBusy, setNoteBusy] = useState(false)
+  /** A board image being dragged over the open post-it, to attach it there. */
+  const [incoming, setIncoming] = useState<IncomingImage | null>(null)
+  /** Where a post-it being dragged would be linked, instead of moved. */
+  const [linkDrop, setLinkDrop] = useState<LinkDrop | null>(null)
+  const expandedRef = useRef<ExpandedNoteHandle>(null)
   /** Image uploads in flight, and whether files are being dragged over the board. */
   const [uploads, setUploads] = useState(0)
   const [fileOver, setFileOver] = useState(false)
@@ -151,8 +166,8 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
   const [view, setView] = useState<Rect>({ x: 0, y: 0, width: 0, height: 0 })
   const scrollRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
-  /** A canvas point to keep under the same screen point once a new zoom level has rendered. */
-  const zoomAnchor = useRef<{ canvas: Point; screen: Point } | null>(null)
+  // A quick-edit window sits next to the post-it on screen; after zooming it would point at nothing.
+  const { zoom, zoomTo } = useZoom(scrollRef, RAIL_INSET, () => setQuickEdit(null))
   /** Last pointer position over the canvas, in canvas pixels: where pasted images go. */
   const lastPointer = useRef<Point | null>(null)
 
@@ -179,7 +194,7 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
   }, [board.id])
 
   // Background refreshes would fight with a drag in progress.
-  useEffect(() => setPaused(gesture !== null), [gesture, setPaused])
+  useEffect(() => setPaused(gesture !== null || noteBusy), [gesture, noteBusy, setPaused])
 
   useLayoutEffect(() => {
     const el = scrollRef.current!
@@ -194,44 +209,13 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
     }
   }, [])
 
-  useLayoutEffect(() => {
-    const anchor = zoomAnchor.current
-    if (!anchor) return
-    zoomAnchor.current = null
-    const el = scrollRef.current!
-    el.scrollLeft = anchor.canvas.x * zoom + RAIL_INSET - anchor.screen.x
-    el.scrollTop = anchor.canvas.y * zoom - anchor.screen.y
-  }, [zoom])
-
-  /** Zooms keeping the canvas point under `screen` (relative to the viewport; default its centre) in place. */
-  function zoomTo(next: number, screen?: Point) {
-    if (next === zoom) return
-    const el = scrollRef.current!
-    const at = screen ?? { x: el.clientWidth / 2, y: el.clientHeight / 2 }
-    zoomAnchor.current = { canvas: { x: (el.scrollLeft + at.x - RAIL_INSET) / zoom, y: (el.scrollTop + at.y) / zoom }, screen: at }
-    // A quick-edit window sits next to the post-it on screen; after zooming it would point at nothing.
-    setQuickEdit(null)
-    setZoom(next)
-  }
-
-  // Ctrl/Cmd + wheel zooms around the pointer. React's wheel listener is passive, so register it by hand.
-  useEffect(() => {
-    const el = scrollRef.current!
-    function onWheel(e: WheelEvent) {
-      if (!e.ctrlKey && !e.metaKey) return
-      e.preventDefault()
-      const rect = el.getBoundingClientRect()
-      zoomTo(stepZoom(zoom, e.deltaY < 0 ? 1 : -1), { x: e.clientX - rect.left, y: e.clientY - rect.top })
-    }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
-  })
-
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (expanded || pendingDelete || rulesOpen) return
+      // The open post-it is a window of its own: keys typed in it are its own, and Escape closes it.
+      if (pendingDelete || rulesOpen) return
       if (e.target instanceof Element && e.target.closest('input, textarea, select, [role="menu"], [role="dialog"], [role="alertdialog"]')) return
       if (e.key === 'Escape') {
+        if (expanded) return
         setTool('select')
         setSelection(null)
       } else if (readOnly) {
@@ -254,13 +238,17 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
     return () => window.removeEventListener('keydown', onKeyDown)
   })
 
-  // Pasting an image puts it on the board where the pointer was, or attaches it to the open post-it.
+  // Pasting an image puts it on the board where the pointer was, or on the open post-it when the pointer or focus is there.
   useEffect(() => {
     function onPaste(e: ClipboardEvent) {
       const files = imageFiles(e.clipboardData)
       if (readOnly || files.length === 0) return
       e.preventDefault()
-      void addImages(files, expanded ? { noteId: expanded.id } : { at: lastPointer.current ?? undefined })
+      const note = expandedRef.current
+      void addImages(
+        files,
+        expanded && note?.wantsPaste() ? { noteId: expanded.id, at: note.pastePoint() } : { at: lastPointer.current ?? undefined },
+      )
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
@@ -288,13 +276,11 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
     void settle(async () => {
       const copy = await api.createNote(board.id, {
         title: note.title,
-        body: note.body ?? undefined,
         color: note.color,
         tags: note.tags,
         // People who have since left the board stay on the original, but can't be put on a new post-it.
         assigneeIds: note.assignees.map((a) => a.principalId).filter((id) => board.people.some((p) => p.principalId === id)),
-        checklist: note.checklist,
-        links: note.links,
+        blocks: note.blocks.map(({ kind, title, text, items, links, x, y, width, height }) => ({ kind, title, text, items, links, x, y, width, height })),
         ...snapPoint({ x: note.x + GRID, y: note.y + GRID }),
       })
       setSelection({ kind: 'note', id: copy.id })
@@ -316,8 +302,9 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
   }
 
   /**
-   * Uploads images one after another: onto the board around `at` (default: the middle of the screen), cascading so
-   * they don't cover each other, or attached to a note. A single image on the board is selected afterwards.
+   * Uploads images one after another, cascading so they don't cover each other: onto the board around `at` (default:
+   * the middle of the screen), or attached to a note with their top-left at `at` on its canvas (default: a free spot).
+   * A single image on the board is selected afterwards.
    */
   async function addImages(files: File[], target: { at?: Point; noteId?: string }) {
     if (files.length === 0) return
@@ -327,7 +314,7 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
       let last: ImageDetail | undefined
       for (const [i, file] of files.entries()) {
         const placement = target.noteId
-          ? { noteId: target.noteId }
+          ? { noteId: target.noteId, ...(target.at ? snapPoint({ x: target.at.x + i * 40, y: target.at.y + i * 40 }) : {}) }
           : snapPoint({ x: at.x - IMAGE_OFFSET.x + i * 40, y: at.y - IMAGE_OFFSET.y + i * 40 })
         last = await api.uploadImage(board.id, file, placement)
       }
@@ -411,6 +398,65 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
     return { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom }
   }
 
+  /** A screen point in canvas pixels when it is over the board (and not over the open post-it); else null. */
+  function boardPoint(client: Point): Point | null {
+    const rect = scrollRef.current!.getBoundingClientRect()
+    const inside = client.x >= rect.left && client.x < rect.right && client.y >= rect.top && client.y < rect.bottom
+    return inside ? toCanvas({ clientX: client.x, clientY: client.y }) : null
+  }
+
+  /** The topmost post-it on the board under a canvas point, other than `except`. */
+  function noteAt(p: Point, except?: string): NoteDetail | undefined {
+    return board.notes
+      .toSorted((a, b) => a.updatedAt.localeCompare(b.updatedAt))
+      .findLast((n) => n.id !== except && p.x >= n.x && p.x < n.x + NOTE_WIDTH && p.y >= n.y && p.y < n.y + NOTE_HEIGHT)
+  }
+
+  /**
+   * Where a post-it being dragged would be linked when released at a screen point: the open post-it (anywhere over its
+   * window), or the post-it under the pointer on the board. Null for other drags, or over nothing to link to.
+   */
+  function linkDropFor(g: Gesture, client: Point): LinkDrop | null {
+    if (g.kind !== 'note') return null
+    const win = expandedRef.current
+    if (expanded && win?.contains(client)) {
+      const open = expanded.id !== g.id ? board.notes.find((n) => n.id === expanded.id) : undefined
+      return open ? { note: open, window: true, at: win.hits(client) ? win.toNote(client) : undefined, client } : null
+    }
+    const under = noteAt(toCanvas({ clientX: client.x, clientY: client.y }), g.id)
+    return under ? { note: under, window: false, client } : null
+  }
+
+  /**
+   * Adds a link to `linked` on a post-it: into the links block at `at` on its canvas, else its first links block; only a
+   * post-it without one gets a new links block (at `at`, or in a free spot). Nothing changes when it already links there.
+   */
+  async function linkNote({ note, at }: LinkDrop, linked: NoteDetail) {
+    if (note.blocks.some((b) => b.links?.some((l) => noteRoute(l.url)?.noteId === linked.id))) return
+    const link = { title: linked.title, url: linked.path }
+    const lists = note.blocks.filter((b) => b.kind === 'Links')
+    const block =
+      (at && lists.find((b) => at.x >= b.x && at.x < b.x + b.width && at.y >= b.y && at.y < b.y + b.height)) ?? lists[0]
+    if (block) await api.updateNoteBlock(note.id, block.id, { links: [...(block.links ?? []), link] })
+    else {
+      const place = at ? onNoteCanvas({ x: at.x - GRID, y: at.y - GRID }, defaultBlockSize('Links')) : {}
+      await api.addNoteBlock(note.id, { kind: 'Links', links: [link], ...place })
+    }
+  }
+
+  /**
+   * Where a board image being dragged would land on the open post-it's canvas (keeping the point it was grabbed at
+   * under the pointer), or null when the pointer is not over it.
+   */
+  function dropOnNote(g: Gesture, client: Point): IncomingImage | null {
+    const note = expandedRef.current
+    if (g.kind !== 'image' || !note?.hits(client)) return null
+    const image = board.images.find((i) => i.id === g.id)
+    if (!image) return null
+    const at = note.toNote(client)
+    return { image, at: { x: at.x - (g.start.x - image.x), y: at.y - (g.start.y - image.y) } }
+  }
+
   function expand(id: string) {
     setTitleEdit(null)
     setQuickEdit(null)
@@ -480,7 +526,10 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
       el.scrollLeft = pan.left - (e.clientX - pan.x)
       el.scrollTop = pan.top - (e.clientY - pan.y)
     } else if (gesture && !gesture.done) {
-      setGesture({ ...gesture, current: toCanvas(e) })
+      const next = { ...gesture, current: toCanvas(e) }
+      setGesture(next)
+      setIncoming(isDrag(next) ? dropOnNote(next, { x: e.clientX, y: e.clientY }) : null)
+      setLinkDrop(isDrag(next) ? linkDropFor(next, { x: e.clientX, y: e.clientY }) : null)
     }
   }
 
@@ -512,9 +561,32 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
       return
     }
 
+    const client = { x: e.clientX, y: e.clientY }
+    const link = linkDropFor(gesture, client)
+    setLinkDrop(null)
+    if (link) {
+      // Dropped on another post-it (or the open one's window): that one links to it, and the dragged one stays put.
+      setGesture(null)
+      const linked = board.notes.find((n) => n.id === gesture.id)!
+      void run(() => linkNote(link, linked))
+      return
+    }
+
     setGesture({ ...gesture, done: true })
     const { id } = gesture
-    if (gesture.kind === 'note') {
+    const onNote = expanded && dropOnNote(gesture, client)
+    setIncoming(null)
+    const overWindow = !!expandedRef.current?.contains(client)
+    const intoNote = gesture.kind === 'image' && !onNote && !overWindow ? noteAt(toCanvas(e)) : undefined
+    if (expanded && onNote) {
+      // Dropped on the open post-it: the image moves onto its canvas.
+      setSelection(null)
+      void settle(() => api.updateImage(id, { noteId: expanded.id, ...onNoteCanvas(onNote.at, onNote.image) }))
+    } else if (intoNote) {
+      // Dropped on a post-it on the board: attached to it, in a free spot on its canvas, without opening it.
+      setSelection(null)
+      void settle(() => api.updateImage(id, { noteId: intoNote.id }))
+    } else if (gesture.kind === 'note') {
       const note = board.notes.find((n) => n.id === id)!
       void settle(() => api.moveNote(id, notePoint(note)))
     } else if (gesture.kind === 'image' || gesture.kind === 'image-resize') {
@@ -533,7 +605,9 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
     .toSorted((a, b) => a.updatedAt.localeCompare(b.updatedAt))
     .map((note) => ({ note, point: notePoint(note) }))
   const draggedNote = dragging?.kind === 'note' ? notes.find((n) => n.note.id === dragging.id) : undefined
-  const dropTarget = draggedNote && bucketUnderNote(board.buckets, draggedNote.point)
+  /** The post-it a dragged image would be attached to (not while it is over the open post-it's window). */
+  const imageTarget = dragging?.kind === 'image' && !dragging.done && !incoming ? noteAt(dragging.current) : undefined
+  const dropTarget = draggedNote && !linkDrop ? bucketUnderNote(board.buckets, draggedNote.point) : undefined
   const draft =
     gesture?.kind === 'draw' && !gesture.done ? spanRect(snapPoint(gesture.start), snapPoint(gesture.current)) : null
 
@@ -610,6 +684,15 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
             onPointerCancel={() => {
               setGesture(null)
               setPan(null)
+              setIncoming(null)
+              setLinkDrop(null)
+            }}
+            // Losing the pointer without a release ends a pan or an unfinished drag, so nothing stays stuck mid-air.
+            onLostPointerCapture={() => {
+              setPan(null)
+              setGesture((g) => (g && !g.done ? null : g))
+              setIncoming(null)
+              setLinkDrop(null)
             }}
           >
             {buckets.map(({ bucket, rect }) => {
@@ -667,6 +750,7 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
                 lifted={dragging?.id === image.id}
                 onPointerDown={(e) => onItemPointerDown(e, 'image', image.id)}
                 onResizePointerDown={(e) => onItemPointerDown(e, 'image-resize', image.id)}
+                onDelete={readOnly ? undefined : () => setPendingDelete({ kind: 'image', id: image.id })}
               />
             ))}
 
@@ -686,6 +770,7 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
                 selected={selection?.kind === 'note' && selection.id === note.id}
                 lifted={draggedNote?.note.id === note.id || remoteDrags.some((r) => r.id === note.id && !r.endedAt)}
                 dimmed={dimmed(note)}
+                dropTarget={imageTarget?.id === note.id || (linkDrop?.window === false && linkDrop.note.id === note.id)}
                 onPointerDown={(e) => onItemPointerDown(e, 'note', note.id)}
                 onExpand={() => expand(note.id)}
                 editingTitle={titleEdit?.id === note.id}
@@ -804,6 +889,13 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
           bucket={board.buckets.find((b) => b.id === expandedNote.bucketId)}
           images={board.images.filter((i) => i.noteId === expandedNote.id)}
           notes={board.notes}
+          handle={expandedRef}
+          run={run}
+          onBusy={setNoteBusy}
+          incoming={incoming}
+          linking={!!linkDrop?.window}
+          boardPoint={boardPoint}
+          boardZoom={zoom}
           focusTitle={expanded?.fresh ?? false}
           onChange={(changes) => settle(() => api.updateNote(expandedNote.id, changes))}
           boardTags={board.tags}
@@ -811,13 +903,31 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
           onRenameTag={renameTag}
           onDeleteTag={deleteTag}
           onDelete={() => deleteNote(expandedNote.id)}
-          onAddImages={(files) => void addImages(files, { noteId: expandedNote.id })}
+          onAddImages={(files, at) => void addImages(files, { noteId: expandedNote.id, at })}
           onPickImages={() => void addImagesFromPicker({ noteId: expandedNote.id })}
-          onDeleteImage={(id) => void settle(() => api.deleteImage(id))}
           onClose={() => setExpanded(null)}
           readOnly={readOnly}
         />
       )}
+
+      {/* The board draws below the open post-it, so a post-it dragged over its window is shown on top, at the pointer. */}
+      {draggedNote &&
+        dragging &&
+        linkDrop?.window &&
+        createPortal(
+          <div
+            className="drag-ghost post-it-ghost"
+            aria-hidden="true"
+            style={{
+              left: linkDrop.client.x - (dragging.start.x - draggedNote.note.x) * zoom,
+              top: linkDrop.client.y - (dragging.start.y - draggedNote.note.y) * zoom,
+              transform: `scale(${zoom})`,
+            }}
+          >
+            <PostIt note={draggedNote.note} point={{ x: 0, y: 0 }} selected={false} lifted onPointerDown={() => {}} onExpand={() => {}} />
+          </div>,
+          document.body,
+        )}
 
       {rulesOpen && (
         <Suspense>

@@ -30,8 +30,6 @@
   --mini-dot: rgba(255, 255, 255, 0.08);
   --chip: #1d222b;
   --dim: rgba(7, 8, 11, 0.78);
-  --dock: #1a1e26;
-  --dock-hover: #2a303b;
   --minimap-block: #2a303b;
   --slot: #3a4150;
   --halo: #c4a7ff;
@@ -698,6 +696,11 @@ main {
   outline-offset: 3px;
 }
 
+.post-it.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+}
+
 .post-it.lifted {
   z-index: 2;
   transform: rotate(3deg) scale(1.03);
@@ -832,21 +835,24 @@ main {
   border-radius: 4px;
 }
 
-/* Floating tool rail */
+/* Floating tool rail, and the expanded post-it's bar that looks the same */
 
-.tool-rail {
-  position: absolute;
-  top: 50%;
-  left: 16px;
-  z-index: 5;
+.rail {
   display: flex;
-  flex-direction: column;
   gap: 2px;
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel);
   box-shadow: var(--float-shadow);
+}
+
+.tool-rail {
+  position: absolute;
+  top: 50%;
+  left: 16px;
+  z-index: 5;
+  flex-direction: column;
   transform: translateY(-50%);
 }
 
@@ -903,6 +909,15 @@ main {
   height: 1px;
   margin: 4px 6px;
   background: var(--line);
+}
+
+.rail-button.danger {
+  color: var(--danger);
+}
+
+.rail-button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
 }
 
 .rail-note {
@@ -1077,26 +1092,84 @@ main {
   font-size: 12px;
 }
 
-/* Expanded post-it */
+/* Expanded post-it: a window floating over the board, which dims only while the pointer is over the window */
 
 .expanded-backdrop {
   position: absolute;
   inset: 0;
   z-index: 10;
-  overflow: auto;
-  padding: 28px 20px 40px;
   background: var(--dim);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+.expanded-backdrop.shown {
+  opacity: 1;
 }
 
 .expanded {
-  max-width: 1200px;
-  margin: 0 auto;
+  position: absolute;
+  z-index: 11;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--dialog-line);
   border-radius: 16px;
   background: var(--dialog);
   box-shadow: 0 40px 100px rgba(0, 0, 0, 0.6);
   outline: none;
+}
+
+.expanded.drop-over {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+}
+
+.expanded .band {
+  flex: none;
+  cursor: grab;
+}
+
+.expanded .band:active {
+  cursor: grabbing;
+}
+
+.expanded .band :is(button, input, textarea, a) {
+  cursor: auto;
+}
+
+.expanded .band button {
+  cursor: pointer;
+}
+
+.window-resize {
+  position: absolute;
+  z-index: 4;
+}
+
+.window-resize.e {
+  top: 0;
+  right: 0;
+  bottom: 12px;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.window-resize.s {
+  right: 12px;
+  bottom: 0;
+  left: 0;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.window-resize.se {
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
 }
 
 .band {
@@ -1283,37 +1356,106 @@ main {
   font-size: 12px;
 }
 
-/* The mini board inside an expanded post-it */
+/* The post-it's own canvas: blocks and images, with zoom and pan */
 
-.mini-board {
+.note-viewport {
   position: relative;
-  min-height: 440px;
-  padding: 32px 32px 100px;
+  flex: 1;
+  min-height: 0;
   background-color: var(--mini-bg);
+}
+
+.note-scroll {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  outline: none;
+}
+
+.note-scroll.file-over .note-canvas {
+  outline: 2px dashed var(--accent);
+  outline-offset: -8px;
+}
+
+.note-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
   background-image: radial-gradient(circle, var(--mini-dot) 1px, transparent 1.4px);
   background-size: 20px 20px;
+  background-position: -10px -10px;
+  user-select: none;
+  touch-action: none;
+  cursor: grab;
 }
 
-.widgets {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 340px));
-  gap: 24px;
-  align-items: start;
+.note-canvas.panning {
+  cursor: grabbing;
 }
 
-.widget {
+.note-empty {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  width: min(420px, 80%);
+  margin: 0;
+  color: var(--subtle);
+  font-size: 13px;
+  text-align: center;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.note-block {
+  position: absolute;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel-2);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  cursor: auto;
+  user-select: text;
 }
 
-.widget h2 {
-  margin: 0;
+.note-block.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.note-block.lifted {
+  z-index: 2;
+  box-shadow: 0 28px 60px rgba(0, 0, 0, 0.55);
+}
+
+.block-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 8px 4px 14px;
+  color: var(--muted);
+  cursor: grab;
+  user-select: none;
+}
+
+.note-block.lifted .block-head {
+  cursor: grabbing;
+}
+
+.block-head svg {
+  flex: none;
+}
+
+.block-title {
+  min-width: 0;
+  max-width: calc(100% - 60px);
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
@@ -1321,21 +1463,175 @@ main {
   text-transform: uppercase;
 }
 
-.widget-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.block-title::placeholder {
+  color: var(--muted);
 }
 
-.widget-body {
+.block-title:focus {
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+}
+
+.block-title:read-only:focus {
+  background: transparent;
+}
+
+.block-remove {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--subtle);
+  opacity: 0;
+}
+
+.note-block:hover .block-remove,
+.note-block.selected .block-remove,
+.block-remove:focus-visible {
+  opacity: 1;
+}
+
+.block-remove {
+  color: var(--danger);
+}
+
+.block-remove:hover {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+
+.block-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 2px 14px 14px;
+  overflow: auto;
+}
+
+.block-progress {
+  align-self: flex-end;
+  margin-top: -2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.block-text {
   min-height: 4.6em;
   color: var(--text-body);
   font-size: 14px;
   line-height: 1.55;
 }
 
-.widget-body::placeholder {
+.block-text::placeholder {
   color: var(--subtle);
+}
+
+.block-resize {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--subtle);
+  cursor: nwse-resize;
+  opacity: 0;
+}
+
+.note-block:hover .block-resize,
+.note-block.selected .block-resize {
+  opacity: 1;
+}
+
+.note-canvas .board-image {
+  cursor: grab;
+}
+
+/* No corner squares on the post-it's canvas; the bottom-right corner still resizes, as an invisible grip. */
+.note-canvas .board-image .handle:not(.resize-handle) {
+  display: none;
+}
+
+.note-canvas .board-image .resize-handle {
+  right: -6px;
+  bottom: -6px;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  background: transparent;
+}
+
+.leaving .board-image {
+  opacity: 0.3;
+}
+
+.incoming-image {
+  position: absolute;
+  border-radius: 6px;
+  outline: 2px dashed var(--accent);
+  outline-offset: 3px;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.incoming-image img,
+.drag-ghost img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.drag-ghost.post-it-ghost {
+  width: 200px;
+  height: 120px;
+  box-shadow: none;
+  transform-origin: 0 0;
+}
+
+.drag-ghost {
+  position: fixed;
+  z-index: 60;
+  border-radius: 6px;
+  box-shadow: 0 28px 60px rgba(0, 0, 0, 0.55);
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.note-zoom {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 3;
+  box-shadow: var(--float-shadow);
+}
+
+.note-bar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+}
+
+.note-bar .rail-divider {
+  width: 1px;
+  height: auto;
+  margin: 6px 4px;
 }
 
 .checklist,
@@ -1498,55 +1794,6 @@ li:hover .row-remove,
   margin: 0;
   color: var(--danger);
   font-size: 12px;
-}
-
-.dock {
-  position: absolute;
-  bottom: 16px;
-  left: 50%;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 5px;
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  background: var(--dock);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
-  transform: translateX(-50%);
-}
-
-.dock-button {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 38px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-2);
-  font-size: 12px;
-}
-
-.dock-button:hover {
-  background: var(--dock-hover);
-  color: var(--text);
-}
-
-.dock-divider {
-  width: 1px;
-  height: 22px;
-  margin: 0 6px;
-  background: var(--line-strong);
-}
-
-.dock-button.dock-delete {
-  color: var(--danger);
-}
-
-.dock-button.dock-delete:hover {
-  background: color-mix(in srgb, var(--danger) 16%, transparent);
-  color: var(--danger);
 }
 
 /* Confirmation dialog for destructive actions */
@@ -1837,6 +2084,33 @@ a.button.primary:hover {
   cursor: nwse-resize;
 }
 
+.image-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(14, 16, 20, 0.78);
+  color: var(--danger);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.board-image:hover .image-delete,
+.image-delete:focus-visible {
+  opacity: 1;
+}
+
+.image-delete:hover {
+  background: color-mix(in srgb, var(--danger) 24%, rgba(14, 16, 20, 0.9));
+}
+
 .gif-badge {
   position: absolute;
   top: 10px;
@@ -1868,13 +2142,6 @@ a.button.primary:hover {
   outline-offset: 4px;
 }
 
-.dock-hint {
-  padding: 0 4px;
-  color: var(--subtle);
-  font: 11px var(--mono);
-  white-space: nowrap;
-}
-
 .inspector-link {
   display: inline-flex;
   align-items: center;
@@ -1884,82 +2151,6 @@ a.button.primary:hover {
   color: var(--text);
   font-size: 13px;
   text-decoration: none;
-}
-
-/* Images attached to a post-it */
-
-.widget-images {
-  grid-column: span 2;
-}
-
-@media (max-width: 900px) {
-  .widget-images {
-    grid-column: auto;
-  }
-}
-
-.attached-images {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 16px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.attached-images li {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.attached-image {
-  position: relative;
-  display: block;
-  overflow: hidden;
-  border-radius: 6px;
-  background: var(--bg);
-}
-
-.attached-image img {
-  display: block;
-  width: 100%;
-  max-height: 240px;
-  object-fit: contain;
-}
-
-.attached-caption {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font: 11px var(--mono);
-}
-
-.attached-caption > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.attached-name {
-  flex: 1 1 auto;
-  min-width: 4em;
-  color: var(--text-2);
-}
-
-.attached-by {
-  flex: 0 1 auto;
-  max-width: 50%;
-}
-
-.attached-images li:hover .row-remove {
-  opacity: 1;
-}
-
-.attached-caption .row-remove {
-  margin: 0;
 }
 
 /* Dialogs (share, account, display name) */
@@ -2506,7 +2697,7 @@ a.button.primary:hover {
 .expanded.read-only .chip-remove,
 .expanded.read-only .row-remove,
 .expanded.read-only .widget-add,
-.expanded.read-only .dock {
+.expanded.read-only .note-bar {
   display: none;
 }
 

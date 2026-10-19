@@ -91,6 +91,53 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
+    public async Task Images_on_a_note_have_a_place_on_its_canvas_clear_of_its_blocks()
+    {
+        var board = await CreateBoard("Note canvas");
+        var noteResponse = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "Canvas", blocks = new[] { new { kind = "Text" } } });
+        var note = (await noteResponse.Content.ReadFromJsonAsync<NoteDetail>())!;
+
+        var placed = await Upload(board.Id, TestImages.Png(300, 200), "image/png", $"?noteId={note.Id}&x=505&y=611");
+        var free = await Upload(board.Id, TestImages.Png(300, 200), "image/png", $"?noteId={note.Id}");
+
+        Assert.Equal((500, 620), (placed.X, placed.Y));
+        // The text block takes 20..360 by 20..240, so the next free spot in the row is right of it.
+        Assert.Equal((380, 20), (free.X, free.Y));
+    }
+
+    [Fact]
+    public async Task Images_move_between_the_board_and_notes()
+    {
+        var board = await CreateBoard("Attach");
+        var other = await CreateBoard("Other");
+        var note = (await (await _client.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "Target" })).Content.ReadFromJsonAsync<NoteDetail>())!;
+        var foreign = (await (await _client.PostAsJsonAsync($"/api/boards/{other.Id}/notes", new { title = "Foreign" })).Content.ReadFromJsonAsync<NoteDetail>())!;
+        var image = await Upload(board.Id, TestImages.Png(300, 200), "image/png");
+
+        var attached = await Patch(image.Id, new { noteId = note.Id, x = 61, y = 39 });
+        Assert.Equal((note.Id, 60, 40), (attached.NoteId, attached.X, attached.Y));
+
+        var moved = await Patch(image.Id, new { x = 20_000, y = 0 });
+        Assert.Equal(Layout.NoteCanvasMax - moved.Width, moved.X);
+
+        var detached = await Patch(image.Id, new { detach = true, x = 1001, y = 2001 });
+        Assert.Equal((null, 1000, 2000), (detached.NoteId, detached.X, detached.Y));
+
+        var reattached = await Patch(image.Id, new { noteId = note.Id });
+        Assert.Equal((20, 20), (reattached.X, reattached.Y));
+        var back = await Patch(image.Id, new { detach = true });
+        Assert.Null(back.NoteId);
+        Assert.True(back.X >= 880);
+
+        var both = await _client.PatchAsJsonAsync($"/api/images/{image.Id}", new { noteId = note.Id, detach = true });
+        var elsewhere = await _client.PatchAsJsonAsync($"/api/images/{image.Id}", new { noteId = foreign.Id });
+        var onlyX = await _client.PatchAsJsonAsync($"/api/images/{image.Id}", new { noteId = note.Id, x = 40 });
+        Assert.Equal(HttpStatusCode.BadRequest, both.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, elsewhere.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, onlyX.StatusCode);
+    }
+
+    [Fact]
     public async Task Uploads_that_are_not_supported_images_are_rejected()
     {
         var board = await CreateBoard("Rejects");
@@ -157,6 +204,13 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
 
     private Task<HttpResponseMessage> Post(string url, byte[] data, string contentType) =>
         _client.PostAsync(url, new ByteArrayContent(data) { Headers = { ContentType = new MediaTypeHeaderValue(contentType) } });
+
+    private async Task<ImageDetail> Patch(Guid imageId, object request)
+    {
+        var response = await _client.PatchAsJsonAsync($"/api/images/{imageId}", request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<ImageDetail>())!;
+    }
 
     private async Task<ImageDetail> Upload(Guid boardId, byte[] data, string contentType, string query = "")
     {

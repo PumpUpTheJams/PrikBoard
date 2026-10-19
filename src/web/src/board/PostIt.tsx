@@ -22,6 +22,8 @@ interface PostItProps {
   lifted: boolean
   /** Faded: it doesn't match the board's tag filter. */
   dimmed?: boolean
+  /** An image being dragged would be attached to this post-it on release. */
+  dropTarget?: boolean
   onPointerDown: (e: PointerEvent<HTMLDivElement>) => void
   onExpand: () => void
   /** For editors: open the tag or people window next to this part of the post-it (a screen rectangle). */
@@ -39,7 +41,7 @@ interface PostItProps {
 
 /** On the board a post-it shows its title, tags and assignees. Everything else lives inside (see ExpandedNote). */
 export function PostIt(props: PostItProps) {
-  const { note, point, selected, lifted, dimmed, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
+  const { note, point, selected, lifted, dimmed, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
   const { editingTitle, titleCaret, onRenameTitle, onTitleDone } = props
   /** A saved title, shown until the reload brings it (while the server still has `from`). */
   const [saved, setSaved] = useState<{ title: string; from: string } | null>(null)
@@ -57,6 +59,7 @@ export function PostIt(props: PostItProps) {
   if (lifted) classes.push('lifted')
   if (note.agentWorking) classes.push('agent-working')
   if (dimmed) classes.push('dimmed')
+  if (dropTarget) classes.push('drop-target')
 
   const tags = note.tags.map((tag) => (
     <span key={tag} className="tag">

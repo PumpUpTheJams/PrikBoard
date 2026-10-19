@@ -54,19 +54,28 @@ internal static class McpCall
         if (Unwrap(result) is not IStatusCodeHttpResult { StatusCode: >= 200 and < 300 }) throw Error(result);
     }
 
-    /// <summary>Applies the DataAnnotations on a request record (and the items in its lists), as the REST API does.</summary>
+    /// <summary>
+    /// Applies the DataAnnotations on a request record, and on the items in its lists (such as a block's checklist items),
+    /// as the REST API does.
+    /// </summary>
     public static void Validate(object request)
     {
         var problems = new List<ValidationResult>();
-        Validator.TryValidateObject(request, new ValidationContext(request), problems, validateAllProperties: true);
-        foreach (var list in request.GetType().GetProperties().Select(p => p.GetValue(request)).OfType<IEnumerable>().Where(v => v is not string))
+        Collect(request, problems, depth: 3);
+        if (problems.Count > 0) throw new McpException(string.Join(" ", problems.Select(p => p.ErrorMessage)));
+    }
+
+    private static void Collect(object value, List<ValidationResult> problems, int depth)
+    {
+        Validator.TryValidateObject(value, new ValidationContext(value), problems, validateAllProperties: true);
+        if (depth == 0) return;
+        foreach (var list in value.GetType().GetProperties().Select(p => p.GetValue(value)).OfType<IEnumerable>().Where(v => v is not string))
         {
-            foreach (var item in list.Cast<object?>().Where(i => i is not null && i is not string))
+            foreach (var item in list.Cast<object?>().Where(i => i is not null && i is not string && !i.GetType().IsPrimitive && i is not Guid))
             {
-                Validator.TryValidateObject(item!, new ValidationContext(item!), problems, validateAllProperties: true);
+                Collect(item!, problems, depth - 1);
             }
         }
-        if (problems.Count > 0) throw new McpException(string.Join(" ", problems.Select(p => p.ErrorMessage)));
     }
 
     /// <summary>

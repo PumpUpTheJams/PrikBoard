@@ -56,13 +56,11 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
         modelBuilder.Entity<Note>(note =>
         {
             note.Property(n => n.Title).HasMaxLength(200);
-            note.Property(n => n.Body).HasMaxLength(4000);
             note.Property(n => n.Color).HasConversion<string>().HasMaxLength(20);
             // Lists that are always read and replaced whole live on the note: arrays, or JSON columns.
             note.PrimitiveCollection(n => n.Tags).IsRequired();
             note.PrimitiveCollection(n => n.AssigneeIds).IsRequired();
-            note.OwnsMany(n => n.Checklist, item => item.ToJson());
-            note.OwnsMany(n => n.Links, link => link.ToJson());
+            note.Property(n => n.Blocks).HasColumnType("jsonb").HasConversion(NoteBlocksJson.Converter, NoteBlocksJson.Comparer);
             // Deleting a bucket leaves its notes on the board as loose notes.
             note.HasOne<Bucket>()
                 .WithMany()

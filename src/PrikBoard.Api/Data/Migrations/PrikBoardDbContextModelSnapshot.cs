@@ -338,12 +338,12 @@ namespace PrikBoard.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("uuid[]");
 
+                    b.Property<string>("Blocks")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
                     b.Property<Guid>("BoardId")
                         .HasColumnType("uuid");
-
-                    b.Property<string>("Body")
-                        .HasMaxLength(4000)
-                        .HasColumnType("character varying(4000)");
 
                     b.Property<Guid?>("BucketId")
                         .HasColumnType("uuid");
@@ -620,62 +620,9 @@ namespace PrikBoard.Api.Data.Migrations
                         .HasForeignKey("CreatedById")
                         .OnDelete(DeleteBehavior.SetNull);
 
-                    b.OwnsMany("PrikBoard.Api.Domain.ChecklistEntry", "Checklist", b1 =>
-                        {
-                            b1.Property<Guid>("NoteId");
-
-                            b1.Property<int>("__synthesizedOrdinal")
-                                .ValueGeneratedOnAdd();
-
-                            b1.Property<bool>("Done");
-
-                            b1.Property<string>("Text")
-                                .IsRequired();
-
-                            b1.HasKey("NoteId", "__synthesizedOrdinal");
-
-                            b1.ToTable("Notes");
-
-                            b1
-                                .ToJson("Checklist")
-                                .HasColumnType("jsonb");
-
-                            b1.WithOwner()
-                                .HasForeignKey("NoteId");
-                        });
-
-                    b.OwnsMany("PrikBoard.Api.Domain.LinkEntry", "Links", b1 =>
-                        {
-                            b1.Property<Guid>("NoteId");
-
-                            b1.Property<int>("__synthesizedOrdinal")
-                                .ValueGeneratedOnAdd();
-
-                            b1.Property<string>("Title")
-                                .IsRequired();
-
-                            b1.Property<string>("Url")
-                                .IsRequired();
-
-                            b1.HasKey("NoteId", "__synthesizedOrdinal");
-
-                            b1.ToTable("Notes");
-
-                            b1
-                                .ToJson("Links")
-                                .HasColumnType("jsonb");
-
-                            b1.WithOwner()
-                                .HasForeignKey("NoteId");
-                        });
-
                     b.Navigation("Board");
 
-                    b.Navigation("Checklist");
-
                     b.Navigation("CreatedBy");
-
-                    b.Navigation("Links");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.UserIdentity", b =>

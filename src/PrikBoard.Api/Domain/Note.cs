@@ -9,7 +9,6 @@ public class Note
     /// <summary>The bucket containing the note's centre, or null when it is loose. Maintained by <see cref="Layout"/>.</summary>
     public Guid? BucketId { get; set; }
     public required string Title { get; set; }
-    public string? Body { get; set; }
     public NoteColor Color { get; set; } = NoteColor.Butter;
     /// <summary>Names of the board's tags (<see cref="BoardTag"/>) on this note, see <see cref="NoteTags.Normalize(string)"/>.</summary>
     public List<string> Tags { get; set; } = [];
@@ -18,8 +17,8 @@ public class Note
     /// (<see cref="Auth.BoardAccess.AssignableIds"/>); ones who later lose access stay.
     /// </summary>
     public List<Guid> AssigneeIds { get; set; } = [];
-    public List<ChecklistEntry> Checklist { get; set; } = [];
-    public List<LinkEntry> Links { get; set; } = [];
+    /// <summary>The note's content (text, checklists, links) laid out on its own canvas; see <see cref="NoteBlock"/>.</summary>
+    public List<NoteBlock> Blocks { get; set; } = [];
     /// <summary>Set while an AI agent is actively working on the note; the board shows a halo.</summary>
     public bool AgentWorking { get; set; }
     public int X { get; set; }

@@ -16,17 +16,21 @@ namespace PrikBoard.Api.Mcp;
 /// <param name="Color">Its fill.</param>
 /// <param name="Tags">Its tags.</param>
 /// <param name="Assignees">People and agents on it.</param>
-/// <param name="Checklist">Progress as "done/total", or null without a checklist.</param>
-/// <param name="HasBody">The note has body text; read it with get_note.</param>
+/// <param name="Checklist">Progress over all its checklists as "done/total", or null without checklist items.</param>
+/// <param name="HasContent">The note has content (text, checklist items or links); read it with get_note.</param>
 /// <param name="AgentWorking">An agent is working on it right now.</param>
 /// <param name="CreatedBy">Who created it, or null when unknown.</param>
 public sealed record NoteSummary(
     Guid Id, string Title, NoteColor Color, IReadOnlyList<string> Tags, IReadOnlyList<Assignee> Assignees,
-    string? Checklist, bool HasBody, bool AgentWorking, string? CreatedBy)
+    string? Checklist, bool HasContent, bool AgentWorking, string? CreatedBy)
 {
-    public static NoteSummary From(NoteDetail n) => new(n.Id, n.Title, n.Color, n.Tags, n.Assignees,
-        n.Checklist.Count == 0 ? null : $"{n.Checklist.Count(i => i.Done)}/{n.Checklist.Count}", n.Body is not null, n.AgentWorking,
-        n.CreatedBy);
+    public static NoteSummary From(NoteDetail n)
+    {
+        var items = n.Blocks.SelectMany(b => b.Items ?? []).ToList();
+        var hasContent = n.Blocks.Any(b => !string.IsNullOrEmpty(b.Text) || b.Items is { Count: > 0 } || b.Links is { Count: > 0 });
+        return new(n.Id, n.Title, n.Color, n.Tags, n.Assignees,
+            items.Count == 0 ? null : $"{items.Count(i => i.Done)}/{items.Count}", hasContent, n.AgentWorking, n.CreatedBy);
+    }
 }
 
 /// <summary>A bucket (column) with its notes, top to bottom.</summary>
@@ -80,7 +84,7 @@ public sealed class BoardTools
     [McpServerTool(Name = "get_board", Title = "Get a board", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("A compact snapshot of a board: its agent rules (follow them in every action on this board), its buckets (columns such as To do, Doing, Done) in order, each with its notes " +
                  "top to bottom, notes outside any bucket, the board's tags and the people who can be assigned. " +
-                 "Use get_note for a note's body, checklist and links." + UntrustedText)]
+                 "Use get_note for a note's content (text, checklists and links)." + UntrustedText)]
     public static async Task<BoardOverview> GetBoard(
         IHttpContextAccessor accessor, [Description("The board id, from list_boards.")] Guid boardId, CancellationToken ct)
     {
@@ -114,14 +118,14 @@ public sealed class BoardTools
     }
 
     [McpServerTool(Name = "search_notes", Title = "Search notes", ReadOnly = true, Idempotent = true, OpenWorld = false)]
-    [Description("Finds notes on a board by bucket, tags, assignee and/or text in the title or body (all case-insensitive)." + UntrustedText)]
+    [Description("Finds notes on a board by bucket, tags, assignee and/or text in the title or content (all case-insensitive)." + UntrustedText)]
     public static async Task<List<NoteSummary>> SearchNotes(
         IHttpContextAccessor accessor,
         [Description("The board id.")] Guid boardId,
         [Description("Only notes in this bucket: its name (for example \"Doing\") or id.")] string? bucket = null,
         [Description("Only notes with any of these tags.")] List<string>? tags = null,
         [Description("Only notes assigned to this person or agent: their name or principal id.")] string? assignee = null,
-        [Description("Text to look for in titles and bodies.")] string? text = null,
+        [Description("Text to look for in titles and content (text, checklist items, links).")] string? text = null,
         CancellationToken ct = default)
     {
         var http = McpCall.Http(accessor);
@@ -133,8 +137,9 @@ public sealed class BoardTools
     }
 
     [McpServerTool(Name = "get_note", Title = "Get a note", ReadOnly = true, Idempotent = true, OpenWorld = false)]
-    [Description("Everything about one note: title, body, fill, tags, assignees, checklist, links, its bucket, who created it " +
-                 "and whether an agent is working on it." + UntrustedText)]
+    [Description("Everything about one note: title, fill, tags, assignees, its bucket, who created it, whether an agent is " +
+                 "working on it, and its content as blocks: Text, Checklist and Links blocks, each with an id and an optional title, " +
+                 "laid out on the note's own canvas. Change them with add_note_block, update_note_block and delete_note_block." + UntrustedText)]
     public static async Task<NoteDetail> GetNote(IHttpContextAccessor accessor, [Description("The note id.")] Guid noteId, CancellationToken ct)
     {
         var http = McpCall.Http(accessor);
@@ -144,18 +149,19 @@ public sealed class BoardTools
     }
 
     [McpServerTool(Name = "create_note", Title = "Create a note", OpenWorld = false)]
-    [Description("Adds a note (post-it) to a board, in a free spot of a bucket (default: the first bucket, usually \"To do\"). Needs the Editor role.")]
+    [Description("Adds a note (post-it) to a board, in a free spot of a bucket (default: the first bucket, usually \"To do\"). " +
+                 "body, checklist and links become its first blocks; add more with add_note_block. Needs the Editor role.")]
     public static async Task<NoteDetail> CreateNote(
         IHttpContextAccessor accessor,
         [Description("The board id.")] Guid boardId,
         [Description("Short title shown on the post-it (at most 200 characters).")] string title,
-        [Description("Longer text (at most 4000 characters).")] string? body = null,
+        [Description("Longer text, as a Text block (at most 4000 characters).")] string? body = null,
         [Description("The bucket to put it in: its name or id. Default: the first bucket.")] string? bucket = null,
         [Description("Fill: Butter, Mint, Sky, Coral or Lilac. Default Butter.")] NoteColor? color = null,
         [Description("Tags; prefer the board's tags (get_board). New names are added to the board, lower-cased and hyphenated.")] List<string>? tags = null,
         [Description("People and agents to assign: their names or principal ids, from people in get_board.")] List<string>? assignees = null,
-        [Description("Checklist items.")] List<ChecklistItem>? checklist = null,
-        [Description("Links with a title and a url: an absolute http(s) URL, or another note's path (path in get_note) to link that note.")] List<NoteLink>? links = null,
+        [Description("Checklist items, as a Checklist block.")] List<ChecklistItem>? checklist = null,
+        [Description("Links with a title and a url, as a Links block: an absolute http(s) URL, or another note's path (path in get_note) to link that note.")] List<NoteLink>? links = null,
         CancellationToken ct = default)
     {
         var http = McpCall.Http(accessor);
@@ -164,7 +170,11 @@ public sealed class BoardTools
         Guid? bucketId = bucket is null ? null : await ResolveBucketAsync(db, boardId, bucket, ct);
         var assigneeIds = assignees is null ? null : await ResolveAssigneesAsync(db, boardId, assignees, [], ct);
 
-        var request = new CreateNoteRequest(title, body, color, bucketId, Tags: tags, AssigneeIds: assigneeIds, Checklist: checklist, Links: links);
+        List<NewNoteBlock> blocks = [];
+        if (!string.IsNullOrWhiteSpace(body)) blocks.Add(new NewNoteBlock(NoteBlockKind.Text, Text: body));
+        if (checklist is { Count: > 0 }) blocks.Add(new NewNoteBlock(NoteBlockKind.Checklist, Items: checklist));
+        if (links is { Count: > 0 }) blocks.Add(new NewNoteBlock(NoteBlockKind.Links, Links: links));
+        var request = new CreateNoteRequest(title, color, bucketId, Tags: tags, AssigneeIds: assigneeIds, Blocks: blocks);
         McpCall.Validate(request);
         var note = McpCall.Value<NoteDetail>(await NoteEndpoints.CreateNote(boardId, request, http.User, db, ct));
         await McpCall.AnnounceAsync(http, boardId);
@@ -172,18 +182,15 @@ public sealed class BoardTools
     }
 
     [McpServerTool(Name = "update_note", Title = "Update a note", Idempotent = true, OpenWorld = false)]
-    [Description("Changes a note. Only the fields you pass change; an empty string clears the body. A list you pass (tags, " +
-                 "assignees, checklist, links) replaces the whole list, so send the full checklist to tick off one item. Needs the Editor role.")]
+    [Description("Changes a note's title, fill, tags, assignees or working flag. Only the fields you pass change; a list you pass " +
+                 "(tags, assignees) replaces the whole list. To change its content, use update_note_block. Needs the Editor role.")]
     public static async Task<NoteDetail> UpdateNote(
         IHttpContextAccessor accessor,
         [Description("The note id.")] Guid noteId,
         [Description("New title.")] string? title = null,
-        [Description("New body; an empty string clears it.")] string? body = null,
         [Description("New fill: Butter, Mint, Sky, Coral or Lilac.")] NoteColor? color = null,
         [Description("All tags (replaces them); prefer the board's tags. New names are added to the board.")] List<string>? tags = null,
         [Description("All assignees (replaces them): names or principal ids, from people in get_board.")] List<string>? assignees = null,
-        [Description("The full checklist (replaces it).")] List<ChecklistItem>? checklist = null,
-        [Description("All links (replaces them). A url is an absolute http(s) URL, or another note's path (path in get_note) to link that note.")] List<NoteLink>? links = null,
         [Description("Whether an agent is working on it right now (shows a halo); see also set_working.")] bool? agentWorking = null,
         CancellationToken ct = default)
     {
@@ -196,11 +203,75 @@ public sealed class BoardTools
             var current = await db.Notes.Where(n => n.Id == noteId).Select(n => n.AssigneeIds).FirstAsync(ct);
             assigneeIds = await ResolveAssigneesAsync(db, boardId, assignees, current, ct);
         }
-        var request = new UpdateNoteRequest(title, body, color, tags, assigneeIds, checklist, links, agentWorking);
+        var request = new UpdateNoteRequest(title, color, tags, assigneeIds, agentWorking);
         McpCall.Validate(request);
         var note = McpCall.Value<NoteDetail>(await NoteEndpoints.UpdateNote(noteId, request, db, ct));
         await McpCall.AnnounceAsync(http, boardId);
         return note;
+    }
+
+    [McpServerTool(Name = "add_note_block", Title = "Add a block to a note", OpenWorld = false)]
+    [Description("Adds content to a note: a Text block, a Checklist block or a Links block, in a free spot on the note's canvas. " +
+                 "Give only the content that fits the kind. Needs the Editor role.")]
+    public static async Task<NoteBlockDetail> AddNoteBlock(
+        IHttpContextAccessor accessor,
+        [Description("The note id.")] Guid noteId,
+        [Description("Text, Checklist or Links.")] NoteBlockKind kind,
+        [Description("Optional heading, e.g. \"Acceptance criteria\" (at most 100 characters).")] string? title = null,
+        [Description("The text of a Text block (at most 4000 characters).")] string? text = null,
+        [Description("The items of a Checklist block.")] List<ChecklistItem>? items = null,
+        [Description("The links of a Links block, each with a title and a url: an absolute http(s) URL, or another note's path (path in get_note).")] List<NoteLink>? links = null,
+        CancellationToken ct = default)
+    {
+        var http = McpCall.Http(accessor);
+        var boardId = await McpCall.AuthorizeAsync(http, BoardScope.Note, noteId, BoardRole.Editor);
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var request = new NewNoteBlock(kind, title, text, items, links);
+        McpCall.Validate(request);
+        var block = McpCall.Value<NoteBlockDetail>(await NoteBlockEndpoints.AddNoteBlock(noteId, request, db, ct));
+        await McpCall.AnnounceAsync(http, boardId);
+        return block;
+    }
+
+    [McpServerTool(Name = "update_note_block", Title = "Update a block of a note", Idempotent = true, OpenWorld = false)]
+    [Description("Changes one block of a note. Only the fields you pass change; an empty string clears the title or text. A list " +
+                 "you pass replaces the block's whole list, so send all items of the checklist to tick off one. Needs the Editor role.")]
+    public static async Task<NoteBlockDetail> UpdateNoteBlock(
+        IHttpContextAccessor accessor,
+        [Description("The note id.")] Guid noteId,
+        [Description("The block: its id, its title, or its kind (Text, Checklist or Links) when the note has one block of that kind.")] string block,
+        [Description("New heading; an empty string clears it.")] string? title = null,
+        [Description("New text of a Text block; an empty string clears it.")] string? text = null,
+        [Description("All items of a Checklist block (replaces them).")] List<ChecklistItem>? items = null,
+        [Description("All links of a Links block (replaces them).")] List<NoteLink>? links = null,
+        CancellationToken ct = default)
+    {
+        var http = McpCall.Http(accessor);
+        var boardId = await McpCall.AuthorizeAsync(http, BoardScope.Note, noteId, BoardRole.Editor);
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var blockId = await ResolveBlockAsync(db, noteId, block, ct);
+        var request = new UpdateNoteBlockRequest(title, text, items, links);
+        McpCall.Validate(request);
+        var updated = McpCall.Value<NoteBlockDetail>(await NoteBlockEndpoints.UpdateNoteBlock(noteId, blockId, request, db, ct));
+        await McpCall.AnnounceAsync(http, boardId);
+        return updated;
+    }
+
+    [McpServerTool(Name = "delete_note_block", Title = "Remove a block from a note", Destructive = true, OpenWorld = false)]
+    [Description("Removes one block (text, checklist or links) from a note. Needs the Editor role.")]
+    public static async Task<string> DeleteNoteBlock(
+        IHttpContextAccessor accessor,
+        [Description("The note id.")] Guid noteId,
+        [Description("The block: its id, its title, or its kind (Text, Checklist or Links) when the note has one block of that kind.")] string block,
+        CancellationToken ct)
+    {
+        var http = McpCall.Http(accessor);
+        var boardId = await McpCall.AuthorizeAsync(http, BoardScope.Note, noteId, BoardRole.Editor);
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var blockId = await ResolveBlockAsync(db, noteId, block, ct);
+        McpCall.Succeeded(await NoteBlockEndpoints.DeleteNoteBlock(noteId, blockId, db, ct));
+        await McpCall.AnnounceAsync(http, boardId);
+        return "Deleted.";
     }
 
     [McpServerTool(Name = "move_note", Title = "Move a note", Idempotent = true, OpenWorld = false)]
@@ -350,6 +421,23 @@ public sealed class BoardTools
             : buckets.FirstOrDefault(b => b.Name.Equals(bucket.Trim(), StringComparison.OrdinalIgnoreCase));
         return match?.Id ?? throw new McpException(
             $"No bucket \"{bucket}\" on this board. Buckets: {string.Join(", ", buckets.Select(b => $"\"{b.Name}\""))}.");
+    }
+
+    /// <summary>A block of the note by id, (case-insensitive) title, or kind when the note has exactly one block of that kind.</summary>
+    private static async Task<Guid> ResolveBlockAsync(PrikBoardDbContext db, Guid noteId, string block, CancellationToken ct)
+    {
+        var blocks = await db.Notes.AsNoTracking().Where(n => n.Id == noteId).Select(n => n.Blocks).FirstAsync(ct);
+        var value = block.Trim();
+        var matches = Guid.TryParse(value, out var id) ? blocks.Where(b => b.Id == id).ToList()
+            : blocks.Where(b => b.Title is not null && b.Title.Equals(value, StringComparison.OrdinalIgnoreCase)).ToList() is { Count: > 0 } titled ? titled
+            : Enum.TryParse<NoteBlockKind>(value, ignoreCase: true, out var kind) ? blocks.Where(b => b.Kind == kind).ToList()
+            : [];
+        if (matches.Count == 1) return matches[0].Id;
+
+        var list = blocks.Count == 0 ? "none" : string.Join(", ", blocks.Select(b => b.Title is null ? $"{b.Kind} ({b.Id})" : $"\"{b.Title}\" ({b.Kind}, {b.Id})"));
+        throw new McpException(matches.Count == 0
+            ? $"No block \"{block}\" on this note. Blocks: {list}."
+            : $"Several blocks match \"{block}\"; use the block id. Blocks: {list}.");
     }
 
     /// <summary>A tag on the board by id or name (normalized like note tags).</summary>

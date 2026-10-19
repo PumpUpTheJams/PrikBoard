@@ -21,8 +21,8 @@ public static class ImageEndpoints
             .WithSummary("Add an image or GIF to a board")
             .WithDescription("Send the file itself as the request body with its content type (image/png, image/jpeg, image/gif or " +
                              "image/webp; at most 10 MB), for example curl --data-binary @shot.png -H \"Content-Type: image/png\". " +
-                             "Query parameters: fileName, noteId (attach to a note instead of the canvas), x and y (top-left on the " +
-                             "canvas; default: to the right of everything), width (display width; default: the image's own width, " +
+                             "Query parameters: fileName, noteId (attach to a note instead of the board), x and y (top-left on the " +
+                             "board, or on the note's canvas with noteId; default: a free spot), width (display width; default: the image's own width, " +
                              "at most 360) and caption. The format and pixel size are read from the file; SVG is not accepted.")
             .Accepts<Stream>(ImageFormats.ContentTypes[0], ImageFormats.ContentTypes[1..])
             .ProducesValidationProblem()
@@ -39,7 +39,8 @@ public static class ImageEndpoints
             .RequireBoardRole(BoardRole.Editor, BoardScope.Image)
             .WithName("updateImage")
             .WithSummary("Move, resize or re-caption an image")
-            .WithDescription("Changes any of position, display width (the height follows the aspect ratio) and caption. " +
+            .WithDescription("Changes any of position, display width (the height follows the aspect ratio) and caption, " +
+                             "attaches the image to a note (noteId), or puts an attached image back on the board (detach). " +
                              "Omitted fields stay unchanged.")
             .ProducesValidationProblem();
 
@@ -64,15 +65,15 @@ public static class ImageEndpoints
             return Unsupported("Send the image file itself as the request body, with Content-Type image/png, image/jpeg, image/gif or image/webp.");
         }
 
-        if ((Invalid(noteId is not null && (x is not null || y is not null), "noteId", "Attached images have no position; leave out x and y.")
-            ?? Invalid(x is null != y is null, x is null ? "x" : "y", "Give x and y together.")
+        if ((Invalid(x is null != y is null, x is null ? "x" : "y", "Give x and y together.")
             ?? Invalid(x is < 0 or > Layout.MaxCoordinate || y is < 0 or > Layout.MaxCoordinate, "x", $"Coordinates run from 0 to {Layout.MaxCoordinate}.")
             ?? Invalid(width is < Layout.MinImageWidth or > Layout.MaxImageWidth, "width", $"Width runs from {Layout.MinImageWidth} to {Layout.MaxImageWidth}.")
             ?? Invalid(caption?.Length > 500, "caption", "A caption is at most 500 characters.")) is { } invalid)
         {
             return invalid;
         }
-        if (noteId is not null && !await db.Notes.AnyAsync(n => n.Id == noteId && n.BoardId == boardId, ct))
+        var note = noteId is null ? null : await db.Notes.FirstOrDefaultAsync(n => n.Id == noteId && n.BoardId == boardId, ct);
+        if (noteId is not null && note is null)
         {
             return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["noteId"] = ["The note does not exist on this board."] });
         }
@@ -102,15 +103,7 @@ public static class ImageEndpoints
             Content = new ImageContent { Data = data },
         };
         image.Resize(width ?? Math.Min(info.Width, Layout.DefaultImageWidth));
-        if (noteId is null)
-        {
-            (image.X, image.Y) = x is { } exactX && y is { } exactY
-                ? (Layout.Snap(exactX), Layout.Snap(exactY))
-                : Layout.NextImageSpot(
-                    await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct),
-                    await db.Notes.Where(n => n.BoardId == boardId).ToListAsync(ct),
-                    await db.Images.Where(i => i.BoardId == boardId).ToListAsync(ct));
-        }
+        await PlaceAsync(db, image, note, x, y, ct);
 
         db.Images.Add(image);
         await db.SaveChangesAsync(ct);
@@ -139,14 +132,59 @@ public static class ImageEndpoints
         var image = await db.Images.Include(i => i.AddedBy).FirstOrDefaultAsync(i => i.Id == imageId, ct);
         if (image is null) return TypedResults.NotFound();
 
-        image.X = request.X is { } x ? Layout.Snap(x) : image.X;
-        image.Y = request.Y is { } y ? Layout.Snap(y) : image.Y;
+        var detach = request.Detach == true;
+        var moving = (request.NoteId is { } to && to != image.NoteId) || (detach && image.NoteId is not null);
+        if ((Invalid(request.NoteId is not null && detach, "detach", "Give either a noteId or detach, not both.")
+            ?? Invalid(moving && request.X is null != request.Y is null, request.X is null ? "x" : "y", "Give x and y together.")) is { } invalid)
+        {
+            return invalid;
+        }
         if (request.Width is { } width) image.Resize(width);
+        if (moving)
+        {
+            var note = detach ? null : await db.Notes.FirstOrDefaultAsync(n => n.Id == request.NoteId && n.BoardId == image.BoardId, ct);
+            if (!detach && note is null)
+            {
+                return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["noteId"] = ["The note does not exist on this board."] });
+            }
+            image.NoteId = note?.Id;
+            await PlaceAsync(db, image, note, request.X, request.Y, ct);
+        }
+        else if (image.NoteId is null)
+        {
+            (image.X, image.Y) = (Layout.Snap(request.X ?? image.X), Layout.Snap(request.Y ?? image.Y));
+        }
+        else
+        {
+            (image.X, image.Y) = Layout.OnNoteCanvas(request.X ?? image.X, request.Y ?? image.Y, image.Width, image.Height);
+        }
         image.Caption = PatchText.Apply(image.Caption, request.Caption);
         image.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok(ImageDetail.From(image));
+    }
+
+    /// <summary>
+    /// Puts <paramref name="image"/> at X and Y (snapped) or in a free spot: on <paramref name="note"/>'s canvas, or on the
+    /// board when it is null.
+    /// </summary>
+    private static async Task PlaceAsync(PrikBoardDbContext db, BoardImage image, Note? note, int? x, int? y, CancellationToken ct)
+    {
+        if (note is not null)
+        {
+            var attached = await db.Images.Where(i => i.NoteId == note.Id && i.Id != image.Id).ToListAsync(ct);
+            (image.X, image.Y) = x is { } noteX && y is { } noteY
+                ? Layout.OnNoteCanvas(noteX, noteY, image.Width, image.Height)
+                : Layout.NextNoteSpot(Layout.TakenOnNote(note, attached), image.Width, image.Height);
+            return;
+        }
+        (image.X, image.Y) = x is { } boardX && y is { } boardY
+            ? (Layout.Snap(boardX), Layout.Snap(boardY))
+            : Layout.NextImageSpot(
+                await db.Buckets.Where(b => b.BoardId == image.BoardId).ToListAsync(ct),
+                await db.Notes.Where(n => n.BoardId == image.BoardId).ToListAsync(ct),
+                await db.Images.Where(i => i.BoardId == image.BoardId && i.Id != image.Id).ToListAsync(ct));
     }
 
     private static async Task<Results<NoContent, NotFound>> DeleteImage(Guid imageId, PrikBoardDbContext db, CancellationToken ct)
