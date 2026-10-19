@@ -2,6 +2,7 @@ import { useState, type FormEvent, type PointerEvent, type ReactNode } from 'rea
 import type { ChecklistItem, NoteBlock, NoteDetail, NoteLink, Rect, ResizeHandle } from '../api/types'
 import { blockKinds } from './blockKinds'
 import { EditableText } from './EditableText'
+import { Highlight } from './Highlight'
 import { CloseIcon, LinkIcon, PostItIcon, PullRequestIcon, TrashIcon } from './icons'
 import { isNoteId, notePath, noteRoute, type NoteRoute } from './links'
 import { ResizeHandles } from './ResizeHandles'
@@ -12,6 +13,8 @@ interface BlockFrameProps {
   rect: Rect
   selected: boolean
   lifted: boolean
+  /** The board search found its words in this block. */
+  matched?: boolean
   readOnly?: boolean
   /** A press on the header (outside the title) starts moving the block. */
   onHeadPointerDown: (e: PointerEvent<HTMLElement>) => void
@@ -27,11 +30,12 @@ interface BlockFrameProps {
 
 /** A block on a post-it's canvas: a header to drag it by, with its kind and an optional title, and its content. */
 export function BlockFrame(props: BlockFrameProps) {
-  const { block, rect, selected, lifted, readOnly, onHeadPointerDown, onResizePointerDown, onSelect, onTitle, onRemove, children } = props
+  const { block, rect, selected, lifted, matched, readOnly, onHeadPointerDown, onResizePointerDown, onSelect, onTitle, onRemove, children } = props
   const { label, Icon } = blockKinds[block.kind]
   const classes = ['note-block', `kind-${block.kind.toLowerCase()}`]
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
+  if (matched) classes.push('matched')
 
   return (
     <section
@@ -113,12 +117,14 @@ export function TextBlock({ text, autoFocus, readOnly, onChange }: TextBlockProp
 
 interface ChecklistBlockProps {
   items: ChecklistItem[]
+  /** Search words to mark. */
+  highlight?: string[]
   autoFocus: boolean
   readOnly?: boolean
   onChange: (items: ChecklistItem[]) => Promise<boolean>
 }
 
-export function ChecklistBlock({ items, autoFocus, readOnly, onChange }: ChecklistBlockProps) {
+export function ChecklistBlock({ items, highlight, autoFocus, readOnly, onChange }: ChecklistBlockProps) {
   const [text, setText] = useState('')
   const done = items.filter((i) => i.done).length
 
@@ -145,7 +151,9 @@ export function ChecklistBlock({ items, autoFocus, readOnly, onChange }: Checkli
                 checked={item.done}
                 onChange={() => void onChange(items.map((it, j) => (j === i ? { ...it, done: !it.done } : it)))}
               />
-              <span>{item.text}</span>
+              <span>
+                <Highlight text={item.text} terms={highlight} />
+              </span>
             </label>
             <button
               type="button"
@@ -184,6 +192,8 @@ function webUrl(value: string): URL | null {
 
 interface LinksBlockProps {
   links: NoteLink[]
+  /** Search words to mark. */
+  highlight?: string[]
   /** The post-it the block is on, which is never offered as a link to itself. */
   note: NoteDetail
   notes: NoteDetail[]
@@ -192,7 +202,7 @@ interface LinksBlockProps {
 }
 
 /** Links to web pages and to other post-its. The address field takes a URL or a post-it's link or ID, or finds post-its by title. */
-export function LinksBlock({ links, note, notes, autoFocus, onChange }: LinksBlockProps) {
+export function LinksBlock({ links, highlight, note, notes, autoFocus, onChange }: LinksBlockProps) {
   const [url, setUrl] = useState('')
   const [title, setTitle] = useState('')
   const [invalid, setInvalid] = useState(false)
@@ -238,7 +248,7 @@ export function LinksBlock({ links, note, notes, autoFocus, onChange }: LinksBlo
       <ul className="links">
         {links.map((link, i) => (
           <li key={i}>
-            <LinkRow link={link} notes={notes} />
+            <LinkRow link={link} notes={notes} highlight={highlight} />
             <button
               type="button"
               className="row-remove"
@@ -289,7 +299,7 @@ export function LinksBlock({ links, note, notes, autoFocus, onChange }: LinksBlo
 }
 
 /** One link: a web page opens in a new tab; a post-it opens here, shown with its current title and fill. */
-function LinkRow({ link, notes }: { link: NoteLink; notes: NoteDetail[] }) {
+function LinkRow({ link, notes, highlight }: { link: NoteLink; notes: NoteDetail[]; highlight?: string[] }) {
   const route = noteRoute(link.url)
   if (route) {
     const target = notes.find((n) => n.id === route.noteId)
@@ -298,7 +308,9 @@ function LinkRow({ link, notes }: { link: NoteLink; notes: NoteDetail[] }) {
       <a className="link-row" href={notePath(route).slice(1)}>
         {target ? <span className={`link-swatch fill-${target.color.toLowerCase()}`} aria-hidden="true" /> : <PostItIcon size={16} />}
         <span className="link-text">
-          <span className="link-title">{target?.title ?? link.title}</span>
+          <span className="link-title">
+            <Highlight text={target?.title ?? link.title} terms={highlight} />
+          </span>
           <span className="link-meta">{target ? route.noteId : `On another board · ${route.noteId}`}</span>
         </span>
       </a>
@@ -310,8 +322,12 @@ function LinkRow({ link, notes }: { link: NoteLink; notes: NoteDetail[] }) {
     <a className="link-row" href={parsed?.href} target="_blank" rel="noreferrer noopener">
       <Icon />
       <span className="link-text">
-        <span className="link-title">{link.title}</span>
-        <span className="link-meta">{parsed ? `${parsed.host}${parsed.pathname}` : link.url}</span>
+        <span className="link-title">
+          <Highlight text={link.title} terms={highlight} />
+        </span>
+        <span className="link-meta">
+          <Highlight text={parsed ? `${parsed.host}${parsed.pathname}` : link.url} terms={highlight} />
+        </span>
       </span>
     </a>
   )

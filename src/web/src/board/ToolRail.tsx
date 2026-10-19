@@ -1,6 +1,6 @@
 import type { ComponentType, PointerEvent } from 'react'
 import { noteColors, type NoteColor } from '../api/types'
-import { FrameIcon, ImageIcon, PostItIcon, SelectIcon } from './icons'
+import { FrameIcon, ImageIcon, PostItIcon, SearchIcon, SelectIcon } from './icons'
 import type { Tool } from './tools'
 
 interface ToolDef {
@@ -24,13 +24,16 @@ interface ToolRailProps {
   onFillChange: (fill: NoteColor) => void
   /** Opens the file picker to add images (an action, not a tool you stay in). */
   onAddImage: () => void
-  /** Viewers only get Select. */
+  /** Viewers only get Select and Search. */
   readOnly?: boolean
+  /** Whether the board search is open; the search button opens and closes it. */
+  searching: boolean
+  onSearch: () => void
 }
 
 /** The floating tool rail on the left of the board. */
 export function ToolRail(props: ToolRailProps) {
-  const { tool, onToolChange, fill, onFillChange, onPostItPointerDown, onAddImage, readOnly } = props
+  const { tool, onToolChange, fill, onFillChange, onPostItPointerDown, onAddImage, readOnly, searching, onSearch } = props
   const button = ({ tool: t, label, shortcut, Icon, title }: ToolDef, className = '', onPointerDown?: (e: PointerEvent<HTMLButtonElement>) => void) => (
     <button
       key={t}
@@ -80,6 +83,10 @@ export function ToolRail(props: ToolRailProps) {
           </button>
         </>
       )}
+      <span className="rail-divider" aria-hidden="true" />
+      <button type="button" className="rail-button" aria-label="Search" title="Search (/ or Ctrl+F)" aria-pressed={searching} onClick={onSearch}>
+        <SearchIcon size={18} />
+      </button>
     </nav>
   )
 }

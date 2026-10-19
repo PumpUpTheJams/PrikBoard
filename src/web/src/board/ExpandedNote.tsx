@@ -16,6 +16,7 @@ import { ConfirmDeleteNote } from '../components/ConfirmDialog'
 import { AssigneePicker } from './AssigneePicker'
 import { EditableText } from './EditableText'
 import { draggingFiles, imageFiles } from './files'
+import { Highlight } from './Highlight'
 import { BucketIcon, CheckIcon, CloseIcon, LinkIcon, SparkleIcon } from './icons'
 import { copyText } from './links'
 import { pop } from './motion'
@@ -57,6 +58,8 @@ interface ExpandedNoteProps {
   onClose: () => void
   /** Viewers see the post-it without any way to change it (the API refuses changes anyway). */
   readOnly?: boolean
+  /** Words the board search found on it, to mark (opened from the search results). */
+  highlight?: string[]
   handle: RefObject<ExpandedNoteHandle | null>
   /** Runs a change through the board (which then reloads). */
   run: (action: () => Promise<unknown>) => Promise<boolean>
@@ -76,7 +79,7 @@ interface ExpandedNoteProps {
  * with its blocks and images. The board stays usable, and fully visible, around it.
  */
 export function ExpandedNote(props: ExpandedNoteProps) {
-  const { note, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onClose, readOnly } = props
+  const { note, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onClose, readOnly, highlight } = props
   const { boardTags, people, notes, onRenameTag, onDeleteTag, handle, run, onBusy, incoming, linking, boardPoint, boardZoom } = props
   /** The tag or people window, opened from its button in the band. */
   const [picking, setPicking] = useState<{ kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
@@ -197,17 +200,25 @@ export function ExpandedNote(props: ExpandedNoteProps) {
           <div className="band-row">
             <TagChips
               tags={note.tags}
+              highlight={highlight}
               onRemove={(tag) => void onChange({ tags: note.tags.filter((t) => t !== tag) })}
               onAdd={(anchor) => setPicking({ kind: 'tags', anchor })}
             />
             <AssigneeChips
               assignees={note.assignees}
+              highlight={highlight}
               onRemove={(a) => void onChange({ assigneeIds: note.assignees.filter((x) => x !== a).map((x) => x.principalId) })}
               onAdd={(anchor) => setPicking({ kind: 'people', anchor })}
             />
           </div>
           <div className="band-row band-meta">
-            {note.createdBy ? <span title={new Date(note.createdAt).toLocaleString()}>Created by {note.createdBy}</span> : <span />}
+            {note.createdBy ? (
+              <span title={new Date(note.createdAt).toLocaleString()}>
+                Created by <Highlight text={note.createdBy} terms={highlight} />
+              </span>
+            ) : (
+              <span />
+            )}
             <NoteIdButton note={note} />
           </div>
         </header>
@@ -216,6 +227,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
           note={note}
           images={images}
           notes={notes}
+          highlight={highlight}
           readOnly={readOnly}
           handle={canvas}
           run={run}
@@ -291,17 +303,19 @@ function FillPicker({ value, onChange }: { value: NoteColor; onChange: (color: N
 
 interface TagChipsProps {
   tags: string[]
+  /** Search words to mark. */
+  highlight?: string[]
   onRemove: (tag: string) => void
   /** Opens the tag window next to the button. */
   onAdd: (anchor: DOMRect) => void
 }
 
-function TagChips({ tags, onRemove, onAdd }: TagChipsProps) {
+function TagChips({ tags, highlight, onRemove, onAdd }: TagChipsProps) {
   return (
     <div className="band-tags">
       {tags.map((tag) => (
         <span key={tag} className="band-tag">
-          {tag}
+          <Highlight text={tag} terms={highlight} />
           <button type="button" className="chip-remove" aria-label={`Remove tag ${tag}`} onClick={() => onRemove(tag)}>
             <CloseIcon size={10} />
           </button>
@@ -316,18 +330,20 @@ function TagChips({ tags, onRemove, onAdd }: TagChipsProps) {
 
 interface AssigneeChipsProps {
   assignees: Assignee[]
+  /** Search words to mark. */
+  highlight?: string[]
   onRemove: (assignee: Assignee) => void
   /** Opens the people window next to the button. */
   onAdd: (anchor: DOMRect) => void
 }
 
-function AssigneeChips({ assignees, onRemove, onAdd }: AssigneeChipsProps) {
+function AssigneeChips({ assignees, highlight, onRemove, onAdd }: AssigneeChipsProps) {
   return (
     <div className="band-assignees">
       {assignees.map((a) => (
         <span key={a.principalId} className="band-assignee">
           <Avatar assignee={a} />
-          {a.name}
+          <Highlight text={a.name} terms={highlight} />
           <button type="button" className="chip-remove" aria-label={`Unassign ${a.name}`} onClick={() => onRemove(a)}>
             <CloseIcon size={10} />
           </button>
