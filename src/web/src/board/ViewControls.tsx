@@ -28,17 +28,22 @@ interface ViewControlsProps {
 
 /** Minimap and zoom buttons in the bottom-right corner of the board. */
 export function ViewControls({ zoom, onZoom, onZoomReset, extent, viewport, buckets, notes, dimmed, images, onNavigate }: ViewControlsProps) {
-  const scale = Math.min((MAP_WIDTH - 2 * MAP_PAD) / extent.width, (MAP_HEIGHT - 2 * MAP_PAD) / extent.height)
+  // The map shows the canvas and the view, which can reach into the empty margin around it.
+  const left = Math.min(0, viewport.x)
+  const top = Math.min(0, viewport.y)
+  const width = Math.max(extent.width, viewport.x + viewport.width) - left
+  const height = Math.max(extent.height, viewport.y + viewport.height) - top
+  const scale = Math.min((MAP_WIDTH - 2 * MAP_PAD) / width, (MAP_HEIGHT - 2 * MAP_PAD) / height)
   const toMap = (r: Rect) => ({
-    left: MAP_PAD + r.x * scale,
-    top: MAP_PAD + r.y * scale,
+    left: MAP_PAD + (r.x - left) * scale,
+    top: MAP_PAD + (r.y - top) * scale,
     width: Math.max(2, r.width * scale),
     height: Math.max(2, r.height * scale),
   })
 
   function navigate(e: PointerEvent<HTMLDivElement>) {
     const rect = e.currentTarget.getBoundingClientRect()
-    onNavigate({ x: (e.clientX - rect.left - MAP_PAD) / scale, y: (e.clientY - rect.top - MAP_PAD) / scale })
+    onNavigate({ x: left + (e.clientX - rect.left - MAP_PAD) / scale, y: top + (e.clientY - rect.top - MAP_PAD) / scale })
   }
 
   return (

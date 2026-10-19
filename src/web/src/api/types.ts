@@ -308,6 +308,9 @@ export interface AcceptedInvite {
 
 export type DragKind = 'Note' | 'Bucket' | 'Resize' | 'Image' | 'ImageResize'
 
+/** The corner or edge a resize drags; the opposite one stays where it is, and an edge resizes in its direction only. */
+export type ResizeHandle = 'BottomRight' | 'BottomLeft' | 'TopRight' | 'TopLeft' | 'Top' | 'Right' | 'Bottom' | 'Left'
+
 /** Someone looking at a board right now (listed once, however many tabs they have open). */
 export interface LiveViewer {
   principalId: string
@@ -339,6 +342,8 @@ export interface DragUpdate {
   id: string
   dx: number
   dy: number
+  /** For Resize and ImageResize: the corner or edge being dragged (default BottomRight). */
+  handle?: ResizeHandle
 }
 
 export interface RemoteDrag extends DragUpdate {

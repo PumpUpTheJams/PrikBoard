@@ -35,7 +35,9 @@ public record CreateBucketRequest(
 
 /// <summary>
 /// Renames, recolours, moves and/or resizes a bucket. Omitted (null) fields stay unchanged.
-/// Moving a bucket carries its notes along; afterwards every note belongs to whichever bucket now contains its centre.
+/// Moving a bucket carries its notes along. Giving a new X or Y together with a new Width or Height resizes it from a
+/// top or left corner or edge instead, and its notes stay where they are. Afterwards every note belongs to whichever bucket now
+/// contains its centre.
 /// </summary>
 /// <param name="Name">New name.</param>
 /// <param name="Color">New outline colour.</param>

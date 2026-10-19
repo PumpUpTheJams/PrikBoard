@@ -1,9 +1,10 @@
 import { useState, type FormEvent, type PointerEvent, type ReactNode } from 'react'
-import type { ChecklistItem, NoteBlock, NoteDetail, NoteLink, Rect } from '../api/types'
+import type { ChecklistItem, NoteBlock, NoteDetail, NoteLink, Rect, ResizeHandle } from '../api/types'
 import { blockKinds } from './blockKinds'
 import { EditableText } from './EditableText'
-import { CloseIcon, LinkIcon, PostItIcon, PullRequestIcon, ResizeIcon, TrashIcon } from './icons'
+import { CloseIcon, LinkIcon, PostItIcon, PullRequestIcon, TrashIcon } from './icons'
 import { isNoteId, notePath, noteRoute, type NoteRoute } from './links'
+import { ResizeHandles } from './ResizeHandles'
 
 interface BlockFrameProps {
   block: NoteBlock
@@ -14,7 +15,8 @@ interface BlockFrameProps {
   readOnly?: boolean
   /** A press on the header (outside the title) starts moving the block. */
   onHeadPointerDown: (e: PointerEvent<HTMLElement>) => void
-  onResizePointerDown: (e: PointerEvent<HTMLElement>) => void
+  /** A press on a corner or edge handle (shown while selected) starts resizing from there. */
+  onResizePointerDown: (e: PointerEvent<HTMLElement>, handle: ResizeHandle) => void
   /** Any press inside the block selects it. */
   onSelect: () => void
   onTitle: (title: string) => void
@@ -49,11 +51,7 @@ export function BlockFrame(props: BlockFrameProps) {
         )}
       </header>
       <div className="block-body">{children}</div>
-      {!readOnly && (
-        <button type="button" className="block-resize" aria-label={`Resize ${block.title ?? label}`} onPointerDown={onResizePointerDown}>
-          <ResizeIcon size={12} />
-        </button>
-      )}
+      {selected && !readOnly && <ResizeHandles onPointerDown={onResizePointerDown} />}
     </section>
   )
 }

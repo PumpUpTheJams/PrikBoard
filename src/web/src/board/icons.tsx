@@ -37,12 +37,6 @@ export const SelectIcon = ({ size = 18 }: IconProps) => (
   </Icon>
 )
 
-export const PanIcon = ({ size = 18 }: IconProps) => (
-  <Icon size={size}>
-    <path d="M8 12V5.5a1.5 1.5 0 0 1 3 0V11M11 11V4.5a1.5 1.5 0 0 1 3 0V11M14 11V6a1.5 1.5 0 0 1 3 0v8a6 6 0 0 1-6 6h-.5a6 6 0 0 1-5-2.7L3.3 14.5a1.5 1.5 0 0 1 2.4-1.8L8 15" />
-  </Icon>
-)
-
 export const FrameIcon = ({ size = 18 }: IconProps) => (
   <Icon size={size}>
     <rect x="3" y="4" width="18" height="16" rx="2" />
@@ -150,12 +144,6 @@ export const UserIcon = ({ size = 16 }: IconProps) => (
   <Icon size={size} width={2.2}>
     <circle cx="12" cy="8" r="4" />
     <path d="M4 21a8 8 0 0 1 16 0" />
-  </Icon>
-)
-
-export const ResizeIcon = ({ size = 14 }: IconProps) => (
-  <Icon size={size} width={2.2}>
-    <path d="M20 10L10 20M20 16l-4 4" />
   </Icon>
 )
 

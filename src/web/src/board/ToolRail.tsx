@@ -1,6 +1,6 @@
-import type { ComponentType } from 'react'
+import type { ComponentType, PointerEvent } from 'react'
 import { noteColors, type NoteColor } from '../api/types'
-import { FrameIcon, ImageIcon, PanIcon, PostItIcon, RulesIcon, SelectIcon } from './icons'
+import { FrameIcon, ImageIcon, PostItIcon, RulesIcon, SelectIcon } from './icons'
 import type { Tool } from './tools'
 
 interface ToolDef {
@@ -8,18 +8,19 @@ interface ToolDef {
   label: string
   shortcut: string
   Icon: ComponentType
+  /** Tooltip; default the label and shortcut. */
+  title?: string
 }
 
-const navigation: ToolDef[] = [
-  { tool: 'select', label: 'Select', shortcut: 'V', Icon: SelectIcon },
-  { tool: 'pan', label: 'Pan', shortcut: 'H', Icon: PanIcon },
-]
+const navigation: ToolDef[] = [{ tool: 'select', label: 'Select', shortcut: 'V', Icon: SelectIcon }]
 
 interface ToolRailProps {
   tool: Tool
   onToolChange: (tool: Tool) => void
   /** Fill for new post-its. */
   fill: NoteColor
+  /** A press on the post-it button: dragging from there sticks a new post-it where it is released. */
+  onPostItPointerDown?: (e: PointerEvent<HTMLButtonElement>) => void
   onFillChange: (fill: NoteColor) => void
   /** Opens the file picker to add images (an action, not a tool you stay in). */
   onAddImage: () => void
@@ -27,20 +28,22 @@ interface ToolRailProps {
   onOpenRules: () => void
   /** Whether the board has agent rules (shows a dot on the button). */
   hasRules: boolean
-  /** Viewers only get Select, Pan and the rules. */
+  /** Viewers only get Select and the rules. */
   readOnly?: boolean
 }
 
 /** The floating tool rail on the left of the board. */
-export function ToolRail({ tool, onToolChange, fill, onFillChange, onAddImage, onOpenRules, hasRules, readOnly }: ToolRailProps) {
-  const button = ({ tool: t, label, shortcut, Icon }: ToolDef, className = '') => (
+export function ToolRail(props: ToolRailProps) {
+  const { tool, onToolChange, fill, onFillChange, onPostItPointerDown, onAddImage, onOpenRules, hasRules, readOnly } = props
+  const button = ({ tool: t, label, shortcut, Icon, title }: ToolDef, className = '', onPointerDown?: (e: PointerEvent<HTMLButtonElement>) => void) => (
     <button
       key={t}
       type="button"
       className={`rail-button ${className}`}
       aria-label={label}
-      title={`${label} (${shortcut})`}
+      title={title ?? `${label} (${shortcut})`}
       aria-pressed={tool === t}
+      onPointerDown={onPointerDown}
       onClick={() => onToolChange(t)}
     >
       <Icon />
@@ -54,7 +57,11 @@ export function ToolRail({ tool, onToolChange, fill, onFillChange, onAddImage, o
         <>
           <span className="rail-divider" aria-hidden="true" />
           <div className="rail-note">
-            {button({ tool: 'note', label: 'Post-it', shortcut: 'N', Icon: PostItIcon }, `tone-${fill.toLowerCase()}`)}
+            {button(
+              { tool: 'note', label: 'Post-it', shortcut: 'N', Icon: PostItIcon, title: 'Post-it (N): drag it onto the board, or click here and then on the board' },
+              `tone-${fill.toLowerCase()}`,
+              onPostItPointerDown,
+            )}
             {tool === 'note' && (
               <div className="fill-flyout" role="group" aria-label="Fill for new post-its">
                 {noteColors.map((c) => (
