@@ -2,6 +2,8 @@
 
 Your PrikBoard boards, buckets and notes in the side bar. Work in progress.
 
+**Assigned to you**, at the top of the tree, lists the notes assigned to you on all your boards, with the board and bucket next to each. It uses who you are signed in as (`whoAmI`), so it shows your own notes after **Sign in**, or the agent's after signing in with an agent's access token.
+
 On boards where you are an Editor or Owner you can, from the tree:
 
 - add a note to a bucket (the **+** on the bucket row),
