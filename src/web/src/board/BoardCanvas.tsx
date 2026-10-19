@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../api/client'
 import type { BoardDetail, BoardTag, BucketDetail, DragKind, DragUpdate, ImageDetail, NoteColor, NoteDetail, Point, Rect, ResizeHandle } from '../api/types'
@@ -8,6 +8,7 @@ import { ConfirmDeleteNote, ConfirmDialog } from '../components/ConfirmDialog'
 import { Toast, type ToastMessage } from '../components/Toast'
 import { AssigneePicker } from './AssigneePicker'
 import { BoardImageView } from './BoardImageView'
+import { BoardSearch, type SearchResult } from './BoardSearch'
 import { ExpandedNote, type ExpandedNoteHandle } from './ExpandedNote'
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
 import { delta, isDrag } from './gesture'
@@ -32,6 +33,7 @@ import {
 import { PostIt } from './PostIt'
 import { resizeCursor } from './resizeCursor'
 import { ResizeHandles } from './ResizeHandles'
+import { matchNote, searchTerms, type SearchField } from './search'
 import { TagFilter } from './TagFilter'
 import { TagPicker } from './TagPicker'
 import { ToolRail } from './ToolRail'
@@ -84,6 +86,8 @@ interface Pan {
 const CANVAS_MARGIN = 600
 /** Screen space left of the canvas, so the tool rail doesn't cover the left edge of the board. */
 const RAIL_INSET = 72
+/** Room above the board while searching, so a post-it at the top can be scrolled below the list of results. */
+const SEARCH_MARGIN = 480
 /** Where a new image's top-left goes relative to the point it was dropped, pasted or added at. */
 const IMAGE_OFFSET = { x: 180, y: 120 }
 
@@ -114,7 +118,21 @@ function caretAt(x: number, y: number): number | undefined {
   const position = document.caretPositionFromPoint?.(x, y)
   const node = position?.offsetNode ?? document.caretRangeFromPoint?.(x, y)?.startContainer
   const offset = position?.offset ?? document.caretRangeFromPoint?.(x, y)?.startOffset
-  return node?.parentElement?.closest('.post-it-title') ? offset : undefined
+  const title = node?.parentElement?.closest('.post-it-title')
+  if (!node || offset === undefined || !title) return undefined
+  // Search marks split the title into several pieces of text, so count from the start of the title.
+  const range = document.createRange()
+  range.setStart(title, 0)
+  range.setEnd(node, offset)
+  return range.toString().length
+}
+
+/** A rectangle in the board's viewport, in screen pixels. */
+interface Box {
+  left: number
+  top: number
+  right: number
+  bottom: number
 }
 
 interface BoardCanvasProps {
@@ -144,6 +162,20 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
   const [quickEdit, setQuickEdit] = useState<{ noteId: string; kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
   /** Tags to filter on: post-its with none of them fade. Not kept: every board starts unfiltered. */
   const [tagFilter, setTagFilter] = useState<string[]>([])
+  /**
+   * The search (BoardSearch): closed (null), or its words, the result picked (null: the first), and whether its list of
+   * results shows. Not kept either.
+   */
+  const [search, setSearch] = useState<{ query: string; current: string | null; listOpen: boolean } | null>(null)
+  const searchInput = useRef<HTMLInputElement>(null)
+  /** Focus for the search field after the next render: with its words selected, or the text cursor at the end. */
+  const focusSearch = useRef<'select' | 'end' | null>(null)
+  /** Scroll the result being looked at into view after the next render, once the list of results has its new size. */
+  const revealPending = useRef(false)
+  /** Where a smooth scroll to a result is heading: quick key repeats are measured from there, not from a frame halfway. */
+  const revealTarget = useRef<{ left: number; top: number; until: number } | null>(null)
+  /** The search, hints and view-only badge at the top of the board. */
+  const boardTop = useRef<HTMLDivElement>(null)
   /** The post-it whose title is being edited in place, and where the text cursor starts (default: the end). */
   const [titleEdit, setTitleEdit] = useState<{ id: string; caret?: number } | null>(null)
   /** The post-it whose title the current press started on: a click there (no drag) edits the title. */
@@ -173,9 +205,10 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
   const canvasRef = useRef<HTMLDivElement>(null)
   /**
    * Empty space around the board, half the viewport on every side (screen pixels): zoomed out, or near an edge, the
-   * board can still be scrolled so any part of it, its top-left corner too, sits in the middle of the screen.
+   * board can still be scrolled so any part of it, its top-left corner too, sits in the middle of the screen. While
+   * searching there is more room above, so a post-it at the top can be scrolled below the list of results.
    */
-  const margin = { x: Math.round(view.width / 2), y: Math.round(view.height / 2) }
+  const margin = { x: Math.round(view.width / 2), y: Math.round(Math.max(view.height / 2, search ? SEARCH_MARGIN : 0)) }
   /** Where the canvas's top-left corner is in the scrolled area: the margin, and the tool rail's room on the left. */
   const origin = { x: margin.x + RAIL_INSET, y: margin.y }
   // The wheel zooms the board (Shift + wheel scrolls). A quick-edit window sits next to the post-it on screen; after
@@ -263,6 +296,39 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
+  })
+
+  // "/" or Ctrl/Cmd+F opens the search, or selects its words. Fields, menus and other windows keep those keys; the open
+  // post-it gives way to the search.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const find = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'f'
+      const slash = e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey
+      if (!find && !slash) return
+      const target = e.target instanceof Element ? e.target : null
+      if (target && target === searchInput.current) {
+        if (find) {
+          e.preventDefault()
+          searchInput.current.select()
+        }
+        return
+      }
+      if (pendingDelete || target?.closest('input, textarea, select, [role="menu"], [role="alertdialog"]')) return
+      if (target?.closest('[role="dialog"]') && !target.closest('.expanded')) return
+      e.preventDefault()
+      openSearch()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  })
+
+  useLayoutEffect(() => {
+    const input = searchInput.current
+    if (!focusSearch.current || !input) return
+    input.focus({ preventScroll: true })
+    if (focusSearch.current === 'select') input.select()
+    else input.setSelectionRange(input.value.length, input.value.length)
+    focusSearch.current = null
   })
 
   // Pasting an image puts it on the board where the pointer was, or on the open post-it when the pointer or focus is there.
@@ -515,6 +581,86 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
     setExpanded({ id, fresh: false })
   }
 
+  /** Closes the open post-it; while searching, back to the results. */
+  function closeExpanded() {
+    setExpanded(null)
+    if (!search) return
+    setSearch({ ...search, listOpen: true })
+    focusSearch.current = 'end'
+  }
+
+  /** Opens the search with its words selected. An open post-it closes: nothing in it was being typed into. */
+  function openSearch() {
+    setExpanded(null)
+    setSearch((s) => ({ query: s?.query ?? '', current: s?.current ?? null, listOpen: true }))
+    focusSearch.current = 'select'
+  }
+
+  function closeSearch() {
+    setSearch(null)
+    revealTarget.current = null
+  }
+
+  function changeQuery(query: string) {
+    setSearch((s) => s && { ...s, query, listOpen: true })
+    revealPending.current = true
+  }
+
+  /** Moves through the results, wrapping around; the board scrolls to the new one. */
+  function moveInResults(direction: 1 | -1) {
+    if (!search) return
+    const i = results.findIndex((r) => r.note.id === current)
+    const next = results.length > 0 ? results[(i + direction + results.length) % results.length].note.id : null
+    setSearch({ ...search, current: next, listOpen: true })
+    revealPending.current = true
+  }
+
+  /** Opens a result as a post-it opens anywhere. The search keeps its words, so Escape comes back to the same results. */
+  function openResult(id: string) {
+    setSearch((s) => s && { ...s, current: id, listOpen: false })
+    // Out of the field, so Escape and typing go to the post-it, not to the search behind it.
+    searchInput.current?.blur()
+    expand(id)
+  }
+
+  /**
+   * Scrolls the board so a post-it is on screen and not under the search, its results or another floating control. When
+   * it has to move, it lands in the middle of the space below the search.
+   */
+  function reveal(id: string) {
+    const el = scrollRef.current
+    const note = board.notes.find((n) => n.id === id)
+    if (!el || !note) return
+    const frame = el.getBoundingClientRect()
+    const target = revealTarget.current && revealTarget.current.until > performance.now() ? revealTarget.current : null
+    const from = target ?? { left: el.scrollLeft, top: el.scrollTop }
+    const at = notePoint(note)
+    const left = at.x * zoom + origin.x - from.left
+    const top = at.y * zoom + origin.y - from.top
+    const card: Box = { left, top, right: left + NOTE_WIDTH * zoom, bottom: top + NOTE_HEIGHT * zoom }
+    // Floating controls, with a little room around them.
+    const around = (node: Element | null | undefined): Box | null => {
+      const r = node?.getBoundingClientRect()
+      if (!r || r.width === 0) return null
+      return { left: r.left - frame.left - 8, top: r.top - frame.top - 8, right: r.right - frame.left + 8, bottom: r.bottom - frame.top + 8 }
+    }
+    const section = el.parentElement
+    const stack = around(boardTop.current)
+    const rail = around(section?.querySelector('.tool-rail'))
+    const covers = [stack, rail, around(section?.querySelector('.view-controls')), around(section?.querySelector('.tag-filter'))]
+    const covered = covers.some((r) => r && card.left < r.right && card.right > r.left && card.top < r.bottom && card.bottom > r.top)
+    if (!covered && card.left >= 0 && card.top >= 0 && card.right <= el.clientWidth && card.bottom <= el.clientHeight) return
+    const area: Box = { left: rail?.right ?? 16, top: stack?.bottom ?? 16, right: el.clientWidth - 16, bottom: el.clientHeight - 16 }
+    const x = (area.left + area.right) / 2
+    const y = Math.max(area.top + (NOTE_HEIGHT * zoom) / 2, (area.top + area.bottom) / 2)
+    const to = {
+      left: Math.min(Math.max(0, (at.x + NOTE_WIDTH / 2) * zoom + origin.x - x), el.scrollWidth - el.clientWidth),
+      top: Math.min(Math.max(0, (at.y + NOTE_HEIGHT / 2) * zoom + origin.y - y), el.scrollHeight - el.clientHeight),
+    }
+    revealTarget.current = { ...to, until: performance.now() + 600 }
+    el.scrollTo({ ...to, behavior: reducedMotion() ? 'auto' : 'smooth' })
+  }
+
   function beginGesture(e: PointerEvent, target: GestureTarget) {
     setQuickEdit(null)
     const point = toCanvas(e)
@@ -533,6 +679,8 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
     e.preventDefault()
     // preventDefault keeps focus where it is, so let a title being edited go (it saves on blur).
     if (titleEdit && document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    // A press on a search result makes it the one being looked at.
+    if (kind === 'note' && search && results.some((r) => r.note.id === id)) setSearch({ ...search, current: id, listOpen: false })
     if (readOnly) {
       // Post-its can still be selected (and opened with Enter); nothing moves and no panels open.
       if (kind === 'note') {
@@ -779,7 +927,31 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
   const countIn = (bucketId: string) => board.notes.filter((n) => n.bucketId === bucketId).length
   // Filter on tags that still exist (one may have been renamed or deleted meanwhile); any of them matches.
   const filter = tagFilter.filter((t) => board.tags.some((bt) => bt.name === t))
-  const dimmed = (note: NoteDetail) => filter.length > 0 && !note.tags.some((t) => filter.includes(t))
+  const tagFaded = (note: NoteDetail) => filter.length > 0 && !note.tags.some((t) => filter.includes(t))
+  // The search fades the post-its without its words too. Its results are the matches the tag filter lets through, in
+  // board order (bucket by bucket, loose post-its last).
+  const terms = useMemo(() => searchTerms(search?.query ?? ''), [search?.query])
+  const matches = useMemo(() => {
+    const found = new Map<string, SearchField[]>()
+    if (terms.length === 0) return found
+    for (const note of board.notes) {
+      const fields = matchNote(note, terms)
+      if (fields) found.set(note.id, fields)
+    }
+    return found
+  }, [board.notes, terms])
+  const dimmed = (note: NoteDetail) => tagFaded(note) || (terms.length > 0 && !matches.has(note.id))
+  const results: SearchResult[] = board.notes
+    .filter((n) => matches.has(n.id) && !tagFaded(n))
+    .map((note) => ({ note, fields: matches.get(note.id)! }))
+  /** The result being looked at: the one picked, or else the first. */
+  const current = results.find((r) => r.note.id === search?.current)?.note.id ?? results[0]?.note.id ?? null
+
+  useLayoutEffect(() => {
+    if (!revealPending.current) return
+    revealPending.current = false
+    if (current) reveal(current)
+  })
   const quickNote = quickEdit && board.notes.find((n) => n.id === quickEdit.noteId)
   const hint = uploads > 0 ? 'Uploading…' : fileOver ? 'Drop to add the image here' : readOnly ? undefined : hints[tool]
 
@@ -931,6 +1103,8 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
                 selected={selection?.kind === 'note' && selection.id === note.id}
                 lifted={(draggedNote?.note.id === note.id && !dragging?.done) || remoteDrags.some((r) => r.id === note.id && !r.endedAt)}
                 dimmed={dimmed(note)}
+                highlight={matches.has(note.id) ? terms : undefined}
+                current={note.id === current}
                 dropTarget={imageTarget?.id === note.id || (linkDrop?.window === false && linkDrop.note.id === note.id)}
                 onPointerDown={(e) => onItemPointerDown(e, 'note', note.id)}
                 onExpand={() => expand(note.id)}
@@ -967,16 +1141,41 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
         onPostItPointerDown={onPostItPointerDown}
         onAddImage={() => void addImagesFromPicker()}
         readOnly={readOnly}
+        searching={!!search}
+        onSearch={() => (search ? closeSearch() : openSearch())}
       />
       <TagFilter
         boardTags={board.tags}
         value={filter}
         onChange={setTagFilter}
-        matching={board.notes.filter((n) => !dimmed(n)).length}
+        matching={board.notes.filter((n) => !tagFaded(n)).length}
         total={board.notes.length}
       />
-      {readOnly && <div className="read-only-badge">View only</div>}
-      {hint && <div className="canvas-hint">{hint}</div>}
+      <div className="board-top" ref={boardTop}>
+        {search && (
+          <BoardSearch
+            inputRef={searchInput}
+            query={search.query}
+            onQueryChange={changeQuery}
+            terms={terms}
+            results={results}
+            current={current}
+            listOpen={search.listOpen && !expandedNote}
+            onListOpenChange={(listOpen) => setSearch((s) => s && { ...s, listOpen })}
+            onMove={moveInResults}
+            onOpen={openResult}
+            onClose={closeSearch}
+            faded={board.notes.filter((n) => matches.has(n.id) && tagFaded(n)).length}
+            onClearFilter={() => {
+              setTagFilter([])
+              revealPending.current = true
+            }}
+            bucketName={(note) => board.buckets.find((b) => b.id === note.bucketId)?.name ?? 'Loose'}
+          />
+        )}
+        {readOnly && <div className="read-only-badge">View only</div>}
+        {hint && <div className="canvas-hint">{hint}</div>}
+      </div>
       <ViewControls
         zoom={zoom}
         onZoom={(direction) => zoomTo(stepZoom(zoom, direction))}
@@ -986,6 +1185,7 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
         buckets={board.buckets}
         notes={board.notes}
         dimmed={dimmed}
+        current={current}
         images={images.map((i) => i.image)}
         onNavigate={(center) => {
           const el = scrollRef.current!
@@ -1065,8 +1265,9 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
           onDelete={() => deleteNote(expandedNote.id)}
           onAddImages={(files, at) => void addImages(files, { noteId: expandedNote.id, at })}
           onPickImages={() => void addImagesFromPicker({ noteId: expandedNote.id })}
-          onClose={() => setExpanded(null)}
+          onClose={closeExpanded}
           readOnly={readOnly}
+          highlight={matches.has(expandedNote.id) ? terms : undefined}
         />
       )}
 

@@ -13,6 +13,7 @@ import { blockKinds } from './blockKinds'
 import { BlockFrame, ChecklistBlock, LinksBlock, TextBlock } from './NoteBlocks'
 import { NoteBar } from './NoteBar'
 import { resizeCursor } from './resizeCursor'
+import { blockMatches } from './search'
 import { useZoom } from './useZoom'
 import { stepZoom, ZOOM_LEVELS } from './zoom'
 
@@ -70,6 +71,8 @@ interface NoteCanvasProps {
   /** The post-its on the board, to link to. */
   notes: NoteDetail[]
   readOnly?: boolean
+  /** Search words to point out: blocks they occur in get an outline, and checklists and links mark them. */
+  highlight?: string[]
   handle: RefObject<NoteCanvasHandle | null>
   /** Runs a change through the board (which then reloads). */
   run: (action: () => Promise<unknown>) => Promise<boolean>
@@ -87,7 +90,7 @@ interface NoteCanvasProps {
 
 /** The post-it's own small board: its blocks and images, moved and resized like items on the board, with zoom and pan. */
 export function NoteCanvas(props: NoteCanvasProps) {
-  const { note, images, notes, readOnly, handle, run, onBusy, incoming, onAddImages, onPickImages, boardPoint, boardZoom, onDeletePostIt } = props
+  const { note, images, notes, readOnly, highlight, handle, run, onBusy, incoming, onAddImages, onPickImages, boardPoint, boardZoom, onDeletePostIt } = props
   const [selection, setSelection] = useState<{ kind: 'block' | 'image'; id: string } | null>(null)
   const [gesture, setGesture] = useState<Gesture | null>(null)
   const [pan, setPan] = useState<Pan | null>(null)
@@ -368,6 +371,7 @@ export function NoteCanvas(props: NoteCanvasProps) {
                 rect={rect}
                 selected={selection?.kind === 'block' && selection.id === block.id}
                 lifted={dragging?.id === block.id}
+                matched={!!highlight && blockMatches(block, highlight)}
                 readOnly={readOnly}
                 onHeadPointerDown={(e) => onItemPointerDown(e, 'block', block.id)}
                 onResizePointerDown={(e, handle) => onItemPointerDown(e, 'block-resize', block.id, handle)}
@@ -386,6 +390,7 @@ export function NoteCanvas(props: NoteCanvasProps) {
                 {block.kind === 'Checklist' && (
                   <ChecklistBlock
                     items={block.items ?? []}
+                    highlight={highlight}
                     autoFocus={focusBlock === block.id}
                     readOnly={readOnly}
                     onChange={(items) => saveBlock(block, { items })}
@@ -394,6 +399,7 @@ export function NoteCanvas(props: NoteCanvasProps) {
                 {block.kind === 'Links' && (
                   <LinksBlock
                     links={block.links ?? []}
+                    highlight={highlight}
                     note={note}
                     notes={notes}
                     autoFocus={focusBlock === block.id}
