@@ -170,7 +170,7 @@ public static class ImageEndpoints
     }
 
     /// <summary>Just the file name part, without control characters; a generic name when none is usable.</summary>
-    private static string CleanFileName(string? fileName, string contentType)
+    internal static string CleanFileName(string? fileName, string contentType)
     {
         var name = new string(Path.GetFileName(fileName ?? "").Where(c => !char.IsControl(c)).ToArray()).Trim();
         return name.Length > 0 ? Truncate(name, 255) : $"image.{contentType["image/".Length..].Replace("jpeg", "jpg")}";

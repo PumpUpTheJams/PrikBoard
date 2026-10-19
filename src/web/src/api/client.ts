@@ -86,6 +86,13 @@ export function setLiveConnectionId(id: string | null) {
 
 /** A JSON request, or with a Blob body the file itself (sent with the file's own content type). */
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const response = await send(method, path, body)
+  const text = await response.text()
+  return (text ? JSON.parse(text) : undefined) as T
+}
+
+/** Sends the request and throws an ApiError unless the answer is a success. */
+async function send(method: string, path: string, body?: unknown): Promise<Response> {
   const headers: Record<string, string> = { ...(await config.headers?.()) }
   if (body !== undefined) headers['Content-Type'] = body instanceof Blob ? body.type : 'application/json'
   if (method !== 'GET' && liveConnectionId) headers['X-PrikBoard-Live'] = liveConnectionId
@@ -102,8 +109,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     throw new ApiError(response.status, firstError ?? problem?.detail ?? problem?.title ?? response.statusText)
   }
 
-  const text = await response.text()
-  return (text ? JSON.parse(text) : undefined) as T
+  return response
 }
 
 // Method names match the operationIds in the OpenAPI document.
@@ -126,6 +132,15 @@ export const api = {
   updateBoard: (boardId: string, changes: { name?: string; description?: string; rules?: string }) =>
     request<BoardSummary>('PATCH', `/boards/${boardId}`, changes),
   deleteBoard: (boardId: string) => request<void>('DELETE', `/boards/${boardId}`),
+  /** The board as one file to save: its content with images, but no people. */
+  exportBoard: async (boardId: string) => {
+    const response = await send('GET', `/boards/${boardId}/export`)
+    const name = response.headers.get('Content-Disposition')?.match(/filename\*=(?:UTF-8'')?([^;]+)/i)?.[1]
+    return { blob: await response.blob(), fileName: name ? decodeURIComponent(name) : 'board.prikboard.json' }
+  },
+  /** Makes a new board you own from a file made by exportBoard. The file is sent as it is, as JSON. */
+  importBoard: async (file: Blob) =>
+    request<BoardDetail>('POST', '/boards/import', new Blob([await file.text()], { type: 'application/json' })),
 
   createBucket: (boardId: string, bucket: { name: string; color?: BucketColor } & Partial<Rect>) =>
     request<BucketDetail>('POST', `/boards/${boardId}/buckets`, bucket),

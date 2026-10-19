@@ -17,13 +17,18 @@ public static class NoteLinks
     private static bool IsWebUrl(string url) =>
         Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 
-    private static bool IsNotePath(string url)
+    /// <summary>Whether the link is another note's path, and which note that is.</summary>
+    public static bool TryGetNoteId(string url, out Guid noteId)
     {
+        noteId = Guid.Empty;
+        url = url.Trim();
         if (!url.StartsWith(BoardsPrefix, StringComparison.Ordinal)) return false;
         var rest = url[BoardsPrefix.Length..];
         var split = rest.IndexOf(NotesSegment, StringComparison.Ordinal);
         return split > 0
             && Guid.TryParseExact(rest[..split], "D", out _)
-            && Guid.TryParseExact(rest[(split + NotesSegment.Length)..], "D", out _);
+            && Guid.TryParseExact(rest[(split + NotesSegment.Length)..], "D", out noteId);
     }
+
+    private static bool IsNotePath(string url) => TryGetNoteId(url, out _);
 }

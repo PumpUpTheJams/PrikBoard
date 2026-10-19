@@ -172,7 +172,19 @@ export const SignOutIcon = ({ size = 14 }: IconProps) => (
   </Icon>
 )
 
-export const ExternalIcon = ({ size = 14 }: IconProps) => (
+export const DownloadIcon = ({ size = 14 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M12 4v11M7 11l5 5 5-5M5 20h14" />
+  </Icon>
+)
+
+export const UploadIcon = ({ size = 14 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M12 16V5M7 9l5-5 5 5M5 20h14" />
+  </Icon>
+)
+
+export const ExternalIcon =({ size = 14 }: IconProps) => (
   <Icon size={size}>
     <path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6" />
   </Icon>
