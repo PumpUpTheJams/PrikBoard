@@ -168,6 +168,21 @@ public class AdminApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
+    public async Task Admins_see_avatars_and_deleting_a_user_deletes_their_picture()
+    {
+        var admin = await Admin();
+        var pictured = await factory.CreateSignedInClientAsync("pictured@example.com", avatar: PrikBoardApiFactory.GitHubAvatar);
+        var me = await pictured.MeAsync();
+        Assert.NotNull(me.AvatarUrl);
+
+        var users = await admin.GetFromJsonAsync<List<AdminUser>>("/api/admin/users");
+        Assert.Equal(me.AvatarUrl, users!.Single(u => u.Id == me.Id).AvatarUrl);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/admin/users/{me.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.GetAsync(me.AvatarUrl)).StatusCode);
+    }
+
+    [Fact]
     public async Task Admins_cannot_delete_themselves()
     {
         var admin = await Admin();
