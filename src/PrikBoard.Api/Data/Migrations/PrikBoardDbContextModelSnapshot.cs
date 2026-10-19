@@ -238,6 +238,31 @@ namespace PrikBoard.Api.Data.Migrations
                     b.ToTable("BoardMembers");
                 });
 
+            modelBuilder.Entity("PrikBoard.Api.Domain.BoardTag", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BoardId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BoardId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("BoardTags");
+                });
+
             modelBuilder.Entity("PrikBoard.Api.Domain.Bucket", b =>
                 {
                     b.Property<Guid>("Id")
@@ -302,6 +327,10 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Property<bool>("AgentWorking")
                         .HasColumnType("boolean");
 
+                    b.PrimitiveCollection<List<Guid>>("AssigneeIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]");
+
                     b.Property<Guid>("BoardId")
                         .HasColumnType("uuid");
 
@@ -319,6 +348,9 @@ namespace PrikBoard.Api.Data.Migrations
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid");
 
                     b.PrimitiveCollection<List<string>>("Tags")
                         .IsRequired()
@@ -343,6 +375,8 @@ namespace PrikBoard.Api.Data.Migrations
                     b.HasIndex("BoardId");
 
                     b.HasIndex("BucketId");
+
+                    b.HasIndex("CreatedById");
 
                     b.ToTable("Notes");
                 });
@@ -530,6 +564,17 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Navigation("Principal");
                 });
 
+            modelBuilder.Entity("PrikBoard.Api.Domain.BoardTag", b =>
+                {
+                    b.HasOne("PrikBoard.Api.Domain.Board", "Board")
+                        .WithMany("Tags")
+                        .HasForeignKey("BoardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Board");
+                });
+
             modelBuilder.Entity("PrikBoard.Api.Domain.Bucket", b =>
                 {
                     b.HasOne("PrikBoard.Api.Domain.Board", "Board")
@@ -563,30 +608,10 @@ namespace PrikBoard.Api.Data.Migrations
                         .HasForeignKey("BucketId")
                         .OnDelete(DeleteBehavior.SetNull);
 
-                    b.OwnsMany("PrikBoard.Api.Domain.AssigneeEntry", "Assignees", b1 =>
-                        {
-                            b1.Property<Guid>("NoteId");
-
-                            b1.Property<int>("__synthesizedOrdinal")
-                                .ValueGeneratedOnAdd();
-
-                            b1.Property<string>("Kind")
-                                .IsRequired();
-
-                            b1.Property<string>("Name")
-                                .IsRequired();
-
-                            b1.HasKey("NoteId", "__synthesizedOrdinal");
-
-                            b1.ToTable("Notes");
-
-                            b1
-                                .ToJson("Assignees")
-                                .HasColumnType("jsonb");
-
-                            b1.WithOwner()
-                                .HasForeignKey("NoteId");
-                        });
+                    b.HasOne("PrikBoard.Api.Domain.Principal", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.OwnsMany("PrikBoard.Api.Domain.ChecklistEntry", "Checklist", b1 =>
                         {
@@ -637,11 +662,11 @@ namespace PrikBoard.Api.Data.Migrations
                                 .HasForeignKey("NoteId");
                         });
 
-                    b.Navigation("Assignees");
-
                     b.Navigation("Board");
 
                     b.Navigation("Checklist");
+
+                    b.Navigation("CreatedBy");
 
                     b.Navigation("Links");
                 });
@@ -674,6 +699,8 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Navigation("Members");
 
                     b.Navigation("Notes");
+
+                    b.Navigation("Tags");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.BoardImage", b =>

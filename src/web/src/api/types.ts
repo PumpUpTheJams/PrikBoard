@@ -29,6 +29,27 @@ export interface BoardDetail extends BoardSummary {
   notes: NoteDetail[]
   /** On the canvas (noteId null) and attached to notes, oldest first. */
   images: ImageDetail[]
+  /** The board's tags by name, with how many notes use each. Notes pick their tags from these. */
+  tags: BoardTag[]
+  /** Who can be assigned: you first, then people, then agents. */
+  people: BoardPerson[]
+}
+
+/** A tag defined on a board; it stays when no note uses it. */
+export interface BoardTag {
+  id: string
+  name: string
+  noteCount: number
+}
+
+/** Someone who can be assigned to notes on a board: a member, or the agent of a member's access token. */
+export interface BoardPerson {
+  principalId: string
+  name: string
+  kind: AssigneeKind
+  isYou: boolean
+  /** For an access token's agent: the person whose token it is. */
+  ownerId: string | null
 }
 
 /** File types the API accepts for images. */
@@ -84,6 +105,8 @@ export interface BucketDetail {
 export type AssigneeKind = 'Person' | 'Agent'
 
 export interface Assignee {
+  principalId: string
+  /** Their current display name, or "Unknown". */
   name: string
   kind: AssigneeKind
 }
@@ -112,6 +135,9 @@ export interface NoteDetail {
   agentWorking: boolean
   x: number
   y: number
+  /** Current display name of whoever created it; null for older notes. */
+  createdBy: string | null
+  createdById: string | null
   createdAt: string
   updatedAt: string
 }
@@ -136,8 +162,10 @@ export interface NoteChanges {
   title?: string
   body?: string
   color?: NoteColor
+  /** Tag names; new names are added to the board. */
   tags?: string[]
-  assignees?: Assignee[]
+  /** Principal ids, from the board's people. */
+  assigneeIds?: string[]
   checklist?: ChecklistItem[]
   links?: NoteLink[]
   agentWorking?: boolean

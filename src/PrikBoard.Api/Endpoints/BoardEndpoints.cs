@@ -101,7 +101,9 @@ public static class BoardEndpoints
 
         db.Boards.Add(board);
         await db.SaveChangesAsync(ct);
-        return TypedResults.Created($"/api/boards/{board.Id}", BoardDetail.From(board, caller.Apply(board.Id, BoardRole.Owner)!.Value));
+        var people = await BoardAccess.PeopleAsync(db, board.Id, ct);
+        return TypedResults.Created($"/api/boards/{board.Id}",
+            BoardDetail.From(board, caller.Apply(board.Id, BoardRole.Owner)!.Value, new Dictionary<Guid, Principal>(), people, principal.PrincipalId()));
     }
 
     internal static async Task<Results<Ok<BoardDetail>, NotFound>> GetBoard(
@@ -111,10 +113,14 @@ public static class BoardEndpoints
             .Include(b => b.Buckets)
             .Include(b => b.Notes)
             .Include(b => b.Images).ThenInclude(i => i.AddedBy)
+            .Include(b => b.Tags)
             .AsSplitQuery()
             .FirstOrDefaultAsync(b => b.Id == boardId, ct);
 
-        return board is null ? TypedResults.NotFound() : TypedResults.Ok(BoardDetail.From(board, http.BoardRole()));
+        if (board is null) return TypedResults.NotFound();
+        var principals = await NoteEndpoints.PrincipalsOnAsync(db, board.Notes, ct);
+        var people = await BoardAccess.PeopleAsync(db, boardId, ct);
+        return TypedResults.Ok(BoardDetail.From(board, http.BoardRole(), principals, people, http.User.PrincipalId()));
     }
 
     private static async Task<Results<Ok<BoardSummary>, NotFound>> UpdateBoard(

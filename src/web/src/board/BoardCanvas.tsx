@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { api } from '../api/client'
-import type { BoardDetail, BucketDetail, DragKind, DragUpdate, ImageDetail, NoteColor, NoteDetail, Point, Rect } from '../api/types'
+import type { BoardDetail, BoardTag, BucketDetail, DragKind, DragUpdate, ImageDetail, NoteColor, NoteDetail, Point, Rect } from '../api/types'
 import { presenceColor } from '../live/presence'
 import type { LiveDrag } from '../live/useLive'
 import { ConfirmDeleteNote, ConfirmDialog } from '../components/ConfirmDialog'
+import { AssigneePicker } from './AssigneePicker'
 import { BoardImageView } from './BoardImageView'
 import { ExpandedNote } from './ExpandedNote'
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
@@ -22,6 +23,8 @@ import {
   spanRect,
 } from './layout'
 import { PostIt } from './PostIt'
+import { TagFilter } from './TagFilter'
+import { TagPicker } from './TagPicker'
 import { ToolRail } from './ToolRail'
 import { toolKeys, type Tool } from './tools'
 import type { BoardState } from './useBoard'
@@ -84,6 +87,14 @@ const fromDragKind: Record<DragKind, ItemGesture> = {
 }
 const toDragKind = Object.fromEntries(Object.entries(fromDragKind).map(([k, v]) => [v, k])) as Record<ItemGesture, DragKind>
 
+/** Where in a post-it's title text a screen point is, as a character offset; undefined when it isn't on the text. */
+function caretAt(x: number, y: number): number | undefined {
+  const position = document.caretPositionFromPoint?.(x, y)
+  const node = position?.offsetNode ?? document.caretRangeFromPoint?.(x, y)?.startContainer
+  const offset = position?.offset ?? document.caretRangeFromPoint?.(x, y)?.startOffset
+  return node?.parentElement?.closest('.post-it-title') ? offset : undefined
+}
+
 function isDrag(g: Gesture) {
   const d = delta(g)
   return Math.abs(d.x) >= DRAG_THRESHOLD || Math.abs(d.y) >= DRAG_THRESHOLD
@@ -108,6 +119,19 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
   const [expanded, setExpanded] = useState<{ id: string; fresh: boolean } | null>(null)
   /** Something waiting for the person to confirm its deletion (Delete key on the board, or the image panel). */
   const [pendingDelete, setPendingDelete] = useState<{ kind: 'note' | 'image'; id: string } | null>(null)
+  /** The tag or people window opened from a post-it on the board, next to the part that was clicked (screen pixels). */
+  const [quickEdit, setQuickEdit] = useState<{ noteId: string; kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
+  /** Tags to filter on: post-its with none of them fade. Not kept: every board starts unfiltered. */
+  const [tagFilter, setTagFilter] = useState<string[]>([])
+  /** The post-it whose title is being edited in place, and where the text cursor starts (default: the end). */
+  const [titleEdit, setTitleEdit] = useState<{ id: string; caret?: number } | null>(null)
+  /** The post-it whose title the current press started on: a click there (no drag) edits the title. */
+  const titlePress = useRef<string | null>(null)
+  /**
+   * The post-its the last two presses were on (null: something else). The canvas holds the pointer during a press, so the
+   * browser sends clicks and double-clicks to the canvas, not to the post-it; a double-click on one post-it expands it.
+   */
+  const notePresses = useRef<[string | null, string | null]>([null, null])
   const [gesture, setGesture] = useState<Gesture | null>(null)
   const [pan, setPan] = useState<Pan | null>(null)
   const [zoom, setZoom] = useState(1)
@@ -154,6 +178,8 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
     const el = scrollRef.current!
     const at = screen ?? { x: el.clientWidth / 2, y: el.clientHeight / 2 }
     zoomAnchor.current = { canvas: { x: (el.scrollLeft + at.x - RAIL_INSET) / zoom, y: (el.scrollTop + at.y) / zoom }, screen: at }
+    // A quick-edit window sits next to the post-it on screen; after zooming it would point at nothing.
+    setQuickEdit(null)
     setZoom(next)
   }
 
@@ -173,7 +199,7 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (expanded || pendingDelete) return
-      if (e.target instanceof Element && e.target.closest('input, textarea, select, [role="menu"], [role="alertdialog"]')) return
+      if (e.target instanceof Element && e.target.closest('input, textarea, select, [role="menu"], [role="dialog"], [role="alertdialog"]')) return
       if (e.key === 'Escape') {
         setTool('select')
         setSelection(null)
@@ -234,7 +260,8 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
         body: note.body ?? undefined,
         color: note.color,
         tags: note.tags,
-        assignees: note.assignees,
+        // People who have since left the board stay on the original, but can't be put on a new post-it.
+        assigneeIds: note.assignees.map((a) => a.principalId).filter((id) => board.people.some((p) => p.principalId === id)),
         checklist: note.checklist,
         links: note.links,
         ...snapPoint({ x: note.x + GRID, y: note.y + GRID }),
@@ -242,6 +269,9 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
       setSelection({ kind: 'note', id: copy.id })
     })
   }
+
+  const renameTag = (tag: BoardTag, name: string) => settle(() => api.renameBoardTag(board.id, tag.id, name))
+  const deleteTag = (tag: BoardTag) => settle(() => api.deleteBoardTag(board.id, tag.id))
 
   function deleteImage(id: string) {
     setPendingDelete(null)
@@ -350,7 +380,14 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
     return { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom }
   }
 
+  function expand(id: string) {
+    setTitleEdit(null)
+    setQuickEdit(null)
+    setExpanded({ id, fresh: false })
+  }
+
   function beginGesture(e: PointerEvent, target: GestureTarget) {
+    setQuickEdit(null)
     const point = toCanvas(e)
     canvasRef.current!.setPointerCapture(e.pointerId)
     setGesture({ ...target, start: point, current: point })
@@ -358,8 +395,11 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
 
   function onItemPointerDown(e: PointerEvent<HTMLElement>, kind: ItemGesture, id: string) {
     if (e.button !== 0 || tool !== 'select') return
+    notePresses.current = [notePresses.current[1], kind === 'note' ? id : null]
     e.stopPropagation()
     e.preventDefault()
+    // preventDefault keeps focus where it is, so let a title being edited go (it saves on blur).
+    if (titleEdit && document.activeElement instanceof HTMLElement) document.activeElement.blur()
     if (readOnly) {
       // Post-its can still be selected (and opened with Enter); nothing moves and no panels open.
       if (kind === 'note') {
@@ -369,11 +409,14 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
       return
     }
     if (kind === 'note' || kind === 'image') e.currentTarget.focus({ preventScroll: true })
+    const onTitle = e.target instanceof Element && e.target.closest('.post-it-title') !== null
+    titlePress.current = kind === 'note' && onTitle ? id : null
     setSelection({ kind: kind === 'note' ? 'note' : kind === 'image' || kind === 'image-resize' ? 'image' : 'bucket', id })
     beginGesture(e, { kind, id })
   }
 
   function onCanvasPointerDown(e: PointerEvent) {
+    notePresses.current = [notePresses.current[1], null]
     if (e.button === 1 || (e.button === 0 && tool === 'pan')) {
       e.preventDefault()
       const el = scrollRef.current!
@@ -410,7 +453,7 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
     }
   }
 
-  function onCanvasPointerUp() {
+  function onCanvasPointerUp(e: PointerEvent) {
     if (pan) {
       setPan(null)
       return
@@ -432,6 +475,9 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
     }
     if (!isDrag(gesture)) {
       setGesture(null)
+      // A click on a post-it's title edits it, with the text cursor where the click was.
+      const id = titlePress.current
+      if (gesture.kind === 'note' && id === gesture.id) setTitleEdit({ id, caret: caretAt(e.clientX, e.clientY) })
       return
     }
 
@@ -490,6 +536,10 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
   const noteToDelete = pendingDelete?.kind === 'note' ? board.notes.find((n) => n.id === pendingDelete.id) : undefined
   const imageToDelete = pendingDelete?.kind === 'image' ? board.images.find((i) => i.id === pendingDelete.id) : undefined
   const countIn = (bucketId: string) => board.notes.filter((n) => n.bucketId === bucketId).length
+  // Filter on tags that still exist (one may have been renamed or deleted meanwhile); any of them matches.
+  const filter = tagFilter.filter((t) => board.tags.some((bt) => bt.name === t))
+  const dimmed = (note: NoteDetail) => filter.length > 0 && !note.tags.some((t) => filter.includes(t))
+  const quickNote = quickEdit && board.notes.find((n) => n.id === quickEdit.noteId)
   const hint = uploads > 0 ? 'Uploading…' : fileOver ? 'Drop to add the image here' : readOnly ? undefined : hints[tool]
 
   return (
@@ -520,6 +570,10 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
             className={`canvas tool-${tool}${pan ? ' panning' : ''}`}
             style={{ left: RAIL_INSET, width: extent.width, height: extent.height, transform: `scale(${zoom})` }}
             onPointerDown={onCanvasPointerDown}
+            onDoubleClick={() => {
+              const [first, second] = notePresses.current
+              if (second && first === second) expand(second)
+            }}
             onPointerMove={onCanvasPointerMove}
             onPointerUp={onCanvasPointerUp}
             onPointerCancel={() => {
@@ -600,8 +654,15 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
                 point={point}
                 selected={selection?.kind === 'note' && selection.id === note.id}
                 lifted={draggedNote?.note.id === note.id || remoteDrags.some((r) => r.id === note.id && !r.endedAt)}
+                dimmed={dimmed(note)}
                 onPointerDown={(e) => onItemPointerDown(e, 'note', note.id)}
-                onExpand={() => setExpanded({ id: note.id, fresh: false })}
+                onExpand={() => expand(note.id)}
+                editingTitle={titleEdit?.id === note.id}
+                titleCaret={titleEdit?.id === note.id ? titleEdit.caret : undefined}
+                onRenameTitle={readOnly ? undefined : (title) => settle(() => api.updateNote(note.id, { title }))}
+                onTitleDone={() => setTitleEdit(null)}
+                onEditTags={readOnly ? undefined : (anchor) => setQuickEdit({ noteId: note.id, kind: 'tags', anchor })}
+                onEditAssignees={readOnly ? undefined : (anchor) => setQuickEdit({ noteId: note.id, kind: 'people', anchor })}
               />
             ))}
 
@@ -629,6 +690,13 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
         onAddImage={() => void addImagesFromPicker()}
         readOnly={readOnly}
       />
+      <TagFilter
+        boardTags={board.tags}
+        value={filter}
+        onChange={setTagFilter}
+        matching={board.notes.filter((n) => !dimmed(n)).length}
+        total={board.notes.length}
+      />
       {readOnly && <div className="read-only-badge">View only</div>}
       {hint && <div className="canvas-hint">{hint}</div>}
       <ViewControls
@@ -639,6 +707,7 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
         viewport={{ x: (view.x - RAIL_INSET) / zoom, y: view.y / zoom, width: view.width / zoom, height: view.height / zoom }}
         buckets={board.buckets}
         notes={board.notes}
+        dimmed={dimmed}
         images={images.map((i) => i.image)}
         onNavigate={(center) => {
           const el = scrollRef.current!
@@ -672,6 +741,29 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
         />
       )}
 
+      {quickNote && quickEdit?.kind === 'tags' && (
+        <TagPicker
+          key={quickNote.id}
+          anchor={quickEdit.anchor}
+          tags={quickNote.tags}
+          boardTags={board.tags}
+          onChange={(tags) => settle(() => api.updateNote(quickNote.id, { tags }))}
+          onRename={renameTag}
+          onDelete={deleteTag}
+          onClose={() => setQuickEdit(null)}
+        />
+      )}
+      {quickNote && quickEdit?.kind === 'people' && (
+        <AssigneePicker
+          key={quickNote.id}
+          anchor={quickEdit.anchor}
+          assignees={quickNote.assignees}
+          people={board.people}
+          onChange={(assigneeIds) => settle(() => api.updateNote(quickNote.id, { assigneeIds }))}
+          onClose={() => setQuickEdit(null)}
+        />
+      )}
+
       {expandedNote && (
         <ExpandedNote
           key={expandedNote.id}
@@ -680,6 +772,10 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
           images={board.images.filter((i) => i.noteId === expandedNote.id)}
           focusTitle={expanded?.fresh ?? false}
           onChange={(changes) => settle(() => api.updateNote(expandedNote.id, changes))}
+          boardTags={board.tags}
+          people={board.people}
+          onRenameTag={renameTag}
+          onDeleteTag={deleteTag}
           onDelete={() => deleteNote(expandedNote.id)}
           onAddImages={(files) => void addImages(files, { noteId: expandedNote.id })}
           onPickImages={() => void addImagesFromPicker({ noteId: expandedNote.id })}

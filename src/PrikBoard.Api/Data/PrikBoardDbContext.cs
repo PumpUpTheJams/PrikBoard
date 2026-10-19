@@ -8,6 +8,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
     public DbSet<Board> Boards => Set<Board>();
     public DbSet<Bucket> Buckets => Set<Bucket>();
     public DbSet<Note> Notes => Set<Note>();
+    public DbSet<BoardTag> BoardTags => Set<BoardTag>();
     public DbSet<Principal> Principals => Set<Principal>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Agent> Agents => Set<Agent>();
@@ -32,6 +33,16 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
                 .WithOne(n => n.Board)
                 .HasForeignKey(n => n.BoardId)
                 .OnDelete(DeleteBehavior.Cascade);
+            board.HasMany(b => b.Tags)
+                .WithOne(t => t.Board)
+                .HasForeignKey(t => t.BoardId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<BoardTag>(tag =>
+        {
+            tag.Property(t => t.Name).HasMaxLength(NoteTags.MaxLength);
+            tag.HasIndex(t => new { t.BoardId, t.Name }).IsUnique();
         });
 
         modelBuilder.Entity<Bucket>(bucket =>
@@ -46,13 +57,9 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             note.Property(n => n.Title).HasMaxLength(200);
             note.Property(n => n.Body).HasMaxLength(4000);
             note.Property(n => n.Color).HasConversion<string>().HasMaxLength(20);
-            // Lists that are always read and replaced whole live in JSON columns on the note.
+            // Lists that are always read and replaced whole live on the note: arrays, or JSON columns.
             note.PrimitiveCollection(n => n.Tags).IsRequired();
-            note.OwnsMany(n => n.Assignees, assignee =>
-            {
-                assignee.ToJson();
-                assignee.Property(a => a.Kind).HasConversion<string>();
-            });
+            note.PrimitiveCollection(n => n.AssigneeIds).IsRequired();
             note.OwnsMany(n => n.Checklist, item => item.ToJson());
             note.OwnsMany(n => n.Links, link => link.ToJson());
             // Deleting a bucket leaves its notes on the board as loose notes.
@@ -61,6 +68,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
                 .HasForeignKey(n => n.BucketId)
                 .OnDelete(DeleteBehavior.SetNull);
             note.HasIndex(n => n.BoardId);
+            note.HasOne(n => n.CreatedBy).WithMany().HasForeignKey(n => n.CreatedById).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<BoardImage>(image =>

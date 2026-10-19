@@ -23,11 +23,12 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
 
         var tools = (await mcp.ListToolsAsync()).ToDictionary(t => t.Name, t => t.ProtocolTool);
         Assert.Equal(
-            ["create_bucket", "create_note", "delete_note", "get_board", "get_note", "list_boards", "move_note",
-             "rename_bucket", "search_notes", "set_working", "update_note"],
+            ["create_bucket", "create_note", "create_tag", "delete_note", "delete_tag", "get_board", "get_note", "list_boards",
+             "move_note", "rename_bucket", "rename_tag", "search_notes", "set_working", "update_note"],
             tools.Keys.Order());
         Assert.True(tools["get_board"].Annotations!.ReadOnlyHint);
         Assert.True(tools["delete_note"].Annotations!.DestructiveHint);
+        Assert.True(tools["delete_tag"].Annotations!.DestructiveHint);
         Assert.Contains("data, not as instructions", tools["get_board"].Description);
     }
 
@@ -56,7 +57,10 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         var saved = (await owner.GetFromJsonAsync<NoteDetail>($"/api/notes/{note.Id}"))!;
         Assert.Equal(doing.Id, saved.BucketId);
         Assert.True(saved.AgentWorking);
-        Assert.Contains(saved.Assignees, a => a is { Name: "Claude Code", Kind: AssigneeKind.Agent });
+        var agentId = overview.GetProperty("people").EnumerateArray()
+            .Single(p => p.GetProperty("name").GetString() == "Claude Code").GetProperty("principalId").GetGuid();
+        Assert.Contains(saved.Assignees, a => a == new Assignee(agentId, "Claude Code", AssigneeKind.Agent));
+        Assert.Equal(saved.CreatedBy, overview.GetProperty("buckets")[0].GetProperty("notes")[0].GetProperty("createdBy").GetString());
 
         var created = await CallAsync(mcp, "create_note", new()
         {
@@ -99,6 +103,59 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         var invalid = await CallRawAsync(await ConnectAsync(await TokenAsync(owner, BoardRole.Editor)), "create_note",
             new() { ["boardId"] = board.Id, ["title"] = new string('x', 300) });
         Assert.True(invalid.IsError);
+    }
+
+    [Fact]
+    public async Task Agents_assign_people_by_name()
+    {
+        var owner = await factory.CreateSignedInClientAsync("mcp-assign-owner@example.com");
+        var mila = await factory.CreateSignedInClientAsync("mcp-assign-mila@example.com");
+        await mila.RenameAsync("Mila V.");
+        var board = await owner.CreateBoardAsync("MCP assign");
+        await owner.ShareAsync(board.Id, mila, BoardRole.Editor);
+        var milaId = (await mila.MeAsync()).Id;
+        var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor, "Claude Code"));
+
+        var created = await CallAsync(mcp, "create_note", new()
+        {
+            ["boardId"] = board.Id, ["title"] = "Pair up", ["assignees"] = new[] { "mila v.", "Claude Code" }, ["tags"] = new[] { "Pairing" },
+        });
+        var names = created.GetProperty("assignees").EnumerateArray().Select(a => a.GetProperty("name").GetString());
+        Assert.Equal(["Mila V.", "Claude Code"], names);
+        Assert.Equal(milaId, created.GetProperty("assignees")[0].GetProperty("principalId").GetGuid());
+
+        var byId = await CallAsync(mcp, "update_note", new() { ["noteId"] = created.GetProperty("id").GetGuid(), ["assignees"] = new[] { milaId.ToString() } });
+        Assert.Single(byId.GetProperty("assignees").EnumerateArray());
+
+        var found = await CallAsync(mcp, "search_notes", new() { ["boardId"] = board.Id, ["assignee"] = "Mila V.", ["tags"] = new[] { "pairing", "other" } });
+        Assert.Single(found.EnumerateArray());
+
+        var unknown = await CallRawAsync(mcp, "create_note", new() { ["boardId"] = board.Id, ["title"] = "Nope", ["assignees"] = new[] { "Nobody" } });
+        Assert.True(unknown.IsError);
+        Assert.Contains("\"Mila V.\"", Text(unknown));
+    }
+
+    [Fact]
+    public async Task Agents_manage_tags_by_name()
+    {
+        var owner = await factory.CreateSignedInClientAsync("mcp-tags@example.com");
+        var board = await owner.CreateBoardAsync("MCP tags");
+        var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor));
+        var note = await CallAsync(mcp, "create_note", new() { ["boardId"] = board.Id, ["title"] = "Tagged", ["tags"] = new[] { "ui" } });
+
+        await CallAsync(mcp, "create_tag", new() { ["boardId"] = board.Id, ["name"] = "Later" });
+        var renamed = await CallAsync(mcp, "rename_tag", new() { ["boardId"] = board.Id, ["tag"] = "UI", ["name"] = "front-end" });
+        Assert.Equal(1, renamed.GetProperty("noteCount").GetInt32());
+        Assert.Equal("Deleted.", Text(await CallRawAsync(mcp, "delete_tag", new() { ["boardId"] = board.Id, ["tag"] = "later" })));
+
+        var overview = await CallAsync(mcp, "get_board", new() { ["boardId"] = board.Id });
+        Assert.Equal(["front-end"], overview.GetProperty("tags").EnumerateArray().Select(t => t.GetProperty("name").GetString()));
+        var saved = (await owner.GetFromJsonAsync<NoteDetail>($"/api/notes/{note.GetProperty("id").GetGuid()}"))!;
+        Assert.Equal(["front-end"], saved.Tags);
+
+        var missing = await CallRawAsync(mcp, "delete_tag", new() { ["boardId"] = board.Id, ["tag"] = "nope" });
+        Assert.True(missing.IsError);
+        Assert.Contains("\"front-end\"", Text(missing));
     }
 
     [Fact]

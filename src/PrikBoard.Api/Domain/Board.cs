@@ -13,6 +13,8 @@ public class Board
     public List<Note> Notes { get; set; } = [];
     /// <summary>Images on the canvas and images attached to notes.</summary>
     public List<BoardImage> Images { get; set; } = [];
+    /// <summary>The tags notes on this board can have.</summary>
+    public List<BoardTag> Tags { get; set; } = [];
     /// <summary>Who may see and change the board; there is always at least one owner.</summary>
     public List<BoardMember> Members { get; set; } = [];
 

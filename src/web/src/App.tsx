@@ -46,7 +46,7 @@ function storedTheme(): Theme {
 /** Everyone assigned to something on the board, people first. */
 function boardAssignees(notes: { assignees: Assignee[] }[]): Assignee[] {
   const unique = new Map<string, Assignee>()
-  for (const a of notes.flatMap((n) => n.assignees)) unique.set(`${a.kind}:${a.name.toLowerCase()}`, a)
+  for (const a of notes.flatMap((n) => n.assignees)) unique.set(a.principalId, a)
   return [...unique.values()].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'Person' ? -1 : 1))
 }
 
@@ -152,6 +152,13 @@ function Workspace({ user, onUserChange, theme, onThemeChange, onSignOut }: Work
   useEffect(() => {
     refreshBoard.current = refresh
   }, [refresh])
+  // Your name shows on post-its (creator, assignee). Others hear about a rename live; this tab reloads itself.
+  const shownName = useRef(user.displayName)
+  useEffect(() => {
+    if (shownName.current === user.displayName) return
+    shownName.current = user.displayName
+    refresh()
+  }, [user.displayName, refresh])
   // Someone's finished drag stays where they dropped it until the reload shows where it landed.
   useEffect(() => boardLoaded(), [board, boardLoaded])
   const othersHere = live.viewers.filter((v) => v.principalId !== user.id)

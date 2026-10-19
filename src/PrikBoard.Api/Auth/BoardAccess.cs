@@ -79,6 +79,28 @@ public static class BoardAccess
         return caller.Apply(boardId, await RoleOnBoardAsync(db, boardId, caller.MemberId, ct));
     }
 
+    /// <summary>
+    /// Who can be assigned to notes on a board: its members (people and issuer agents) plus the agents of members'
+    /// personal access tokens that reach the board (not expired, and not limited to other boards). Keep this in line
+    /// with <see cref="BoardCaller.Apply"/> and the expiry check in <see cref="AccessTokenHandler"/>.
+    /// </summary>
+    public static IQueryable<Guid> AssignableIds(PrikBoardDbContext db, Guid boardId)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var members = db.BoardMembers.Where(m => m.BoardId == boardId).Select(m => m.PrincipalId);
+        var tokenAgents = db.AccessTokens
+            .Where(t => members.Contains(t.OwnerId) && t.ExpiresAt > now && (t.BoardIds == null || t.BoardIds.Contains(boardId)))
+            .Select(t => t.AgentId);
+        return members.Concat(tokenAgents);
+    }
+
+    /// <summary>The principals behind <see cref="AssignableIds"/>.</summary>
+    public static Task<List<Principal>> PeopleAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct)
+    {
+        var ids = AssignableIds(db, boardId);
+        return db.Principals.AsNoTracking().Where(p => ids.Contains(p.Id)).ToListAsync(ct);
+    }
+
     /// <summary>The outcome of <see cref="AuthorizeAsync"/>: the board and role, or the response to send instead.</summary>
     public sealed record Authorization(Guid BoardId, BoardRole Role, IResult? Failure);
 

@@ -147,6 +147,7 @@ api.MapAuthEndpoints();
 api.MapBoardEndpoints();
 api.MapBucketEndpoints();
 api.MapNoteEndpoints();
+api.MapTagEndpoints();
 api.MapImageEndpoints();
 api.MapMemberEndpoints();
 api.MapInviteEndpoints();

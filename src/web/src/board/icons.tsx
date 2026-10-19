@@ -181,3 +181,23 @@ export const ExternalIcon = ({ size = 14 }: IconProps) => (
     <path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6" />
   </Icon>
 )
+
+export const PencilIcon = ({ size = 14 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M4 20h4L19 9l-4-4L4 16z" />
+    <path d="M13 7l4 4" />
+  </Icon>
+)
+
+export const SearchIcon = ({ size = 15 }: IconProps) => (
+  <Icon size={size}>
+    <circle cx="11" cy="11" r="6" />
+    <path d="M20 20l-4.5-4.5" />
+  </Icon>
+)
+
+export const FilterIcon = ({ size = 15 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M4 5h16l-6 8v5l-4 2v-7z" />
+  </Icon>
+)

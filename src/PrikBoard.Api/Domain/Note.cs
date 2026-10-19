@@ -11,15 +11,22 @@ public class Note
     public required string Title { get; set; }
     public string? Body { get; set; }
     public NoteColor Color { get; set; } = NoteColor.Butter;
-    /// <summary>Lower-case labels, see <see cref="NoteTags.Normalize(string)"/>.</summary>
+    /// <summary>Names of the board's tags (<see cref="BoardTag"/>) on this note, see <see cref="NoteTags.Normalize(string)"/>.</summary>
     public List<string> Tags { get; set; } = [];
-    public List<AssigneeEntry> Assignees { get; set; } = [];
+    /// <summary>
+    /// Principal ids of the people and agents on the note, in display order. Added ones must be able to reach the board
+    /// (<see cref="Auth.BoardAccess.AssignableIds"/>); ones who later lose access stay.
+    /// </summary>
+    public List<Guid> AssigneeIds { get; set; } = [];
     public List<ChecklistEntry> Checklist { get; set; } = [];
     public List<LinkEntry> Links { get; set; } = [];
     /// <summary>Set while an AI agent is actively working on the note; the board shows a halo.</summary>
     public bool AgentWorking { get; set; }
     public int X { get; set; }
     public int Y { get; set; }
+    /// <summary>The user or agent that stuck the note on the board; null for older notes, or once they no longer exist.</summary>
+    public Guid? CreatedById { get; set; }
+    public Principal? CreatedBy { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

@@ -19,25 +19,37 @@ namespace PrikBoard.Api.Mcp;
 /// <param name="Checklist">Progress as "done/total", or null without a checklist.</param>
 /// <param name="HasBody">The note has body text; read it with get_note.</param>
 /// <param name="AgentWorking">An agent is working on it right now.</param>
+/// <param name="CreatedBy">Who created it, or null when unknown.</param>
 public sealed record NoteSummary(
     Guid Id, string Title, NoteColor Color, IReadOnlyList<string> Tags, IReadOnlyList<Assignee> Assignees,
-    string? Checklist, bool HasBody, bool AgentWorking)
+    string? Checklist, bool HasBody, bool AgentWorking, string? CreatedBy)
 {
     public static NoteSummary From(NoteDetail n) => new(n.Id, n.Title, n.Color, n.Tags, n.Assignees,
-        n.Checklist.Count == 0 ? null : $"{n.Checklist.Count(i => i.Done)}/{n.Checklist.Count}", n.Body is not null, n.AgentWorking);
+        n.Checklist.Count == 0 ? null : $"{n.Checklist.Count(i => i.Done)}/{n.Checklist.Count}", n.Body is not null, n.AgentWorking,
+        n.CreatedBy);
 }
 
 /// <summary>A bucket (column) with its notes, top to bottom.</summary>
 public sealed record BucketOverview(Guid Id, string Name, IReadOnlyList<NoteSummary> Notes);
 
 /// <summary>A compact board: buckets in order with their notes, plus notes outside every bucket.</summary>
+/// <param name="Id">The board id.</param>
+/// <param name="Name">The board name.</param>
+/// <param name="Description">The board description, if any.</param>
+/// <param name="YourRole">Viewer (read only), Editor or Owner.</param>
+/// <param name="Buckets">Buckets in order, each with its notes top to bottom.</param>
+/// <param name="LooseNotes">Notes outside every bucket.</param>
+/// <param name="Images">How many images are on the board.</param>
+/// <param name="Tags">The board's tags with how many notes use each. Reuse these when tagging notes.</param>
+/// <param name="People">Who can be assigned to notes, by name (or principal id).</param>
 public sealed record BoardOverview(
     Guid Id, string Name, string? Description, BoardRole YourRole, IReadOnlyList<BucketOverview> Buckets,
-    IReadOnlyList<NoteSummary> LooseNotes, int Images);
+    IReadOnlyList<NoteSummary> LooseNotes, int Images, IReadOnlyList<BoardTagDetail> Tags, IReadOnlyList<BoardPerson> People);
 
 /// <summary>
 /// The PrikBoard MCP tools. They are thin layers over the REST handlers: the same access checks (your role, capped for
 /// access tokens), validation, layout rules and live updates. No tools manage members, invites, tokens or delete boards.
+/// Where REST takes ids, tools also take names (buckets, tags, people), resolved on the note's board.
 /// </summary>
 [McpServerToolType]
 public sealed class BoardTools
@@ -56,7 +68,8 @@ public sealed class BoardTools
 
     [McpServerTool(Name = "get_board", Title = "Get a board", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("A compact snapshot of a board: its buckets (columns such as To do, Doing, Done) in order, each with its notes " +
-                 "top to bottom, and notes outside any bucket. Use get_note for a note's body, checklist and links." + UntrustedText)]
+                 "top to bottom, notes outside any bucket, the board's tags and the people who can be assigned. " +
+                 "Use get_note for a note's body, checklist and links." + UntrustedText)]
     public static async Task<BoardOverview> GetBoard(
         IHttpContextAccessor accessor, [Description("The board id, from list_boards.")] Guid boardId, CancellationToken ct)
     {
@@ -69,17 +82,18 @@ public sealed class BoardTools
             .Select(b => new BucketOverview(b.Id, b.Name, board.Notes.Where(n => n.BucketId == b.Id).Select(NoteSummary.From).ToList()))
             .ToList();
         var loose = board.Notes.Where(n => n.BucketId is null).Select(NoteSummary.From).ToList();
-        return new BoardOverview(board.Id, board.Name, board.Description, board.YourRole, buckets, loose, board.Images.Count);
+        return new BoardOverview(board.Id, board.Name, board.Description, board.YourRole, buckets, loose, board.Images.Count,
+            board.Tags, board.People);
     }
 
     [McpServerTool(Name = "search_notes", Title = "Search notes", ReadOnly = true, Idempotent = true, OpenWorld = false)]
-    [Description("Finds notes on a board by bucket, tag, assignee name and/or text in the title or body (all case-insensitive)." + UntrustedText)]
+    [Description("Finds notes on a board by bucket, tags, assignee and/or text in the title or body (all case-insensitive)." + UntrustedText)]
     public static async Task<List<NoteSummary>> SearchNotes(
         IHttpContextAccessor accessor,
         [Description("The board id.")] Guid boardId,
         [Description("Only notes in this bucket: its name (for example \"Doing\") or id.")] string? bucket = null,
-        [Description("Only notes with this tag.")] string? tag = null,
-        [Description("Only notes assigned to this name.")] string? assignee = null,
+        [Description("Only notes with any of these tags.")] List<string>? tags = null,
+        [Description("Only notes assigned to this person or agent: their name or principal id.")] string? assignee = null,
         [Description("Text to look for in titles and bodies.")] string? text = null,
         CancellationToken ct = default)
     {
@@ -87,12 +101,13 @@ public sealed class BoardTools
         await McpCall.AuthorizeAsync(http, BoardScope.Board, boardId, BoardRole.Viewer);
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
         Guid? bucketId = bucket is null ? null : await ResolveBucketAsync(db, boardId, bucket, ct);
-        var notes = McpCall.Value<List<NoteDetail>>(await NoteEndpoints.ListNotes(boardId, bucketId, tag, assignee, text, db, ct));
+        var notes = McpCall.Value<List<NoteDetail>>(await NoteEndpoints.ListNotes(boardId, bucketId, tags?.ToArray(), assignee, text, db, ct));
         return notes.Select(NoteSummary.From).ToList();
     }
 
     [McpServerTool(Name = "get_note", Title = "Get a note", ReadOnly = true, Idempotent = true, OpenWorld = false)]
-    [Description("Everything about one note: title, body, fill, tags, assignees, checklist, links, its bucket and whether an agent is working on it." + UntrustedText)]
+    [Description("Everything about one note: title, body, fill, tags, assignees, checklist, links, its bucket, who created it " +
+                 "and whether an agent is working on it." + UntrustedText)]
     public static async Task<NoteDetail> GetNote(IHttpContextAccessor accessor, [Description("The note id.")] Guid noteId, CancellationToken ct)
     {
         var http = McpCall.Http(accessor);
@@ -110,8 +125,8 @@ public sealed class BoardTools
         [Description("Longer text (at most 4000 characters).")] string? body = null,
         [Description("The bucket to put it in: its name or id. Default: the first bucket.")] string? bucket = null,
         [Description("Fill: Butter, Mint, Sky, Coral or Lilac. Default Butter.")] NoteColor? color = null,
-        [Description("Tags (lower-cased and hyphenated by the server).")] List<string>? tags = null,
-        [Description("People and agents working on it.")] List<Assignee>? assignees = null,
+        [Description("Tags; prefer the board's tags (get_board). New names are added to the board, lower-cased and hyphenated.")] List<string>? tags = null,
+        [Description("People and agents to assign: their names or principal ids, from people in get_board.")] List<string>? assignees = null,
         [Description("Checklist items.")] List<ChecklistItem>? checklist = null,
         [Description("Links with a title and an absolute http(s) URL.")] List<NoteLink>? links = null,
         CancellationToken ct = default)
@@ -120,10 +135,11 @@ public sealed class BoardTools
         await McpCall.AuthorizeAsync(http, BoardScope.Board, boardId, BoardRole.Editor);
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
         Guid? bucketId = bucket is null ? null : await ResolveBucketAsync(db, boardId, bucket, ct);
+        var assigneeIds = assignees is null ? null : await ResolveAssigneesAsync(db, boardId, assignees, [], ct);
 
-        var request = new CreateNoteRequest(title, body, color, bucketId, Tags: tags, Assignees: assignees, Checklist: checklist, Links: links);
+        var request = new CreateNoteRequest(title, body, color, bucketId, Tags: tags, AssigneeIds: assigneeIds, Checklist: checklist, Links: links);
         McpCall.Validate(request);
-        var note = McpCall.Value<NoteDetail>(await NoteEndpoints.CreateNote(boardId, request, db, ct));
+        var note = McpCall.Value<NoteDetail>(await NoteEndpoints.CreateNote(boardId, request, http.User, db, ct));
         await McpCall.AnnounceAsync(http, boardId);
         return note;
     }
@@ -137,8 +153,8 @@ public sealed class BoardTools
         [Description("New title.")] string? title = null,
         [Description("New body; an empty string clears it.")] string? body = null,
         [Description("New fill: Butter, Mint, Sky, Coral or Lilac.")] NoteColor? color = null,
-        [Description("All tags (replaces them).")] List<string>? tags = null,
-        [Description("All assignees (replaces them).")] List<Assignee>? assignees = null,
+        [Description("All tags (replaces them); prefer the board's tags. New names are added to the board.")] List<string>? tags = null,
+        [Description("All assignees (replaces them): names or principal ids, from people in get_board.")] List<string>? assignees = null,
         [Description("The full checklist (replaces it).")] List<ChecklistItem>? checklist = null,
         [Description("All links (replaces them).")] List<NoteLink>? links = null,
         [Description("Whether an agent is working on it right now (shows a halo); see also set_working.")] bool? agentWorking = null,
@@ -147,7 +163,13 @@ public sealed class BoardTools
         var http = McpCall.Http(accessor);
         var boardId = await McpCall.AuthorizeAsync(http, BoardScope.Note, noteId, BoardRole.Editor);
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
-        var request = new UpdateNoteRequest(title, body, color, tags, assignees, checklist, links, agentWorking);
+        List<Guid>? assigneeIds = null;
+        if (assignees is not null)
+        {
+            var current = await db.Notes.Where(n => n.Id == noteId).Select(n => n.AssigneeIds).FirstAsync(ct);
+            assigneeIds = await ResolveAssigneesAsync(db, boardId, assignees, current, ct);
+        }
+        var request = new UpdateNoteRequest(title, body, color, tags, assigneeIds, checklist, links, agentWorking);
         McpCall.Validate(request);
         var note = McpCall.Value<NoteDetail>(await NoteEndpoints.UpdateNote(noteId, request, db, ct));
         await McpCall.AnnounceAsync(http, boardId);
@@ -172,8 +194,8 @@ public sealed class BoardTools
     }
 
     [McpServerTool(Name = "set_working", Title = "Mark a note as being worked on", Idempotent = true, OpenWorld = false)]
-    [Description("Say you are (or are no longer) working on a note: assigns you as an agent and shows a halo around the post-it " +
-                 "while working is true. Call it with false when you are done. Needs the Editor role.")]
+    [Description("Say you are (or are no longer) working on a note: assigns you and shows a halo around the post-it " +
+                 "while working is true. Call it with false when you are done; you stay assigned. Needs the Editor role.")]
     public static async Task<NoteDetail> SetWorking(
         IHttpContextAccessor accessor,
         [Description("The note id.")] Guid noteId,
@@ -183,19 +205,9 @@ public sealed class BoardTools
         var http = McpCall.Http(accessor);
         var boardId = await McpCall.AuthorizeAsync(http, BoardScope.Note, noteId, BoardRole.Editor);
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
-        var me = (await db.Principals.FindAsync([http.User.PrincipalId()], ct))!.ShownName;
-        var note = McpCall.Value<NoteDetail>(await NoteEndpoints.GetNote(noteId, db, ct));
-
-        var assignees = note.Assignees.ToList();
-        if (working && !assignees.Any(a => a.Kind == AssigneeKind.Agent && a.Name.Equals(me, StringComparison.OrdinalIgnoreCase)))
-        {
-            if (assignees.Count >= 10) throw new McpException("The note already has 10 assignees; remove one with update_note first.");
-            assignees.Add(new Assignee(me.Length <= 60 ? me : me[..60], AssigneeKind.Agent));
-        }
-        var updated = McpCall.Value<NoteDetail>(await NoteEndpoints.UpdateNote(
-            noteId, new UpdateNoteRequest(Assignees: assignees, AgentWorking: working), db, ct));
+        var note = McpCall.Value<NoteDetail>(await NoteEndpoints.SetNoteWorking(noteId, new SetWorkingRequest(working), http.User, db, ct));
         await McpCall.AnnounceAsync(http, boardId);
-        return updated;
+        return note;
     }
 
     [McpServerTool(Name = "delete_note", Title = "Delete a note", Destructive = true, OpenWorld = false)]
@@ -246,6 +258,61 @@ public sealed class BoardTools
         return bucket;
     }
 
+    [McpServerTool(Name = "create_tag", Title = "Create a tag", OpenWorld = false)]
+    [Description("Adds a tag to a board without putting it on a note (tagging a note with a new name adds it too). Needs the Editor role.")]
+    public static async Task<BoardTagDetail> CreateTag(
+        IHttpContextAccessor accessor,
+        [Description("The board id.")] Guid boardId,
+        [Description("The tag; lower-cased and hyphenated by the server, at most 30 characters.")] string name,
+        CancellationToken ct)
+    {
+        var http = McpCall.Http(accessor);
+        await McpCall.AuthorizeAsync(http, BoardScope.Board, boardId, BoardRole.Editor);
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var request = new CreateTagRequest(name);
+        McpCall.Validate(request);
+        var tag = McpCall.Value<BoardTagDetail>(await TagEndpoints.CreateBoardTag(boardId, request, db, ct));
+        await McpCall.AnnounceAsync(http, boardId);
+        return tag;
+    }
+
+    [McpServerTool(Name = "rename_tag", Title = "Rename a tag", Idempotent = true, OpenWorld = false)]
+    [Description("Renames a tag on the board and on every note that has it. Needs the Editor role.")]
+    public static async Task<BoardTagDetail> RenameTag(
+        IHttpContextAccessor accessor,
+        [Description("The board id.")] Guid boardId,
+        [Description("The tag to rename: its name or id.")] string tag,
+        [Description("The new name; it must not be another tag on the board.")] string name,
+        CancellationToken ct)
+    {
+        var http = McpCall.Http(accessor);
+        await McpCall.AuthorizeAsync(http, BoardScope.Board, boardId, BoardRole.Editor);
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var tagId = await ResolveTagAsync(db, boardId, tag, ct);
+        var request = new RenameTagRequest(name);
+        McpCall.Validate(request);
+        var renamed = McpCall.Value<BoardTagDetail>(await TagEndpoints.RenameBoardTag(boardId, tagId, request, db, ct));
+        await McpCall.AnnounceAsync(http, boardId);
+        return renamed;
+    }
+
+    [McpServerTool(Name = "delete_tag", Title = "Delete a tag", Destructive = true, OpenWorld = false)]
+    [Description("Deletes a tag from the board and removes it from every note that has it (the notes stay). Needs the Editor role.")]
+    public static async Task<string> DeleteTag(
+        IHttpContextAccessor accessor,
+        [Description("The board id.")] Guid boardId,
+        [Description("The tag to delete: its name or id.")] string tag,
+        CancellationToken ct)
+    {
+        var http = McpCall.Http(accessor);
+        await McpCall.AuthorizeAsync(http, BoardScope.Board, boardId, BoardRole.Editor);
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var tagId = await ResolveTagAsync(db, boardId, tag, ct);
+        McpCall.Succeeded(await TagEndpoints.DeleteBoardTag(boardId, tagId, db, ct));
+        await McpCall.AnnounceAsync(http, boardId);
+        return "Deleted.";
+    }
+
     /// <summary>A bucket on the board by id or (case-insensitive) name.</summary>
     private static async Task<Guid> ResolveBucketAsync(PrikBoardDbContext db, Guid boardId, string bucket, CancellationToken ct)
     {
@@ -256,5 +323,50 @@ public sealed class BoardTools
             : buckets.FirstOrDefault(b => b.Name.Equals(bucket.Trim(), StringComparison.OrdinalIgnoreCase));
         return match?.Id ?? throw new McpException(
             $"No bucket \"{bucket}\" on this board. Buckets: {string.Join(", ", buckets.Select(b => $"\"{b.Name}\""))}.");
+    }
+
+    /// <summary>A tag on the board by id or name (normalized like note tags).</summary>
+    private static async Task<Guid> ResolveTagAsync(PrikBoardDbContext db, Guid boardId, string tag, CancellationToken ct)
+    {
+        var tags = await db.BoardTags.AsNoTracking().Where(t => t.BoardId == boardId)
+            .OrderBy(t => t.Name).Select(t => new { t.Id, t.Name }).ToListAsync(ct);
+        var match = Guid.TryParse(tag, out var id)
+            ? tags.FirstOrDefault(t => t.Id == id)
+            : tags.FirstOrDefault(t => t.Name == NoteTags.Normalize(tag));
+        return match?.Id ?? throw new McpException(
+            $"No tag \"{tag}\" on this board. Tags: {(tags.Count == 0 ? "none" : string.Join(", ", tags.Select(t => $"\"{t.Name}\"")))}.");
+    }
+
+    /// <summary>
+    /// People and agents by principal id or (case-insensitive) current name: anyone who can be assigned on the board,
+    /// plus whoever is already on the note (they may stay after losing access).
+    /// </summary>
+    private static async Task<List<Guid>> ResolveAssigneesAsync(
+        PrikBoardDbContext db, Guid boardId, IEnumerable<string> values, List<Guid> current, CancellationToken ct)
+    {
+        var people = await BoardAccess.PeopleAsync(db, boardId, ct);
+        var missing = current.Except(people.Select(p => p.Id)).ToList();
+        if (missing.Count > 0) people.AddRange(await db.Principals.AsNoTracking().Where(p => missing.Contains(p.Id)).ToListAsync(ct));
+
+        var ids = new List<Guid>();
+        foreach (var value in values)
+        {
+            var name = value.Trim();
+            var matches = Guid.TryParse(name, out var id)
+                ? people.Where(p => p.Id == id).ToList()
+                : people.Where(p => p.ShownName.Equals(name, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (matches.Count == 0)
+            {
+                var names = people.Select(p => p is Agent ? $"\"{p.ShownName}\" (agent)" : $"\"{p.ShownName}\"");
+                throw new McpException($"No one called \"{name}\" can be assigned on this board. People: {string.Join(", ", names)}.");
+            }
+            if (matches.Count > 1)
+            {
+                throw new McpException(
+                    $"Several people are called \"{name}\"; use their principal id: {string.Join(", ", matches.Select(p => p.Id))}.");
+            }
+            ids.Add(matches[0].Id);
+        }
+        return ids;
     }
 }
