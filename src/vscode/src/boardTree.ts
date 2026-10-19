@@ -6,6 +6,7 @@ import type {
   BoardSummary,
   BucketColor,
   BucketDetail,
+  NoteBlock,
   NoteColor,
   NoteDetail,
   NoteLink,
@@ -20,7 +21,8 @@ export type Node =
   /** `bucket` is null for notes that sit in no bucket. */
   | { kind: 'bucket'; boardId: string; bucket: BucketDetail | null; notes: NoteDetail[]; canEdit: boolean }
   | { kind: 'note'; note: NoteDetail; canEdit: boolean }
-  | { kind: 'checklist'; note: NoteDetail; index: number; canEdit: boolean }
+  /** One item of one of the note's checklist blocks. */
+  | { kind: 'checklist'; note: NoteDetail; block: NoteBlock; index: number; canEdit: boolean }
   | { kind: 'link'; link: NoteLink }
   | { kind: 'assignee'; assignee: Assignee }
 
@@ -39,6 +41,11 @@ const bucketColors: Record<BucketColor, string> = {
   Teal: 'charts.green',
   Rose: 'charts.red',
 }
+
+/** A note's content is blocks; the tree shows the items of all its checklists and all its links. */
+const checklistsOf = (note: NoteDetail) => note.blocks.filter((b) => b.kind === 'Checklist')
+const itemsOf = (note: NoteDetail) => checklistsOf(note).flatMap((b) => b.items ?? [])
+const linksOf = (note: NoteDetail) => note.blocks.flatMap((b) => b.links ?? [])
 
 const icon = (id: string, color?: string) => new vscode.ThemeIcon(id, color ? new vscode.ThemeColor(color) : undefined)
 
@@ -77,8 +84,10 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
           return node.notes.map((note): Node => ({ kind: 'note', note, canEdit: node.canEdit }))
         case 'note':
           return [
-            ...node.note.checklist.map((_, index): Node => ({ kind: 'checklist', note: node.note, index, canEdit: node.canEdit })),
-            ...node.note.links.map((link): Node => ({ kind: 'link', link })),
+            ...checklistsOf(node.note).flatMap((block) =>
+              (block.items ?? []).map((_, index): Node => ({ kind: 'checklist', note: node.note, block, index, canEdit: node.canEdit })),
+            ),
+            ...linksOf(node.note).map((link): Node => ({ kind: 'link', link })),
             ...node.note.assignees.map((assignee): Node => ({ kind: 'assignee', assignee })),
           ]
         default:
@@ -113,7 +122,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
       case 'note':
         return this.noteItem(node.note, node.canEdit)
       case 'checklist': {
-        const entry = node.note.checklist[node.index]
+        const entry = node.block.items![node.index]
         const item = new vscode.TreeItem(entry.text)
         item.contextValue = contextOf('checklist', node.canEdit)
         item.iconPath = icon(entry.done ? 'pass' : 'circle-large-outline')
@@ -145,7 +154,8 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
   }
 
   private noteItem(note: NoteDetail, canEdit: boolean) {
-    const hasDetails = note.checklist.length > 0 || note.links.length > 0 || note.assignees.length > 0
+    const items = itemsOf(note)
+    const hasDetails = items.length > 0 || linksOf(note).length > 0 || note.assignees.length > 0
     const item = new vscode.TreeItem(
       note.title,
       hasDetails ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
@@ -153,15 +163,15 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
     item.contextValue = contextOf('note', canEdit)
     item.iconPath = note.agentWorking ? icon('loading~spin') : icon('note', noteColors[note.color])
 
-    const done = note.checklist.filter((entry) => entry.done).length
-    item.description = [...note.tags.map((tag) => `#${tag}`), note.checklist.length > 0 ? `${done}/${note.checklist.length}` : '']
+    const done = items.filter((entry) => entry.done).length
+    item.description = [...note.tags.map((tag) => `#${tag}`), items.length > 0 ? `${done}/${items.length}` : '']
       .filter(Boolean)
       .join(' ')
 
     // appendText escapes markdown, so a note cannot format or link its own tooltip.
     const tooltip = new vscode.MarkdownString()
     tooltip.appendText(note.title)
-    if (note.body) tooltip.appendText(`\n\n${note.body}`)
+    for (const block of note.blocks) if (block.kind === 'Text' && block.text) tooltip.appendText(`\n\n${block.text}`)
     item.tooltip = tooltip
     return item
   }
