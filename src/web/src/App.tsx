@@ -6,11 +6,9 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ExternalIcon,
-  MoonIcon,
   PeopleIcon,
   PostItIcon,
   SignOutIcon,
-  SunIcon,
   TrashIcon,
   UserIcon,
 } from './board/icons'
@@ -31,18 +29,6 @@ const boardIdFromHash = () => window.location.hash.match(/^#\/boards\/([\w-]+)/)
 /** Invite links look like /#/invite/{token}; the token never reaches a server log. */
 const inviteFromHash = () => window.location.hash.match(/^#\/invite\/([\w-]+)/)?.[1] ?? null
 
-type Theme = 'dark' | 'light'
-const themeKey = 'prikboard-theme'
-
-/** Dark ("night shift") unless the viewer switched to light before. */
-function storedTheme(): Theme {
-  try {
-    return localStorage.getItem(themeKey) === 'light' ? 'light' : 'dark'
-  } catch {
-    return 'dark'
-  }
-}
-
 /** Everyone assigned to something on the board, people first. */
 function boardAssignees(notes: { assignees: Assignee[] }[]): Assignee[] {
   const unique = new Map<string, Assignee>()
@@ -51,19 +37,9 @@ function boardAssignees(notes: { assignees: Assignee[] }[]): Assignee[] {
 }
 
 export default function App() {
-  const [theme, setTheme] = useState(storedTheme)
   // undefined while checking the session, null when signed out.
   const [user, setUser] = useState<Caller | null | undefined>(undefined)
   const [invite, setInvite] = useState(inviteFromHash)
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme
-    try {
-      localStorage.setItem(themeKey, theme)
-    } catch {
-      // Storage can be unavailable (private mode); the theme then lasts for this visit only.
-    }
-  }, [theme])
 
   useEffect(() => {
     // Any 401, such as an expired session, drops back to the sign-in screen.
@@ -98,7 +74,7 @@ export default function App() {
   }
   return (
     <>
-      <Workspace user={user} onUserChange={setUser} theme={theme} onThemeChange={setTheme} onSignOut={() => void signOut()} />
+      <Workspace user={user} onUserChange={setUser} onSignOut={() => void signOut()} />
       {user.kind === 'Session' && user.chosenDisplayName === null && user.suggestedDisplayName !== null && (
         <DisplayNameDialog user={user} onSaved={setUser} />
       )}
@@ -109,12 +85,10 @@ export default function App() {
 interface WorkspaceProps {
   user: Caller
   onUserChange: (user: Caller) => void
-  theme: Theme
-  onThemeChange: (theme: Theme) => void
   onSignOut: () => void
 }
 
-function Workspace({ user, onUserChange, theme, onThemeChange, onSignOut }: WorkspaceProps) {
+function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   const [boards, setBoards] = useState<BoardSummary[] | null>(null)
   const [selectedId, setSelectedId] = useState(boardIdFromHash)
   const [error, setError] = useState<string | null>(null)
@@ -348,15 +322,6 @@ function Workspace({ user, onUserChange, theme, onThemeChange, onSignOut }: Work
                     Account
                   </button>
                 )}
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="menu-item"
-                  onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}
-                >
-                  {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
-                  {theme === 'dark' ? 'Light theme' : 'Night shift theme'}
-                </button>
                 <a role="menuitem" className="menu-item" href="/scalar" target="_blank" rel="noreferrer" onClick={close}>
                   <ExternalIcon />
                   API reference

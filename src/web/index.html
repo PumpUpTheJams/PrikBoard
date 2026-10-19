@@ -11,12 +11,6 @@
       href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap"
     />
     <title>PrikBoard</title>
-    <script>
-      // Apply a saved light theme before the first paint (dark is the default).
-      try {
-        if (localStorage.getItem('prikboard-theme') === 'light') document.documentElement.dataset.theme = 'light'
-      } catch {}
-    </script>
   </head>
   <body>
     <div id="root"></div>
