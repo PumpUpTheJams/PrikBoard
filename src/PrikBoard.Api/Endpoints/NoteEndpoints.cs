@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using PrikBoard.Api.Auth;
@@ -18,7 +19,8 @@ public static class NoteEndpoints
             .WithName("listNotes")
             .WithSummary("List or search notes on a board")
             .WithDescription("Returns notes bucket by bucket (loose notes last), each group top to bottom and left to right. " +
-                             "Optionally filter by bucket, tag, assignee name (case-insensitive) " +
+                             "Optionally filter by bucket, by tags (repeat tag for several; a note matches when it has any of them), " +
+                             "by assignee (a principal id, or a current display name, case-insensitive) " +
                              "and/or a case-insensitive text search on title and body.");
 
         notes.MapPost("/boards/{boardId:guid}/notes", CreateNote)
@@ -26,7 +28,7 @@ public static class NoteEndpoints
             .WithName("createNote")
             .WithSummary("Stick a new note on a board")
             .WithDescription("Creates a note in a free spot inside the given bucket (default: the board's first bucket), " +
-                             "or exactly at X and Y.")
+                             "or exactly at X and Y. Tags the board does not have yet are added to it (see listBoardTags).")
             .ProducesValidationProblem();
 
         notes.MapGet("/notes/{noteId:guid}", GetNote)
@@ -41,6 +43,14 @@ public static class NoteEndpoints
             .WithDescription("Changes any of title, body, fill, tags, assignees, checklist, links and the agent-working flag. " +
                              "Omitted fields stay unchanged; a list that is given replaces the whole list. Use moveNote to move it.")
             .ProducesValidationProblem();
+
+        notes.MapPost("/notes/{noteId:guid}/working", SetNoteWorking)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Note)
+            .WithName("setNoteWorking")
+            .WithSummary("Say you are working on a note")
+            .WithDescription("With working true, assigns you (the caller) to the note and shows a halo around the post-it; " +
+                             "with false, the halo goes and you stay assigned. Agents call this when they start and finish a note.")
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         notes.MapPost("/notes/{noteId:guid}/move", MoveNote)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Note)
@@ -59,7 +69,7 @@ public static class NoteEndpoints
     }
 
     internal static async Task<Results<Ok<List<NoteDetail>>, NotFound>> ListNotes(
-        Guid boardId, Guid? bucketId, string? tag, string? assignee, string? search, PrikBoardDbContext db, CancellationToken ct)
+        Guid boardId, Guid? bucketId, string[]? tag, string? assignee, string? search, PrikBoardDbContext db, CancellationToken ct)
     {
         if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
 
@@ -76,22 +86,25 @@ public static class NoteEndpoints
         }
 
         var notes = await query.ToListAsync(ct);
-        // Tags and assignees live in JSON columns; boards are small, so filter them in memory.
-        if (!string.IsNullOrWhiteSpace(tag))
+        var principals = await PrincipalsOnAsync(db, notes, ct);
+        // Boards are small, so tags and assignees are filtered in memory.
+        if (tag is not null && NoteTags.Normalize(tag) is { Count: > 0 } wanted)
         {
-            var wanted = NoteTags.Normalize(tag);
-            notes = notes.Where(n => n.Tags.Contains(wanted)).ToList();
+            notes = notes.Where(n => n.Tags.Any(wanted.Contains)).ToList();
         }
         if (!string.IsNullOrWhiteSpace(assignee))
         {
-            notes = notes.Where(n => n.Assignees.Any(a => a.Name.Equals(assignee.Trim(), StringComparison.OrdinalIgnoreCase))).ToList();
+            var name = assignee.Trim();
+            Guid? id = Guid.TryParse(name, out var parsed) ? parsed : null;
+            notes = notes.Where(n => n.AssigneeIds.Any(a => a == id
+                || (principals.TryGetValue(a, out var p) && p.ShownName.Equals(name, StringComparison.OrdinalIgnoreCase)))).ToList();
         }
         var buckets = await db.Buckets.AsNoTracking().Where(b => b.BoardId == boardId).ToListAsync(ct);
-        return TypedResults.Ok(Layout.ReadingOrder(notes, buckets).Select(NoteDetail.From).ToList());
+        return TypedResults.Ok(Layout.ReadingOrder(notes, buckets).Select(n => NoteDetail.From(n, principals)).ToList());
     }
 
     internal static async Task<Results<Created<NoteDetail>, NotFound, ValidationProblem>> CreateNote(
-        Guid boardId, CreateNoteRequest request, PrikBoardDbContext db, CancellationToken ct)
+        Guid boardId, CreateNoteRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
     {
         if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
 
@@ -102,8 +115,14 @@ public static class NoteEndpoints
             Body = PatchText.Apply(null, request.Body),
             Color = request.Color ?? NoteColor.Butter,
             AgentWorking = request.AgentWorking ?? false,
+            CreatedById = principal.PrincipalId(),
         };
-        if (ApplyLists(note, request.Tags, request.Assignees, request.Checklist, request.Links) is { } invalid) return invalid;
+        if (request.AssigneeIds is not null && await CheckAssigneesAsync(db, boardId, request.AssigneeIds, [], ct) is { } unassignable)
+        {
+            return unassignable;
+        }
+        if (ApplyLists(note, request.Tags, request.AssigneeIds, request.Checklist, request.Links) is { } invalid) return invalid;
+        if (await TagEndpoints.EnsureBoardTagsAsync(db, boardId, note.Tags, ct) is { } tooManyTags) return tooManyTags;
 
         var buckets = await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct);
         var others = await db.Notes.Where(n => n.BoardId == boardId).ToListAsync(ct);
@@ -112,14 +131,14 @@ public static class NoteEndpoints
 
         db.Notes.Add(note);
         await db.SaveChangesAsync(ct);
-        return TypedResults.Created($"/api/notes/{note.Id}", NoteDetail.From(note));
+        return TypedResults.Created($"/api/notes/{note.Id}", await DetailAsync(db, note, ct));
     }
 
     internal static async Task<Results<Ok<NoteDetail>, NotFound>> GetNote(
         Guid noteId, PrikBoardDbContext db, CancellationToken ct)
     {
         var note = await db.Notes.AsNoTracking().FirstOrDefaultAsync(n => n.Id == noteId, ct);
-        return note is null ? TypedResults.NotFound() : TypedResults.Ok(NoteDetail.From(note));
+        return note is null ? TypedResults.NotFound() : TypedResults.Ok(await DetailAsync(db, note, ct));
     }
 
     internal static async Task<Results<Ok<NoteDetail>, NotFound, ValidationProblem>> UpdateNote(
@@ -128,7 +147,16 @@ public static class NoteEndpoints
         var note = await db.Notes.FindAsync([noteId], ct);
         if (note is null) return TypedResults.NotFound();
 
-        if (ApplyLists(note, request.Tags, request.Assignees, request.Checklist, request.Links) is { } invalid) return invalid;
+        if (request.AssigneeIds is not null
+            && await CheckAssigneesAsync(db, note.BoardId, request.AssigneeIds, note.AssigneeIds, ct) is { } unassignable)
+        {
+            return unassignable;
+        }
+        if (ApplyLists(note, request.Tags, request.AssigneeIds, request.Checklist, request.Links) is { } invalid) return invalid;
+        if (request.Tags is not null && await TagEndpoints.EnsureBoardTagsAsync(db, note.BoardId, note.Tags, ct) is { } tooManyTags)
+        {
+            return tooManyTags;
+        }
         note.Title = request.Title ?? note.Title;
         note.Body = PatchText.Apply(note.Body, request.Body);
         note.Color = request.Color ?? note.Color;
@@ -136,7 +164,31 @@ public static class NoteEndpoints
         note.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
-        return TypedResults.Ok(NoteDetail.From(note));
+        return TypedResults.Ok(await DetailAsync(db, note, ct));
+    }
+
+    internal static async Task<Results<Ok<NoteDetail>, NotFound, ProblemHttpResult>> SetNoteWorking(
+        Guid noteId, SetWorkingRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
+    {
+        var note = await db.Notes.FindAsync([noteId], ct);
+        if (note is null) return TypedResults.NotFound();
+
+        // Whoever passed the Editor check reaches the board, so they can be assigned.
+        var me = principal.PrincipalId();
+        if (request.Working && !note.AssigneeIds.Contains(me))
+        {
+            if (note.AssigneeIds.Count >= MaxAssignees)
+            {
+                return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Too many assignees",
+                    detail: $"The note already has {MaxAssignees} assignees; remove one first.");
+            }
+            note.AssigneeIds = [.. note.AssigneeIds, me];
+        }
+        note.AgentWorking = request.Working;
+        note.UpdatedAt = DateTimeOffset.UtcNow;
+
+        await db.SaveChangesAsync(ct);
+        return TypedResults.Ok(await DetailAsync(db, note, ct));
     }
 
     internal static async Task<Results<Ok<NoteDetail>, NotFound, ValidationProblem>> MoveNote(
@@ -159,7 +211,7 @@ public static class NoteEndpoints
 
         note.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
-        return TypedResults.Ok(NoteDetail.From(note));
+        return TypedResults.Ok(await DetailAsync(db, note, ct));
     }
 
     internal static async Task<Results<NoContent, NotFound>> DeleteNote(
@@ -168,6 +220,20 @@ public static class NoteEndpoints
         var deleted = await db.Notes.Where(n => n.Id == noteId).ExecuteDeleteAsync(ct);
         return deleted == 0 ? TypedResults.NotFound() : TypedResults.NoContent();
     }
+
+    /// <summary>
+    /// The creators and assignees of <paramref name="notes"/>, loaded in one query, so their current names can be shown.
+    /// </summary>
+    internal static async Task<Dictionary<Guid, Principal>> PrincipalsOnAsync(
+        PrikBoardDbContext db, IEnumerable<Note> notes, CancellationToken ct)
+    {
+        var ids = notes.SelectMany(n => n.CreatedById is { } by ? [by, .. n.AssigneeIds] : n.AssigneeIds).Distinct().ToList();
+        if (ids.Count == 0) return [];
+        return await db.Principals.AsNoTracking().Where(p => ids.Contains(p.Id)).ToDictionaryAsync(p => p.Id, ct);
+    }
+
+    private static async Task<NoteDetail> DetailAsync(PrikBoardDbContext db, Note note, CancellationToken ct) =>
+        NoteDetail.From(note, await PrincipalsOnAsync(db, [note], ct));
 
     /// <summary>
     /// Positions <paramref name="note"/> exactly at X and Y, or in a free spot inside the bucket, or (with neither)
@@ -217,9 +283,32 @@ public static class NoteEndpoints
         return null;
     }
 
+    /// <summary>The most people and agents on one note (also the MaxLength on assigneeIds).</summary>
+    internal const int MaxAssignees = 10;
+
+    /// <summary>
+    /// Checks that everyone being added to a note (<paramref name="ids"/> not in <paramref name="already"/>) can be
+    /// assigned on the board. People already on the note may stay after they lose access, so a client can always send the
+    /// full list back.
+    /// </summary>
+    internal static async Task<ValidationProblem?> CheckAssigneesAsync(
+        PrikBoardDbContext db, Guid boardId, IEnumerable<Guid> ids, IEnumerable<Guid> already, CancellationToken ct)
+    {
+        var added = ids.Except(already).ToList();
+        if (added.Count == 0) return null;
+
+        var assignable = await BoardAccess.AssignableIds(db, boardId).Where(id => added.Contains(id)).ToListAsync(ct);
+        var missing = added.Except(assignable).ToList();
+        if (missing.Count == 0) return null;
+        return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["assigneeIds"] = [$"{string.Join(", ", missing)} cannot be assigned: no access to this board. See people in getBoard."],
+        });
+    }
+
     /// <summary>Replaces each list that is given (null keeps it), normalizing tags. Returns a problem for an invalid value.</summary>
     private static ValidationProblem? ApplyLists(
-        Note note, List<string>? tags, List<Assignee>? assignees, List<ChecklistItem>? checklist, List<NoteLink>? links)
+        Note note, List<string>? tags, List<Guid>? assigneeIds, List<ChecklistItem>? checklist, List<NoteLink>? links)
     {
         if (tags is not null)
         {
@@ -241,12 +330,9 @@ public static class NoteEndpoints
             });
         }
 
-        if (assignees is not null)
+        if (assigneeIds is not null)
         {
-            note.Assignees = assignees
-                .Select(a => new AssigneeEntry { Name = a.Name.Trim(), Kind = a.Kind })
-                .DistinctBy(a => (a.Name.ToLowerInvariant(), a.Kind))
-                .ToList();
+            note.AssigneeIds = assigneeIds.Distinct().ToList();
         }
         if (checklist is not null)
         {

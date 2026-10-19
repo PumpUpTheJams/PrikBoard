@@ -75,6 +75,20 @@ public sealed class BoardEvents(IHubContext<BoardHub, IBoardClient> hub, LiveVie
         foreach (var boardId in boards) await PresenceAsync(boardId);
     });
 
+    /// <summary>
+    /// The caller picked a new display name, which notes show (creator, assignee): every board they can reach reloads.
+    /// </summary>
+    public async Task NameShownOnBoardsAsync(PrikBoardDbContext db, HttpContext http, CancellationToken ct)
+    {
+        var caller = BoardCaller.Of(http.User);
+        var memberships = await db.BoardMembers.Where(m => m.PrincipalId == caller.MemberId)
+            .Select(m => new { m.BoardId, m.Role }).ToListAsync(ct);
+        foreach (var membership in memberships.Where(m => caller.Apply(m.BoardId, m.Role) is not null))
+        {
+            await ChangedAsync(membership.BoardId, http);
+        }
+    }
+
     private Task PresenceAsync(Guid boardId) =>
         hub.Clients.Group(BoardHub.Group(boardId)).Presence(new BoardPresence(boardId, viewers.On(boardId)));
 

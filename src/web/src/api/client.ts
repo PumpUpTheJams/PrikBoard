@@ -4,6 +4,7 @@ import type {
   AuthProvider,
   BoardDetail,
   BoardSummary,
+  BoardTag,
   BucketChanges,
   BucketColor,
   BucketDetail,
@@ -124,6 +125,17 @@ export const api = {
   moveNote: (noteId: string, to: { bucketId: string } | Point) =>
     request<NoteDetail>('POST', `/notes/${noteId}/move`, to),
   deleteNote: (noteId: string) => request<void>('DELETE', `/notes/${noteId}`),
+  /** Assigns you and shows the working halo (true), or takes the halo away (false). */
+  setNoteWorking: (noteId: string, working: boolean) =>
+    request<NoteDetail>('POST', `/notes/${noteId}/working`, { working }),
+
+  listBoardTags: (boardId: string) => request<BoardTag[]>('GET', `/boards/${boardId}/tags`),
+  createBoardTag: (boardId: string, name: string) => request<BoardTag>('POST', `/boards/${boardId}/tags`, { name }),
+  /** Renames the tag on every note of the board too. */
+  renameBoardTag: (boardId: string, tagId: string, name: string) =>
+    request<BoardTag>('PATCH', `/boards/${boardId}/tags/${tagId}`, { name }),
+  /** Removes the tag from every note of the board too. */
+  deleteBoardTag: (boardId: string, tagId: string) => request<void>('DELETE', `/boards/${boardId}/tags/${tagId}`),
 
   /** Uploads a file onto the board (at x/y, or right of everything), or attached to a note with noteId. */
   uploadImage: (boardId: string, file: File, placement: ImagePlacement = {}) => {

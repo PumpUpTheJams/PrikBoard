@@ -12,12 +12,6 @@ public enum AssigneeKind
     Agent,
 }
 
-public class AssigneeEntry
-{
-    public required string Name { get; set; }
-    public AssigneeKind Kind { get; set; }
-}
-
 public class ChecklistEntry
 {
     public required string Text { get; set; }

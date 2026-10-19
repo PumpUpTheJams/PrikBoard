@@ -146,15 +146,16 @@ Hand-written and curated, rather than generated one per OpenAPI operation. Agent
 | Tool | Annotations | Does |
 | --- | --- | --- |
 | `list_boards` | read-only | Your boards with your role |
-| `get_board` | read-only | A compact snapshot: buckets in order, each with its notes (id, title, tags, assignees, checklist progress). Smaller than the REST `getBoard`, because agents pay per token. |
-| `search_notes` | read-only | Like `listNotes`: by bucket, tag, assignee, text |
+| `get_board` | read-only | A compact snapshot: buckets in order, each with its notes (id, title, tags, assignees, checklist progress, creator), the board's tags and the people who can be assigned. Smaller than the REST `getBoard`, because agents pay per token. |
+| `search_notes` | read-only | Like `listNotes`: by bucket, tags, assignee, text |
 | `get_note` | read-only | Full note: body, checklist, links, attached image captions |
-| `create_note` | | Title, body, colour, tags, assignees, checklist, links, and a bucket **by id or name** |
+| `create_note` | | Title, body, colour, tags, assignees (**by name or id**), checklist, links, and a bucket **by id or name** |
 | `update_note` | idempotent | PATCH semantics as in REST |
 | `move_note` | idempotent | To a bucket by id or name. The server finds the spot. |
-| `set_working` | idempotent | Shorthand: assign yourself as an agent and set `agentWorking` on or off |
+| `set_working` | idempotent | Assign yourself and set `agentWorking` on or off (REST: `setNoteWorking`) |
 | `delete_note` | **destructive** | |
 | `create_bucket`, `update_bucket` | | Rare for agents, but cheap to add |
+| `create_tag`, `rename_tag`, `delete_tag` | `delete_tag` **destructive** | The board's tags by name or id; renaming and deleting change every note |
 
 - **No member, invite, board-delete or token tools.** Agents never manage access, and the tool list itself says so.
 - **Annotations** (`ReadOnly`, `Destructive`, `Idempotent`) let clients ask before a destructive call.

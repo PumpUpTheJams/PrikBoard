@@ -136,6 +136,7 @@ public static class AuthEndpoints
         }
         await db.SaveChangesAsync(ct);
         await events.RenamedAsync(self.Id, self.ShownName);
+        if (request.DisplayName is not null) await events.NameShownOnBoardsAsync(db, http, ct);
 
         if (!principal.IsToken() && self is User user)
         {

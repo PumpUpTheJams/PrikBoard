@@ -224,17 +224,18 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     public async Task Notes_carry_tags_assignees_checklist_and_links()
     {
         var board = await CreateBoard("Details");
+        var me = await _client.MeAsync();
         var created = await CreateNote(board.Id, new
         {
             title = "Retry policy for lidar tile ingest",
             tags = new[] { " Backend ", "ingest", "backend", "Tile Index" },
-            assignees = new object[] { new { name = "Jaap V." }, new { name = "Agent", kind = "Agent" } },
+            assigneeIds = new[] { me.Id, me.Id },
             checklist = new object[] { new { text = "Backoff with jitter", done = true }, new { text = "Exhausted tiles go to the DLQ" } },
             links = new[] { new { title = "PR #412", url = "https://example.com/pulls/412" } },
         });
 
         Assert.Equal(["backend", "ingest", "tile-index"], created.Tags);
-        Assert.Equal([new Assignee("Jaap V."), new Assignee("Agent", AssigneeKind.Agent)], created.Assignees);
+        Assert.Equal([new Assignee(me.Id, me.DisplayName, AssigneeKind.Person)], created.Assignees);
         Assert.Equal([new ChecklistItem("Backoff with jitter", true), new ChecklistItem("Exhausted tiles go to the DLQ")], created.Checklist);
         Assert.Equal([new NoteLink("PR #412", "https://example.com/pulls/412")], created.Links);
         Assert.False(created.AgentWorking);
@@ -262,28 +263,42 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
 
         var scriptLink = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", links = new[] { new { title = "x", url = "javascript:alert(1)" } } });
         var longTag = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", tags = new[] { new string('t', 31) } });
-        var unnamed = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", assignees = new[] { new { name = "" } } });
+        var stranger = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", assigneeIds = new[] { Guid.NewGuid() } });
+        var tooManyPeople = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", assigneeIds = Enumerable.Range(0, 11).Select(_ => Guid.NewGuid()) });
         var tooManyTags = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", tags = Enumerable.Range(0, 11).Select(i => $"t{i}") });
 
         Assert.Equal(HttpStatusCode.BadRequest, scriptLink.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, longTag.StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, unnamed.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, stranger.StatusCode);
+        Assert.Contains("assigneeIds", await stranger.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.BadRequest, tooManyPeople.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, tooManyTags.StatusCode);
     }
 
     [Fact]
-    public async Task Notes_can_be_filtered_by_tag_and_assignee()
+    public async Task Notes_can_be_filtered_by_tags_and_assignee()
     {
         var board = await CreateBoard("Filters");
-        await CreateNote(board.Id, new { title = "Ingest", tags = new[] { "backend" }, assignees = new object[] { new { name = "Agent", kind = "Agent" } } });
-        await CreateNote(board.Id, new { title = "Dashboard", tags = new[] { "observability" }, assignees = new object[] { new { name = "Mila V." } } });
-        await CreateNote(board.Id, new { title = "DLQ", tags = new[] { "backend" }, assignees = new object[] { new { name = "Mila V." } } });
+        var mila = await factory.CreateSignedInClientAsync("mila-filters@example.com");
+        await mila.RenameAsync("Mila V.");
+        await _client.ShareAsync(board.Id, mila, BoardRole.Editor);
+        var milaId = (await mila.MeAsync()).Id;
+        var meId = (await _client.MeAsync()).Id;
+        await CreateNote(board.Id, new { title = "Ingest", tags = new[] { "backend" }, assigneeIds = new[] { meId } });
+        await CreateNote(board.Id, new { title = "Dashboard", tags = new[] { "observability" }, assigneeIds = new[] { milaId } });
+        await CreateNote(board.Id, new { title = "DLQ", tags = new[] { "backend" }, assigneeIds = new[] { milaId, meId } });
+        await CreateNote(board.Id, new { title = "Docs", tags = new[] { "docs" } });
 
-        var backend = await _client.GetFromJsonAsync<List<NoteDetail>>($"/api/boards/{board.Id}/notes?tag=Backend");
-        var mila = await _client.GetFromJsonAsync<List<NoteDetail>>($"/api/boards/{board.Id}/notes?assignee=mila%20v.");
+        var url = $"/api/boards/{board.Id}/notes";
+        var backend = await _client.GetFromJsonAsync<List<NoteDetail>>($"{url}?tag=Backend");
+        var either = await _client.GetFromJsonAsync<List<NoteDetail>>($"{url}?tag=backend&tag=observability");
+        var byName = await _client.GetFromJsonAsync<List<NoteDetail>>($"{url}?assignee=mila%20v.");
+        var byId = await _client.GetFromJsonAsync<List<NoteDetail>>($"{url}?assignee={milaId}");
 
         Assert.Equal(["Ingest", "DLQ"], backend!.Select(n => n.Title));
-        Assert.Equal(["Dashboard", "DLQ"], mila!.Select(n => n.Title));
+        Assert.Equal(["Ingest", "Dashboard", "DLQ"], either!.Select(n => n.Title));
+        Assert.Equal(["Dashboard", "DLQ"], byName!.Select(n => n.Title));
+        Assert.Equal(["Dashboard", "DLQ"], byId!.Select(n => n.Title));
     }
 
     [Fact]
@@ -321,7 +336,8 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
             new HashSet<string?>
             {
                 "listBoards", "getBoard", "createBucket", "updateBucket", "deleteBucket",
-                "createNote", "moveNote", "updateNote", "deleteNote",
+                "createNote", "moveNote", "updateNote", "deleteNote", "setNoteWorking",
+                "listBoardTags", "createBoardTag", "renameBoardTag", "deleteBoardTag",
                 "whoAmI", "listAuthProviders",
                 "uploadImage", "getImageContent", "updateImage", "deleteImage",
             },

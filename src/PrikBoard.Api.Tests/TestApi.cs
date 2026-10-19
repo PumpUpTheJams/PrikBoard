@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Domain;
@@ -23,6 +24,22 @@ internal static class TestApi
         var me = await member.MeAsync();
         var response = await owner.PostAsJsonAsync($"/api/boards/{boardId}/members", new { principalId = me.Id, role });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    /// <summary>Sets the caller's display name.</summary>
+    public static async Task RenameAsync(this HttpClient client, string displayName) =>
+        (await client.PatchAsJsonAsync("/api/me", new { displayName })).EnsureSuccessStatusCode();
+
+    /// <summary>A personal access token of <paramref name="owner"/>, and a client that uses it.</summary>
+    public static async Task<(HttpClient Client, CreatedAccessToken Token)> TokenAsync(
+        this PrikBoardApiFactory factory, HttpClient owner, string name, BoardRole access = BoardRole.Editor, Guid[]? boardIds = null)
+    {
+        var response = await owner.PostAsJsonAsync("/api/me/tokens", new { name, access, boardIds });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var token = (await response.Content.ReadFromJsonAsync<CreatedAccessToken>())!;
+        var client = factory.CreateAnonymousClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
+        return (client, token);
     }
 
     public static async Task<NoteDetail> CreateNoteAsync(this HttpClient client, Guid boardId, string title = "A note")

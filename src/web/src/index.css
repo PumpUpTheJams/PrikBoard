@@ -1268,53 +1268,6 @@ main {
   font-size: 12px;
 }
 
-.inline-add {
-  width: 150px;
-  height: 26px;
-  padding: 0 8px;
-  border: 1px solid rgba(23, 24, 27, 0.35);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.4);
-  color: var(--ink);
-  font-size: 12px;
-}
-
-.inline-add::placeholder {
-  color: var(--ink-soft);
-}
-
-.inline-add.mono {
-  font-family: var(--mono);
-}
-
-.assign-form {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.segmented {
-  display: flex;
-  padding: 2px;
-  border-radius: 7px;
-  background: rgba(23, 24, 27, 0.1);
-}
-
-.segmented button {
-  height: 22px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--ink-soft);
-  font-size: 12px;
-}
-
-.segmented button[aria-pressed='true'] {
-  background: rgba(255, 255, 255, 0.6);
-  color: var(--ink);
-}
-
 /* The mini board inside an expanded post-it */
 
 .mini-board {
@@ -2439,4 +2392,378 @@ a.button.primary:hover {
   max-height: 160px;
   overflow: auto;
   padding-left: 22px;
+}
+
+/* Search window for tags and people (components/PickerWindow), fixed to the screen next to what opened it */
+
+.picker {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  max-height: min(420px, calc(100vh - 16px));
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--float-shadow);
+}
+
+.picker-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--subtle);
+}
+
+.picker-search input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+
+.picker-search input::placeholder {
+  color: var(--subtle);
+}
+
+.picker-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 12px 0;
+}
+
+.picker-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 4px 0 8px;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--text-2);
+  font: 12px var(--mono);
+}
+
+.picker-chip .avatar {
+  margin-left: -6px;
+}
+
+.picker-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-list {
+  flex: 1;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.picker-row {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+}
+
+.picker-row.active,
+.picker-row:hover {
+  background: var(--hover);
+}
+
+.picker-row.editing {
+  padding: 4px 6px;
+  background: var(--hover);
+}
+
+.picker-pick {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+}
+
+.picker-pick:disabled {
+  color: var(--subtle);
+}
+
+.picker-check {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  color: var(--accent);
+}
+
+.picker-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.picker-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-detail {
+  color: var(--subtle);
+  font-size: 12px;
+}
+
+.picker-meta {
+  color: var(--subtle);
+  font: 11px var(--mono);
+}
+
+.picker-edit {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--subtle);
+  opacity: 0;
+}
+
+.picker-row:hover .picker-edit,
+.picker-row.active .picker-edit,
+.picker-row.editing .picker-edit,
+.picker-edit:focus-visible {
+  opacity: 1;
+}
+
+.picker-edit:hover {
+  background: var(--tool-hover);
+  color: var(--text);
+}
+
+.picker-edit.danger:hover {
+  color: var(--danger);
+}
+
+.picker-editor {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 2px;
+}
+
+.picker-editor input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  margin-right: 4px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.picker-empty,
+.picker-footer {
+  margin: 0;
+  padding: 8px 14px;
+  color: var(--subtle);
+  font-size: 12px;
+}
+
+.picker-footer {
+  border-top: 1px solid var(--line);
+}
+
+/* Quick edit on a post-it: its tags and people open the search window */
+
+.post-it .quick-edit {
+  margin: -3px;
+  padding: 3px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.post-it .quick-edit:hover,
+.post-it .quick-edit:focus-visible {
+  background: rgba(23, 24, 27, 0.08);
+}
+
+.post-it-tags.quick-edit {
+  max-height: 48px;
+}
+
+/* A flex box, so the empty slot inside keeps its size (inline it would collapse). */
+.post-it-people {
+  display: flex;
+  flex: none;
+  border-radius: 999px;
+}
+
+.tag-add {
+  border: 1px dashed rgba(23, 24, 27, 0.35);
+  background: transparent;
+  color: var(--ink-soft);
+  opacity: 0;
+}
+
+.post-it:hover .tag-add,
+.post-it:focus-within .tag-add,
+.post-it.selected .tag-add,
+.post-it.selected .avatar-slot,
+.post-it:focus-within .avatar-slot {
+  opacity: 1;
+}
+
+/* The tag filter fades post-its without the picked tags; they stay where they are and still work. */
+
+.post-it.dimmed {
+  opacity: 0.28;
+  filter: saturate(0.6);
+}
+
+.post-it.dimmed:hover,
+.post-it.dimmed.selected,
+.post-it.dimmed:focus-within {
+  opacity: 0.85;
+}
+
+.minimap-note.dimmed {
+  opacity: 0.25;
+}
+
+/* Bottom left: the top is where buckets have their names, the right holds the minimap and inspectors. */
+.tag-filter {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(50% - 120px);
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: var(--float-shadow);
+}
+
+.tag-filter.active {
+  border-color: var(--accent);
+}
+
+.tag-filter-button,
+.tag-filter-clear {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.tag-filter-button:hover,
+.tag-filter-clear:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.tag-filter.active .tag-filter-button {
+  color: var(--accent);
+}
+
+.tag-filter-clear {
+  color: var(--subtle);
+}
+
+.tag-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 4px 0 8px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  color: var(--text);
+  font: 12px var(--mono);
+}
+
+.band-meta {
+  margin: -4px 0 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+/* A post-it's title edited in place: looks like the title itself, as in the expanded post-it (no box, a thin focus ring) */
+
+.post-it-title.editable-title {
+  cursor: pointer;
+}
+
+.post-it-title-input {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  max-height: calc(3 * 1.3em);
+  margin: 0;
+  padding: 0;
+  /* A longer title scrolls with the text cursor, without a scrollbar squeezed into the post-it. */
+  overflow: hidden auto;
+  scrollbar-width: none;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ink);
+  caret-color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+  overflow-wrap: anywhere;
+  resize: none;
+  cursor: text;
+}
+
+.post-it-title-input:focus,
+.post-it-title-input:focus-visible {
+  outline: 1px solid var(--ink);
+  outline-offset: 3px;
 }

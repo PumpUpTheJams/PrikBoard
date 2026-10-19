@@ -50,6 +50,7 @@ public class MembershipApiTests(MembershipApiTests.Factory factory) : IClassFixt
         var note = await owner.CreateNoteAsync(board.Id);
         var bucket = board.Buckets[0];
         var image = await (await Upload(owner, board.Id)).Content.ReadFromJsonAsync<ImageDetail>();
+        var tag = (await (await owner.PostAsJsonAsync($"/api/boards/{board.Id}/tags", new { name = "matrix" })).Content.ReadFromJsonAsync<BoardTagDetail>())!;
 
         (string Method, string Url, Func<HttpContent?> Body, BoardRole Needs)[] cases =
         [
@@ -65,6 +66,10 @@ public class MembershipApiTests(MembershipApiTests.Factory factory) : IClassFixt
             ("PATCH", $"/api/buckets/{bucket.Id}", () => Json(new { name = "Backlog" }), BoardRole.Editor),
             ("PATCH", $"/api/images/{image.Id}", () => Json(new { caption = "c" }), BoardRole.Editor),
             ("POST", $"/api/boards/{board.Id}/images", () => Png(), BoardRole.Editor),
+            ("POST", $"/api/notes/{note.Id}/working", () => Json(new { working = true }), BoardRole.Editor),
+            ("GET", $"/api/boards/{board.Id}/tags", () => null, BoardRole.Viewer),
+            ("POST", $"/api/boards/{board.Id}/tags", () => Json(new { name = $"t-{Guid.NewGuid():N}"[..12] }), BoardRole.Editor),
+            ("PATCH", $"/api/boards/{board.Id}/tags/{tag.Id}", () => Json(new { name = $"t-{Guid.NewGuid():N}"[..12] }), BoardRole.Editor),
             ("PATCH", $"/api/boards/{board.Id}", () => Json(new { name = "Matrix 2" }), BoardRole.Owner),
             ("GET", $"/api/boards/{board.Id}/invites", () => null, BoardRole.Owner),
             ("POST", $"/api/boards/{board.Id}/invites", () => Json(new { role = "Viewer" }), BoardRole.Owner),
@@ -85,6 +90,9 @@ public class MembershipApiTests(MembershipApiTests.Factory factory) : IClassFixt
         Assert.Equal(HttpStatusCode.Forbidden, (await editor.DeleteAsync($"/api/boards/{board.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await viewer.DeleteAsync($"/api/notes/{note.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await stranger.DeleteAsync($"/api/notes/{note.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await viewer.DeleteAsync($"/api/boards/{board.Id}/tags/{tag.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await stranger.DeleteAsync($"/api/boards/{board.Id}/tags/{tag.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await editor.DeleteAsync($"/api/boards/{board.Id}/tags/{tag.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await editor.DeleteAsync($"/api/notes/{note.Id}")).StatusCode);
     }
 

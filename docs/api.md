@@ -79,15 +79,18 @@ claude mcp add --transport http prikboard http://localhost:5173/mcp --header "Au
 | Tool | What it does |
 | --- | --- |
 | `list_boards` | Your boards with your role on each |
-| `get_board` | Compact overview: buckets in order with their notes (title, tags, assignees, checklist progress), plus loose notes |
-| `search_notes` | By bucket (name or id), tag, assignee or text |
+| `get_board` | Compact overview: buckets in order with their notes (title, tags, assignees, checklist progress, creator), plus loose notes, the board's `tags` and the `people` who can be assigned |
+| `search_notes` | By bucket (name or id), `tags` (any of them), assignee (name or id) or text |
 | `get_note` | Everything about one note |
-| `create_note` | In a bucket by name or id (default: the first bucket) |
-| `update_note` | Same PATCH rules as updateNote |
+| `create_note` | In a bucket by name or id (default: the first bucket). `assignees` are names or principal ids from `people` |
+| `update_note` | Same PATCH rules as updateNote; `assignees` by name or id |
 | `move_note` | To a bucket by name or id; the server finds a free spot |
-| `set_working` | Assign yourself as an agent and show (or hide) the working halo |
+| `set_working` | Assign yourself and show (or hide) the working halo, like setNoteWorking |
 | `delete_note` | Marked destructive, so clients ask first |
 | `create_bucket`, `rename_bucket` | Bucket housekeeping |
+| `create_tag`, `rename_tag`, `delete_tag` | The board's tags, by name or id. Renaming and deleting change every note; `delete_tag` is marked destructive |
+
+The tools offer the same features as the REST endpoints. Where REST takes ids (`bucketId`, `assigneeIds`, a tag id), the tools also take names, resolved on the note's board.
 
 The tools use the same access checks, validation and layout rules as the REST endpoints, and people watching the board see the changes live. There are no tools for members, invites, tokens or deleting boards. A request with a foreign `Origin` header gets `403`. Tool errors (no access, read-only token, an unknown bucket name) come back as tool results with `isError`, written for the model to act on.
 
@@ -97,7 +100,9 @@ A board is a freeform canvas. It holds **buckets**, named rectangles such as *To
 
 Coordinates are canvas pixels from the top-left corner. The server snaps them to a 20 px grid, and it works out each note's bucket again whenever a note or bucket moves.
 
-Besides a title, a note has an optional `body`, a `color` (fill), `tags`, `assignees` (people and agents), a `checklist`, `links`, and an `agentWorking` flag. The board shows the title, tags and assignees on the post-it. Everything else appears when the post-it is expanded.
+Besides a title, a note has an optional `body`, a `color` (fill), `tags`, `assignees` (people and agents), a `checklist`, `links`, an `agentWorking` flag and who created it (`createdBy`, `createdById`; null for notes from before this was recorded). The board shows the title, tags and assignees on the post-it. Everything else appears when the post-it is expanded.
+
+A board has its own list of **tags** (`tags` in getBoard, with how many notes use each). Notes pick their tags from it, and a new name on a note adds it to the list. A tag stays when no note uses it; renaming or deleting one changes every note on the board. **Assignees** are the board's `people`: its members, and the agents of members' personal access tokens that reach the board.
 
 ## Typical agent workflow
 
@@ -106,8 +111,8 @@ Besides a title, a note has an optional `body`, a `color` (fill), `tags`, `assig
 3. Act on it:
    - `POST /api/boards/{boardId}/notes` (createNote) adds a task.
    - `POST /api/notes/{noteId}/move` (moveNote) with a `bucketId` moves a task, for example from *Doing* to *Done*. The server picks a free spot inside the bucket, so you never need coordinates.
-   - `PATCH /api/notes/{noteId}` (updateNote) edits the title, body, fill, tags, assignees, checklist or links.
-4. When you start working on a note yourself, assign yourself as an agent and set `agentWorking: true`. People see a lilac halo around the post-it until you set it back to `false`.
+   - `PATCH /api/notes/{noteId}` (updateNote) edits the title, body, fill, tags, assignees, checklist or links. Reuse the board's `tags`, and assign people by `principalId` from `people`.
+4. When you start working on a note yourself, call `POST /api/notes/{noteId}/working` (setNoteWorking) with `{"working":true}`: it assigns you and people see a lilac halo around the post-it. Send `false` when you are done; you stay assigned.
 
 ```bash
 export TOKEN=...   # an access token from your identity provider (see docs/authentication.md)
@@ -121,9 +126,12 @@ pb -X POST localhost:5080/api/boards -H "Content-Type: application/json" \
 pb -X POST localhost:5080/api/boards/{boardId}/notes -H "Content-Type: application/json" \
   -d '{"title":"Pick a colour palette","color":"Coral","tags":["design"]}'
 
-# Claim it as an agent and tick off part of the checklist
+# Claim it: assigns you (the token's agent) and shows the working halo
+pb -X POST localhost:5080/api/notes/{noteId}/working -H "Content-Type: application/json" -d '{"working":true}'
+
+# Assign a teammate (a principalId from people in getBoard) and tick off part of the checklist
 pb -X PATCH localhost:5080/api/notes/{noteId} -H "Content-Type: application/json" \
-  -d '{"assignees":[{"name":"Claude","kind":"Agent"}],"agentWorking":true,
+  -d '{"assigneeIds":["{yourId}","{teammateId}"],
        "checklist":[{"text":"Three options","done":true},{"text":"Team vote","done":false}]}'
 
 # Move it into another bucket
@@ -141,18 +149,23 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | --- | --- | --- |
 | listBoards | `GET /api/boards` | All boards, newest first, without buckets and notes |
 | createBoard | `POST /api/boards` | New board with the default buckets side by side |
-| getBoard | `GET /api/boards/{boardId}` | Full snapshot: buckets back to front, notes grouped by bucket |
+| getBoard | `GET /api/boards/{boardId}` | Full snapshot: buckets back to front, notes grouped by bucket, images, the board's `tags` and the `people` who can be assigned |
 | updateBoard | `PATCH /api/boards/{boardId}` | Rename or edit the description |
 | deleteBoard | `DELETE /api/boards/{boardId}` | Delete the board with all buckets and notes |
 | createBucket | `POST /api/boards/{boardId}/buckets` | Draw a bucket at a rectangle, or to the right of the others. Loose notes it covers join it |
 | updateBucket | `PATCH /api/buckets/{bucketId}` | Rename, recolour, move or resize. Moving carries the bucket's notes along |
 | deleteBucket | `DELETE /api/buckets/{bucketId}` | Delete a bucket. Its notes stay where they are and become loose |
-| listNotes | `GET /api/boards/{boardId}/notes?bucketId=&tag=&assignee=&search=` | Filter by bucket, tag or assignee name, or search title and body (all case-insensitive) |
-| createNote | `POST /api/boards/{boardId}/notes` | New note in a bucket's free spot (default: the first bucket), or at `x`/`y`. Butter by default. Can include tags, assignees, checklist and links |
+| listNotes | `GET /api/boards/{boardId}/notes?bucketId=&tag=&assignee=&search=` | Filter by bucket, tags (repeat `tag`; any of them matches), assignee (principal id or current name), or search title and body (all case-insensitive) |
+| createNote | `POST /api/boards/{boardId}/notes` | New note in a bucket's free spot (default: the first bucket), or at `x`/`y`. Butter by default. Can include tags, `assigneeIds`, checklist and links. Records you as its creator |
 | getNote | `GET /api/notes/{noteId}` | A single note |
-| updateNote | `PATCH /api/notes/{noteId}` | Edit the title, body, fill, tags, assignees, checklist, links or `agentWorking` |
+| updateNote | `PATCH /api/notes/{noteId}` | Edit the title, body, fill, tags, `assigneeIds`, checklist, links or `agentWorking` |
+| setNoteWorking | `POST /api/notes/{noteId}/working` | `{"working":true}` assigns you and shows the halo; `false` takes the halo away (you stay assigned) |
 | moveNote | `POST /api/notes/{noteId}/move` | Move into a bucket (`bucketId`) or to coordinates (`x` and `y`) |
 | deleteNote | `DELETE /api/notes/{noteId}` | Delete a note (and the images attached to it) |
+| listBoardTags | `GET /api/boards/{boardId}/tags` | The board's tags by name, with how many notes use each |
+| createBoardTag | `POST /api/boards/{boardId}/tags` | Add a tag without putting it on a note (`409` when it exists or the board has 100) |
+| renameBoardTag | `PATCH /api/boards/{boardId}/tags/{tagId}` | Rename a tag on the board and on every note (`409` when the new name is taken) |
+| deleteBoardTag | `DELETE /api/boards/{boardId}/tags/{tagId}` | Delete a tag from the board and from every note |
 | uploadImage | `POST /api/boards/{boardId}/images?fileName=&noteId=&x=&y=&width=&caption=` | Add an image or GIF: the file itself is the request body, with its content type. On the canvas at `x`/`y` (default: right of everything), or attached to a note with `noteId` |
 | getImageContent | `GET /api/images/{imageId}/content` | Download the image file |
 | updateImage | `PATCH /api/images/{imageId}` | Move (`x`, `y`), resize (`width`) or re-caption an image |
@@ -225,9 +238,9 @@ pb -X POST "localhost:5080/api/boards/{boardId}/images?fileName=ingest-errors.pn
 - **Placement.** createNote and moveNote take either a `bucketId` or both `x` and `y`, never both. With a `bucketId`, the note goes to the first free grid slot inside that bucket. A full bucket grows downwards to make room.
 - **Ordering.** getBoard and listNotes return notes bucket by bucket, in the order of `buckets`, with loose notes last. Each group runs top to bottom, then left to right. Clients draw notes in `updatedAt` order, so the most recently moved or edited note is on top.
 - **Sizes.** Buckets are at least 240×160 px, room for one note with a gap around it. Smaller sizes are raised to the minimum after snapping.
-- **PATCH** only changes the fields you send. Sending `""` for an optional text field (`description`, `body`) clears it. A list you send (`tags`, `assignees`, `checklist`, `links`) replaces the whole list, and `[]` clears it. To tick off one checklist item, send the full checklist with that item changed.
-- **Tags** are trimmed, lower-cased and hyphenated (`"Back end"` becomes `"back-end"`), at most 10 per note and 30 characters each.
-- **Assignees** have a `name` and a `kind`, `Person` or `Agent`. People show as initials, agents as a sparkle. At most 10 per note.
+- **PATCH** only changes the fields you send. Sending `""` for an optional text field (`description`, `body`) clears it. A list you send (`tags`, `assigneeIds`, `checklist`, `links`) replaces the whole list, and `[]` clears it. To tick off one checklist item, send the full checklist with that item changed.
+- **Tags** are trimmed, lower-cased and hyphenated (`"Back end"` becomes `"back-end"`), at most 10 per note and 30 characters each. Notes store the names of the board's tags; a new name joins the board's list, which holds at most 100.
+- **Assignees** are sent as `assigneeIds` (principal ids from `people` in getBoard) and come back as `{principalId, name, kind}` with the current display name; `kind` is `Person` or `Agent`. People show as initials, agents as a sparkle. At most 10 per note. Only people who can reach the board can be added; someone who loses access stays on the notes they had until they are taken off.
 - **Links** need an absolute `http` or `https` URL.
 - **Colours.** Note fills are `Butter` (yellow), `Mint` (green), `Sky` (blue), `Coral` (salmon red) and `Lilac` (purple). Buckets also have a `color` (`Blue`, `Amber`, `Violet`, `Teal` or `Rose`); the web UI doesn't show it at the moment.
 - **Errors** use `application/problem+json`. Validation errors (400) list the offending fields under `errors`, for example a `bucketId` that is not on the note's board. A 401 means the request is not signed in or the token is invalid. A 403 means your role or the token's scope is too low. A 404 means the resource does not exist or you are not a member of its board. A 429 means you hit a rate limit (email lookups and invite links).

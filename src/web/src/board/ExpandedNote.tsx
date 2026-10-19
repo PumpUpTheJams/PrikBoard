@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type RefO
 import {
   noteColors,
   type Assignee,
-  type AssigneeKind,
+  type BoardPerson,
+  type BoardTag,
   type BucketDetail,
   type ChecklistItem,
   type ImageDetail,
@@ -13,6 +14,7 @@ import {
 } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { ConfirmDeleteNote, ConfirmDialog } from '../components/ConfirmDialog'
+import { AssigneePicker } from './AssigneePicker'
 import { draggingFiles, imageFiles } from './files'
 import {
   BucketIcon,
@@ -25,10 +27,8 @@ import {
   SparkleIcon,
   TrashIcon,
 } from './icons'
-
-// Limits mirror the API's validation (src/PrikBoard.Api/Contracts/Notes.cs).
-const MAX_TAGS = 10
-const MAX_ASSIGNEES = 10
+import { TagPicker } from './TagPicker'
+import { MAX_ASSIGNEES, MAX_TAGS } from './tags'
 
 interface ExpandedNoteProps {
   note: NoteDetail
@@ -36,6 +36,11 @@ interface ExpandedNoteProps {
   /** Focus and select the title, for a post-it that was just stuck on. */
   focusTitle: boolean
   onChange: (changes: NoteChanges) => Promise<boolean>
+  /** The board's tags and the people who can be assigned, to pick from. */
+  boardTags: BoardTag[]
+  people: BoardPerson[]
+  onRenameTag: (tag: BoardTag, name: string) => Promise<boolean>
+  onDeleteTag: (tag: BoardTag) => Promise<boolean>
   /** Deletes the post-it; called after the person confirmed. */
   onDelete: () => void
   /** Images attached to this post-it. */
@@ -52,7 +57,10 @@ interface ExpandedNoteProps {
 /** A post-it opened up: a header band in its fill, and a mini board with its note, checklist and links. */
 export function ExpandedNote(props: ExpandedNoteProps) {
   const { note, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onDeleteImage, onClose, readOnly } = props
+  const { boardTags, people, onRenameTag, onDeleteTag } = props
   const [reveal, setReveal] = useState({ checklist: false, links: false })
+  /** The tag or people window, opened from its button in the band. */
+  const [picking, setPicking] = useState<{ kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [imageToDelete, setImageToDelete] = useState<ImageDetail | null>(null)
   const [fileOver, setFileOver] = useState(false)
@@ -68,13 +76,18 @@ export function ExpandedNote(props: ExpandedNoteProps) {
   // Escape closes the post-it wherever focus is (it can end up on the page after saving the title). Fields and the
   // delete confirmation handle their own Escape first and stop it from getting here.
   useEffect(() => {
-    if (confirmingDelete || imageToDelete) return
+    if (confirmingDelete || imageToDelete || picking) return
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [confirmingDelete, imageToDelete, onClose])
+  }, [confirmingDelete, imageToDelete, picking, onClose])
+
+  function closePicker() {
+    setPicking(null)
+    dialogRef.current?.focus()
+  }
 
   function show(widget: 'checklist' | 'links') {
     setReveal((r) => ({ ...r, [widget]: true }))
@@ -146,9 +159,22 @@ export function ExpandedNote(props: ExpandedNoteProps) {
             onSave={(title) => title.length > 0 && void onChange({ title })}
           />
           <div className="band-row">
-            <TagEditor tags={note.tags} onChange={(tags) => onChange({ tags })} />
-            <AssigneeEditor assignees={note.assignees} onChange={(assignees) => onChange({ assignees })} />
+            <TagChips
+              tags={note.tags}
+              onRemove={(tag) => void onChange({ tags: note.tags.filter((t) => t !== tag) })}
+              onAdd={(anchor) => setPicking({ kind: 'tags', anchor })}
+            />
+            <AssigneeChips
+              assignees={note.assignees}
+              onRemove={(a) => void onChange({ assigneeIds: note.assignees.filter((x) => x !== a).map((x) => x.principalId) })}
+              onAdd={(anchor) => setPicking({ kind: 'people', anchor })}
+            />
           </div>
+          {note.createdBy && (
+            <p className="band-meta" title={new Date(note.createdAt).toLocaleString()}>
+              Created by {note.createdBy}
+            </p>
+          )}
         </header>
 
         <div className="mini-board">
@@ -208,6 +234,27 @@ export function ExpandedNote(props: ExpandedNoteProps) {
           </div>
         </div>
       </article>
+
+      {picking?.kind === 'tags' && (
+        <TagPicker
+          anchor={picking.anchor}
+          tags={note.tags}
+          boardTags={boardTags}
+          onChange={(tags) => onChange({ tags })}
+          onRename={onRenameTag}
+          onDelete={onDeleteTag}
+          onClose={closePicker}
+        />
+      )}
+      {picking?.kind === 'people' && (
+        <AssigneePicker
+          anchor={picking.anchor}
+          assignees={note.assignees}
+          people={people}
+          onChange={(assigneeIds) => onChange({ assigneeIds })}
+          onClose={closePicker}
+        />
+      )}
 
       {confirmingDelete && (
         <ConfirmDeleteNote
@@ -313,50 +360,6 @@ function EditableText({ value, onSave, label, className, maxLength, multiline, p
   )
 }
 
-interface InlineAddProps {
-  placeholder: string
-  label: string
-  className?: string
-  onAdd: (value: string) => void
-  onDone: () => void
-}
-
-/** A small input that adds an item on Enter and stays open for the next one; Escape or leaving it empty closes it. */
-function InlineAdd({ placeholder, label, className, onAdd, onDone }: InlineAddProps) {
-  const [text, setText] = useState('')
-
-  function add() {
-    const value = text.trim()
-    if (value) onAdd(value)
-    setText('')
-    return value
-  }
-
-  return (
-    <input
-      autoFocus
-      className={`inline-add ${className ?? ''}`}
-      aria-label={label}
-      placeholder={placeholder}
-      value={text}
-      onChange={(e) => setText(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          add()
-        } else if (e.key === 'Escape') {
-          e.stopPropagation()
-          onDone()
-        }
-      }}
-      onBlur={() => {
-        add()
-        onDone()
-      }}
-    />
-  )
-}
-
 function FillPicker({ value, onChange }: { value: NoteColor; onChange: (color: NoteColor) => void }) {
   return (
     <div className="band-fills" role="group" aria-label="Fill">
@@ -375,88 +378,53 @@ function FillPicker({ value, onChange }: { value: NoteColor; onChange: (color: N
   )
 }
 
-function TagEditor({ tags, onChange }: { tags: string[]; onChange: (tags: string[]) => Promise<boolean> }) {
-  const [adding, setAdding] = useState(false)
+interface TagChipsProps {
+  tags: string[]
+  onRemove: (tag: string) => void
+  /** Opens the tag window next to the button. */
+  onAdd: (anchor: DOMRect) => void
+}
 
+function TagChips({ tags, onRemove, onAdd }: TagChipsProps) {
   return (
     <div className="band-tags">
       {tags.map((tag) => (
         <span key={tag} className="band-tag">
           {tag}
-          <button type="button" className="chip-remove" aria-label={`Remove tag ${tag}`} onClick={() => void onChange(tags.filter((t) => t !== tag))}>
+          <button type="button" className="chip-remove" aria-label={`Remove tag ${tag}`} onClick={() => onRemove(tag)}>
             <CloseIcon size={10} />
           </button>
         </span>
       ))}
-      {adding ? (
-        <InlineAdd
-          className="mono"
-          label="New tag"
-          placeholder="tag"
-          onAdd={(tag) => void onChange([...tags, tag])}
-          onDone={() => setAdding(false)}
-        />
-      ) : (
-        tags.length < MAX_TAGS && (
-          <button type="button" className="band-add" onClick={() => setAdding(true)}>
-            + tag
-          </button>
-        )
-      )}
+      <button type="button" className="band-add" aria-haspopup="dialog" onClick={(e) => onAdd(e.currentTarget.getBoundingClientRect())}>
+        {tags.length < MAX_TAGS ? '+ tag' : 'tags'}
+      </button>
     </div>
   )
 }
 
-function AssigneeEditor({ assignees, onChange }: { assignees: Assignee[]; onChange: (assignees: Assignee[]) => Promise<boolean> }) {
-  const [adding, setAdding] = useState(false)
-  const [kind, setKind] = useState<AssigneeKind>('Person')
+interface AssigneeChipsProps {
+  assignees: Assignee[]
+  onRemove: (assignee: Assignee) => void
+  /** Opens the people window next to the button. */
+  onAdd: (anchor: DOMRect) => void
+}
 
+function AssigneeChips({ assignees, onRemove, onAdd }: AssigneeChipsProps) {
   return (
     <div className="band-assignees">
       {assignees.map((a) => (
-        <span key={`${a.kind}:${a.name}`} className="band-assignee">
+        <span key={a.principalId} className="band-assignee">
           <Avatar assignee={a} />
           {a.name}
-          <button
-            type="button"
-            className="chip-remove"
-            aria-label={`Unassign ${a.name}`}
-            onClick={() => void onChange(assignees.filter((x) => x !== a))}
-          >
+          <button type="button" className="chip-remove" aria-label={`Unassign ${a.name}`} onClick={() => onRemove(a)}>
             <CloseIcon size={10} />
           </button>
         </span>
       ))}
-      {adding ? (
-        <span className="assign-form">
-          <span className="segmented" role="group" aria-label="Assignee kind">
-            {(['Person', 'Agent'] as const).map((k) => (
-              <button
-                key={k}
-                type="button"
-                aria-pressed={kind === k}
-                // Keep focus in the name field, which closes the form when it loses focus.
-                onPointerDown={(e) => e.preventDefault()}
-                onClick={() => setKind(k)}
-              >
-                {k}
-              </button>
-            ))}
-          </span>
-          <InlineAdd
-            label={kind === 'Agent' ? 'Agent name' : 'Name'}
-            placeholder={kind === 'Agent' ? 'Agent name' : 'Name'}
-            onAdd={(name) => void onChange([...assignees, { name, kind }])}
-            onDone={() => setAdding(false)}
-          />
-        </span>
-      ) : (
-        assignees.length < MAX_ASSIGNEES && (
-          <button type="button" className="band-add" onClick={() => setAdding(true)}>
-            + assign
-          </button>
-        )
-      )}
+      <button type="button" className="band-add" aria-haspopup="dialog" onClick={(e) => onAdd(e.currentTarget.getBoundingClientRect())}>
+        {assignees.length < MAX_ASSIGNEES ? '+ assign' : 'people'}
+      </button>
     </div>
   )
 }

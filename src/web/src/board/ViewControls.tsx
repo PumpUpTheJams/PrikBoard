@@ -18,6 +18,8 @@ interface ViewControlsProps {
   viewport: Rect
   buckets: BucketDetail[]
   notes: NoteDetail[]
+  /** Post-its faded by the tag filter. */
+  dimmed?: (note: NoteDetail) => boolean
   /** Images on the canvas (not the ones attached to notes). */
   images: ImageDetail[]
   /** Scroll so that this canvas point is in the middle of the view. */
@@ -25,7 +27,7 @@ interface ViewControlsProps {
 }
 
 /** Minimap and zoom buttons in the bottom-right corner of the board. */
-export function ViewControls({ zoom, onZoom, onZoomReset, extent, viewport, buckets, notes, images, onNavigate }: ViewControlsProps) {
+export function ViewControls({ zoom, onZoom, onZoomReset, extent, viewport, buckets, notes, dimmed, images, onNavigate }: ViewControlsProps) {
   const scale = Math.min((MAP_WIDTH - 2 * MAP_PAD) / extent.width, (MAP_HEIGHT - 2 * MAP_PAD) / extent.height)
   const toMap = (r: Rect) => ({
     left: MAP_PAD + r.x * scale,
@@ -59,7 +61,7 @@ export function ViewControls({ zoom, onZoom, onZoomReset, extent, viewport, buck
         {notes.map((n) => (
           <span
             key={n.id}
-            className={`minimap-note fill-${n.color.toLowerCase()}`}
+            className={`minimap-note fill-${n.color.toLowerCase()}${dimmed?.(n) ? ' dimmed' : ''}`}
             style={toMap({ x: n.x, y: n.y, width: NOTE_WIDTH, height: NOTE_HEIGHT })}
           />
         ))}

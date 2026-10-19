@@ -1,12 +1,18 @@
-import type { Assignee } from '../api/types'
+import type { AssigneeKind } from '../api/types'
 import { SparkleIcon } from '../board/icons'
 import { initials } from './initials'
 
 type Size = 'sm' | 'md' | 'lg'
 const sparkleSize: Record<Size, number> = { sm: 12, md: 13, lg: 15 }
 
+/** Anyone with a name: an assignee, or one of the board's people. */
+interface Who {
+  name: string
+  kind: AssigneeKind
+}
+
 /** People show initials on graphite; agents show a sparkle on dark lilac. */
-export function Avatar({ assignee, size = 'sm' }: { assignee: Assignee; size?: Size }) {
+export function Avatar({ assignee, size = 'sm' }: { assignee: Who; size?: Size }) {
   const agent = assignee.kind === 'Agent'
   return (
     <span className={`avatar avatar-${size}${agent ? ' agent' : ''}`} title={agent ? `${assignee.name} (agent)` : assignee.name}>
@@ -16,13 +22,13 @@ export function Avatar({ assignee, size = 'sm' }: { assignee: Assignee; size?: S
 }
 
 /** Overlapping avatars: the first `max` shown, then a count of the rest. */
-export function AvatarStack({ assignees, max = 2, size = 'sm' }: { assignees: Assignee[]; max?: number; size?: Size }) {
+export function AvatarStack({ assignees, max = 2, size = 'sm' }: { assignees: (Who & { principalId: string })[]; max?: number; size?: Size }) {
   const shown = assignees.slice(0, max)
   const rest = assignees.length - shown.length
   return (
     <span className="avatar-stack">
       {shown.map((a) => (
-        <Avatar key={`${a.kind}:${a.name}`} assignee={a} size={size} />
+        <Avatar key={a.principalId} assignee={a} size={size} />
       ))}
       {rest > 0 && (
         <span className={`avatar avatar-${size} more`} title={assignees.slice(max).map((a) => a.name).join(', ')}>
