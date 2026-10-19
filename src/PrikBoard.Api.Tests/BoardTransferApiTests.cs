@@ -47,7 +47,7 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         Assert.Equal("Release 2.0.prikboard.json", exported.Content.Headers.ContentDisposition?.FileNameStar);
         var file = await exported.Content.ReadAsStringAsync();
         Assert.Contains("\"format\":\"prikboard-board\"", file);
-        Assert.DoesNotContain(board.Id.ToString(), file);
+        Assert.DoesNotContain("export-owner@example.com", file);
 
         // Someone else imports it: a new board they own, and nothing changes on the original.
         var importer = await factory.CreateSignedInClientAsync("export-importer@example.com");
@@ -143,13 +143,14 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         var board = await client.CreateBoardAsync("Valid");
         var file = JsonNode.Parse(await (await client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync())!;
         file[property] = JsonSerializer.SerializeToNode(value);
+        var before = await BoardCount(client);
 
         var response = await Import(client, file.ToJsonString());
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var problem = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
         Assert.Contains(problem["errors"]!.AsObject().Select(e => e.Key), key => key.Equals(errorKey, StringComparison.OrdinalIgnoreCase));
-        Assert.Single(await client.GetFromJsonAsync<List<BoardSummary>>("/api/boards") ?? []);
+        Assert.Equal(before, await BoardCount(client));
     }
 
     [Fact]
@@ -160,12 +161,16 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         await Upload(client, board.Id, TestImages.Png(100, 100), "");
         var file = JsonNode.Parse(await (await client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync())!;
         file["images"]![0]!["data"] = Convert.ToBase64String("<svg onload=alert(1)/>"u8.ToArray());
+        var before = await BoardCount(client);
 
         var response = await Import(client, file.ToJsonString());
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Single(await client.GetFromJsonAsync<List<BoardSummary>>("/api/boards") ?? []);
+        Assert.Equal(before, await BoardCount(client));
     }
+
+    private static async Task<int> BoardCount(HttpClient client) =>
+        (await client.GetFromJsonAsync<List<BoardSummary>>("/api/boards"))!.Count;
 
     private static Task<HttpResponseMessage> Import(HttpClient client, string file) =>
         client.PostAsync("/api/boards/import", new StringContent(file, System.Text.Encoding.UTF8, "application/json"));
