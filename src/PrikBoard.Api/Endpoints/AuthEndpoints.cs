@@ -44,6 +44,11 @@ public static class AuthEndpoints
             .WithSummary("Sign out")
             .WithDescription("Ends the browser session by clearing the session cookie. Bearer tokens are not affected.");
 
+        auth.MapGet("/version", GetVersion)
+            .WithName("getVersion")
+            .WithSummary("Get the server version")
+            .WithDescription("Returns the version of the running server, so people and agents can tell which build they talk to.");
+
         var me = api.MapGroup("/me").WithTags("Auth").NoBoardScope();
 
         me.MapGet("/", WhoAmI)
@@ -76,6 +81,16 @@ public static class AuthEndpoints
             .ToList();
         return TypedResults.Ok(providers);
     }
+
+    private static readonly string Version =
+        typeof(AuthEndpoints).Assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .Cast<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .FirstOrDefault()?.InformationalVersion
+        ?? typeof(AuthEndpoints).Assembly.GetName().Version?.ToString()
+        ?? "unknown";
+
+    private static Ok<ServerVersion> GetVersion() => TypedResults.Ok(new ServerVersion(Version));
 
     private static Ok<List<TokenIssuer>> ListTokenIssuers(IOptions<AuthOptions> options) =>
         TypedResults.Ok(options.Value.Tokens.Issuers
