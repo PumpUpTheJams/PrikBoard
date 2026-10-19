@@ -5,6 +5,8 @@ import { registerNoteCommands } from './commands'
 
 export async function activate(context: vscode.ExtensionContext) {
   const auth = new Auth(context.secrets)
+  // Before the tree exists: its first requests would go out without the stored credential, and the 401 answers would sign you out.
+  await auth.init()
   const tree = new BoardTree(() => auth.me)
   const view = vscode.window.createTreeView('prikboard.boards', { treeDataProvider: tree })
 
@@ -51,7 +53,7 @@ export async function activate(context: vscode.ExtensionContext) {
     ...registerNoteCommands(tree),
   )
 
-  await auth.init()
+  startPolling()
 }
 
 export function deactivate() {}
