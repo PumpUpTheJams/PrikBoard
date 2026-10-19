@@ -13,14 +13,31 @@ public enum DragKind
     /// <summary>Moving a bucket (its notes move along).</summary>
     Bucket,
 
-    /// <summary>Resizing a bucket from its corner.</summary>
+    /// <summary>Resizing a bucket from one of its corners or edges (see <see cref="ResizeHandle"/>).</summary>
     Resize,
 
     /// <summary>Moving an image.</summary>
     Image,
 
-    /// <summary>Resizing an image from its corner.</summary>
+    /// <summary>Resizing an image from one of its corners or edges (see <see cref="ResizeHandle"/>).</summary>
     ImageResize,
+}
+
+/// <summary>
+/// The corner or edge a resize drags. The opposite corner or edge stays where it is; an edge changes the size in its own
+/// direction only.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ResizeHandle>))]
+public enum ResizeHandle
+{
+    BottomRight,
+    BottomLeft,
+    TopRight,
+    TopLeft,
+    Top,
+    Right,
+    Bottom,
+    Left,
 }
 
 /// <summary>Someone looking at a board right now. A person with two tabs open is listed once.</summary>
@@ -49,7 +66,8 @@ public sealed record BoardChange(Guid BoardId, Guid By);
 /// <param name="Id">The note, bucket or image being dragged.</param>
 /// <param name="Dx">Pointer travel since the drag started, in canvas pixels (not yet snapped).</param>
 /// <param name="Dy">Pointer travel since the drag started, in canvas pixels (not yet snapped).</param>
-public sealed record DragUpdate(DragKind Kind, Guid Id, double Dx, double Dy);
+/// <param name="Handle">For Resize and ImageResize: the corner or edge being dragged.</param>
+public sealed record DragUpdate(DragKind Kind, Guid Id, double Dx, double Dy, ResizeHandle Handle = ResizeHandle.BottomRight);
 
 /// <summary>Someone else's drag in progress, relayed to the other viewers of the board.</summary>
 /// <param name="Key">The dragging connection; DragEnded names the same key.</param>
@@ -59,4 +77,6 @@ public sealed record DragUpdate(DragKind Kind, Guid Id, double Dx, double Dy);
 /// <param name="Id">The note, bucket or image being dragged.</param>
 /// <param name="Dx">Pointer travel since the drag started, in canvas pixels.</param>
 /// <param name="Dy">Pointer travel since the drag started, in canvas pixels.</param>
-public sealed record RemoteDrag(Guid Key, Guid PrincipalId, string DisplayName, DragKind Kind, Guid Id, double Dx, double Dy);
+/// <param name="Handle">For Resize and ImageResize: the corner or edge being dragged.</param>
+public sealed record RemoteDrag(
+    Guid Key, Guid PrincipalId, string DisplayName, DragKind Kind, Guid Id, double Dx, double Dy, ResizeHandle Handle = ResizeHandle.BottomRight);

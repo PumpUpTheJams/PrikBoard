@@ -74,7 +74,9 @@ public static class BucketEndpoints
         var notes = await db.Notes.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);
         var dx = request.X is { } x ? Layout.Snap(x) - bucket.X : 0;
         var dy = request.Y is { } y ? Layout.Snap(y) - bucket.Y : 0;
-        if (dx != 0 || dy != 0)
+        // A new place together with a new size is a resize from a top or left corner or edge: the frame's edge moves, its notes stay.
+        var resizing = request.Width is not null || request.Height is not null;
+        if ((dx != 0 || dy != 0) && !resizing)
         {
             foreach (var note in notes.Where(n => n.BucketId == bucket.Id))
             {

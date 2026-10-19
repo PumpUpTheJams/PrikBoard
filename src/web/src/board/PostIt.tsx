@@ -74,6 +74,7 @@ export function PostIt(props: PostItProps) {
       className={classes.join(' ')}
       style={{ left: point.x, top: point.y, width: NOTE_WIDTH, height: NOTE_HEIGHT, '--title-lines': titleLines(note) } as CSSProperties}
       role="group"
+      data-note={note.id}
       aria-label={note.agentWorking ? `${title} (agent working)` : title}
       tabIndex={0}
       onPointerDown={onPointerDown}
@@ -112,14 +113,6 @@ export function PostIt(props: PostItProps) {
           people
         )}
       </div>
-      {selected && (
-        <>
-          <span className="handle nw" aria-hidden="true" />
-          <span className="handle ne" aria-hidden="true" />
-          <span className="handle sw" aria-hidden="true" />
-          <span className="handle se" aria-hidden="true" />
-        </>
-      )}
     </div>
   )
 }

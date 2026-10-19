@@ -7,6 +7,8 @@ const MIN_WIDTH = 560
 const MIN_HEIGHT = 420
 /** Room left around a new window. */
 const MARGIN = 40
+/** Room always kept at the right and bottom: the board's scroll bars, and the window's resize edges just outside it. */
+const EDGE = 20
 
 export type WindowEdge = 'e' | 's' | 'se'
 
@@ -27,8 +29,10 @@ function store(rect: Rect) {
   }
 }
 
-/** Keeps a rectangle inside a container of `width` by `height`, at least the minimum size where it fits. */
-function clamp(r: Rect, width: number, height: number): Rect {
+/** Keeps a rectangle inside a container of `width` by `height` (less the edge), at least the minimum size where it fits. */
+function clamp(r: Rect, containerWidth: number, containerHeight: number): Rect {
+  const width = containerWidth - EDGE
+  const height = containerHeight - EDGE
   const w = Math.min(width, Math.max(MIN_WIDTH, r.width))
   const h = Math.min(height, Math.max(MIN_HEIGHT, r.height))
   return { x: Math.min(Math.max(0, r.x), width - w), y: Math.min(Math.max(0, r.y), height - h), width: w, height: h }

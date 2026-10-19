@@ -18,6 +18,7 @@ import { EditableText } from './EditableText'
 import { draggingFiles, imageFiles } from './files'
 import { BucketIcon, CheckIcon, CloseIcon, LinkIcon, SparkleIcon } from './icons'
 import { copyText } from './links'
+import { pop } from './motion'
 import { NoteCanvas, type IncomingImage, type NoteCanvasHandle } from './NoteCanvas'
 import { TagPicker } from './TagPicker'
 import { MAX_ASSIGNEES, MAX_TAGS } from './tags'
@@ -29,6 +30,8 @@ export interface ExpandedNoteHandle extends NoteCanvasHandle {
   wantsPaste: () => boolean
   /** Whether a screen point is over the window. */
   contains: (client: Point) => boolean
+  /** A little pop of the window, when a post-it dropped on it was linked there. */
+  pop: () => void
 }
 
 interface ExpandedNoteProps {
@@ -70,7 +73,7 @@ interface ExpandedNoteProps {
 
 /**
  * A post-it opened up in a window floating over the board: a header band in its fill, and the post-it's own small board
- * with its blocks and images. The board stays usable around it; it dims only while the pointer is over the window.
+ * with its blocks and images. The board stays usable, and fully visible, around it.
  */
 export function ExpandedNote(props: ExpandedNoteProps) {
   const { note, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onClose, readOnly } = props
@@ -79,7 +82,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
   const [picking, setPicking] = useState<{ kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [fileOver, setFileOver] = useState(false)
-  /** Whether the pointer is over the window: the board behind dims only then. */
+  /** Whether the pointer is over the window: a paste then goes to the post-it. */
   const [hover, setHover] = useState(true)
   const dialogRef = useRef<HTMLElement>(null)
   const canvas = useRef<NoteCanvasHandle>(null)
@@ -119,6 +122,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
       const r = dialogRef.current?.getBoundingClientRect()
       return !!r && client.x >= r.left && client.x < r.right && client.y >= r.top && client.y < r.bottom
     },
+    pop: () => pop(dialogRef.current, 1.015),
   }))
 
   function closePicker() {
@@ -128,11 +132,9 @@ export function ExpandedNote(props: ExpandedNoteProps) {
 
   return (
     <>
-      {/* No dimming while the window is moved or resized, so you can see where it goes. */}
-      <div className={`expanded-backdrop${hover && !incoming && !linking && !moving ? ' shown' : ''}`} aria-hidden="true" />
       <article
         ref={dialogRef}
-        className={`expanded fill-${note.color.toLowerCase()}${fileOver ? ' file-over' : ''}${readOnly ? ' read-only' : ''}${incoming || linking ? ' drop-over' : ''}`}
+        className={`expanded fill-${note.color.toLowerCase()}${moving ? ' moving' : ''}${fileOver ? ' file-over' : ''}${readOnly ? ' read-only' : ''}${incoming || linking ? ' drop-over' : ''}`}
         style={rect ? { left: rect.x, top: rect.y, width: rect.width, height: rect.height } : { visibility: 'hidden' }}
         // Images dropped on the band are attached in a free spot (the canvas takes drops where they land).
         onDragOver={(e) => {

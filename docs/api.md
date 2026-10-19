@@ -167,7 +167,7 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | exportBoard | `GET /api/boards/{boardId}/export` | The board as one downloadable JSON file (`format: "prikboard-board"`, `version: 2`): name, description, agent rules, buckets, tags, notes with their blocks, and images (bytes as base64; attached ones keep their place on the note's canvas). No members, roles, user ids or assignees. Ids in the file are local to it |
 | importBoard | `POST /api/boards/import` | Send an export file as the body. Always makes a new board that you own (`201`), with new ids; positions snap to the grid and each note's bucket follows from where it sits. Notes are created by you. Version 1 files still import: a note's `body`, `checklist` and `links` become a Text, a Checklist and a Links block, and attached images go in a row under them. `400` for a file that is not valid or newer than the server reads; `403` for tokens limited to chosen boards. Body at most 64 MB |
 | createBucket | `POST /api/boards/{boardId}/buckets` | Draw a bucket at a rectangle, or to the right of the others. Loose notes it covers join it |
-| updateBucket | `PATCH /api/buckets/{bucketId}` | Rename, recolour, move or resize. Moving carries the bucket's notes along |
+| updateBucket | `PATCH /api/buckets/{bucketId}` | Rename, recolour, move or resize. Moving carries the bucket's notes along; a new `x`/`y` together with a new size is a resize from a top or left corner or edge, and the notes stay put |
 | deleteBucket | `DELETE /api/buckets/{bucketId}` | Delete a bucket. Its notes stay where they are and become loose |
 | listNotes | `GET /api/boards/{boardId}/notes?bucketId=&tag=&assignee=&search=` | Filter by bucket, tags (repeat `tag`; any of them matches), assignee (principal id or current name), or search the title and content: text, checklist items and links (all case-insensitive) |
 | createNote | `POST /api/boards/{boardId}/notes` | New note in a bucket's free spot (default: the first bucket), or at `x`/`y`. Butter by default. Can include tags, `assigneeIds` and `blocks` (laid out automatically without `x`/`y`). Records you as its creator |
@@ -222,7 +222,7 @@ Instead of polling getBoard, a client can follow a board live over **SignalR** a
 | --- | --- | --- |
 | `Join(boardId)` | Members | Follow one board (and stop following the previous one). Returns `{boardId, role, key, viewers}`; fails for boards you are not a member of |
 | `Leave()` | Anyone | Stop following the board |
-| `Drag({kind, id, dx, dy})` | Editors (tokens need `boards:write`) | Show others a drag in progress: `kind` is `Note`, `Bucket`, `Resize`, `Image` or `ImageResize`, and `dx`/`dy` the pointer travel in canvas pixels. Send at most every 50 ms |
+| `Drag({kind, id, dx, dy, handle})` | Editors (tokens need `boards:write`) | Show others a drag in progress: `kind` is `Note`, `Bucket`, `Resize`, `Image` or `ImageResize`, `dx`/`dy` the pointer travel in canvas pixels, and for resizes `handle` the corner or edge dragged (`BottomRight`, the default, `BottomLeft`, `TopRight`, `TopLeft`, `Top`, `Right`, `Bottom` or `Left`; an edge resizes in its direction only). Send at most every 50 ms |
 | `DragEnd()` | Editors | The drag is over |
 
 | Server message | Meaning |

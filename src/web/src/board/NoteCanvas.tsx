@@ -1,17 +1,18 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../api/client'
-import type { ImageDetail, NoteBlock, NoteBlockKind, NoteDetail, Point, Rect } from '../api/types'
+import type { ImageDetail, NoteBlock, NoteBlockKind, NoteDetail, Point, Rect, ResizeHandle } from '../api/types'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { BoardImageView } from './BoardImageView'
 import { draggingFiles, imageFiles } from './files'
 import { delta, isDrag } from './gesture'
 import { MinusIcon, PlusIcon } from './icons'
 import { ImageInspector } from './Inspector'
-import { blockSize, defaultBlockSize, freeSpot, imageSize, onNoteCanvas, snapPoint } from './layout'
+import { blockSize, defaultBlockSize, freeSpot, onNoteCanvas, resizeFrom, resizeImage, snapPoint } from './layout'
 import { blockKinds } from './blockKinds'
 import { BlockFrame, ChecklistBlock, LinksBlock, TextBlock } from './NoteBlocks'
 import { NoteBar } from './NoteBar'
+import { resizeCursor } from './resizeCursor'
 import { useZoom } from './useZoom'
 import { stepZoom, ZOOM_LEVELS } from './zoom'
 
@@ -41,6 +42,8 @@ type Kind = 'block' | 'block-resize' | 'image' | 'image-resize'
 interface Gesture {
   kind: Kind
   id: string
+  /** For resizes: the corner or edge being dragged. */
+  handle: ResizeHandle
   start: Point
   current: Point
   client: Point
@@ -54,6 +57,8 @@ interface Pan {
   left: number
   top: number
 }
+
+const NO_INSET = { x: 0, y: 0 }
 
 /** Empty canvas kept beyond the furthest block or image: one grid step, so scroll bars only come when something sticks out. */
 const CANVAS_MARGIN = 20
@@ -97,7 +102,7 @@ export function NoteCanvas(props: NoteCanvasProps) {
   const lastPointer = useRef<Point | null>(null)
   /** The images the last two presses were on: the canvas holds the pointer, so double-clicks reach it, not the image. */
   const imagePresses = useRef<[string | null, string | null]>([null, null])
-  const { zoom, zoomTo } = useZoom(scrollRef, 0)
+  const { zoom, zoomTo } = useZoom(scrollRef, NO_INSET)
 
   useEffect(() => onBusy(gesture !== null), [gesture, onBusy])
   useEffect(() => () => onBusy(false), [onBusy])
@@ -176,29 +181,31 @@ export function NoteCanvas(props: NoteCanvasProps) {
     if (dragging?.id !== block.id) return block
     const d = delta(dragging)
     if (dragging.kind === 'block') return { ...block, ...onNoteCanvas({ x: block.x + d.x, y: block.y + d.y }, block) }
-    return { ...block, ...blockSize(block.width + d.x, block.height + d.y) }
+    const resized = resizeFrom(block, dragging.handle, d, blockSize)
+    return { ...block, ...resized, ...onNoteCanvas(resized, resized) }
   }
 
   function imageRect(image: ImageDetail): Rect {
     if (dragging?.id !== image.id || leaving) return image
     const d = delta(dragging)
     if (dragging.kind === 'image') return { ...image, ...onNoteCanvas({ x: image.x + d.x, y: image.y + d.y }, image) }
-    return { ...image, ...imageSize(image, image.width + d.x) }
+    const resized = resizeImage(image, dragging.handle, d)
+    return { ...image, ...resized, ...onNoteCanvas(resized, resized) }
   }
 
-  function onItemPointerDown(e: PointerEvent<HTMLElement>, kind: Kind, id: string) {
+  function onItemPointerDown(e: PointerEvent<HTMLElement>, kind: Kind, id: string, handle: ResizeHandle = 'BottomRight') {
     if (e.button !== 0) return
     imagePresses.current = [imagePresses.current[1], kind === 'image' ? id : null]
     setSelection({ kind: kind === 'block' || kind === 'block-resize' ? 'block' : 'image', id })
     // The title field and the remove button in a block's header work as usual.
-    if (readOnly || (e.target instanceof Element && e.target.closest('input, button:not(.block-resize):not(.resize-handle)'))) return
+    if (readOnly || (e.target instanceof Element && e.target.closest('input, button'))) return
     e.stopPropagation()
     e.preventDefault()
     if (document.activeElement instanceof HTMLElement && document.activeElement.closest('.note-scroll')) document.activeElement.blur()
     scrollRef.current!.focus({ preventScroll: true })
     canvasRef.current!.setPointerCapture(e.pointerId)
     const point = toNote({ x: e.clientX, y: e.clientY })
-    setGesture({ kind, id, start: point, current: point, client: { x: e.clientX, y: e.clientY }, outside: false })
+    setGesture({ kind, id, handle, start: point, current: point, client: { x: e.clientX, y: e.clientY }, outside: false })
   }
 
   /** A press on empty canvas pans (presses inside blocks and images are theirs). */
@@ -256,10 +263,10 @@ export function NoteCanvas(props: NoteCanvasProps) {
     setGesture({ ...gesture, done: true })
     if (gesture.kind === 'block' || gesture.kind === 'block-resize') {
       const { x, y, width, height } = blockRect(note.blocks.find((b) => b.id === id)!)
-      void settle(() => api.updateNoteBlock(note.id, id, gesture.kind === 'block' ? { x, y } : { width, height }))
+      void settle(() => api.updateNoteBlock(note.id, id, gesture.kind === 'block' ? { x, y } : { x, y, width, height }))
     } else {
       const { x, y, width } = imageRect(images.find((i) => i.id === id)!)
-      void settle(() => api.updateImage(id, gesture.kind === 'image' ? { x, y } : { width }))
+      void settle(() => api.updateImage(id, gesture.kind === 'image' ? { x, y } : { x, y, width }))
     }
   }
 
@@ -268,8 +275,8 @@ export function NoteCanvas(props: NoteCanvasProps) {
   const ghost = incoming && { ...incoming.image, ...onNoteCanvas(incoming.at, incoming.image) }
   const items: Rect[] = [...blocks.map((b) => b.rect), ...placed.map((p) => p.rect), ...(ghost ? [ghost] : [])]
   const extent = {
-    width: Math.max(view.width / zoom, CANVAS_MARGIN + Math.max(0, ...items.map((r) => r.x + r.width))),
-    height: Math.max(view.height / zoom, CANVAS_MARGIN + Math.max(0, ...items.map((r) => r.y + r.height))),
+    width: Math.max(Math.floor(view.width / zoom), CANVAS_MARGIN + Math.max(0, ...items.map((r) => r.x + r.width))),
+    height: Math.max(Math.floor(view.height / zoom), CANVAS_MARGIN + Math.max(0, ...items.map((r) => r.y + r.height))),
   }
   const leavingImage = leaving && images.find((i) => i.id === leaving.id)
   const selectedImage = !readOnly && selection?.kind === 'image' ? images.find((i) => i.id === selection.id) : undefined
@@ -315,7 +322,13 @@ export function NoteCanvas(props: NoteCanvasProps) {
           <div
             ref={canvasRef}
             className={`note-canvas${pan ? ' panning' : ''}`}
-            style={{ width: extent.width, height: extent.height, transform: `scale(${zoom})` }}
+            style={{
+              width: extent.width,
+              height: extent.height,
+              transform: `scale(${zoom})`,
+              // The canvas holds the pointer during a resize, so it shows the handle's cursor.
+              cursor: gesture && !gesture.done && gesture.kind.endsWith('-resize') ? resizeCursor[gesture.handle] : undefined,
+            }}
             onPointerDown={onCanvasPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
@@ -340,9 +353,9 @@ export function NoteCanvas(props: NoteCanvasProps) {
                   image={image}
                   rect={rect}
                   selected={selection?.kind === 'image' && selection.id === image.id}
-                  lifted={dragging?.id === image.id}
+                  lifted={dragging?.id === image.id && !dragging.done}
                   onPointerDown={(e) => onItemPointerDown(e, 'image', image.id)}
-                  onResizePointerDown={(e) => onItemPointerDown(e, 'image-resize', image.id)}
+                  onResizePointerDown={readOnly ? undefined : (e, handle) => onItemPointerDown(e, 'image-resize', image.id, handle)}
                   onDelete={readOnly ? undefined : () => askRemove('image', image.id)}
                 />
               </div>
@@ -357,7 +370,7 @@ export function NoteCanvas(props: NoteCanvasProps) {
                 lifted={dragging?.id === block.id}
                 readOnly={readOnly}
                 onHeadPointerDown={(e) => onItemPointerDown(e, 'block', block.id)}
-                onResizePointerDown={(e) => onItemPointerDown(e, 'block-resize', block.id)}
+                onResizePointerDown={(e, handle) => onItemPointerDown(e, 'block-resize', block.id, handle)}
                 onSelect={() => setSelection({ kind: 'block', id: block.id })}
                 onTitle={(title) => void saveBlock(block, { title })}
                 onRemove={() => askRemove('block', block.id)}

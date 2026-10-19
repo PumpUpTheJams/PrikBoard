@@ -108,7 +108,7 @@ public sealed class BoardHub(LiveViewers viewers, PrikBoardDbContext db) : Hub<I
         viewers.Update(Context.ConnectionId, e => e with { LastDragAt = now });
 
         await Clients.OthersInGroup(Group(boardId)).Dragging(
-            new RemoteDrag(entry.Key, entry.PrincipalId, entry.DisplayName, update.Kind, update.Id, update.Dx, update.Dy));
+            new RemoteDrag(entry.Key, entry.PrincipalId, entry.DisplayName, update.Kind, update.Id, update.Dx, update.Dy, update.Handle));
     }
 
     /// <summary>The drag is over (dropped or cancelled).</summary>
