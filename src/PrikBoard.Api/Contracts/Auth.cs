@@ -42,6 +42,7 @@ public enum PrincipalKind
 /// <param name="ClientId">Tokens only: the client id the agent is known by.</param>
 /// <param name="Identities">Sessions only: the sign-ins linked to this user.</param>
 /// <param name="Scopes">What the caller may do: boards:read and/or boards:write. Sessions have both.</param>
+/// <param name="IsAdmin">Sessions only: whether this person is an admin of this PrikBoard (see the admin endpoints).</param>
 public record Caller(
     CallerKind Kind,
     PrincipalKind PrincipalKind,
@@ -52,7 +53,8 @@ public record Caller(
     string? Provider,
     string? ClientId,
     IReadOnlyList<LinkedIdentity> Identities,
-    IReadOnlyList<string> Scopes);
+    IReadOnlyList<string> Scopes,
+    bool IsAdmin);
 
 /// <summary>A sign-in linked to a user.</summary>
 /// <param name="Id">Identity id, used to unlink it.</param>

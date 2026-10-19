@@ -535,6 +535,9 @@ namespace PrikBoard.Api.Data.Migrations
                 {
                     b.HasBaseType("PrikBoard.Api.Domain.Principal");
 
+                    b.Property<bool>("IsAdmin")
+                        .HasColumnType("boolean");
+
                     b.HasDiscriminator().HasValue("User");
                 });
 

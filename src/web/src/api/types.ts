@@ -254,6 +254,43 @@ export interface Caller {
   clientId: string | null
   identities: LinkedIdentity[]
   scopes: string[]
+  /** Sessions only: an admin of this PrikBoard, who may use the admin* operations. */
+  isAdmin: boolean
+}
+
+/** A board as an admin sees it: who is on it, never what is on it. */
+export interface AdminBoard {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+  /** Owners first. */
+  members: AdminBoardMember[]
+}
+
+export interface AdminBoardMember {
+  principalId: string
+  kind: PrincipalKind
+  displayName: string
+  role: BoardRole
+}
+
+export interface AdminBoardRef {
+  id: string
+  name: string
+}
+
+/** Someone with an account, as admins see them. */
+export interface AdminUser {
+  id: string
+  displayName: string
+  isAdmin: boolean
+  isYou: boolean
+  createdAt: string
+  lastSeenAt: string
+  boardCount: number
+  /** Boards they are the only owner of; they can't be deleted until each has another owner. */
+  soleOwnerOf: AdminBoardRef[]
 }
 
 export interface TokenIssuer {

@@ -1,0 +1,454 @@
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { api, errorMessage } from '../api/client'
+import { boardRoles, type AdminBoard, type AdminBoardMember, type AdminUser, type BoardRole, type Point } from '../api/types'
+import { isDrag } from '../board/gesture'
+import { CloseIcon, PeopleIcon, SearchIcon, ShieldIcon, SparkleIcon, TrashIcon } from '../board/icons'
+import { ConfirmDialog } from './ConfirmDialog'
+import { initials } from './initials'
+
+interface AdminPageProps {
+  /** Your own admin rights changed (you handed them over), so the caller needs reloading. */
+  onYouChanged: () => void
+  onBack: () => void
+}
+
+/** Where a dragged person would land: the Admins bucket, or a board (and one of its role zones). */
+type DropTarget = { kind: 'admin' } | { kind: 'board'; boardId: string; role: BoardRole | null }
+
+interface PersonDrag {
+  user: AdminUser
+  start: Point
+  current: Point
+  active: boolean
+  target: DropTarget | null
+}
+
+type Pending =
+  | { kind: 'deleteUser'; user: AdminUser }
+  | { kind: 'deleteBoard'; board: AdminBoard }
+  | { kind: 'removeMember'; board: AdminBoard; member: AdminBoardMember }
+  | { kind: 'removeAdmin'; user: AdminUser }
+
+/** Space a board row keeps for its name above the role zones, and their inset (match .admin-zones). */
+const ZONES_TOP = 40
+const ZONES_INSET = 8
+/** Member chips a board row shows before "+N". */
+const CHIPS_SHOWN = 5
+/** How close (px) to a list's top or bottom edge a drag starts scrolling it, and its fastest step per frame. */
+const EDGE = 56
+const MAX_STEP = 18
+
+/**
+ * The drop target under the pointer, found through the data-drop attributes. A board's role comes from where the
+ * pointer is on its row (the zones split it in three), so it doesn't depend on the zones having rendered yet.
+ */
+function targetAt(point: Point): DropTarget | null {
+  const zone = document.elementFromPoint(point.x, point.y)?.closest<HTMLElement>('[data-drop]')
+  if (!zone) return null
+  if (zone.dataset.drop === 'admin') return { kind: 'admin' }
+  const row = zone.closest<HTMLElement>('[data-drop="board"]')
+  const boardId = row?.dataset.board
+  if (!row || !boardId) return null
+
+  const rect = row.getBoundingClientRect()
+  if (point.y < rect.top + ZONES_TOP) return { kind: 'board', boardId, role: null }
+  const third = (rect.width - 2 * ZONES_INSET) / boardRoles.length
+  const index = Math.floor((point.x - rect.left - ZONES_INSET) / third)
+  return { kind: 'board', boardId, role: boardRoles[Math.min(Math.max(index, 0), boardRoles.length - 1)] }
+}
+
+/** How far to scroll a list this frame: faster the closer the pointer is to (or the further past) its edge. */
+function edgeStep(y: number, top: number, bottom: number) {
+  if (y < top + EDGE) return -Math.min(MAX_STEP, Math.ceil(((top + EDGE - y) / EDGE) * MAX_STEP * 0.6))
+  if (y > bottom - EDGE) return Math.min(MAX_STEP, Math.ceil(((y - bottom + EDGE) / EDGE) * MAX_STEP * 0.6))
+  return 0
+}
+
+const matches = (text: string, query: string) => text.toLocaleLowerCase().includes(query)
+
+const loadAll = () => Promise.all([api.adminListUsers(), api.adminListBoards()])
+
+const seen = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+
+/**
+ * Running the instance: everyone with an account on the left, the Admins bucket and every board on the right, each in a
+ * list of its own that scrolls and can be searched. Drag a person onto a board's role zone to give them that role there,
+ * or onto Admins to make them an admin; a list scrolls by itself while you drag near its top or bottom.
+ */
+export function AdminPage({ onYouChanged, onBack }: AdminPageProps) {
+  const [users, setUsers] = useState<AdminUser[] | null>(null)
+  const [boards, setBoards] = useState<AdminBoard[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [drag, setDrag] = useState<PersonDrag | null>(null)
+  const [pending, setPending] = useState<Pending | null>(null)
+  const [peopleQuery, setPeopleQuery] = useState('')
+  const [boardQuery, setBoardQuery] = useState('')
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
+  const pointer = useRef<Point | null>(null)
+
+  const reload = useCallback(
+    () =>
+      loadAll().then(
+        ([u, b]) => {
+          setUsers(u)
+          setBoards(b)
+        },
+        (e) => setError(errorMessage(e)),
+      ),
+    [],
+  )
+
+  useEffect(() => {
+    loadAll().then(
+      ([u, b]) => {
+        setUsers(u)
+        setBoards(b)
+      },
+      (e) => setError(errorMessage(e)),
+    )
+    // Others change boards and memberships too; catch up when you come back to the tab.
+    const onFocus = () => void reload()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [reload])
+
+  // While a person is dragged near the top or bottom of a list, scroll that list, so far-away boards can be reached.
+  const dragging = drag?.active ?? false
+  useEffect(() => {
+    if (!dragging) return
+    let frame = requestAnimationFrame(function tick() {
+      const p = pointer.current
+      if (p) {
+        for (const list of document.querySelectorAll<HTMLElement>('[data-scroll]')) {
+          const rect = list.getBoundingClientRect()
+          if (p.x < rect.left || p.x > rect.right || p.y < rect.top - EDGE || p.y > rect.bottom + EDGE) continue
+          const before = list.scrollTop
+          list.scrollTop += edgeStep(p.y, rect.top, rect.bottom)
+          // What is under the pointer moved with the list.
+          if (list.scrollTop !== before) setDrag((d) => d && { ...d, target: targetAt(p) })
+        }
+      }
+      frame = requestAnimationFrame(tick)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [dragging])
+
+  /** Runs a change and reloads; errors (such as "last owner") show at the top. */
+  async function attempt(action: () => Promise<unknown>) {
+    setError(null)
+    try {
+      await action()
+      return true
+    } catch (e) {
+      setError(errorMessage(e))
+      return false
+    } finally {
+      await reload()
+    }
+  }
+
+  function drop(user: AdminUser, target: DropTarget) {
+    if (target.kind === 'admin') {
+      if (!user.isAdmin) void attempt(() => api.adminUpdateUser(user.id, { isAdmin: true }))
+      return
+    }
+    const { boardId, role } = target
+    if (!role) return
+    const current = boards?.find((b) => b.id === boardId)?.members.find((m) => m.principalId === user.id)
+    if (current?.role === role) return
+    void attempt(() => api.adminSetBoardMember(boardId, user.id, role))
+  }
+
+  function onPersonDown(e: ReactPointerEvent<HTMLLIElement>, user: AdminUser) {
+    if (e.button !== 0 || (e.target as Element).closest('button')) return
+    // No text selection while dragging a person across the page.
+    e.preventDefault()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    const point = { x: e.clientX, y: e.clientY }
+    pointer.current = point
+    setDrag({ user, start: point, current: point, active: false, target: null })
+  }
+
+  function onPersonMove(e: ReactPointerEvent<HTMLLIElement>) {
+    if (!drag) return
+    const current = { x: e.clientX, y: e.clientY }
+    pointer.current = current
+    const active = drag.active || isDrag({ start: drag.start, current })
+    setDrag({ ...drag, current, active, target: active ? targetAt(current) : null })
+  }
+
+  function onPersonUp(e: ReactPointerEvent<HTMLLIElement>) {
+    const target = drag?.active ? targetAt({ x: e.clientX, y: e.clientY }) : null
+    if (drag && target) drop(drag.user, target)
+    endDrag()
+  }
+
+  function endDrag() {
+    pointer.current = null
+    setDrag(null)
+  }
+
+  function confirmPending(action: Pending) {
+    setPending(null)
+    switch (action.kind) {
+      case 'deleteUser':
+        void attempt(() => api.adminDeleteUser(action.user.id))
+        return
+      case 'deleteBoard':
+        void attempt(() => api.adminDeleteBoard(action.board.id))
+        return
+      case 'removeMember':
+        void attempt(() => api.adminRemoveBoardMember(action.board.id, action.member.principalId))
+        return
+      case 'removeAdmin':
+        void attempt(() => api.adminUpdateUser(action.user.id, { isAdmin: false })).then((ok) => {
+          if (ok && action.user.isYou) onYouChanged()
+        })
+    }
+  }
+
+  function askDelete(user: AdminUser) {
+    if (user.soleOwnerOf.length > 0) {
+      setError(
+        `${user.displayName} is the only owner of ${user.soleOwnerOf.map((b) => `"${b.name}"`).join(', ')}. ` +
+          'Drag someone else onto Owner there first.',
+      )
+      return
+    }
+    setPending({ kind: 'deleteUser', user })
+  }
+
+  function toggleExpanded(boardId: string) {
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (!next.delete(boardId)) next.add(boardId)
+      return next
+    })
+  }
+
+  const admins = users?.filter((u) => u.isAdmin) ?? []
+  const target = drag?.active ? drag.target : null
+  const hoveredBoard = target?.kind === 'board' ? target.boardId : null
+  const people = peopleQuery.trim().toLocaleLowerCase()
+  const shownUsers = users?.filter((u) => matches(u.displayName, people)) ?? []
+  const boardSearch = boardQuery.trim().toLocaleLowerCase()
+  const shownBoards =
+    boards?.filter((b) => matches(b.name, boardSearch) || b.members.some((m) => matches(m.displayName, boardSearch))) ?? []
+
+  return (
+    <div className={`admin-page${drag?.active ? ' dragging' : ''}`}>
+      <header className="admin-head">
+        <div>
+          <h2>Admin</h2>
+          <p>Drag a person onto a board and drop them on a role, or onto Admins. Admins see who is on a board, not what is on it.</p>
+        </div>
+        <button type="button" className="ghost small" onClick={onBack}>
+          Back to boards
+        </button>
+      </header>
+
+      {error && (
+        <p className="widget-error admin-error" role="alert">
+          {error}
+        </p>
+      )}
+
+      {users === null || boards === null ? (
+        <p className="status">Loading…</p>
+      ) : (
+        <div className="admin-columns">
+          <section className="admin-panel" aria-labelledby="admin-people">
+            <h3 id="admin-people">
+              People <span className="row-meta">{users.length}</span>
+            </h3>
+            <label className="admin-search">
+              <SearchIcon />
+              <input
+                type="search"
+                placeholder="Search people"
+                aria-label="Search people"
+                value={peopleQuery}
+                onChange={(e) => setPeopleQuery(e.target.value)}
+              />
+            </label>
+            <ul className="row-list admin-people admin-scroll" data-scroll>
+              {shownUsers.map((u) => (
+                <li
+                  key={u.id}
+                  className={drag?.active && drag.user.id === u.id ? 'lifted' : undefined}
+                  title="Drag onto a board or onto Admins"
+                  onPointerDown={(e) => onPersonDown(e, u)}
+                  onPointerMove={onPersonMove}
+                  onPointerUp={onPersonUp}
+                  onLostPointerCapture={endDrag}
+                >
+                  <span className="avatar avatar-md" aria-hidden="true">
+                    {initials(u.displayName)}
+                  </span>
+                  <span className="row-main">
+                    {u.displayName}
+                    {u.isYou && <span className="badge">you</span>}
+                    {u.isAdmin && <span className="badge admin">admin</span>}
+                  </span>
+                  <span className="row-meta" title={`Joined ${seen(u.createdAt)}`}>
+                    {u.boardCount} {u.boardCount === 1 ? 'board' : 'boards'} · seen {seen(u.lastSeenAt)}
+                  </span>
+                  {!u.isYou && (
+                    <button type="button" className="icon-button" aria-label={`Delete ${u.displayName}`} title="Delete user" onClick={() => askDelete(u)}>
+                      <TrashIcon />
+                    </button>
+                  )}
+                </li>
+              ))}
+              {shownUsers.length === 0 && <li className="admin-none">Nobody matches "{peopleQuery.trim()}".</li>}
+            </ul>
+          </section>
+
+          <section className="admin-panel" aria-labelledby="admin-boards">
+            <div className={`admin-bucket admin-admins${target?.kind === 'admin' ? ' drop-target' : ''}`} data-drop="admin">
+              <h3>
+                <ShieldIcon size={14} /> Admins
+              </h3>
+              <div className="admin-chips">
+                {admins.map((u) => (
+                  <span key={u.id} className="admin-chip">
+                    {u.displayName}
+                    {admins.length > 1 && (
+                      <button type="button" aria-label={`Stop ${u.displayName} being an admin`} title="No longer admin" onClick={() => setPending({ kind: 'removeAdmin', user: u })}>
+                        <CloseIcon size={12} />
+                      </button>
+                    )}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <h3 id="admin-boards">
+              Boards <span className="row-meta">{boards.length}</span>
+            </h3>
+            <label className="admin-search">
+              <SearchIcon />
+              <input
+                type="search"
+                placeholder="Search boards or members"
+                aria-label="Search boards or members"
+                value={boardQuery}
+                onChange={(e) => setBoardQuery(e.target.value)}
+              />
+            </label>
+            <div className="admin-board-list admin-scroll" data-scroll>
+              {shownBoards.map((b) => {
+                const open = expanded.has(b.id)
+                const chips = open ? b.members : b.members.slice(0, CHIPS_SHOWN)
+                const hidden = b.members.length - chips.length
+                return (
+                  <article
+                    key={b.id}
+                    className={`admin-bucket admin-board${hoveredBoard === b.id ? ' drop-target' : ''}`}
+                    data-drop="board"
+                    data-board={b.id}
+                  >
+                    <header>
+                      <span className="admin-count" title={`${b.members.length} ${b.members.length === 1 ? 'member' : 'members'}`}>
+                        <PeopleIcon size={12} />
+                        {b.members.length}
+                      </span>
+                      <span className="admin-board-name">{b.name}</span>
+                      <button
+                        type="button"
+                        className="icon-button admin-board-delete"
+                        aria-label={`Delete board ${b.name}`}
+                        title="Delete board"
+                        onClick={() => setPending({ kind: 'deleteBoard', board: b })}
+                      >
+                        <TrashIcon size={14} />
+                      </button>
+                    </header>
+                    <div className="admin-chips">
+                      {chips.map((m) => (
+                        <span key={m.principalId} className={`admin-chip${m.kind === 'Agent' ? ' agent' : ''}`}>
+                          {m.kind === 'Agent' && <SparkleIcon size={11} />}
+                          {m.displayName}
+                          <span className="admin-chip-role">{m.role}</span>
+                          <button type="button" aria-label={`Take ${m.displayName} off ${b.name}`} title="Remove from board" onClick={() => setPending({ kind: 'removeMember', board: b, member: m })}>
+                            <CloseIcon size={12} />
+                          </button>
+                        </span>
+                      ))}
+                      {(hidden > 0 || open) && b.members.length > CHIPS_SHOWN && (
+                        <button type="button" className="admin-more" aria-expanded={open} onClick={() => toggleExpanded(b.id)}>
+                          {open ? 'Show fewer' : `+${hidden}`}
+                        </button>
+                      )}
+                      {b.members.length === 0 && <span className="row-meta">Nobody</span>}
+                    </div>
+                    {hoveredBoard === b.id && (
+                      <div className="admin-zones">
+                        {boardRoles.map((role) => (
+                          <div key={role} className={`admin-zone${target?.kind === 'board' && target.role === role ? ' drop-target' : ''}`}>
+                            {role}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                )
+              })}
+              {shownBoards.length === 0 && <p className="admin-none">No board matches "{boardQuery.trim()}".</p>}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {drag?.active && (
+        <div className="drag-ghost admin-ghost" style={{ left: drag.current.x + 12, top: drag.current.y + 8 }}>
+          <span className="avatar avatar-sm" aria-hidden="true">
+            {initials(drag.user.displayName)}
+          </span>
+          {drag.user.displayName}
+        </div>
+      )}
+
+      {pending?.kind === 'deleteUser' && (
+        <ConfirmDialog
+          title={`Delete ${pending.user.displayName}?`}
+          message="Their account, sign-ins, board memberships and access tokens are deleted, and they are signed out. Post-its they wrote stay. They can only come back through a new invite link."
+          confirmLabel="Delete user"
+          onConfirm={() => confirmPending(pending)}
+          onCancel={() => setPending(null)}
+        />
+      )}
+      {pending?.kind === 'deleteBoard' && (
+        <ConfirmDialog
+          title={`Delete "${pending.board.name}"?`}
+          message={`The board and all of its buckets, post-its and images are deleted for its ${pending.board.members.length} ${pending.board.members.length === 1 ? 'member' : 'members'}. This can't be undone.`}
+          confirmLabel="Delete board"
+          onConfirm={() => confirmPending(pending)}
+          onCancel={() => setPending(null)}
+        />
+      )}
+      {pending?.kind === 'removeMember' && (
+        <ConfirmDialog
+          title={`Take ${pending.member.displayName} off this board?`}
+          message={`They lose access to "${pending.board.name}" until someone adds them again.`}
+          confirmLabel="Remove"
+          onConfirm={() => confirmPending(pending)}
+          onCancel={() => setPending(null)}
+        />
+      )}
+      {pending?.kind === 'removeAdmin' && (
+        <ConfirmDialog
+          title={pending.user.isYou ? 'Stop being an admin?' : `Stop ${pending.user.displayName} being an admin?`}
+          message={
+            pending.user.isYou
+              ? "You won't see this page any more. Another admin can make you one again."
+              : 'They keep their boards, but can no longer see this page.'
+          }
+          confirmLabel="No longer admin"
+          onConfirm={() => confirmPending(pending)}
+          onCancel={() => setPending(null)}
+        />
+      )}
+    </div>
+  )
+}

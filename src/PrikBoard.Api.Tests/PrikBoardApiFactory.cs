@@ -62,12 +62,17 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
         return client;
     }
 
-    /// <summary>Signs in through the same user mapping as a real provider callback.</summary>
+    /// <summary>
+    /// Signs in through the same user mapping as a real provider callback. Newcomers are let in, unless a
+    /// <paramref name="returnUrl"/> is given: then they need an open invite link in it, as in a real sign-in.
+    /// </summary>
     public static Task<HttpResponseMessage> TestSignInAsync(
-        HttpClient client, string email, string? subject = null, string provider = TestProvider, bool verified = true) =>
+        HttpClient client, string email, string? subject = null, string provider = TestProvider, bool verified = true,
+        string? returnUrl = null) =>
         client.PostAsync(
             $"{TestLoginPath}?email={Uri.EscapeDataString(email)}&subject={Uri.EscapeDataString(subject ?? email)}" +
-            $"&provider={Uri.EscapeDataString(provider)}&verified={verified}", null);
+            $"&provider={Uri.EscapeDataString(provider)}&verified={verified}" +
+            (returnUrl is null ? "" : $"&returnUrl={Uri.EscapeDataString(returnUrl)}"), null);
 
     /// <summary>Links another provider identity to the signed-in user, like a link round trip. Answers with the LinkResult name.</summary>
     public static async Task<string> TestLinkAsync(HttpClient client, string provider, string subject, string? email = null)
@@ -108,8 +113,18 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
 
                 var email = query["email"].ToString();
                 var verified = query["verified"].ToString() != "False";
+                // Without returnUrl the newcomer counts as let in already; with one, the real invite-only rule applies.
+                var signUp = query.ContainsKey("returnUrl")
+                    ? UserSignIn.SignUp.Invite(UserSignIn.InviteTokenIn(query["returnUrl"]))
+                    : UserSignIn.SignUp.Always;
                 var principal = await UserSignIn.SignInAsync(context, query["provider"].ToString() is { Length: > 0 } p ? p : TestProvider,
-                    query["subject"].ToString() is { Length: > 0 } s ? s : email, email.Split('@')[0], verified ? email : null);
+                    query["subject"].ToString() is { Length: > 0 } s ? s : email, email.Split('@')[0], verified ? email : null, signUp);
+                if (principal is null)
+                {
+                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    await context.Response.WriteAsync(UserSignIn.InviteRequiredError);
+                    return;
+                }
 
                 await context.SignInAsync(AuthSetup.CookieScheme, principal);
                 context.Response.StatusCode = StatusCodes.Status204NoContent;

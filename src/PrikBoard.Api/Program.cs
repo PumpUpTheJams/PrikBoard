@@ -160,6 +160,7 @@ api.MapMemberEndpoints();
 api.MapInviteEndpoints();
 api.MapAccessTokenEndpoints();
 api.MapAppSignInEndpoints();
+api.MapAdminEndpoints();
 // MCP at /mcp, outside /api where MCP clients expect it; each tool checks board access itself.
 app.MapMcp("/mcp").RequireAuthorization(AuthSetup.McpPolicy).ExcludeFromDescription();
 
