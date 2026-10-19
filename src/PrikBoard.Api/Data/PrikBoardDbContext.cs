@@ -25,6 +25,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
         {
             board.Property(b => b.Name).HasMaxLength(100);
             board.Property(b => b.Description).HasMaxLength(1000);
+            board.Property(b => b.Rules).HasMaxLength(Board.RulesMaxLength);
             board.HasMany(b => b.Buckets)
                 .WithOne(c => c.Board)
                 .HasForeignKey(c => c.BoardId)

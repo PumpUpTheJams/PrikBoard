@@ -104,6 +104,15 @@ export const NoteDocIcon = ({ size = 16 }: IconProps) => (
   </Icon>
 )
 
+/** A page with a small sparkle: the board's agent rules. */
+export const RulesIcon = ({ size = 18 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M14 3H6v18h12V9" />
+    <path d="M9 10h5M9 14h6M9 18h4" />
+    <path d="M19 2v4M17 4h4" />
+  </Icon>
+)
+
 export const ChecklistIcon = ({ size = 16 }: IconProps) => (
   <Icon size={size}>
     <path d="M4 6l2 2 3-3M4 13l2 2 3-3M12 7h8M12 14h8M12 20h8" />

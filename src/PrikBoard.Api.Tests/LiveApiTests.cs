@@ -228,6 +228,22 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
     }
 
     [Fact]
+    public async Task Changing_the_agent_rules_tells_open_boards()
+    {
+        var owner = await SessionAsync("live-rules-owner@example.com");
+        var viewer = await SessionAsync("live-rules-viewer@example.com");
+        var board = await owner.Http.CreateBoardAsync();
+        await owner.Http.ShareAsync(board.Id, viewer.Http, BoardRole.Viewer);
+
+        var live = await ConnectAsync(viewer);
+        var changes = live.Inbox<BoardChange>("BoardChanged");
+        await live.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+
+        (await owner.Http.PatchAsJsonAsync($"/api/boards/{board.Id}", new { rules = "Keep notes short." })).EnsureSuccessStatusCode();
+        Assert.Equal(board.Id, (await changes.NextAsync()).BoardId);
+    }
+
+    [Fact]
     public async Task Cross_site_pages_cannot_connect_with_the_cookie()
     {
         var person = await SessionAsync("live-csrf@example.com");
