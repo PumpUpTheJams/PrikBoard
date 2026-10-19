@@ -8,7 +8,7 @@ on:
 jobs:
   api:
     name: API build and tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     services:
       # Same credentials as compose.yaml, which the test factory uses by default.
       postgres:
@@ -27,13 +27,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
+        # The self-hosted runner can't write to the default /usr/share/dotnet.
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.tool_cache }}/dotnet
         with:
           dotnet-version: 10.0.x
       - run: dotnet test PrikBoard.slnx
 
   web:
     name: Web lint and build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     defaults:
       run:
         working-directory: src/web
@@ -50,7 +53,7 @@ jobs:
 
   vscode:
     name: VS Code extension lint, build and package
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     defaults:
       run:
         working-directory: src/vscode

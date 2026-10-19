@@ -1,7 +1,8 @@
 import type { PointerEvent } from 'react'
-import type { ImageDetail, Rect } from '../api/types'
+import type { ImageDetail, Rect, ResizeHandle } from '../api/types'
 import { initials } from '../components/initials'
 import { TrashIcon } from './icons'
+import { ResizeHandles } from './ResizeHandles'
 
 interface BoardImageViewProps {
   image: ImageDetail
@@ -10,7 +11,8 @@ interface BoardImageViewProps {
   selected: boolean
   lifted: boolean
   onPointerDown: (e: PointerEvent<HTMLElement>) => void
-  onResizePointerDown: (e: PointerEvent<HTMLElement>) => void
+  /** A press on a corner or edge handle (shown while selected, for editors) starts resizing from there. */
+  onResizePointerDown?: (e: PointerEvent<HTMLElement>, handle: ResizeHandle) => void
   /** Asks to delete the image (the caller confirms first); without it there is no trash button (viewers). */
   onDelete?: () => void
 }
@@ -27,6 +29,7 @@ export function BoardImageView({ image, rect, selected, lifted, onPointerDown, o
       className={classes.join(' ')}
       style={{ left: rect.x, top: rect.y, width: rect.width }}
       role="group"
+      data-image={image.id}
       aria-label={label}
       tabIndex={0}
       onPointerDown={onPointerDown}
@@ -48,20 +51,7 @@ export function BoardImageView({ image, rect, selected, lifted, onPointerDown, o
             <TrashIcon size={13} />
           </button>
         )}
-        {selected && (
-          <>
-            <span className="handle nw" aria-hidden="true" />
-            <span className="handle ne" aria-hidden="true" />
-            <span className="handle sw" aria-hidden="true" />
-            <button
-              type="button"
-              className="handle se resize-handle"
-              aria-label={`Resize ${label}`}
-              title="Drag to resize"
-              onPointerDown={onResizePointerDown}
-            />
-          </>
-        )}
+        {selected && onResizePointerDown && <ResizeHandles onPointerDown={onResizePointerDown} />}
       </div>
       <figcaption>
         <span className="board-image-name">{label}</span>

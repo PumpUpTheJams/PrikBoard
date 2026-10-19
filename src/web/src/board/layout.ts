@@ -1,6 +1,6 @@
 // Client copy of the server's geometry rules (src/PrikBoard.Api/Domain/Layout.cs), used for live feedback while dragging.
 // The server snaps and assigns buckets again on every change, so it stays the source of truth.
-import type { BucketDetail, NoteBlockKind, Point, Rect } from '../api/types'
+import type { BucketDetail, ImageDetail, NoteBlockKind, Point, Rect, ResizeHandle } from '../api/types'
 
 export const GRID = 20
 export const NOTE_WIDTH = 200
@@ -51,6 +51,46 @@ export function blockSize(width: number, height: number) {
     width: Math.min(MAX_BLOCK_SIZE, Math.max(MIN_BLOCK_WIDTH, snap(width))),
     height: Math.min(MAX_BLOCK_SIZE, Math.max(MIN_BLOCK_HEIGHT, snap(height))),
   }
+}
+
+/** A bucket's size after a resize, as the server computes it: snapped, at least the minimum. */
+export function bucketSize(width: number, height: number) {
+  return { width: Math.max(MIN_BUCKET_WIDTH, snap(width)), height: Math.max(MIN_BUCKET_HEIGHT, snap(height)) }
+}
+
+/**
+ * A rectangle resized by dragging a corner or an edge by `d`, the opposite corner or edge staying put (as long as the
+ * top-left stays on the canvas); an edge only changes the size in its own direction. `size` snaps and limits the new
+ * size, as the server does for that kind of item.
+ */
+export function resizeFrom(
+  rect: Rect,
+  handle: ResizeHandle,
+  d: Point,
+  size: (width: number, height: number) => { width: number; height: number },
+): Rect {
+  const left = handle.endsWith('Left')
+  const right = handle.endsWith('Right')
+  const top = handle.startsWith('Top')
+  const bottom = handle.startsWith('Bottom')
+  const next = size(
+    left ? Math.min(rect.width - d.x, rect.x + rect.width) : right ? rect.width + d.x : rect.width,
+    top ? Math.min(rect.height - d.y, rect.y + rect.height) : bottom ? rect.height + d.y : rect.height,
+  )
+  return {
+    x: left ? Math.max(0, rect.x + rect.width - next.width) : rect.x,
+    y: top ? Math.max(0, rect.y + rect.height - next.height) : rect.y,
+    ...next,
+  }
+}
+
+/**
+ * An image resized from a corner or edge. It keeps its aspect ratio, so the top and bottom edges set the width through
+ * the height (the server only takes a width).
+ */
+export function resizeImage(image: ImageDetail, handle: ResizeHandle, d: Point): Rect {
+  const byHeight = handle === 'Top' || handle === 'Bottom'
+  return resizeFrom(image, handle, d, (width, height) => imageSize(image, byHeight ? (height * image.pixelWidth) / image.pixelHeight : width))
 }
 
 /** Snaps a top-left corner on a note's canvas, keeping a `size` rectangle on it. */

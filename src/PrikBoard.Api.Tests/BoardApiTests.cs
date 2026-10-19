@@ -135,6 +135,25 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
+    public async Task Resizing_a_bucket_from_its_top_left_corner_leaves_its_notes_in_place()
+    {
+        var board = await CreateBoard("Corner");
+        var created = await _client.PostAsJsonAsync(
+            $"/api/boards/{board.Id}/buckets", new { name = "Frame", x = 200, y = 1000, width = 300, height = 400 });
+        var frame = (await created.Content.ReadFromJsonAsync<BucketDetail>())!;
+        var inside = await CreateNote(board.Id, new { title = "Inside", x = 240, y = 1040 });
+
+        var response = await _client.PatchAsJsonAsync($"/api/buckets/{frame.Id}", new { x = 100, y = 900, width = 400, height = 500 });
+        response.EnsureSuccessStatusCode();
+
+        var resized = (await response.Content.ReadFromJsonAsync<BucketDetail>())!;
+        Assert.Equal((100, 900, 400, 500), (resized.X, resized.Y, resized.Width, resized.Height));
+        var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
+        var note = snapshot!.Notes.Single(n => n.Id == inside.Id);
+        Assert.Equal((240, 1040, frame.Id), (note.X, note.Y, note.BucketId));
+    }
+
+    [Fact]
     public async Task A_new_bucket_adopts_the_loose_notes_it_covers_and_sits_on_top()
     {
         var board = await CreateBoard("Adopt");

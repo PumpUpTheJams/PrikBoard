@@ -155,6 +155,13 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var drag = await viewerDrags.NextAsync();
         Assert.Equal((DragKind.Note, note.Id, 42d, -7d, joined.Key), (drag.Kind, drag.Id, drag.Dx, drag.Dy, drag.Key));
 
+        // A resize names its corner or edge; past the hub's throttle, so it isn't dropped.
+        await Task.Delay(60);
+        var bucketId = board.Buckets[0].Id;
+        await ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Resize, bucketId, -20, 40, ResizeHandle.TopLeft));
+        var resize = await viewerDrags.NextAsync();
+        Assert.Equal((DragKind.Resize, bucketId, ResizeHandle.TopLeft), (resize.Kind, resize.Id, resize.Handle));
+
         await ownerLive.Connection.InvokeAsync("DragEnd");
         Assert.Equal(joined.Key, await ended.NextAsync());
         Assert.False(await ownerDrags.AnyWithinAsync(TimeSpan.FromMilliseconds(200)));
