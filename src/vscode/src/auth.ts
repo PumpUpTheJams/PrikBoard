@@ -20,6 +20,38 @@ export const serverUrl = () => setting('serverUrl', 'http://localhost:5080').rep
 /** Where the web app runs; defaults to the API origin, which serves it in a deployment. */
 export const webUrl = () => (setting('webUrl', '') || serverUrl()).replace(/\/+$/, '')
 
+/** Whether someone chose a server, rather than the extension falling back to the local development default. */
+function serverChosen() {
+  const inspected = vscode.workspace.getConfiguration('prikboard').inspect<string>('serverUrl')
+  return [inspected?.globalValue, inspected?.workspaceValue, inspected?.workspaceFolderValue].some((value) => value?.trim())
+}
+
+/** Credentials go to this address, so it must be encrypted unless it is this machine. */
+function checkAddress(value: string) {
+  let url: URL
+  try {
+    url = new URL(value.trim())
+  } catch {
+    return 'Enter the address you open PrikBoard at, for example https://prikboard.example.com'
+  }
+  const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) return 'Use https (http only works for localhost)'
+  if (url.search || url.hash || url.username) return 'Leave out the query, fragment and user name'
+  return undefined
+}
+
+/** Whether a PrikBoard API answers at the address: its anonymous sign-in provider list. Returns a problem, or undefined. */
+async function probe(address: string) {
+  let response: Response
+  try {
+    response = await fetch(`${address}/api/auth/providers`, { signal: AbortSignal.timeout(10_000), headers: { Accept: 'application/json' } })
+  } catch (error) {
+    return `Could not reach ${address} (${errorMessage(error)})`
+  }
+  const body: unknown = response.ok ? await response.json().catch(() => null) : null
+  return Array.isArray(body) ? undefined : `${address} does not look like PrikBoard (no sign-in at /api/auth/providers)`
+}
+
 /** The sign-in through the issuer, from the settings; null while the authority or the client id is missing. */
 function oidcConfig(): OidcConfig | null {
   const authority = setting('oidc.authority', '').trim()
@@ -86,8 +118,70 @@ export class Auth implements vscode.Disposable {
     })
   }
 
+  /**
+   * Asks for the PrikBoard address, checks that PrikBoard answers there, and stores it in the user settings. The web
+   * app and the API share it (nginx in a deployment, Vite's proxy in development), so a separate web address is
+   * cleared. Signs out when the server changes, since the credential belongs to the old one. Returns false when cancelled.
+   */
+  async chooseServer() {
+    const address = await new Promise<string | undefined>((resolve) => {
+      const box = vscode.window.createInputBox()
+      box.title = 'PrikBoard address'
+      box.prompt = 'The address you open PrikBoard at in your browser'
+      box.placeholder = 'https://prikboard.example.com'
+      box.value = serverChosen() ? serverUrl() : ''
+      box.ignoreFocusOut = true
+      let settled = false
+      box.onDidChangeValue((value) => (box.validationMessage = value.trim() ? checkAddress(value) : undefined))
+      box.onDidAccept(async () => {
+        const candidate = box.value.trim().replace(/\/+$/, '')
+        const invalid = checkAddress(candidate)
+        if (invalid || box.busy) {
+          box.validationMessage = invalid
+          return
+        }
+        box.busy = true
+        box.enabled = false
+        const problem = await probe(candidate)
+        box.busy = false
+        box.enabled = true
+        if (problem) {
+          box.validationMessage = problem
+          return
+        }
+        settled = true
+        resolve(candidate)
+        box.hide()
+      })
+      box.onDidHide(() => {
+        if (!settled) resolve(undefined)
+        box.dispose()
+      })
+      box.show()
+    })
+    if (address === undefined) return false
+
+    if (this.signedIn && address !== serverUrl()) await this.signOut()
+    const configuration = vscode.workspace.getConfiguration('prikboard')
+    await configuration.update('serverUrl', address, vscode.ConfigurationTarget.Global)
+    await configuration.update('webUrl', undefined, vscode.ConfigurationTarget.Global)
+    // Before a sign-in that follows straight away, not only when the configuration event arrives.
+    this.reconfigure()
+    return true
+  }
+
+  /** The server to sign in to: asks for one until PrikBoard answers there, so the browser never opens on a wrong address. */
+  private async ensureServer() {
+    if (!serverChosen()) return this.chooseServer()
+    const problem = await probe(serverUrl())
+    if (!problem) return true
+    const choice = await vscode.window.showErrorMessage(problem, 'Change Address')
+    return choice === 'Change Address' && this.chooseServer()
+  }
+
   /** Signs in in the browser: through the identity provider when one is set up, otherwise through PrikBoard itself. */
   async signInWithBrowser() {
+    if (!(await this.ensureServer())) return
     const config = oidcConfig()
     let credential: Credential
     try {
@@ -107,6 +201,7 @@ export class Auth implements vscode.Disposable {
 
   /** Signs in with a personal access token the person created in PrikBoard. */
   async signInWithToken() {
+    if (!(await this.ensureServer())) return
     const entered = await vscode.window.showInputBox({
       title: 'Sign in to PrikBoard',
       prompt: 'Paste a personal access token (PrikBoard: Account, Agents and access tokens)',

@@ -15,7 +15,7 @@ Viewers get a read-only tree. The server decides what is allowed and its message
 
 1. Start the API (`dotnet run --project src/PrikBoard.Api`).
 2. Open this folder (`src/vscode`) in VS Code, run `npm install`, and press F5.
-3. In the PrikBoard view, choose **Sign in**.
+3. In the PrikBoard view, choose **Sign in**. The first time, VS Code asks for your PrikBoard address: the one you open in the browser, for example `https://prikboard.example.com`, or `http://localhost:5173` for local development (Vite proxies the API). **PrikBoard: Set PrikBoard Address** (also in the view's `…` menu) changes it later and signs you out of the old server.
 
 **Through PrikBoard (the default).** Like Claude Code: PrikBoard opens in your browser (sign in there if needed), you choose **Allow**, and the browser hands VS Code a token that acts as *you*: your boards, your roles and your display name, which "my work" needs. Nothing to set up beyond `prikboard.webUrl`. If the browser can't reach VS Code (another machine, Codespaces), choose **Paste a Code** and paste the code PrikBoard shows. The token lasts 90 days and is listed in PrikBoard under Account, Agents and access tokens, where you can revoke it. How it works: *App sign-in* in `docs/authentication.md`.
 
@@ -38,8 +38,8 @@ Viewers get a read-only tree. The server decides what is allowed and its message
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `prikboard.serverUrl` | `http://localhost:5080` | Where the API runs |
-| `prikboard.webUrl` | `http://localhost:5173` | Where the web app runs, for **Sign in** and **Open in PrikBoard** |
+| `prikboard.serverUrl` | `http://localhost:5080` | Your PrikBoard address, which serves the web app and the API; asked for on the first sign-in |
+| `prikboard.webUrl` | empty | Only when the web app runs somewhere else than `serverUrl`, for **Sign in** and **Open in PrikBoard** |
 | `prikboard.refreshSeconds` | 15 | How often the open view reloads |
 | `prikboard.oidc.authority` | empty | Optional: issuer URL of an identity provider to sign in with instead of PrikBoard |
 | `prikboard.oidc.clientId` | empty | Client id of the extension's application at that provider |
