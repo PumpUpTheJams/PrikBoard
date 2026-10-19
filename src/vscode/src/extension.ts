@@ -40,6 +40,7 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('prikboard.signIn', () => auth.signInWithBrowser()),
     vscode.commands.registerCommand('prikboard.signInWithToken', () => auth.signInWithToken()),
     vscode.commands.registerCommand('prikboard.signOut', () => auth.signOut()),
+    vscode.commands.registerCommand('prikboard.chooseServer', () => auth.chooseServer()),
     vscode.commands.registerCommand('prikboard.refresh', () => tree.refresh()),
     vscode.commands.registerCommand('prikboard.openInBrowser', (node?: Node) => {
       const url = node && tree.urlOf(node)
