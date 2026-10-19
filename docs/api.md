@@ -66,6 +66,8 @@ A personal access token acts as **its own agent on your boards**: what it does s
 curl -H "Authorization: Bearer pb_pat_..." http://localhost:5080/api/boards
 ```
 
+The VS Code extension gets its own kind of token, `App`, by signing in through PrikBoard (approveAppSignIn, exchangeAppSignIn); it acts as you rather than as an agent. See *App sign-in* in [authentication.md](authentication.md).
+
 Tokens are managed with listAccessTokens, createAccessToken and revokeAccessToken, from a browser session only: a token can never create another token. Each token is limited to 600 requests a minute (`RateLimits:AccessTokenRequestsPerMinute`).
 
 ## MCP
@@ -193,6 +195,8 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | listAccessTokens | `GET /api/me/tokens` | Your personal access tokens (never the tokens themselves). Sessions only |
 | createAccessToken | `POST /api/me/tokens` | New personal access token: `name`, `access` (Viewer or Editor), optional `boardIds` and `expiresInDays`. The token is in the response once. Sessions only |
 | revokeAccessToken | `DELETE /api/me/tokens/{tokenId}` | Revoke a token at once. Sessions only |
+| approveAppSignIn | `POST /api/me/app-sign-ins` | Allow an app (the VS Code extension) to sign in as you: `name`, `codeChallenge` (PKCE S256), optional loopback `redirectUri`. Returns a one-time `code` (5 minutes). Sessions from PrikBoard's own pages only; at most 5 waiting |
+| exchangeAppSignIn | `POST /api/auth/app-sign-ins/token` | The app trades `code` and `codeVerifier` for a token of kind `App` that acts as the person, for 90 days. Anonymous, rate-limited; each code works once |
 | getVersion | `GET /api/auth/version` | Version of the running server |
 | whoAmI | `GET /api/me` | Who you are: principal id, display name, linked sign-ins (sessions) or issuer and client id (tokens), and scopes |
 | updateMe | `PATCH /api/me` | Set your display name (`""` clears it) |

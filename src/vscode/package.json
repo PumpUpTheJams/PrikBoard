@@ -34,7 +34,7 @@
     "viewsWelcome": [
       {
         "view": "prikboard.boards",
-        "contents": "Sign in to see your boards.\n[Sign in](command:prikboard.signIn)\nNo identity provider set up? [Use an access token](command:prikboard.signInWithToken) from PrikBoard under Account, Agents and access tokens.",
+        "contents": "Sign in to see your boards. PrikBoard opens in your browser, where you allow VS Code to use it as you.\n[Sign in](command:prikboard.signIn)\nOr [use an access token](command:prikboard.signInWithToken) from PrikBoard under Account, Agents and access tokens.",
         "when": "!prikboard.signedIn"
       }
     ],
@@ -212,7 +212,7 @@
         "prikboard.webUrl": {
           "type": "string",
           "default": "http://localhost:5173",
-          "markdownDescription": "Where the PrikBoard web app runs, used by **Open in PrikBoard**. Leave empty to use `#prikboard.serverUrl#`."
+          "markdownDescription": "Where the PrikBoard web app runs, used by **Sign in** and **Open in PrikBoard**. Leave empty to use `#prikboard.serverUrl#`."
         },
         "prikboard.refreshSeconds": {
           "type": "number",
@@ -223,7 +223,7 @@
         "prikboard.oidc.authority": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Issuer URL of the identity provider that signs you in, for example `https://your-tenant.eu.auth0.com/`. It must be one of the API's trusted token issuers, with this extension's client id under `UserClients`."
+          "markdownDescription": "Optional. Issuer URL of an identity provider to sign in with instead of PrikBoard's own sign-in, for example `https://your-tenant.eu.auth0.com/`. It must be one of the API's trusted token issuers, with this extension's client id under `UserClients`."
         },
         "prikboard.oidc.clientId": {
           "type": "string",

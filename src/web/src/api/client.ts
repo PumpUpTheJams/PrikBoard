@@ -1,5 +1,6 @@
 import type {
   AccessToken,
+  AppSignInCode,
   CreatedAccessToken,
   AuthProvider,
   ServerVersion,
@@ -129,6 +130,10 @@ export const api = {
   createAccessToken: (token: { name: string; access: BoardRole; boardIds?: string[]; expiresInDays?: number }) =>
     request<CreatedAccessToken>('POST', '/me/tokens', token),
   revokeAccessToken: (tokenId: string) => request<void>('DELETE', `/me/tokens/${tokenId}`),
+  approveAppSignIn: (signIn: { name: string; codeChallenge: string; redirectUri?: string }) =>
+    request<AppSignInCode>('POST', '/me/app-sign-ins', signIn),
+  exchangeAppSignIn: (code: string, codeVerifier: string) =>
+    request<CreatedAccessToken>('POST', '/auth/app-sign-ins/token', { code, codeVerifier }),
 
   listBoards: () => request<BoardSummary[]>('GET', '/boards'),
   createBoard: (name: string, description?: string) =>

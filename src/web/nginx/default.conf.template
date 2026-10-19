@@ -64,5 +64,8 @@ server {
     location / {
         try_files $uri $uri/ /index.html;
         add_header Cache-Control "no-cache";
+        # No other site may frame the app, so it cannot trick people into clicking (for example "Allow" on #/connect).
+        add_header X-Frame-Options "DENY" always;
+        add_header Content-Security-Policy "frame-ancestors 'none'" always;
     }
 }

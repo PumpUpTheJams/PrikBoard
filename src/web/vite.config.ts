@@ -10,6 +10,8 @@ const api: ProxyOptions = { target: process.env.PRIKBOARD_API_URL ?? 'http://loc
 export default defineConfig({
   plugins: [react()],
   server: {
+    // As in nginx/default.conf.template: no other site may frame the app.
+    headers: { 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "frame-ancestors 'none'" },
     proxy: {
       // ws: the live-updates hub (/api/live) upgrades to a WebSocket.
       '/api': { ...api, ws: true },

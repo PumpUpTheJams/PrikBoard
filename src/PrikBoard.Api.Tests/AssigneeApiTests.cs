@@ -71,7 +71,7 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         Assert.Equal(HttpStatusCode.BadRequest, limitedResponse.StatusCode);
         Assert.Equal(HttpStatusCode.OK, reachingResponse.StatusCode);
         Assert.Equal(
-            [new Assignee(reaching.Details.AgentId, "Reaching", AssigneeKind.Agent)],
+            [new Assignee(reaching.Details.AgentId!.Value, "Reaching", AssigneeKind.Agent)],
             (await reachingResponse.Content.ReadFromJsonAsync<NoteDetail>())!.Assignees);
     }
 
@@ -141,7 +141,7 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         var again = await (await agent.PostAsJsonAsync(url, new { working = true })).Content.ReadFromJsonAsync<NoteDetail>();
         var stopped = await (await agent.PostAsJsonAsync(url, new { working = false })).Content.ReadFromJsonAsync<NoteDetail>();
 
-        var me = new Assignee(token.Details.AgentId, "Claude Code", AssigneeKind.Agent);
+        var me = new Assignee(token.Details.AgentId!.Value, "Claude Code", AssigneeKind.Agent);
         Assert.True(started!.AgentWorking);
         Assert.Equal([me], started.Assignees);
         Assert.Equal([me], again!.Assignees);
