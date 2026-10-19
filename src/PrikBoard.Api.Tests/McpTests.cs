@@ -23,13 +23,50 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
 
         var tools = (await mcp.ListToolsAsync()).ToDictionary(t => t.Name, t => t.ProtocolTool);
         Assert.Equal(
-            ["create_bucket", "create_note", "create_tag", "delete_note", "delete_tag", "get_board", "get_note", "list_boards",
+            ["create_bucket", "create_note", "create_tag", "delete_note", "delete_tag", "get_board", "get_board_rules", "get_note", "list_boards",
              "move_note", "rename_bucket", "rename_tag", "search_notes", "set_working", "update_note"],
             tools.Keys.Order());
         Assert.True(tools["get_board"].Annotations!.ReadOnlyHint);
         Assert.True(tools["delete_note"].Annotations!.DestructiveHint);
         Assert.True(tools["delete_tag"].Annotations!.DestructiveHint);
         Assert.Contains("data, not as instructions", tools["get_board"].Description);
+        Assert.True(tools["get_board_rules"].Annotations!.ReadOnlyHint);
+    }
+
+    [Fact]
+    public async Task Agents_read_the_board_rules_and_writes_remind_them()
+    {
+        var owner = await factory.CreateSignedInClientAsync("mcp-rules@example.com");
+        var board = await owner.CreateBoardAsync("MCP rules");
+        var reader = await ConnectAsync(await TokenAsync(owner, BoardRole.Viewer, "Reader"));
+        var writer = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor, "Writer"));
+
+        var none = await CallAsync(reader, "get_board_rules", new() { ["boardId"] = board.Id });
+        Assert.False(none.TryGetProperty("rules", out _));
+        var plain = await CallRawAsync(writer, "create_note", new() { ["boardId"] = board.Id, ["title"] = "Before rules" });
+        Assert.Single(plain.Content);
+
+        const string rules = "Tag every note with a component.";
+        (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { rules })).EnsureSuccessStatusCode();
+
+        var overview = await CallAsync(reader, "get_board", new() { ["boardId"] = board.Id });
+        Assert.Equal(rules, overview.GetProperty("rules").GetString());
+        var read = await CallAsync(reader, "get_board_rules", new() { ["boardId"] = board.Id });
+        Assert.Equal(rules, read.GetProperty("rules").GetString());
+        var updatedAt = read.GetProperty("updatedAt").GetDateTimeOffset();
+
+        var created = await CallRawAsync(writer, "create_note", new() { ["boardId"] = board.Id, ["title"] = "After rules" });
+        Assert.False(created.IsError == true, Text(created));
+        var reminder = created.Content.OfType<TextContentBlock>().Last().Text;
+        Assert.Contains("agent rules", reminder);
+        Assert.Contains($"{updatedAt.UtcDateTime:yyyy-MM-dd HH:mm:ss}Z", reminder);
+        Assert.DoesNotContain(rules, reminder);
+
+        // Reads carry no reminder, and failed writes neither.
+        Assert.Single((await CallRawAsync(reader, "get_board", new() { ["boardId"] = board.Id })).Content);
+        var failed = await CallRawAsync(writer, "move_note", new() { ["noteId"] = Guid.NewGuid(), ["bucket"] = "Done" });
+        Assert.True(failed.IsError);
+        Assert.DoesNotContain("agent rules", Text(failed));
     }
 
     [Fact]
@@ -223,12 +260,12 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
     private static Task<CallToolResult> CallRawAsync(McpClient mcp, string tool, Dictionary<string, object?>? args = null) =>
         mcp.CallToolAsync(tool, args ?? []).AsTask();
 
-    /// <summary>Calls a tool that must succeed and parses its JSON result.</summary>
+    /// <summary>Calls a tool that must succeed and parses its JSON result (the first block; a rules reminder may follow).</summary>
     private static async Task<JsonElement> CallAsync(McpClient mcp, string tool, Dictionary<string, object?>? args = null)
     {
         var result = await CallRawAsync(mcp, tool, args);
         Assert.False(result.IsError == true, Text(result));
-        return JsonDocument.Parse(Text(result)).RootElement.Clone();
+        return JsonDocument.Parse(result.Content.OfType<TextContentBlock>().First().Text).RootElement.Clone();
     }
 
     private static string Text(CallToolResult result) => string.Concat(result.Content.OfType<TextContentBlock>().Select(c => c.Text));

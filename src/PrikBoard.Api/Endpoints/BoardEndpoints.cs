@@ -41,7 +41,8 @@ public static class BoardEndpoints
             .RequireBoardRole(BoardRole.Owner)
             .WithName("updateBoard")
             .WithSummary("Update a board")
-            .WithDescription("Changes the board name and/or description. Omitted fields stay unchanged.")
+            .WithDescription("Changes the board name, description and/or agent rules. Omitted fields stay unchanged. Only owners can " +
+                             "do this, so agents cannot change the rules they follow.")
             .ProducesValidationProblem();
 
         boards.MapDelete("/{boardId:guid}", DeleteBoard)
@@ -131,6 +132,12 @@ public static class BoardEndpoints
 
         board.Name = request.Name ?? board.Name;
         board.Description = PatchText.Apply(board.Description, request.Description);
+        var rules = PatchText.Apply(board.Rules, request.Rules);
+        if (rules != board.Rules)
+        {
+            board.Rules = rules;
+            board.RulesUpdatedAt = DateTimeOffset.UtcNow;
+        }
         board.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);

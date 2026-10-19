@@ -79,7 +79,8 @@ claude mcp add --transport http prikboard http://localhost:5173/mcp --header "Au
 | Tool | What it does |
 | --- | --- |
 | `list_boards` | Your boards with your role on each |
-| `get_board` | Compact overview: buckets in order with their notes (title, tags, assignees, checklist progress, creator), plus loose notes, the board's `tags` and the `people` who can be assigned |
+| `get_board` | Compact overview: the board's agent `rules`, buckets in order with their notes (title, tags, assignees, checklist progress, creator), plus loose notes, the board's `tags` and the `people` who can be assigned |
+| `get_board_rules` | Just the board's agent rules and when they last changed |
 | `search_notes` | By bucket (name or id), `tags` (any of them), assignee (name or id) or text |
 | `get_note` | Everything about one note |
 | `create_note` | In a bucket by name or id (default: the first bucket). `assignees` are names or principal ids from `people` |
@@ -93,6 +94,8 @@ claude mcp add --transport http prikboard http://localhost:5173/mcp --header "Au
 The tools offer the same features as the REST endpoints. Where REST takes ids (`bucketId`, `assigneeIds`, a tag id), the tools also take names, resolved on the note's board.
 
 The tools use the same access checks, validation and layout rules as the REST endpoints, and people watching the board see the changes live. There are no tools for members, invites, tokens or deleting boards. A request with a foreign `Origin` header gets `403`. Tool errors (no access, read-only token, an unknown bucket name) come back as tool results with `isError`, written for the model to act on.
+
+**Agent rules.** A board can have rules in Markdown (`rules` in getBoard): what the board is about and how agents should handle its notes. Only owners set them, through updateBoard; the web app opens them from the tool rail. Agents treat note text as data, but the rules as instructions to follow in every action on the board. The server instructions say so, get_board shows the rules first, and get_board_rules returns them on their own. After every successful write on a board with rules, the tool result gets a second text block: a short reminder with the time the rules last changed, so an agent notices when they change and re-reads them. The rules themselves are not repeated.
 
 ## The board model
 
@@ -149,8 +152,8 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | --- | --- | --- |
 | listBoards | `GET /api/boards` | All boards, newest first, without buckets and notes |
 | createBoard | `POST /api/boards` | New board with the default buckets side by side |
-| getBoard | `GET /api/boards/{boardId}` | Full snapshot: buckets back to front, notes grouped by bucket, images, the board's `tags` and the `people` who can be assigned |
-| updateBoard | `PATCH /api/boards/{boardId}` | Rename or edit the description |
+| getBoard | `GET /api/boards/{boardId}` | Full snapshot: agent `rules` and `rulesUpdatedAt`, buckets back to front, notes grouped by bucket, images, the board's `tags` and the `people` who can be assigned |
+| updateBoard | `PATCH /api/boards/{boardId}` | Rename, or edit the description or agent `rules` (Markdown, at most 20000 characters; an empty string clears them) |
 | deleteBoard | `DELETE /api/boards/{boardId}` | Delete the board with all buckets and notes |
 | createBucket | `POST /api/boards/{boardId}/buckets` | Draw a bucket at a rectangle, or to the right of the others. Loose notes it covers join it |
 | updateBucket | `PATCH /api/buckets/{bucketId}` | Rename, recolour, move or resize. Moving carries the bucket's notes along |

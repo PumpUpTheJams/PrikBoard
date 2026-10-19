@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { api } from '../api/client'
 import type { BoardDetail, BoardTag, BucketDetail, DragKind, DragUpdate, ImageDetail, NoteColor, NoteDetail, Point, Rect } from '../api/types'
 import { presenceColor } from '../live/presence'
@@ -30,6 +30,9 @@ import { toolKeys, type Tool } from './tools'
 import type { BoardState } from './useBoard'
 import { ViewControls } from './ViewControls'
 import { stepZoom } from './zoom'
+
+// Loaded on first open: the Markdown renderer is the biggest part of it.
+const BoardRulesDialog = lazy(() => import('../components/BoardRulesDialog').then((m) => ({ default: m.BoardRulesDialog })))
 
 interface Selection {
   kind: 'note' | 'bucket' | 'image'
@@ -117,6 +120,7 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
   const [fill, setFill] = useState<NoteColor>('Butter')
   const [selection, setSelection] = useState<Selection | null>(null)
   const [expanded, setExpanded] = useState<{ id: string; fresh: boolean } | null>(null)
+  const [rulesOpen, setRulesOpen] = useState(false)
   /** Something waiting for the person to confirm its deletion (Delete key on the board, or the image panel). */
   const [pendingDelete, setPendingDelete] = useState<{ kind: 'note' | 'image'; id: string } | null>(null)
   /** The tag or people window opened from a post-it on the board, next to the part that was clicked (screen pixels). */
@@ -198,7 +202,7 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (expanded || pendingDelete) return
+      if (expanded || pendingDelete || rulesOpen) return
       if (e.target instanceof Element && e.target.closest('input, textarea, select, [role="menu"], [role="dialog"], [role="alertdialog"]')) return
       if (e.key === 'Escape') {
         setTool('select')
@@ -688,6 +692,8 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
         fill={fill}
         onFillChange={setFill}
         onAddImage={() => void addImagesFromPicker()}
+        onOpenRules={() => setRulesOpen(true)}
+        hasRules={board.rules !== null}
         readOnly={readOnly}
       />
       <TagFilter
@@ -783,6 +789,16 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
           onClose={() => setExpanded(null)}
           readOnly={readOnly}
         />
+      )}
+
+      {rulesOpen && (
+        <Suspense>
+          <BoardRulesDialog
+            board={board}
+            onSave={(rules) => run(() => api.updateBoard(board.id, { rules }))}
+            onClose={() => setRulesOpen(false)}
+          />
+        </Suspense>
       )}
 
       {noteToDelete && (

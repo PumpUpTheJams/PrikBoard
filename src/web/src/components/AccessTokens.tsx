@@ -235,7 +235,7 @@ function NewToken({ created, onDone }: { created: CreatedAccessToken; onDone: ()
       <p className="dialog-hint">REST API:</p>
       {field('curl', 'curl example', curl)}
       <div className="dialog-actions">
-        <button type="button" className="primary small" onClick={onDone}>
+        <button type="button" className="primary" onClick={onDone}>
           Done
         </button>
       </div>

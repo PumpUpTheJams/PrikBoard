@@ -22,6 +22,11 @@ public record BoardSummary(Guid Id, string Name, string? Description, DateTimeOf
 /// <param name="Description">Optional free-text description of the project.</param>
 /// <param name="CreatedAt">When the board was created (UTC).</param>
 /// <param name="UpdatedAt">When the board name or description last changed (UTC).</param>
+/// <param name="Rules">
+/// The board's agent rules in Markdown, or null if none are set: what the board is about and how agents should handle its
+/// notes. Board owners write them. Agents follow them in every action on this board, unlike other board text, which is data.
+/// </param>
+/// <param name="RulesUpdatedAt">When the agent rules last changed (UTC), or null if they were never set.</param>
 /// <param name="Buckets">Buckets in stacking order, back to front (oldest first).</param>
 /// <param name="Notes">Notes grouped by bucket in the order of Buckets, loose notes last, each group top to bottom and left to right.</param>
 /// <param name="Images">Images on the canvas and attached to notes (see noteId), oldest first. Download them from contentUrl.</param>
@@ -34,6 +39,8 @@ public record BoardDetail(
     string? Description,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
+    string? Rules,
+    DateTimeOffset? RulesUpdatedAt,
     IReadOnlyList<BucketDetail> Buckets,
     IReadOnlyList<NoteDetail> Notes,
     IReadOnlyList<ImageDetail> Images,
@@ -47,7 +54,7 @@ public record BoardDetail(
     /// </summary>
     public static BoardDetail From(
         Board board, BoardRole role, IReadOnlyDictionary<Guid, Principal> principals, IEnumerable<Principal> people, Guid caller) =>
-        new(board.Id, board.Name, board.Description, board.CreatedAt, board.UpdatedAt,
+        new(board.Id, board.Name, board.Description, board.CreatedAt, board.UpdatedAt, board.Rules, board.RulesUpdatedAt,
             Layout.BackToFront(board.Buckets).Select(BucketDetail.From).ToList(),
             Layout.ReadingOrder(board.Notes, board.Buckets).Select(n => NoteDetail.From(n, principals)).ToList(),
             board.Images.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id).Select(ImageDetail.From).ToList(),
@@ -82,6 +89,8 @@ public record CreateBoardRequest(
 /// <summary>Partially updates a board. Omitted (null) fields stay unchanged.</summary>
 /// <param name="Name">New board name.</param>
 /// <param name="Description">New description; an empty string clears it.</param>
+/// <param name="Rules">New agent rules in Markdown (at most 20000 characters); an empty string clears them.</param>
 public record UpdateBoardRequest(
     [property: StringLength(100, MinimumLength = 1)] string? Name = null,
-    [property: StringLength(1000)] string? Description = null);
+    [property: StringLength(1000)] string? Description = null,
+    [property: StringLength(Board.RulesMaxLength)] string? Rules = null);

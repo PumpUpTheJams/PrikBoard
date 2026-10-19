@@ -10,6 +10,9 @@ export type BucketColor = (typeof bucketColors)[number]
 export const boardRoles = ['Viewer', 'Editor', 'Owner'] as const
 export type BoardRole = (typeof boardRoles)[number]
 
+/** The longest agent rules a board can have (Board.RulesMaxLength). */
+export const rulesMaxLength = 20000
+
 /** Whether `role` is at least `minimum`. */
 export const hasRole = (role: BoardRole, minimum: BoardRole) => boardRoles.indexOf(role) >= boardRoles.indexOf(minimum)
 
@@ -23,6 +26,9 @@ export interface BoardSummary {
 }
 
 export interface BoardDetail extends BoardSummary {
+  /** Agent rules in Markdown, written by the owners; null when none are set. */
+  rules: string | null
+  rulesUpdatedAt: string | null
   /** Back to front: later buckets are drawn on top. */
   buckets: BucketDetail[]
   /** Bucket by bucket, loose notes last; not stacking order (see updatedAt). */
