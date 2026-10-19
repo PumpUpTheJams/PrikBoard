@@ -54,7 +54,7 @@ public static class AccessTokenEndpoints
             .Include(t => t.Agent)
             .OrderByDescending(t => t.CreatedAt)
             .ToListAsync(ct);
-        return TypedResults.Ok(tokens.Select(t => AccessTokenDetail.From(t, t.Agent!.ShownName)).ToList());
+        return TypedResults.Ok(tokens.Select(t => AccessTokenDetail.From(t, t.Agent?.ShownName ?? t.Name ?? "App")).ToList());
     }
 
     private static async Task<Results<Created<CreatedAccessToken>, ForbidHttpResult, ValidationProblem, ProblemHttpResult>> CreateAccessToken(

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode'
 import { api, configureClient, errorMessage, setUnauthorizedHandler } from '../../web/src/api/client'
 import type { Caller } from '../../web/src/api/types'
+import { signInWithPrikBoard } from './connect'
 import { refreshTokens, signInWithBrowser, type OidcConfig, type TokenSet } from './oidc'
 
 const CREDENTIAL_KEY = 'prikboard.credential'
@@ -33,13 +34,13 @@ function oidcConfig(): OidcConfig | null {
   }
 }
 
-/** What requests are sent with: a pasted personal access token, or tokens from the issuer's sign-in. */
+/** What requests are sent with: a personal access token (from PrikBoard's own sign-in, or pasted), or tokens from the issuer's sign-in. */
 type Credential = { type: 'token'; token: string } | { type: 'oidc'; tokens: TokenSet }
 
 /**
  * Who is signed in and how requests prove it. The shared API client asks for the Authorization header on every request,
- * so a token from the issuer can be refreshed under it. Only a sign-in through the issuer says who the person is
- * (a personal access token is an agent of its own), which "my work" needs.
+ * so a token from the issuer can be refreshed under it. Signing in through PrikBoard or the issuer acts as the person,
+ * which "my work" needs; a pasted personal access token is usually an agent of its own.
  */
 export class Auth implements vscode.Disposable {
   private credential: Credential | undefined
@@ -85,31 +86,23 @@ export class Auth implements vscode.Disposable {
     })
   }
 
-  /** Signs in through the issuer in the browser. */
+  /** Signs in in the browser: through the identity provider when one is set up, otherwise through PrikBoard itself. */
   async signInWithBrowser() {
     const config = oidcConfig()
-    if (!config) {
-      const choice = await vscode.window.showInformationMessage(
-        'Signing in through your identity provider needs prikboard.oidc.authority and prikboard.oidc.clientId.',
-        'Open Settings',
-        'Use an Access Token',
-      )
-      if (choice === 'Open Settings') await vscode.commands.executeCommand('workbench.action.openSettings', 'prikboard.oidc')
-      if (choice === 'Use an Access Token') await this.signInWithToken()
-      return
-    }
-
-    let tokens: TokenSet
+    let credential: Credential
     try {
-      tokens = await vscode.window.withProgress(
+      credential = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: 'Waiting for the sign-in in your browser…', cancellable: true },
-        (_progress, cancelled) => signInWithBrowser(config, cancelled),
+        async (_progress, cancelled): Promise<Credential> =>
+          config
+            ? { type: 'oidc', tokens: await signInWithBrowser(config, cancelled) }
+            : { type: 'token', token: await signInWithPrikBoard(webUrl(), cancelled) },
       )
     } catch (error) {
       void vscode.window.showErrorMessage(`PrikBoard sign-in failed: ${errorMessage(error)}`)
       return
     }
-    await this.adopt({ type: 'oidc', tokens })
+    await this.adopt(credential)
   }
 
   /** Signs in with a personal access token the person created in PrikBoard. */

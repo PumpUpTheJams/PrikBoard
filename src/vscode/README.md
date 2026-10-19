@@ -15,9 +15,11 @@ Viewers get a read-only tree. The server decides what is allowed and its message
 
 1. Start the API (`dotnet run --project src/PrikBoard.Api`).
 2. Open this folder (`src/vscode`) in VS Code, run `npm install`, and press F5.
-3. In the PrikBoard view, choose **Sign in**. Pick one of two ways to sign in.
+3. In the PrikBoard view, choose **Sign in**.
 
-**Through your identity provider (recommended).** The browser opens, you sign in, and the extension acts as *you*: your boards, your roles and your display name, which "my work" needs. Set it up once:
+**Through PrikBoard (the default).** Like Claude Code: PrikBoard opens in your browser (sign in there if needed), you choose **Allow**, and the browser hands VS Code a token that acts as *you*: your boards, your roles and your display name, which "my work" needs. Nothing to set up beyond `prikboard.webUrl`. If the browser can't reach VS Code (another machine, Codespaces), choose **Paste a Code** and paste the code PrikBoard shows. The token lasts 90 days and is listed in PrikBoard under Account, Agents and access tokens, where you can revoke it. How it works: *App sign-in* in `docs/authentication.md`.
+
+**Through your identity provider.** Instead of PrikBoard's own sign-in, the extension can sign in with an external identity provider, which then also acts as you. Set it up once:
 
 1. At your identity provider, register the extension as a public/native application that uses the authorization code flow with PKCE. Allow the redirect `http://127.0.0.1:<port>/callback` (Entra and Keycloak accept any loopback port; Auth0 needs one fixed port, so also set `prikboard.oidc.redirectPort`). Let it request the API's `boards:read` and `boards:write` scopes.
 2. On the API, trust the issuer and list this application's client id, and use the same id for the issuer and your browser sign-in provider (see *Interactive apps acting for a person* in `docs/authentication.md`):
@@ -28,18 +30,18 @@ Viewers get a read-only tree. The server decides what is allowed and its message
      "UserClients": [ "<client id of the extension>" ]
    } } } }
    ```
-3. In VS Code settings, fill in `prikboard.oidc.authority` and `prikboard.oidc.clientId` (and `prikboard.oidc.scopes` / `prikboard.oidc.audience` if your issuer names them differently). The extension keeps the tokens in VS Code's secret storage and renews them itself.
+3. In VS Code settings, fill in `prikboard.oidc.authority` and `prikboard.oidc.clientId` (and `prikboard.oidc.scopes` / `prikboard.oidc.audience` if your issuer names them differently). **Sign in** then uses the provider. The extension keeps the tokens in VS Code's secret storage and renews them itself.
 
-**With an access token.** **Sign in with an Access Token** takes a personal access token (PrikBoard: Account, Agents and access tokens). That token acts as its own agent with the board access you gave it, so it needs no identity provider setup, but PrikBoard does not know it is you.
+**With an access token.** **Sign in with an Access Token** takes a personal access token you created in PrikBoard (Account, Agents and access tokens). That token acts as its own agent with the board access you gave it, so PrikBoard does not know it is you.
 
 ## Settings
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `prikboard.serverUrl` | `http://localhost:5080` | Where the API runs |
-| `prikboard.webUrl` | `http://localhost:5173` | Where the web app runs, for **Open in PrikBoard** |
+| `prikboard.webUrl` | `http://localhost:5173` | Where the web app runs, for **Sign in** and **Open in PrikBoard** |
 | `prikboard.refreshSeconds` | 15 | How often the open view reloads |
-| `prikboard.oidc.authority` | empty | Issuer URL of the identity provider that signs you in |
+| `prikboard.oidc.authority` | empty | Optional: issuer URL of an identity provider to sign in with instead of PrikBoard |
 | `prikboard.oidc.clientId` | empty | Client id of the extension's application at that provider |
 | `prikboard.oidc.scopes` | `openid offline_access boards:read boards:write` | Scopes to request, named as your issuer names them |
 | `prikboard.oidc.audience` | `api://prikboard` | Sent as `audience` (Auth0 style); empty for issuers that take it from the scopes |

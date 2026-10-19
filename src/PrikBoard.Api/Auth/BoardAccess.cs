@@ -89,8 +89,8 @@ public static class BoardAccess
         var now = DateTimeOffset.UtcNow;
         var members = db.BoardMembers.Where(m => m.BoardId == boardId).Select(m => m.PrincipalId);
         var tokenAgents = db.AccessTokens
-            .Where(t => members.Contains(t.OwnerId) && t.ExpiresAt > now && (t.BoardIds == null || t.BoardIds.Contains(boardId)))
-            .Select(t => t.AgentId);
+            .Where(t => t.AgentId != null && members.Contains(t.OwnerId) && t.ExpiresAt > now && (t.BoardIds == null || t.BoardIds.Contains(boardId)))
+            .Select(t => t.AgentId!.Value);
         return members.Concat(tokenAgents);
     }
 

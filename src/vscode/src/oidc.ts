@@ -29,7 +29,7 @@ interface Discovery {
 
 const SIGN_IN_TIMEOUT_MS = 5 * 60 * 1000
 
-const base64url = (bytes: Buffer) => bytes.toString('base64url')
+export const base64url = (bytes: Buffer) => bytes.toString('base64url')
 
 /** Endpoints carry the person's credentials, so they must be encrypted unless they are on this machine. */
 function assertSecure(url: string) {
@@ -80,12 +80,12 @@ async function requestTokens(endpoint: string, form: Record<string, string>, pre
   }
 }
 
-const page = (message: string) =>
+export const page = (message: string) =>
   `<!doctype html><meta charset="utf-8"><title>PrikBoard</title>` +
   `<body style="font:16px system-ui;margin:3rem auto;max-width:28rem"><h1>PrikBoard</h1><p>${message}</p></body>`
 
-/** Listens on the loopback interface for the redirect and resolves with the authorization code. */
-async function listenForCode(port: number, state: string, signal: AbortSignal) {
+/** Listens on the loopback interface for the redirect and resolves with the authorization code. Also used by `connect.ts`. */
+export async function listenForCode(port: number, state: string, signal: AbortSignal) {
   const server = http.createServer()
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)

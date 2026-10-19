@@ -11,8 +11,8 @@ namespace PrikBoard.Api.Auth;
 
 /// <summary>
 /// Authenticates <c>Authorization: Bearer pb_pat_...</c>. The principal carries the same claims as an issuer token (so
-/// scopes and <c>PrincipalId()</c> work unchanged) plus the owner, maximum role and boards that <see cref="BoardCaller"/>
-/// applies. Lookups are cached for a minute; revoking evicts at once on this instance.
+/// scopes and <c>PrincipalId()</c> work unchanged). An agent token adds the owner, maximum role and boards that
+/// <see cref="BoardCaller"/> applies; an app token is the owner themselves. Lookups are cached for a minute; revoking evicts at once on this instance.
 /// </summary>
 public sealed class AccessTokenHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder,
@@ -21,7 +21,7 @@ public sealed class AccessTokenHandler(
 {
     private static readonly TimeSpan CacheFor = TimeSpan.FromMinutes(1);
 
-    private sealed record Found(Guid OwnerId, Guid AgentId, BoardRole MaxRole, List<Guid>? BoardIds, DateTimeOffset ExpiresAt);
+    private sealed record Found(Guid Id, AccessTokenKind Kind, Guid OwnerId, Guid? AgentId, BoardRole MaxRole, List<Guid>? BoardIds, DateTimeOffset ExpiresAt);
 
     /// <summary>Drops a cached lookup, so a revoked token stops working at once.</summary>
     public static void Forget(IMemoryCache cache, byte[] tokenHash) => cache.Remove(Key(tokenHash));
@@ -41,7 +41,7 @@ public sealed class AccessTokenHandler(
         {
             found = await db.AccessTokens.AsNoTracking()
                 .Where(t => t.TokenHash == hash)
-                .Select(t => new Found(t.OwnerId, t.AgentId, t.MaxRole, t.BoardIds, t.ExpiresAt))
+                .Select(t => new Found(t.Id, t.Kind, t.OwnerId, t.AgentId, t.MaxRole, t.BoardIds, t.ExpiresAt))
                 .FirstOrDefaultAsync(Context.RequestAborted);
             cache.Set(Key(hash), found, CacheFor);
 
@@ -57,15 +57,21 @@ public sealed class AccessTokenHandler(
         if (found is null) return AuthenticateResult.Fail("Unknown or revoked access token.");
         if (found.ExpiresAt <= DateTimeOffset.UtcNow) return AuthenticateResult.Fail("The access token has expired.");
 
-        List<Claim> claims =
-        [
-            new(ApiScopes.IssuerIdClaim, Agent.AccessTokenIssuer),
-            new(UserPrincipal.PrincipalClaim, found.AgentId.ToString()),
-            new("scope", AccessTokens.ScopesFor(found.MaxRole)),
-            new(AccessTokens.OwnerClaim, found.OwnerId.ToString()),
-            new(AccessTokens.MaxRoleClaim, found.MaxRole.ToString()),
-        ];
-        if (found.BoardIds is { } boards) claims.Add(new Claim(AccessTokens.BoardsClaim, string.Join(' ', boards)));
+        List<Claim> claims = [new(ApiScopes.IssuerIdClaim, Agent.AccessTokenIssuer), new("client_id", found.Id.ToString())];
+        if (found.Kind == AccessTokenKind.App)
+        {
+            // The owner themselves, like a token from an issuer's UserClients: no cap, so BoardCaller uses their own roles.
+            claims.Add(new Claim(UserPrincipal.PrincipalClaim, found.OwnerId.ToString()));
+            claims.Add(new Claim("scope", $"{ApiScopes.Read} {ApiScopes.Write}"));
+        }
+        else
+        {
+            claims.Add(new Claim(UserPrincipal.PrincipalClaim, found.AgentId!.Value.ToString()));
+            claims.Add(new Claim("scope", AccessTokens.ScopesFor(found.MaxRole)));
+            claims.Add(new Claim(AccessTokens.OwnerClaim, found.OwnerId.ToString()));
+            claims.Add(new Claim(AccessTokens.MaxRoleClaim, found.MaxRole.ToString()));
+            if (found.BoardIds is { } boards) claims.Add(new Claim(AccessTokens.BoardsClaim, string.Join(' ', boards)));
+        }
 
         var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name));
         return AuthenticateResult.Success(new AuthenticationTicket(principal, Scheme.Name));
