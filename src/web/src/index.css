@@ -994,21 +994,6 @@ main {
 .rail-button.tone-coral { color: var(--fill-coral); }
 .rail-button.tone-lilac { color: var(--fill-lilac); }
 
-.rail-button.has-dot {
-  position: relative;
-}
-
-.rail-button.has-dot::after {
-  content: '';
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
 .rail-divider {
   height: 1px;
   margin: 4px 6px;
