@@ -149,6 +149,7 @@ app.MapScalarApiReference("/scalar", options => options
 var api = app.MapGroup("/api");
 api.MapAuthEndpoints();
 api.MapBoardEndpoints();
+api.MapBoardTransferEndpoints();
 api.MapBucketEndpoints();
 api.MapNoteEndpoints();
 api.MapNoteBlockEndpoints();

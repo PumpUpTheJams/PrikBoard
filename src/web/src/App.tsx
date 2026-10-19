@@ -5,13 +5,16 @@ import { BoardCanvas } from './board/BoardCanvas'
 import {
   CheckIcon,
   ChevronDownIcon,
+  DownloadIcon,
   ExternalIcon,
   PeopleIcon,
   PostItIcon,
   SignOutIcon,
   TrashIcon,
+  UploadIcon,
   UserIcon,
 } from './board/icons'
+import { pickBoardFile, saveFile } from './board/files'
 import { useBoard } from './board/useBoard'
 import { useLive } from './live/useLive'
 import { AccountDialog, DisplayNameDialog } from './components/AccountDialogs'
@@ -167,6 +170,28 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
     }
   }
 
+  async function exportBoard(target: BoardSummary) {
+    try {
+      const { blob, fileName } = await api.exportBoard(target.id)
+      saveFile(blob, fileName)
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+  }
+
+  /** Picks an export file and opens the board made from it. */
+  async function importBoard() {
+    const file = await pickBoardFile()
+    if (!file) return
+    try {
+      const created = await api.importBoard(file)
+      setBoards((current) => [created, ...(current ?? [])])
+      selectBoard(created.id)
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+  }
+
   async function leaveBoard(target: BoardSummary) {
     setBoardToLeave(null)
     try {
@@ -247,6 +272,32 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
                 {activeBoard && isOwner && (
                   <QuickAdd label="Rename board" placeholder={activeBoard.name} onAdd={(name) => renameBoard(activeBoard, name)} />
                 )}
+                {activeBoard && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="menu-item"
+                    onClick={() => {
+                      close()
+                      void exportBoard(activeBoard)
+                    }}
+                  >
+                    <DownloadIcon />
+                    Export board
+                  </button>
+                )}
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="menu-item"
+                  onClick={() => {
+                    close()
+                    void importBoard()
+                  }}
+                >
+                  <UploadIcon />
+                  Import board
+                </button>
                 {activeBoard && (
                   <button
                     type="button"

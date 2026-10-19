@@ -13,6 +13,28 @@ export function pickImageFiles(): Promise<File[]> {
   })
 }
 
+/** Opens the system file picker for one board export; resolves to null when it is cancelled. */
+export function pickBoardFile(): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.json,application/json'
+    input.addEventListener('change', () => resolve(input.files?.[0] ?? null))
+    input.addEventListener('cancel', () => resolve(null))
+    input.click()
+  })
+}
+
+/** Hands the browser a file to save, as a download. */
+export function saveFile(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 /** Image files from a paste or drop; anything else (text, other files) is left alone. */
 export function imageFiles(data: DataTransfer | null): File[] {
   return [...(data?.files ?? [])].filter((f) => f.type.startsWith('image/'))
