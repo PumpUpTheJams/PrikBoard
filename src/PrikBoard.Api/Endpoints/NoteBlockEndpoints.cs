@@ -104,14 +104,14 @@ public static class NoteBlockEndpoints
 
     /// <summary>
     /// Builds the blocks of a new note, laying out the ones without a position. Returns a problem (keyed on
-    /// "blocks[i].field") for content that does not fit a block's kind or an invalid link.
+    /// "blocks[i].field", after <paramref name="keyPrefix"/>) for content that does not fit a block's kind or an invalid link.
     /// </summary>
-    internal static ValidationProblem? BuildAll(Note note, IReadOnlyList<NewNoteBlock> requests)
+    internal static ValidationProblem? BuildAll(Note note, IReadOnlyList<NewNoteBlock> requests, string keyPrefix = "")
     {
         var taken = Layout.TakenOnNote(note, []);
         for (var i = 0; i < requests.Count; i++)
         {
-            var prefix = $"blocks[{i}].";
+            var prefix = $"{keyPrefix}blocks[{i}].";
             if (Build(requests[i], taken, prefix) is not { } block) return InvalidBlock(requests[i], prefix);
             if (Check(block, prefix) is { } invalid) return invalid;
             note.Blocks.Add(block);

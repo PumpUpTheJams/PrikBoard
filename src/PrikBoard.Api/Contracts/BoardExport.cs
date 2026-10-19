@@ -9,7 +9,7 @@ namespace PrikBoard.Api.Contracts;
 /// local to it; importing makes new ones.
 /// </summary>
 /// <param name="Format">Always "prikboard-board". Marks the file as a PrikBoard export.</param>
-/// <param name="Version">Version of this file format, currently 1. A file with a newer version than the server knows is refused.</param>
+/// <param name="Version">Version of this file format, currently 2. Version 1 files (notes with a body, checklist and links instead of blocks) still import; a file with a newer version than the server knows is refused.</param>
 /// <param name="ExportedAt">When the file was made (UTC).</param>
 /// <param name="Name">Board name.</param>
 /// <param name="Description">Board description, or null.</param>
@@ -31,7 +31,7 @@ public record BoardExport(
     [property: Required, MaxLength(BoardExport.MaxImages)] List<ExportedImage> Images)
 {
     public const string FormatName = "prikboard-board";
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
     public const int MaxBuckets = 100;
     public const int MaxNotes = 2000;
     public const int MaxImages = 200;
@@ -52,33 +52,39 @@ public record ExportedBucket(
     [property: Range(Layout.MinBucketWidth, Layout.MaxBucketSize)] int Width,
     [property: Range(Layout.MinBucketHeight, Layout.MaxBucketSize)] int Height);
 
-/// <summary>A note in an export. Who created it and who is assigned are not part of the file.</summary>
+/// <summary>
+/// A note in an export. Who created it and who is assigned are not part of the file. Version 2 files hold the note's
+/// content as Blocks; version 1 files have Body, Checklist and Links instead, which become a Text, a Checklist and a
+/// Links block on import. The fields of the other version are ignored.
+/// </summary>
 /// <param name="Id">An id that is only meaningful inside this file: images refer to their note by it, and links to other notes in the file are kept pointing at the right note.</param>
 /// <param name="Title">Short title.</param>
-/// <param name="Body">Longer details, or null.</param>
 /// <param name="Color">Post-it fill.</param>
 /// <param name="Tags">Tag names.</param>
-/// <param name="Checklist">Checklist items.</param>
-/// <param name="Links">Links. Web addresses are kept; a link to a note outside the file is dropped on import.</param>
 /// <param name="X">Left edge in canvas pixels.</param>
 /// <param name="Y">Top edge in canvas pixels.</param>
+/// <param name="Blocks">Version 2: the note's content on its own canvas, in order. Web links are kept; a link to a note outside the file is dropped on import.</param>
+/// <param name="Body">Version 1 only: longer details, or null.</param>
+/// <param name="Checklist">Version 1 only: checklist items.</param>
+/// <param name="Links">Version 1 only: links. Web addresses are kept; a link to a note outside the file is dropped on import.</param>
 public record ExportedNote(
     Guid Id,
     [property: Required, StringLength(200, MinimumLength = 1)] string Title,
-    [property: StringLength(4000)] string? Body,
     NoteColor Color,
     [property: Required, MaxLength(10)] List<string> Tags,
-    [property: Required, MaxLength(50)] List<ChecklistItem> Checklist,
-    [property: Required, MaxLength(20)] List<NoteLink> Links,
     [property: Range(0, Layout.MaxCoordinate)] int X,
-    [property: Range(0, Layout.MaxCoordinate)] int Y);
+    [property: Range(0, Layout.MaxCoordinate)] int Y,
+    [property: MaxLength(NoteBlock.MaxBlocks)] List<NewNoteBlock>? Blocks = null,
+    [property: StringLength(NoteBlock.MaxTextLength)] string? Body = null,
+    [property: MaxLength(NoteBlock.MaxItems)] List<ChecklistItem>? Checklist = null,
+    [property: MaxLength(NoteBlock.MaxLinks)] List<NoteLink>? Links = null);
 
 /// <summary>An image in an export.</summary>
 /// <param name="NoteId">Id of the note (in this file) the image is attached to, or null for an image on the canvas.</param>
 /// <param name="FileName">Original file name.</param>
 /// <param name="Caption">Caption, or null.</param>
-/// <param name="X">Left edge on the canvas; ignored for attached images.</param>
-/// <param name="Y">Top edge on the canvas; ignored for attached images.</param>
+/// <param name="X">Left edge on the board's canvas, or on the note's canvas for an attached image. Version 1 files ignore it for attached images, which are laid out under the note's blocks.</param>
+/// <param name="Y">Top edge on the board's canvas, or on the note's canvas for an attached image.</param>
 /// <param name="Width">Display width in pixels; the height follows from the aspect ratio.</param>
 /// <param name="Data">The image file itself, as base64 in JSON. The real format is detected on import (PNG, JPEG, GIF or WebP, at most 10 MB).</param>
 public record ExportedImage(

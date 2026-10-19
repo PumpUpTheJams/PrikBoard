@@ -62,9 +62,7 @@ public static class BoardTransferEndpoints
             board.Tags.OrderBy(t => t.CreatedAt).ThenBy(t => t.Id).Select(t => t.Name).ToList(),
             // Oldest edit first: the importer gives them rising timestamps, so the most recently edited note stays on top.
             board.Notes.OrderBy(n => n.UpdatedAt).ThenBy(n => n.Id)
-                .Select(n => new ExportedNote(n.Id, n.Title, n.Body, n.Color, n.Tags,
-                    n.Checklist.Select(c => new ChecklistItem(c.Text, c.Done)).ToList(),
-                    n.Links.Select(l => new NoteLink(l.Title, l.Url)).ToList(), n.X, n.Y)).ToList(),
+                .Select(n => new ExportedNote(n.Id, n.Title, n.Color, n.Tags, n.X, n.Y, n.Blocks.Select(Exported).ToList())).ToList(),
             board.Images.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id)
                 .Select(i => new ExportedImage(i.NoteId, i.FileName, i.Caption, i.X, i.Y, i.Width, i.Content!.Data)).ToList());
 
@@ -128,34 +126,22 @@ public static class BoardTransferEndpoints
             }
             tags.AddRange(noteTags);
 
-            // A link to another note in the file follows that note to its new id; web links stay; any other note path would dangle.
-            var links = new List<LinkEntry>();
-            foreach (var link in source.Links)
-            {
-                var url = link.Url.Trim();
-                if (!NoteLinks.IsValid(url)) return Invalid($"notes[{i}].links", "Links must be absolute http(s) URLs or another note's path.");
-                if (!NoteLinks.TryGetNoteId(url, out var target)) links.Add(new LinkEntry { Title = link.Title, Url = url });
-                else if (newIds.TryGetValue(target, out var newTarget))
-                {
-                    links.Add(new LinkEntry { Title = link.Title, Url = NoteLinks.NotePath(board.Id, newTarget) });
-                }
-            }
-
-            board.Notes.Add(new Note
+            var note = new Note
             {
                 Id = newIds[source.Id],
                 Title = source.Title,
-                Body = PatchText.Apply(null, source.Body),
                 Color = source.Color,
                 Tags = noteTags,
-                Checklist = source.Checklist.Select(c => new ChecklistEntry { Text = c.Text, Done = c.Done }).ToList(),
-                Links = links,
                 X = Layout.Snap(source.X),
                 Y = Layout.Snap(source.Y),
                 CreatedById = createdBy,
                 CreatedAt = clock.AddMilliseconds(i),
                 UpdatedAt = clock.AddMilliseconds(i),
-            });
+            };
+            var blocks = (file.Version >= 2 ? source.Blocks ?? [] : Version1Blocks(source))
+                .Select(b => b with { Links = b.Links is null ? null : FollowLinks(b.Links, newIds, board.Id) }).ToList();
+            if (NoteBlockEndpoints.BuildAll(note, blocks, $"notes[{i}].") is { } invalidBlock) return invalidBlock;
+            board.Notes.Add(note);
         }
 
         // The tags the file lists (also unused ones), then any a note uses that the list missed.
@@ -199,6 +185,16 @@ public static class BoardTransferEndpoints
             };
             image.Resize(source.Width);
             if (noteId is null) (image.X, image.Y) = (Layout.Snap(source.X), Layout.Snap(source.Y));
+            else if (file.Version >= 2) (image.X, image.Y) = Layout.OnNoteCanvas(source.X, source.Y, image.Width, image.Height);
+            else
+            {
+                // Version 1 had no place for attached images on the note: like the NoteBlocks migration, a row left to right
+                // one grid step under the lowest block.
+                var note = board.Notes.First(n => n.Id == noteId);
+                var x = Layout.Grid + board.Images.Where(m => m.NoteId == noteId).Sum(m => m.Width + Layout.Grid);
+                var y = Layout.Grid + note.Blocks.Select(b => b.Y + b.Height).DefaultIfEmpty(0).Max();
+                (image.X, image.Y) = Layout.OnNoteCanvas(x, y, image.Width, image.Height);
+            }
             board.Images.Add(image);
         }
 
@@ -215,6 +211,48 @@ public static class BoardTransferEndpoints
         var people = await BoardAccess.PeopleAsync(db, board.Id, ct);
         return TypedResults.Created($"/api/boards/{board.Id}",
             BoardDetail.From(board, caller.Apply(board.Id, BoardRole.Owner)!.Value, principals, people, createdBy));
+    }
+
+    /// <summary>A block as it goes in the file: like a new block, with its place and only the content of its kind.</summary>
+    private static NewNoteBlock Exported(NoteBlock block)
+    {
+        var detail = NoteBlockDetail.From(block);
+        return new NewNoteBlock(block.Kind, block.Title, detail.Text, detail.Items?.ToList(), detail.Links?.ToList(),
+            block.X, block.Y, block.Width, block.Height);
+    }
+
+    /// <summary>
+    /// A version 1 note's body, checklist and links as a Text, a Checklist and a Links block, each only when there is
+    /// content, laid out side by side and sized like the NoteBlocks migration does for existing notes.
+    /// </summary>
+    private static List<NewNoteBlock> Version1Blocks(ExportedNote note)
+    {
+        var blocks = new List<NewNoteBlock>();
+        if (!string.IsNullOrWhiteSpace(note.Body)) blocks.Add(new NewNoteBlock(NoteBlockKind.Text, Text: note.Body));
+        if (note.Checklist is { Count: > 0 } items)
+        {
+            blocks.Add(new NewNoteBlock(NoteBlockKind.Checklist, Items: items, Height: Math.Clamp(120 + 40 * items.Count, 200, 400)));
+        }
+        if (note.Links is { Count: > 0 } links)
+        {
+            blocks.Add(new NewNoteBlock(NoteBlockKind.Links, Links: links, Height: Math.Clamp(120 + 40 * links.Count, 160, 400)));
+        }
+        return blocks;
+    }
+
+    /// <summary>
+    /// A link to another note in the file follows that note to its new id; web links stay (and invalid ones are left for
+    /// the block's own check); a path to a note outside the file is dropped, as it would dangle.
+    /// </summary>
+    private static List<NoteLink> FollowLinks(IEnumerable<NoteLink> links, Dictionary<Guid, Guid> newIds, Guid boardId)
+    {
+        var followed = new List<NoteLink>();
+        foreach (var link in links)
+        {
+            if (!NoteLinks.TryGetNoteId(link.Url, out var target)) followed.Add(link);
+            else if (newIds.TryGetValue(target, out var newTarget)) followed.Add(link with { Url = NoteLinks.NotePath(boardId, newTarget) });
+        }
+        return followed;
     }
 
     private static ValidationProblem Invalid(string field, string message) =>
