@@ -23,8 +23,9 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
 
         var tools = (await mcp.ListToolsAsync()).ToDictionary(t => t.Name, t => t.ProtocolTool);
         Assert.Equal(
-            ["create_bucket", "create_note", "create_tag", "delete_note", "delete_tag", "get_board", "get_board_rules", "get_note", "list_boards",
-             "move_note", "rename_bucket", "rename_tag", "search_notes", "set_working", "update_note"],
+            ["add_note_block", "create_bucket", "create_note", "create_tag", "delete_note", "delete_note_block", "delete_tag", "get_board",
+             "get_board_rules", "get_note", "list_boards", "move_note", "rename_bucket", "rename_tag", "search_notes", "set_working", "update_note",
+             "update_note_block"],
             tools.Keys.Order());
         Assert.True(tools["get_board"].Annotations!.ReadOnlyHint);
         Assert.True(tools["delete_note"].Annotations!.DestructiveHint);
@@ -105,6 +106,8 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
             ["checklist"] = new[] { new { text = "Check links", done = false } },
         });
         Assert.Equal(board.Buckets.Single(b => b.Name == "Done").Id, created.GetProperty("bucketId").GetGuid());
+        var block = Assert.Single(created.GetProperty("blocks").EnumerateArray().ToList());
+        Assert.Equal("Checklist", block.GetProperty("kind").GetString());
 
         var unknown = await CallRawAsync(mcp, "move_note", new() { ["noteId"] = note.Id, ["bucket"] = "Someday" });
         Assert.True(unknown.IsError);
@@ -193,6 +196,46 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         var missing = await CallRawAsync(mcp, "delete_tag", new() { ["boardId"] = board.Id, ["tag"] = "nope" });
         Assert.True(missing.IsError);
         Assert.Contains("\"front-end\"", Text(missing));
+    }
+
+    [Fact]
+    public async Task Agents_edit_note_content_as_blocks_by_kind_or_title()
+    {
+        var owner = await factory.CreateSignedInClientAsync("mcp-blocks@example.com");
+        var board = await owner.CreateBoardAsync("MCP blocks");
+        var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor));
+        var created = await CallAsync(mcp, "create_note", new()
+        {
+            ["boardId"] = board.Id, ["title"] = "Ingest", ["body"] = "Retry tiles",
+            ["checklist"] = new[] { new { text = "Backoff", done = false }, new { text = "DLQ", done = true } },
+        });
+        var noteId = created.GetProperty("id").GetGuid();
+
+        await CallAsync(mcp, "update_note_block", new()
+        {
+            ["noteId"] = noteId, ["block"] = "checklist",
+            ["items"] = new[] { new { text = "Backoff", done = true }, new { text = "DLQ", done = true } },
+        });
+        await CallAsync(mcp, "add_note_block", new() { ["noteId"] = noteId, ["kind"] = "Checklist", ["title"] = "Follow-up", ["items"] = new[] { new { text = "Alerting" } } });
+        var ambiguous = await CallRawAsync(mcp, "update_note_block", new() { ["noteId"] = noteId, ["block"] = "Checklist", ["title"] = "x" });
+        Assert.True(ambiguous.IsError);
+        Assert.Contains("\"Follow-up\" (Checklist", Text(ambiguous));
+        var misfit = await CallRawAsync(mcp, "update_note_block", new() { ["noteId"] = noteId, ["block"] = "follow-up", ["text"] = "x" });
+        Assert.True(misfit.IsError);
+        var tooLong = await CallRawAsync(mcp, "add_note_block", new() { ["noteId"] = noteId, ["kind"] = "Checklist", ["items"] = new[] { new { text = new string('x', 301) } } });
+        Assert.True(tooLong.IsError);
+
+        var hits = await CallAsync(mcp, "search_notes", new() { ["boardId"] = board.Id, ["text"] = "alerting" });
+        var summary = Assert.Single(hits.EnumerateArray().ToList());
+        Assert.Equal("2/3", summary.GetProperty("checklist").GetString());
+        Assert.True(summary.GetProperty("hasContent").GetBoolean());
+
+        Assert.Equal("Deleted.", Text(await CallRawAsync(mcp, "delete_note_block", new() { ["noteId"] = noteId, ["block"] = "Text" })));
+        var saved = (await owner.GetFromJsonAsync<NoteDetail>($"/api/notes/{noteId}"))!;
+        Assert.Equal([NoteBlockKind.Checklist, NoteBlockKind.Checklist], saved.Blocks.Select(b => b.Kind));
+
+        var readOnly = await ConnectAsync(await TokenAsync(owner, BoardRole.Viewer, "Reader"));
+        Assert.True((await CallRawAsync(readOnly, "add_note_block", new() { ["noteId"] = noteId, ["kind"] = "Text" })).IsError);
     }
 
     [Fact]

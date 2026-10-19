@@ -20,6 +20,9 @@ import type {
   ImageChanges,
   ImageDetail,
   ImagePlacement,
+  NewNoteBlock,
+  NoteBlock,
+  NoteBlockChanges,
   NoteChanges,
   NoteDetail,
   Point,
@@ -133,13 +136,19 @@ export const api = {
     request<BucketDetail>('PATCH', `/buckets/${bucketId}`, changes),
   deleteBucket: (bucketId: string) => request<void>('DELETE', `/buckets/${bucketId}`),
 
-  createNote: (boardId: string, note: Omit<NoteChanges, 'title'> & { title: string } & ({ bucketId?: string } | Point)) =>
-    request<NoteDetail>('POST', `/boards/${boardId}/notes`, note),
+  createNote: (
+    boardId: string,
+    note: Omit<NoteChanges, 'title'> & { title: string; blocks?: NewNoteBlock[] } & ({ bucketId?: string } | Point),
+  ) => request<NoteDetail>('POST', `/boards/${boardId}/notes`, note),
   updateNote: (noteId: string, changes: NoteChanges) => request<NoteDetail>('PATCH', `/notes/${noteId}`, changes),
   /** Into a free spot inside a bucket, or exactly to a point (the server then works out the bucket). */
   moveNote: (noteId: string, to: { bucketId: string } | Point) =>
     request<NoteDetail>('POST', `/notes/${noteId}/move`, to),
   deleteNote: (noteId: string) => request<void>('DELETE', `/notes/${noteId}`),
+  addNoteBlock: (noteId: string, block: NewNoteBlock) => request<NoteBlock>('POST', `/notes/${noteId}/blocks`, block),
+  updateNoteBlock: (noteId: string, blockId: string, changes: NoteBlockChanges) =>
+    request<NoteBlock>('PATCH', `/notes/${noteId}/blocks/${blockId}`, changes),
+  deleteNoteBlock: (noteId: string, blockId: string) => request<void>('DELETE', `/notes/${noteId}/blocks/${blockId}`),
   /** Assigns you and shows the working halo (true), or takes the halo away (false). */
   setNoteWorking: (noteId: string, working: boolean) =>
     request<NoteDetail>('POST', `/notes/${noteId}/working`, { working }),
@@ -152,7 +161,7 @@ export const api = {
   /** Removes the tag from every note of the board too. */
   deleteBoardTag: (boardId: string, tagId: string) => request<void>('DELETE', `/boards/${boardId}/tags/${tagId}`),
 
-  /** Uploads a file onto the board (at x/y, or right of everything), or attached to a note with noteId. */
+  /** Uploads a file onto the board, or attached to a note with noteId; at x/y (on the note's canvas with noteId) or a free spot. */
   uploadImage: (boardId: string, file: File, placement: ImagePlacement = {}) => {
     const query = new URLSearchParams({ fileName: file.name })
     for (const [key, value] of Object.entries(placement)) if (value !== undefined) query.set(key, String(value))

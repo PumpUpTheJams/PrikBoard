@@ -73,9 +73,9 @@ export function registerNoteCommands(tree: BoardTree): vscode.Disposable[] {
 
   const toggleChecklist = async (node?: Node) => {
     if (node?.kind !== 'checklist') return
-    // A given list replaces the whole list, so send every item with the one change.
-    const checklist = node.note.checklist.map((entry, index) => (index === node.index ? { ...entry, done: !entry.done } : entry))
-    await run(() => api.updateNote(node.note.id, { checklist }))
+    // A given list replaces the block's whole list, so send every item of that checklist with the one change.
+    const items = (node.block.items ?? []).map((entry, index) => (index === node.index ? { ...entry, done: !entry.done } : entry))
+    await run(() => api.updateNoteBlock(node.note.id, node.block.id, { items }))
   }
 
   const toggleAgentWorking = async (node?: Node) => {

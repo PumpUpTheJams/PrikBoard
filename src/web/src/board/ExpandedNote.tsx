@@ -1,37 +1,35 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type RefObject } from 'react'
+import { useEffect, useImperativeHandle, useRef, useState, type RefObject } from 'react'
 import {
   noteColors,
   type Assignee,
   type BoardPerson,
   type BoardTag,
   type BucketDetail,
-  type ChecklistItem,
   type ImageDetail,
   type NoteChanges,
   type NoteColor,
   type NoteDetail,
-  type NoteLink,
+  type Point,
 } from '../api/types'
 import { Avatar } from '../components/Avatar'
-import { ConfirmDeleteNote, ConfirmDialog } from '../components/ConfirmDialog'
+import { ConfirmDeleteNote } from '../components/ConfirmDialog'
 import { AssigneePicker } from './AssigneePicker'
+import { EditableText } from './EditableText'
 import { draggingFiles, imageFiles } from './files'
-import {
-  BucketIcon,
-  CheckIcon,
-  ChecklistIcon,
-  CloseIcon,
-  ImageIcon,
-  LinkIcon,
-  NoteDocIcon,
-  PostItIcon,
-  PullRequestIcon,
-  SparkleIcon,
-  TrashIcon,
-} from './icons'
-import { copyText, isNoteId, notePath, noteRoute, type NoteRoute } from './links'
+import { BucketIcon, CheckIcon, CloseIcon, LinkIcon, SparkleIcon } from './icons'
+import { copyText } from './links'
+import { NoteCanvas, type IncomingImage, type NoteCanvasHandle } from './NoteCanvas'
 import { TagPicker } from './TagPicker'
 import { MAX_ASSIGNEES, MAX_TAGS } from './tags'
+import { useFloatingWindow } from './useFloatingWindow'
+
+/** What the board needs from the open post-it: its canvas, and whether a paste is meant for it. */
+export interface ExpandedNoteHandle extends NoteCanvasHandle {
+  /** The pointer is over the window, or focus is in it. */
+  wantsPaste: () => boolean
+  /** Whether a screen point is over the window. */
+  contains: (client: Point) => boolean
+}
 
 interface ExpandedNoteProps {
   note: NoteDetail
@@ -50,62 +48,93 @@ interface ExpandedNoteProps {
   images: ImageDetail[]
   /** The post-its on the board, to link to and to show linked ones by their current title. */
   notes: NoteDetail[]
-  onAddImages: (files: File[]) => void
+  /** Attaches images, at a point on the post-it's canvas or in a free spot. */
+  onAddImages: (files: File[], at?: Point) => void
   onPickImages: () => void
-  /** Deletes an attached image; called after the person confirmed. */
-  onDeleteImage: (imageId: string) => void
   onClose: () => void
   /** Viewers see the post-it without any way to change it (the API refuses changes anyway). */
   readOnly?: boolean
+  handle: RefObject<ExpandedNoteHandle | null>
+  /** Runs a change through the board (which then reloads). */
+  run: (action: () => Promise<unknown>) => Promise<boolean>
+  /** Whether a drag on the post-it's canvas is in progress, so the board holds back its refreshes. */
+  onBusy: (busy: boolean) => void
+  /** A board image being dragged over the window. */
+  incoming: IncomingImage | null
+  /** A post-it is being dragged over the window, to link it here. */
+  linking: boolean
+  /** A screen point on the board in canvas pixels, when it is over the board; to drop images out of the post-it. */
+  boardPoint: (client: Point) => Point | null
+  boardZoom: number
 }
 
-/** A post-it opened up: a header band in its fill, and a mini board with its note, checklist and links. */
+/**
+ * A post-it opened up in a window floating over the board: a header band in its fill, and the post-it's own small board
+ * with its blocks and images. The board stays usable around it; it dims only while the pointer is over the window.
+ */
 export function ExpandedNote(props: ExpandedNoteProps) {
-  const { note, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onDeleteImage, onClose, readOnly } = props
-  const { boardTags, people, notes, onRenameTag, onDeleteTag } = props
-  const [reveal, setReveal] = useState({ checklist: false, links: false })
+  const { note, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onClose, readOnly } = props
+  const { boardTags, people, notes, onRenameTag, onDeleteTag, handle, run, onBusy, incoming, linking, boardPoint, boardZoom } = props
   /** The tag or people window, opened from its button in the band. */
   const [picking, setPicking] = useState<{ kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const [imageToDelete, setImageToDelete] = useState<ImageDetail | null>(null)
   const [fileOver, setFileOver] = useState(false)
+  /** Whether the pointer is over the window: the board behind dims only then. */
+  const [hover, setHover] = useState(true)
   const dialogRef = useRef<HTMLElement>(null)
-  const bodyRef = useRef<HTMLTextAreaElement>(null)
-  const checklistRef = useRef<HTMLInputElement>(null)
-  const linkRef = useRef<HTMLInputElement>(null)
+  const canvas = useRef<NoteCanvasHandle>(null)
+  const { rect, moving, startMove, startResize } = useFloatingWindow(dialogRef)
 
   useEffect(() => {
-    if (!focusTitle) dialogRef.current?.focus()
+    if (!focusTitle) dialogRef.current?.focus({ preventScroll: true })
   }, [focusTitle])
 
   // Escape closes the post-it wherever focus is (it can end up on the page after saving the title). Fields and the
-  // delete confirmation handle their own Escape first and stop it from getting here.
+  // confirmations handle their own Escape first and stop it from getting here.
   useEffect(() => {
-    if (confirmingDelete || imageToDelete || picking) return
+    if (confirmingDelete || picking) return
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [confirmingDelete, imageToDelete, picking, onClose])
+  }, [confirmingDelete, picking, onClose])
+
+  // Follows the pointer everywhere (also while the board or the canvas holds it during a drag).
+  useEffect(() => {
+    function onMove(e: PointerEvent) {
+      const r = dialogRef.current?.getBoundingClientRect()
+      setHover(!!r && e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY < r.bottom)
+    }
+    window.addEventListener('pointermove', onMove)
+    return () => window.removeEventListener('pointermove', onMove)
+  }, [])
+
+  useImperativeHandle(handle, () => ({
+    hits: (client) => canvas.current?.hits(client) ?? false,
+    toNote: (client) => canvas.current!.toNote(client),
+    pastePoint: () => canvas.current!.pastePoint(),
+    wantsPaste: () => hover || !!dialogRef.current?.contains(document.activeElement),
+    contains: (client) => {
+      const r = dialogRef.current?.getBoundingClientRect()
+      return !!r && client.x >= r.left && client.x < r.right && client.y >= r.top && client.y < r.bottom
+    },
+  }))
 
   function closePicker() {
     setPicking(null)
-    dialogRef.current?.focus()
-  }
-
-  function show(widget: 'checklist' | 'links') {
-    setReveal((r) => ({ ...r, [widget]: true }))
-    const ref = widget === 'checklist' ? checklistRef : linkRef
-    requestAnimationFrame(() => ref.current?.focus())
+    dialogRef.current?.focus({ preventScroll: true })
   }
 
   return (
-    <div className="expanded-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+    <>
+      {/* No dimming while the window is moved or resized, so you can see where it goes. */}
+      <div className={`expanded-backdrop${hover && !incoming && !linking && !moving ? ' shown' : ''}`} aria-hidden="true" />
       <article
         ref={dialogRef}
-        className={`expanded fill-${note.color.toLowerCase()}${fileOver ? ' file-over' : ''}${readOnly ? ' read-only' : ''}`}
-        // Dropped images are attached to this post-it (pasting is handled by the board).
+        className={`expanded fill-${note.color.toLowerCase()}${fileOver ? ' file-over' : ''}${readOnly ? ' read-only' : ''}${incoming || linking ? ' drop-over' : ''}`}
+        style={rect ? { left: rect.x, top: rect.y, width: rect.width, height: rect.height } : { visibility: 'hidden' }}
+        // Images dropped on the band are attached in a free spot (the canvas takes drops where they land).
         onDragOver={(e) => {
           if (readOnly || !draggingFiles(e.dataTransfer)) return
           e.preventDefault()
@@ -117,18 +146,18 @@ export function ExpandedNote(props: ExpandedNoteProps) {
           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFileOver(false)
         }}
         onDrop={(e) => {
+          setFileOver(false)
           if (readOnly || !draggingFiles(e.dataTransfer)) return
           e.preventDefault()
           e.stopPropagation()
-          setFileOver(false)
           onAddImages(imageFiles(e.dataTransfer))
         }}
         role="dialog"
-        aria-modal="true"
+        aria-modal="false"
         aria-label={note.title}
         tabIndex={-1}
       >
-        <header className="band">
+        <header className="band" onPointerDown={startMove}>
           <div className="band-row">
             <span className="band-bucket">
               <BucketIcon />
@@ -149,7 +178,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
                   <CloseIcon size={12} />
                 </button>
               )}
-              <button type="button" className="band-button icon" aria-label="Close" title="Close" onClick={onClose}>
+              <button type="button" className="band-button icon" aria-label="Close" title="Close (Esc)" onClick={onClose}>
                 <CloseIcon />
               </button>
             </div>
@@ -181,62 +210,25 @@ export function ExpandedNote(props: ExpandedNoteProps) {
           </div>
         </header>
 
-        <div className="mini-board">
-          <div className="widgets">
-            <section className="widget">
-              <h2>Note</h2>
-              <EditableText
-                className="widget-body"
-                label="Note"
-                value={note.body ?? ''}
-                maxLength={4000}
-                multiline
-                readOnly={readOnly}
-                placeholder="Add details: context, decisions, anything that doesn't fit on the post-it."
-                inputRef={bodyRef}
-                onSave={(body) => void onChange({ body })}
-              />
-            </section>
-            {(note.checklist.length > 0 || reveal.checklist) && (
-              <ChecklistWidget items={note.checklist} inputRef={checklistRef} readOnly={readOnly} onChange={(checklist) => onChange({ checklist })} />
-            )}
-            {(note.links.length > 0 || reveal.links) && (
-              <LinksWidget note={note} notes={notes} inputRef={linkRef} onChange={(links) => onChange({ links })} />
-            )}
-            {images.length > 0 && <ImagesWidget images={images} onDelete={setImageToDelete} />}
-          </div>
+        <NoteCanvas
+          note={note}
+          images={images}
+          notes={notes}
+          readOnly={readOnly}
+          handle={canvas}
+          run={run}
+          onBusy={onBusy}
+          incoming={incoming}
+          onAddImages={onAddImages}
+          onPickImages={onPickImages}
+          boardPoint={boardPoint}
+          boardZoom={boardZoom}
+          onDeletePostIt={() => setConfirmingDelete(true)}
+        />
 
-          <div className="dock" role="toolbar" aria-label="Post-it tools">
-            <button type="button" className="dock-button" onClick={() => bodyRef.current?.focus()}>
-              <NoteDocIcon />
-              Note
-            </button>
-            <button type="button" className="dock-button" onClick={() => show('checklist')}>
-              <ChecklistIcon />
-              Checklist
-            </button>
-            <button type="button" className="dock-button" onClick={() => show('links')}>
-              <LinkIcon />
-              Link
-            </button>
-            <button type="button" className="dock-button" onClick={onPickImages}>
-              <ImageIcon size={16} />
-              Image
-            </button>
-            <span className="dock-divider" aria-hidden="true" />
-            <span className="dock-hint">Paste or drop anywhere</span>
-            <span className="dock-divider" aria-hidden="true" />
-            <button
-              type="button"
-              className="dock-button dock-delete"
-              aria-label="Delete post-it"
-              title="Delete post-it"
-              onClick={() => setConfirmingDelete(true)}
-            >
-              <TrashIcon />
-            </button>
-          </div>
-        </div>
+        <span className="window-resize e" aria-hidden="true" onPointerDown={startResize('e')} />
+        <span className="window-resize s" aria-hidden="true" onPointerDown={startResize('s')} />
+        <span className="window-resize se" aria-hidden="true" onPointerDown={startResize('se')} />
       </article>
 
       {picking?.kind === 'tags' && (
@@ -269,98 +261,11 @@ export function ExpandedNote(props: ExpandedNoteProps) {
           }}
           onCancel={() => {
             setConfirmingDelete(false)
-            dialogRef.current?.focus()
+            dialogRef.current?.focus({ preventScroll: true })
           }}
         />
       )}
-
-      {imageToDelete && (
-        <ConfirmDialog
-          title="Delete this image?"
-          message={`"${imageToDelete.caption ?? imageToDelete.fileName}" will be removed from this post-it. This can't be undone.`}
-          confirmLabel="Delete"
-          onConfirm={() => {
-            setImageToDelete(null)
-            onDeleteImage(imageToDelete.id)
-            dialogRef.current?.focus()
-          }}
-          onCancel={() => {
-            setImageToDelete(null)
-            dialogRef.current?.focus()
-          }}
-        />
-      )}
-    </div>
-  )
-}
-
-interface EditableTextProps {
-  value: string
-  onSave: (value: string) => void
-  label: string
-  className: string
-  maxLength: number
-  multiline?: boolean
-  placeholder?: string
-  autoFocus?: boolean
-  readOnly?: boolean
-  inputRef?: RefObject<HTMLTextAreaElement | null>
-}
-
-/**
- * A growing text area that saves on blur (and on Enter unless multiline). Escape cancels.
- * While it isn't focused it follows the server's value, so edits made by agents show up.
- */
-function EditableText({ value, onSave, label, className, maxLength, multiline, placeholder, autoFocus, readOnly, inputRef }: EditableTextProps) {
-  const [draft, setDraft] = useState<string | null>(null)
-  const cancelled = useRef(false)
-  const local = useRef<HTMLTextAreaElement | null>(null)
-  const shown = draft ?? value
-
-  // Grow with the text.
-  useLayoutEffect(() => {
-    const el = local.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${el.scrollHeight}px`
-  }, [shown])
-
-  return (
-    <textarea
-      ref={(el) => {
-        local.current = el
-        if (inputRef) inputRef.current = el
-      }}
-      className={`editable ${className}`}
-      aria-label={label}
-      rows={1}
-      value={shown}
-      maxLength={maxLength}
-      placeholder={readOnly ? undefined : placeholder}
-      autoFocus={autoFocus}
-      readOnly={readOnly}
-      onFocus={(e) => {
-        setDraft(value)
-        if (autoFocus) e.target.select()
-      }}
-      onChange={(e) => setDraft(multiline ? e.target.value : e.target.value.replace(/\n/g, ' '))}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') {
-          e.stopPropagation()
-          cancelled.current = true
-          e.currentTarget.blur()
-        } else if (e.key === 'Enter' && !multiline) {
-          e.preventDefault()
-          e.currentTarget.blur()
-        }
-      }}
-      onBlur={() => {
-        const next = (draft ?? value).trim()
-        if (!cancelled.current && next !== value.trim()) onSave(next)
-        cancelled.current = false
-        setDraft(null)
-      }}
-    />
+    </>
   )
 }
 
@@ -433,208 +338,6 @@ function AssigneeChips({ assignees, onRemove, onAdd }: AssigneeChipsProps) {
   )
 }
 
-interface ChecklistWidgetProps {
-  items: ChecklistItem[]
-  inputRef: RefObject<HTMLInputElement | null>
-  readOnly?: boolean
-  onChange: (items: ChecklistItem[]) => Promise<boolean>
-}
-
-function ChecklistWidget({ items, inputRef, readOnly, onChange }: ChecklistWidgetProps) {
-  const [text, setText] = useState('')
-  const done = items.filter((i) => i.done).length
-
-  async function add(e: FormEvent) {
-    e.preventDefault()
-    const value = text.trim()
-    if (value && (await onChange([...items, { text: value, done: false }]))) setText('')
-  }
-
-  return (
-    <section className="widget">
-      <div className="widget-head">
-        <h2>Checklist</h2>
-        {items.length > 0 && (
-          <span className="mono">
-            {done} / {items.length}
-          </span>
-        )}
-      </div>
-      <ul className="checklist">
-        {items.map((item, i) => (
-          <li key={i} className={item.done ? 'done' : undefined}>
-            <label>
-              <input
-                type="checkbox"
-                disabled={readOnly}
-                checked={item.done}
-                onChange={() => void onChange(items.map((it, j) => (j === i ? { ...it, done: !it.done } : it)))}
-              />
-              <span>{item.text}</span>
-            </label>
-            <button
-              type="button"
-              className="row-remove"
-              aria-label={`Remove "${item.text}"`}
-              onClick={() => void onChange(items.filter((_, j) => j !== i))}
-            >
-              <CloseIcon size={12} />
-            </button>
-          </li>
-        ))}
-      </ul>
-      <form className="widget-add" onSubmit={add}>
-        <input ref={inputRef} aria-label="New checklist item" placeholder="Add an item" value={text} maxLength={300} onChange={(e) => setText(e.target.value)} />
-      </form>
-    </section>
-  )
-}
-
-/** The address only when it is http(s), so a link can never run script. */
-function webUrl(value: string): URL | null {
-  try {
-    const url = new URL(value)
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url : null
-  } catch {
-    return null
-  }
-}
-
-interface LinksWidgetProps {
-  note: NoteDetail
-  notes: NoteDetail[]
-  inputRef: RefObject<HTMLInputElement | null>
-  onChange: (links: NoteLink[]) => Promise<boolean>
-}
-
-/** Links to web pages and to other post-its. The address field takes a URL or a post-it's link or ID, or finds post-its by title. */
-function LinksWidget({ note, notes, inputRef, onChange }: LinksWidgetProps) {
-  const links = note.links
-  const [url, setUrl] = useState('')
-  const [title, setTitle] = useState('')
-  const [invalid, setInvalid] = useState(false)
-  const query = url.trim()
-  // Typing words (not an address) looks for post-its on this board to link.
-  const searching = query.length >= 2 && !/^(https?:|\/#)/i.test(query)
-  const linked = new Set(links.map((l) => noteRoute(l.url)?.noteId))
-  const matches = searching
-    ? notes
-        .filter((n) => n.id !== note.id && !linked.has(n.id))
-        .filter((n) => n.title.toLowerCase().includes(query.toLowerCase()) || n.id.startsWith(query.toLowerCase()))
-        .slice(0, 5)
-    : []
-
-  async function addLink(link: NoteLink) {
-    if (await onChange([...links, link])) {
-      setUrl('')
-      setTitle('')
-    }
-  }
-
-  /** Links a post-it by its path, titled by its current title unless the person typed one. */
-  function addNote(target: NoteRoute) {
-    const found = notes.find((n) => n.id === target.noteId)
-    return addLink({ title: title.trim() || found?.title || 'Post-it', url: notePath(target) })
-  }
-
-  async function add(e: FormEvent) {
-    e.preventDefault()
-    const route = noteRoute(query) ?? (isNoteId(query) ? { boardId: note.boardId, noteId: query.toLowerCase() } : null)
-    if (route) return addNote(route)
-    if (matches.length > 0) return addNote({ boardId: matches[0].boardId, noteId: matches[0].id })
-    const parsed = webUrl(query)
-    if (!parsed) {
-      setInvalid(true)
-      return
-    }
-    await addLink({ title: title.trim() || `${parsed.host}${parsed.pathname === '/' ? '' : parsed.pathname}`, url: parsed.href })
-  }
-
-  return (
-    <section className="widget">
-      <h2>Links</h2>
-      <ul className="links">
-        {links.map((link, i) => (
-          <li key={i}>
-            <LinkRow link={link} notes={notes} />
-            <button
-              type="button"
-              className="row-remove"
-              aria-label={`Remove link ${link.title}`}
-              onClick={() => void onChange(links.filter((_, j) => j !== i))}
-            >
-              <CloseIcon size={12} />
-            </button>
-          </li>
-        ))}
-      </ul>
-      <form className="widget-add link-add" onSubmit={add}>
-        <input
-          ref={inputRef}
-          aria-label="Link address, or a post-it to link"
-          aria-invalid={invalid}
-          placeholder="https://… or a post-it"
-          value={url}
-          maxLength={2000}
-          onChange={(e) => {
-            setUrl(e.target.value)
-            setInvalid(false)
-          }}
-        />
-        <input aria-label="Link title" placeholder="Title (optional)" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
-        <button type="submit" className="widget-button" disabled={!query}>
-          Add
-        </button>
-      </form>
-      {matches.length > 0 && (
-        <ul className="links link-suggestions" aria-label="Post-its to link">
-          {matches.map((n) => (
-            <li key={n.id}>
-              <button type="button" className="link-row" onClick={() => void addNote({ boardId: n.boardId, noteId: n.id })}>
-                <span className={`link-swatch fill-${n.color.toLowerCase()}`} aria-hidden="true" />
-                <span className="link-text">
-                  <span className="link-title">{n.title}</span>
-                  <span className="link-meta">{n.id}</span>
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {invalid && <p className="widget-error">Use a full http or https address, or a post-it's title, link or ID.</p>}
-    </section>
-  )
-}
-
-/** One link: a web page opens in a new tab; a post-it opens here, shown with its current title and fill. */
-function LinkRow({ link, notes }: { link: NoteLink; notes: NoteDetail[] }) {
-  const route = noteRoute(link.url)
-  if (route) {
-    const target = notes.find((n) => n.id === route.noteId)
-    return (
-      // Only the hash changes: the board opens the post-it, or App switches to its board.
-      <a className="link-row" href={notePath(route).slice(1)}>
-        {target ? <span className={`link-swatch fill-${target.color.toLowerCase()}`} aria-hidden="true" /> : <PostItIcon size={16} />}
-        <span className="link-text">
-          <span className="link-title">{target?.title ?? link.title}</span>
-          <span className="link-meta">{target ? route.noteId : `On another board · ${route.noteId}`}</span>
-        </span>
-      </a>
-    )
-  }
-  const parsed = webUrl(link.url)
-  const Icon = /\/pulls?\//.test(link.url) ? PullRequestIcon : LinkIcon
-  return (
-    <a className="link-row" href={parsed?.href} target="_blank" rel="noreferrer noopener">
-      <Icon />
-      <span className="link-text">
-        <span className="link-title">{link.title}</span>
-        <span className="link-meta">{parsed ? `${parsed.host}${parsed.pathname}` : link.url}</span>
-      </span>
-    </a>
-  )
-}
-
 /** The post-it's ID. Clicking it copies a link that opens this post-it. */
 function NoteIdButton({ note }: { note: NoteDetail }) {
   /** Whether the last copy worked; null shows the ID again. */
@@ -656,39 +359,5 @@ function NoteIdButton({ note }: { note: NoteDetail }) {
       {copied ? <CheckIcon size={12} /> : <LinkIcon size={12} />}
       <span aria-live="polite">{copied === null ? note.id : copied ? 'Link copied' : "Couldn't copy the link"}</span>
     </button>
-  )
-}
-
-/** Images attached to the post-it. Click one to open the original. */
-function ImagesWidget({ images, onDelete }: { images: ImageDetail[]; onDelete: (image: ImageDetail) => void }) {
-  return (
-    <section className="widget widget-images">
-      <div className="widget-head">
-        <h2>Images</h2>
-        <span className="mono">{images.length}</span>
-      </div>
-      <ul className="attached-images">
-        {images.map((image) => {
-          const label = image.caption ?? image.fileName
-          return (
-            <li key={image.id}>
-              <a href={image.contentUrl} target="_blank" rel="noreferrer" className="attached-image" title="Open the original">
-                <img src={image.contentUrl} alt={label} loading="lazy" />
-                {image.contentType === 'image/gif' && <span className="gif-badge">GIF</span>}
-              </a>
-              <div className="attached-caption">
-                <span className="attached-name">{label}</span>
-                <span className="attached-by" title={`Added by ${image.addedBy}`}>
-                  added by {image.addedBy}
-                </span>
-                <button type="button" className="row-remove" aria-label={`Delete ${label}`} onClick={() => onDelete(image)}>
-                  <CloseIcon size={12} />
-                </button>
-              </div>
-            </li>
-          )
-        })}
-      </ul>
-    </section>
   )
 }

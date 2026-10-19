@@ -1,6 +1,6 @@
 // Client copy of the server's geometry rules (src/PrikBoard.Api/Domain/Layout.cs), used for live feedback while dragging.
 // The server snaps and assigns buckets again on every change, so it stays the source of truth.
-import type { BucketDetail, Point, Rect } from '../api/types'
+import type { BucketDetail, NoteBlockKind, Point, Rect } from '../api/types'
 
 export const GRID = 20
 export const NOTE_WIDTH = 200
@@ -10,6 +10,12 @@ export const MIN_BUCKET_HEIGHT = NOTE_HEIGHT + 2 * GRID
 
 export const MIN_IMAGE_WIDTH = 80
 export const MAX_IMAGE_WIDTH = 4000
+
+/** A note's own canvas (its blocks and attached images) runs from 0 to this, in both directions. */
+export const NOTE_CANVAS_MAX = 10_000
+export const MIN_BLOCK_WIDTH = 160
+export const MIN_BLOCK_HEIGHT = 80
+export const MAX_BLOCK_SIZE = 2000
 
 export const snap = (value: number) => Math.round(value / GRID) * GRID
 
@@ -32,4 +38,43 @@ export function bucketUnderNote(buckets: BucketDetail[], note: Point): BucketDet
 /** The rectangle spanned by two corners. */
 export function spanRect(a: Point, b: Point): Rect {
   return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) }
+}
+
+/** The size a new block gets. */
+export function defaultBlockSize(kind: NoteBlockKind) {
+  return kind === 'Checklist' ? { width: 340, height: 260 } : kind === 'Links' ? { width: 360, height: 220 } : { width: 340, height: 220 }
+}
+
+/** A block's size after a resize, as the server computes it: snapped and within limits. */
+export function blockSize(width: number, height: number) {
+  return {
+    width: Math.min(MAX_BLOCK_SIZE, Math.max(MIN_BLOCK_WIDTH, snap(width))),
+    height: Math.min(MAX_BLOCK_SIZE, Math.max(MIN_BLOCK_HEIGHT, snap(height))),
+  }
+}
+
+/** Snaps a top-left corner on a note's canvas, keeping a `size` rectangle on it. */
+export function onNoteCanvas({ x, y }: Point, size: { width: number; height: number }): Point {
+  return {
+    x: Math.min(Math.max(0, snap(x)), Math.max(0, NOTE_CANVAS_MAX - size.width)),
+    y: Math.min(Math.max(0, snap(y)), Math.max(0, NOTE_CANVAS_MAX - size.height)),
+  }
+}
+
+export const intersects = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+
+/**
+ * The first grid slot inside `area`, row by row, where a rectangle of `size` keeps a grid step clear of everything in
+ * `taken`; null when there is none (the server then finds a spot further out).
+ */
+export function freeSpot(taken: Rect[], size: { width: number; height: number }, area: Rect): Point | null {
+  const left = Math.max(GRID, Math.ceil(area.x / GRID) * GRID)
+  const top = Math.max(GRID, Math.ceil(area.y / GRID) * GRID)
+  for (let y = top; y + size.height <= area.y + area.height; y += GRID) {
+    for (let x = left; x + size.width <= area.x + area.width; x += GRID) {
+      const around = { x: x - GRID, y: y - GRID, width: size.width + 2 * GRID, height: size.height + 2 * GRID }
+      if (!taken.some((t) => intersects(t, around))) return { x, y }
+    }
+  }
+  return null
 }

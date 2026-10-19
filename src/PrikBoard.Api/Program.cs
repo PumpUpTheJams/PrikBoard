@@ -151,6 +151,7 @@ api.MapAuthEndpoints();
 api.MapBoardEndpoints();
 api.MapBucketEndpoints();
 api.MapNoteEndpoints();
+api.MapNoteBlockEndpoints();
 api.MapTagEndpoints();
 api.MapImageEndpoints();
 api.MapMemberEndpoints();

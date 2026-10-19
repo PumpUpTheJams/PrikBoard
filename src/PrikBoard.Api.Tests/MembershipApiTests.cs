@@ -52,6 +52,8 @@ public class MembershipApiTests(MembershipApiTests.Factory factory) : IClassFixt
         var image = await (await Upload(owner, board.Id)).Content.ReadFromJsonAsync<ImageDetail>();
         var tag = (await (await owner.PostAsJsonAsync($"/api/boards/{board.Id}/tags", new { name = "matrix" })).Content.ReadFromJsonAsync<BoardTagDetail>())!;
 
+        var block = (await (await owner.PostAsJsonAsync($"/api/notes/{note.Id}/blocks", new { kind = "Text" })).Content.ReadFromJsonAsync<NoteBlockDetail>())!;
+
         (string Method, string Url, Func<HttpContent?> Body, BoardRole Needs)[] cases =
         [
             ("GET", $"/api/boards/{board.Id}", () => null, BoardRole.Viewer),
@@ -62,6 +64,8 @@ public class MembershipApiTests(MembershipApiTests.Factory factory) : IClassFixt
             ("POST", $"/api/boards/{board.Id}/notes", () => Json(new { title = "More" }), BoardRole.Editor),
             ("PATCH", $"/api/notes/{note.Id}", () => Json(new { title = "Renamed" }), BoardRole.Editor),
             ("POST", $"/api/notes/{note.Id}/move", () => Json(new { x = 1000, y = 1000 }), BoardRole.Editor),
+            ("POST", $"/api/notes/{note.Id}/blocks", () => Json(new { kind = "Checklist" }), BoardRole.Editor),
+            ("PATCH", $"/api/notes/{note.Id}/blocks/{block.Id}", () => Json(new { text = "Edited" }), BoardRole.Editor),
             ("POST", $"/api/boards/{board.Id}/buckets", () => Json(new { name = "Review" }), BoardRole.Editor),
             ("PATCH", $"/api/buckets/{bucket.Id}", () => Json(new { name = "Backlog" }), BoardRole.Editor),
             ("PATCH", $"/api/images/{image.Id}", () => Json(new { caption = "c" }), BoardRole.Editor),

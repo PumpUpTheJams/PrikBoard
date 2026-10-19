@@ -90,11 +90,16 @@ export interface ImagePlacement {
   width?: number
 }
 
+/** x and y are on the board, or on the note's canvas when attached (or being attached). */
 export interface ImageChanges {
   x?: number
   y?: number
   width?: number
   caption?: string
+  /** Attach the image to this note. */
+  noteId?: string
+  /** Take an attached image off its note and put it on the board. */
+  detach?: boolean
 }
 
 export interface BucketDetail {
@@ -127,17 +132,57 @@ export interface NoteLink {
   url: string
 }
 
+export type NoteBlockKind = 'Text' | 'Checklist' | 'Links'
+
+/** A block of a note's content on its own canvas, in note pixels. Only the content field of its kind is set. */
+export interface NoteBlock {
+  id: string
+  kind: NoteBlockKind
+  x: number
+  y: number
+  width: number
+  height: number
+  title: string | null
+  text: string | null
+  items: ChecklistItem[] | null
+  links: NoteLink[] | null
+}
+
+/** A new block; without x and y the server finds a free spot, without a size it gets its kind's default. */
+export interface NewNoteBlock {
+  kind: NoteBlockKind
+  title?: string | null
+  text?: string | null
+  items?: ChecklistItem[] | null
+  links?: NoteLink[] | null
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+}
+
+/** A PATCH of a block: omitted fields stay unchanged, a given list replaces the block's whole list. */
+export interface NoteBlockChanges {
+  title?: string
+  text?: string
+  items?: ChecklistItem[]
+  links?: NoteLink[]
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+}
+
 export interface NoteDetail {
   id: string
   boardId: string
   bucketId: string | null
   title: string
-  body: string | null
   color: NoteColor
   tags: string[]
   assignees: Assignee[]
-  checklist: ChecklistItem[]
-  links: NoteLink[]
+  /** Its content: text, checklists and links on the note's own canvas. */
+  blocks: NoteBlock[]
   agentWorking: boolean
   x: number
   y: number
@@ -168,14 +213,11 @@ export interface BucketChanges extends Partial<Rect> {
 /** A PATCH: omitted fields stay unchanged, a given list replaces the whole list. */
 export interface NoteChanges {
   title?: string
-  body?: string
   color?: NoteColor
   /** Tag names; new names are added to the board. */
   tags?: string[]
   /** Principal ids, from the board's people. */
   assigneeIds?: string[]
-  checklist?: ChecklistItem[]
-  links?: NoteLink[]
   agentWorking?: boolean
 }
 

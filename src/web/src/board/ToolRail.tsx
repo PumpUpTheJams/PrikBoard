@@ -48,7 +48,7 @@ export function ToolRail({ tool, onToolChange, fill, onFillChange, onAddImage, o
   )
 
   return (
-    <nav className="tool-rail" aria-label="Tools">
+    <nav className="rail tool-rail" aria-label="Tools">
       {navigation.map((t) => button(t))}
       {!readOnly && (
         <>

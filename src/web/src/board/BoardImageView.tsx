@@ -1,6 +1,7 @@
 import type { PointerEvent } from 'react'
 import type { ImageDetail, Rect } from '../api/types'
 import { initials } from '../components/initials'
+import { TrashIcon } from './icons'
 
 interface BoardImageViewProps {
   image: ImageDetail
@@ -10,10 +11,12 @@ interface BoardImageViewProps {
   lifted: boolean
   onPointerDown: (e: PointerEvent<HTMLElement>) => void
   onResizePointerDown: (e: PointerEvent<HTMLElement>) => void
+  /** Asks to delete the image (the caller confirms first); without it there is no trash button (viewers). */
+  onDelete?: () => void
 }
 
 /** An image or GIF on the canvas, with its file name (or caption) and who added it underneath. */
-export function BoardImageView({ image, rect, selected, lifted, onPointerDown, onResizePointerDown }: BoardImageViewProps) {
+export function BoardImageView({ image, rect, selected, lifted, onPointerDown, onResizePointerDown, onDelete }: BoardImageViewProps) {
   const classes = ['board-image']
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
@@ -32,6 +35,19 @@ export function BoardImageView({ image, rect, selected, lifted, onPointerDown, o
       <div className="board-image-frame" style={{ height: rect.height }}>
         <img src={image.contentUrl} alt={label} draggable={false} />
         {image.contentType === 'image/gif' && <span className="gif-badge">GIF</span>}
+        {onDelete && (
+          <button
+            type="button"
+            className="image-delete"
+            aria-label={`Delete ${label}`}
+            title="Delete"
+            // Not a drag: the canvas would otherwise take the pointer and the click with it.
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={onDelete}
+          >
+            <TrashIcon size={13} />
+          </button>
+        )}
         {selected && (
           <>
             <span className="handle nw" aria-hidden="true" />

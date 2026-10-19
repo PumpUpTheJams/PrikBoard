@@ -208,20 +208,22 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
-    public async Task Search_finds_notes_by_title_or_body_case_insensitively()
+    public async Task Search_finds_notes_by_title_or_content_case_insensitively()
     {
         var board = await CreateBoard("Search");
         await CreateNote(board.Id, new { title = "Design LOGO" });
-        await CreateNote(board.Id, new { title = "Write copy", body = "Mention the logo" });
+        await CreateNote(board.Id, new { title = "Write copy", blocks = new[] { new { kind = "Text", text = "Mention the logo" } } });
+        await CreateNote(board.Id, new { title = "Print", blocks = new[] { new { kind = "Checklist", items = new[] { new { text = "Logo on the cover" } } } } });
+        await CreateNote(board.Id, new { title = "Brand", blocks = new[] { new { kind = "Links", links = new[] { new { title = "Logo files", url = "https://example.com" } } } } });
         await CreateNote(board.Id, new { title = "Book venue" });
 
         var hits = await _client.GetFromJsonAsync<List<NoteDetail>>($"/api/boards/{board.Id}/notes?search=logo");
 
-        Assert.Equal(["Design LOGO", "Write copy"], hits!.Select(n => n.Title));
+        Assert.Equal(["Design LOGO", "Write copy", "Print", "Brand"], hits!.Select(n => n.Title));
     }
 
     [Fact]
-    public async Task Notes_carry_tags_assignees_checklist_and_links()
+    public async Task Notes_carry_tags_assignees_and_content_blocks()
     {
         var board = await CreateBoard("Details");
         var me = await _client.MeAsync();
@@ -230,29 +232,36 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
             title = "Retry policy for lidar tile ingest",
             tags = new[] { " Backend ", "ingest", "backend", "Tile Index" },
             assigneeIds = new[] { me.Id, me.Id },
-            checklist = new object[] { new { text = "Backoff with jitter", done = true }, new { text = "Exhausted tiles go to the DLQ" } },
-            links = new[] { new { title = "PR #412", url = "https://example.com/pulls/412" } },
+            blocks = new object[]
+            {
+                new { kind = "Checklist", title = "Acceptance criteria", items = new object[] { new { text = "Backoff with jitter", done = true }, new { text = "Exhausted tiles go to the DLQ" } } },
+                new { kind = "Links", links = new[] { new { title = "PR #412", url = "https://example.com/pulls/412" } } },
+            },
         });
 
         Assert.Equal(["backend", "ingest", "tile-index"], created.Tags);
         Assert.Equal([new Assignee(me.Id, me.DisplayName, AssigneeKind.Person)], created.Assignees);
-        Assert.Equal([new ChecklistItem("Backoff with jitter", true), new ChecklistItem("Exhausted tiles go to the DLQ")], created.Checklist);
-        Assert.Equal([new NoteLink("PR #412", "https://example.com/pulls/412")], created.Links);
+        var (checklist, links) = (created.Blocks[0], created.Blocks[1]);
+        Assert.Equal((NoteBlockKind.Checklist, "Acceptance criteria", null), (checklist.Kind, checklist.Title, checklist.Text));
+        Assert.Equal([new ChecklistItem("Backoff with jitter", true), new ChecklistItem("Exhausted tiles go to the DLQ")], checklist.Items!);
+        Assert.Null(checklist.Links);
+        Assert.Equal([new NoteLink("PR #412", "https://example.com/pulls/412")], links.Links!);
         Assert.False(created.AgentWorking);
 
-        var response = await _client.PatchAsJsonAsync($"/api/notes/{created.Id}", new
+        var response = await _client.PatchAsJsonAsync($"/api/notes/{created.Id}/blocks/{checklist.Id}", new
         {
-            checklist = new object[] { new { text = "Backoff with jitter", done = true }, new { text = "Exhausted tiles go to the DLQ", done = true } },
-            agentWorking = true,
+            items = new object[] { new { text = "Backoff with jitter", done = true }, new { text = "Exhausted tiles go to the DLQ", done = true } },
         });
         response.EnsureSuccessStatusCode();
-        var updated = (await response.Content.ReadFromJsonAsync<NoteDetail>())!;
+        (await _client.PatchAsJsonAsync($"/api/notes/{created.Id}", new { agentWorking = true })).EnsureSuccessStatusCode();
+        var updated = (await _client.GetFromJsonAsync<NoteDetail>($"/api/notes/{created.Id}"))!;
 
-        Assert.All(updated.Checklist, item => Assert.True(item.Done));
+        Assert.All(updated.Blocks[0].Items!, item => Assert.True(item.Done));
         Assert.True(updated.AgentWorking);
         Assert.Equal(created.Tags, updated.Tags);
         Assert.Equal(created.Assignees, updated.Assignees);
-        Assert.Equal(created.Links, updated.Links);
+        Assert.Equal((links.Id, links.X, links.Y), (updated.Blocks[1].Id, updated.Blocks[1].X, updated.Blocks[1].Y));
+        Assert.Equal(links.Links!, updated.Blocks[1].Links!);
     }
 
     [Fact]
@@ -262,12 +271,12 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var target = await CreateNote(board.Id, new { title = "Retry policy" });
         Assert.Equal($"/#/boards/{board.Id}/notes/{target.Id}", target.Path);
 
-        var linking = await CreateNote(board.Id, new { title = "Follow-up", links = new[] { new { title = "Retry policy", url = target.Path } } });
-        Assert.Equal([new NoteLink("Retry policy", target.Path)], linking.Links);
+        var linking = await CreateNote(board.Id, new { title = "Follow-up", blocks = new[] { LinksBlock("Retry policy", target.Path) } });
+        Assert.Equal([new NoteLink("Retry policy", target.Path)], linking.Blocks.Single().Links!);
 
         var notesUrl = $"/api/boards/{board.Id}/notes";
-        var relative = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", links = new[] { new { title = "x", url = "/somewhere" } } });
-        var notAnId = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", links = new[] { new { title = "x", url = $"/#/boards/{board.Id}/notes/abc" } } });
+        var relative = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", blocks = new[] { LinksBlock("x", "/somewhere") } });
+        var notAnId = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", blocks = new[] { LinksBlock("x", $"/#/boards/{board.Id}/notes/abc") } });
         Assert.Equal(HttpStatusCode.BadRequest, relative.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, notAnId.StatusCode);
     }
@@ -278,18 +287,24 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var board = await CreateBoard("Detail validation");
         var notesUrl = $"/api/boards/{board.Id}/notes";
 
-        var scriptLink = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", links = new[] { new { title = "x", url = "javascript:alert(1)" } } });
+        var scriptLink = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", blocks = new[] { LinksBlock("x", "javascript:alert(1)") } });
         var longTag = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", tags = new[] { new string('t', 31) } });
         var stranger = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", assigneeIds = new[] { Guid.NewGuid() } });
         var tooManyPeople = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", assigneeIds = Enumerable.Range(0, 11).Select(_ => Guid.NewGuid()) });
         var tooManyTags = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", tags = Enumerable.Range(0, 11).Select(i => $"t{i}") });
+        var misfit = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", blocks = new object[] { new { kind = "Text" }, new { kind = "Text", items = new[] { new { text = "x" } } } } });
+        var longItem = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", blocks = new[] { new { kind = "Checklist", items = new[] { new { text = new string('x', 301) } } } } });
 
         Assert.Equal(HttpStatusCode.BadRequest, scriptLink.StatusCode);
+        Assert.Contains("blocks[0].links", await scriptLink.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.BadRequest, longTag.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, stranger.StatusCode);
         Assert.Contains("assigneeIds", await stranger.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.BadRequest, tooManyPeople.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, tooManyTags.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, misfit.StatusCode);
+        Assert.Contains("blocks[1].items", await misfit.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.BadRequest, longItem.StatusCode);
     }
 
     [Fact]
@@ -354,6 +369,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
             {
                 "listBoards", "getBoard", "createBucket", "updateBucket", "deleteBucket",
                 "createNote", "moveNote", "updateNote", "deleteNote", "setNoteWorking",
+                "addNoteBlock", "updateNoteBlock", "deleteNoteBlock",
                 "listBoardTags", "createBoardTag", "renameBoardTag", "deleteBoardTag",
                 "whoAmI", "listAuthProviders",
                 "uploadImage", "getImageContent", "updateImage", "deleteImage",
@@ -374,6 +390,8 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<NoteDetail>())!;
     }
+
+    private static object LinksBlock(string title, string url) => new { kind = "Links", links = new[] { new { title, url } } };
 
     private async Task<NoteDetail> MoveNote(Guid noteId, object request)
     {

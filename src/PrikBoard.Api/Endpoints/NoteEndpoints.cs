@@ -21,14 +21,15 @@ public static class NoteEndpoints
             .WithDescription("Returns notes bucket by bucket (loose notes last), each group top to bottom and left to right. " +
                              "Optionally filter by bucket, by tags (repeat tag for several; a note matches when it has any of them), " +
                              "by assignee (a principal id, or a current display name, case-insensitive) " +
-                             "and/or a case-insensitive text search on title and body.");
+                             "and/or a case-insensitive text search on the title and all of the note's content (text, checklist items and links).");
 
         notes.MapPost("/boards/{boardId:guid}/notes", CreateNote)
             .RequireBoardRole(BoardRole.Editor)
             .WithName("createNote")
             .WithSummary("Stick a new note on a board")
             .WithDescription("Creates a note in a free spot inside the given bucket (default: the board's first bucket), " +
-                             "or exactly at X and Y. Tags the board does not have yet are added to it (see listBoardTags).")
+                             "or exactly at X and Y, optionally with its first content blocks. " +
+                             "Tags the board does not have yet are added to it (see listBoardTags).")
             .ProducesValidationProblem();
 
         notes.MapGet("/notes/{noteId:guid}", GetNote)
@@ -40,8 +41,9 @@ public static class NoteEndpoints
             .RequireBoardRole(BoardRole.Editor, BoardScope.Note)
             .WithName("updateNote")
             .WithSummary("Edit a note")
-            .WithDescription("Changes any of title, body, fill, tags, assignees, checklist, links and the agent-working flag. " +
-                             "Omitted fields stay unchanged; a list that is given replaces the whole list. Use moveNote to move it.")
+            .WithDescription("Changes any of title, fill, tags, assignees and the agent-working flag. " +
+                             "Omitted fields stay unchanged; a list that is given replaces the whole list. Use moveNote to move it, " +
+                             "and addNoteBlock, updateNoteBlock and deleteNoteBlock to change its content.")
             .ProducesValidationProblem();
 
         notes.MapPost("/notes/{noteId:guid}/working", SetNoteWorking)
@@ -78,16 +80,16 @@ public static class NoteEndpoints
         {
             query = query.Where(n => n.BucketId == bucketId);
         }
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            var pattern = $"%{search.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_")}%";
-            query = query.Where(n => EF.Functions.ILike(n.Title, pattern, @"\")
-                                     || (n.Body != null && EF.Functions.ILike(n.Body, pattern, @"\")));
-        }
 
         var notes = await query.ToListAsync(ct);
         var principals = await PrincipalsOnAsync(db, notes, ct);
-        // Boards are small, so tags and assignees are filtered in memory.
+        // Boards are small, so text, tags and assignees are filtered in memory.
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var text = search.Trim();
+            notes = notes.Where(n => n.Title.Contains(text, StringComparison.OrdinalIgnoreCase)
+                || n.Blocks.Any(b => b.SearchText().Any(t => t.Contains(text, StringComparison.OrdinalIgnoreCase)))).ToList();
+        }
         if (tag is not null && NoteTags.Normalize(tag) is { Count: > 0 } wanted)
         {
             notes = notes.Where(n => n.Tags.Any(wanted.Contains)).ToList();
@@ -112,7 +114,6 @@ public static class NoteEndpoints
         {
             BoardId = boardId,
             Title = request.Title,
-            Body = PatchText.Apply(null, request.Body),
             Color = request.Color ?? NoteColor.Butter,
             AgentWorking = request.AgentWorking ?? false,
             CreatedById = principal.PrincipalId(),
@@ -121,7 +122,8 @@ public static class NoteEndpoints
         {
             return unassignable;
         }
-        if (ApplyLists(note, request.Tags, request.AssigneeIds, request.Checklist, request.Links) is { } invalid) return invalid;
+        if (ApplyLists(note, request.Tags, request.AssigneeIds) is { } invalid) return invalid;
+        if (request.Blocks is not null && NoteBlockEndpoints.BuildAll(note, request.Blocks) is { } invalidBlock) return invalidBlock;
         if (await TagEndpoints.EnsureBoardTagsAsync(db, boardId, note.Tags, ct) is { } tooManyTags) return tooManyTags;
 
         var buckets = await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct);
@@ -152,13 +154,12 @@ public static class NoteEndpoints
         {
             return unassignable;
         }
-        if (ApplyLists(note, request.Tags, request.AssigneeIds, request.Checklist, request.Links) is { } invalid) return invalid;
+        if (ApplyLists(note, request.Tags, request.AssigneeIds) is { } invalid) return invalid;
         if (request.Tags is not null && await TagEndpoints.EnsureBoardTagsAsync(db, note.BoardId, note.Tags, ct) is { } tooManyTags)
         {
             return tooManyTags;
         }
         note.Title = request.Title ?? note.Title;
-        note.Body = PatchText.Apply(note.Body, request.Body);
         note.Color = request.Color ?? note.Color;
         note.AgentWorking = request.AgentWorking ?? note.AgentWorking;
         note.UpdatedAt = DateTimeOffset.UtcNow;
@@ -307,8 +308,7 @@ public static class NoteEndpoints
     }
 
     /// <summary>Replaces each list that is given (null keeps it), normalizing tags. Returns a problem for an invalid value.</summary>
-    private static ValidationProblem? ApplyLists(
-        Note note, List<string>? tags, List<Guid>? assigneeIds, List<ChecklistItem>? checklist, List<NoteLink>? links)
+    private static ValidationProblem? ApplyLists(Note note, List<string>? tags, List<Guid>? assigneeIds)
     {
         if (tags is not null)
         {
@@ -322,25 +322,9 @@ public static class NoteEndpoints
             }
             note.Tags = normalized;
         }
-        if (links?.Find(l => !NoteLinks.IsValid(l.Url)) is { } badLink)
-        {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["links"] = [$"\"{badLink.Url}\" is neither an absolute http or https URL nor a note's path (/#/boards/{{boardId}}/notes/{{noteId}})."],
-            });
-        }
-
         if (assigneeIds is not null)
         {
             note.AssigneeIds = assigneeIds.Distinct().ToList();
-        }
-        if (checklist is not null)
-        {
-            note.Checklist = checklist.Select(c => new ChecklistEntry { Text = c.Text.Trim(), Done = c.Done }).ToList();
-        }
-        if (links is not null)
-        {
-            note.Links = links.Select(l => new LinkEntry { Title = l.Title.Trim(), Url = l.Url.Trim() }).ToList();
         }
         return null;
     }
