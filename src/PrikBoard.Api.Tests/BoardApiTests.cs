@@ -256,6 +256,23 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
+    public async Task Notes_link_other_notes_by_their_path()
+    {
+        var board = await CreateBoard("Note links");
+        var target = await CreateNote(board.Id, new { title = "Retry policy" });
+        Assert.Equal($"/#/boards/{board.Id}/notes/{target.Id}", target.Path);
+
+        var linking = await CreateNote(board.Id, new { title = "Follow-up", links = new[] { new { title = "Retry policy", url = target.Path } } });
+        Assert.Equal([new NoteLink("Retry policy", target.Path)], linking.Links);
+
+        var notesUrl = $"/api/boards/{board.Id}/notes";
+        var relative = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", links = new[] { new { title = "x", url = "/somewhere" } } });
+        var notAnId = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", links = new[] { new { title = "x", url = $"/#/boards/{board.Id}/notes/abc" } } });
+        Assert.Equal(HttpStatusCode.BadRequest, relative.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, notAnId.StatusCode);
+    }
+
+    [Fact]
     public async Task Note_details_are_validated()
     {
         var board = await CreateBoard("Detail validation");

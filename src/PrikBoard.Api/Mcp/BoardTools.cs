@@ -155,7 +155,7 @@ public sealed class BoardTools
         [Description("Tags; prefer the board's tags (get_board). New names are added to the board, lower-cased and hyphenated.")] List<string>? tags = null,
         [Description("People and agents to assign: their names or principal ids, from people in get_board.")] List<string>? assignees = null,
         [Description("Checklist items.")] List<ChecklistItem>? checklist = null,
-        [Description("Links with a title and an absolute http(s) URL.")] List<NoteLink>? links = null,
+        [Description("Links with a title and a url: an absolute http(s) URL, or another note's path (path in get_note) to link that note.")] List<NoteLink>? links = null,
         CancellationToken ct = default)
     {
         var http = McpCall.Http(accessor);
@@ -183,7 +183,7 @@ public sealed class BoardTools
         [Description("All tags (replaces them); prefer the board's tags. New names are added to the board.")] List<string>? tags = null,
         [Description("All assignees (replaces them): names or principal ids, from people in get_board.")] List<string>? assignees = null,
         [Description("The full checklist (replaces it).")] List<ChecklistItem>? checklist = null,
-        [Description("All links (replaces them).")] List<NoteLink>? links = null,
+        [Description("All links (replaces them). A url is an absolute http(s) URL, or another note's path (path in get_note) to link that note.")] List<NoteLink>? links = null,
         [Description("Whether an agent is working on it right now (shows a halo); see also set_working.")] bool? agentWorking = null,
         CancellationToken ct = default)
     {

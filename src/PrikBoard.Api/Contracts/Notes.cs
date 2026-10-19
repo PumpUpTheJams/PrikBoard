@@ -21,6 +21,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="CreatedById">Principal id of whoever created the note, or null (see createdBy).</param>
 /// <param name="CreatedAt">When the note was created (UTC).</param>
 /// <param name="UpdatedAt">When the note was last edited or moved (UTC). The most recently updated note is drawn on top.</param>
+/// <param name="Path">Where the web app shows this note, relative to the site, e.g. "/#/boards/{boardId}/notes/{id}". Use it as a link's url to link this note from another note.</param>
 public record NoteDetail(
     Guid Id,
     Guid BoardId,
@@ -38,7 +39,8 @@ public record NoteDetail(
     string? CreatedBy,
     Guid? CreatedById,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt)
+    DateTimeOffset UpdatedAt,
+    string Path)
 {
     /// <summary>Maps a note; <paramref name="principals"/> holds its creator and assignees (see NoteEndpoints.PrincipalsOnAsync).</summary>
     public static NoteDetail From(Note note, IReadOnlyDictionary<Guid, Principal> principals) =>
@@ -49,7 +51,8 @@ public record NoteDetail(
             note.Links.Select(l => new NoteLink(l.Title, l.Url)).ToList(),
             note.AgentWorking, note.X, note.Y,
             note.CreatedById is { } by && principals.TryGetValue(by, out var creator) ? creator.ShownName : null,
-            note.CreatedById, note.CreatedAt, note.UpdatedAt);
+            note.CreatedById, note.CreatedAt, note.UpdatedAt,
+            NoteLinks.NotePath(note.BoardId, note.Id));
 }
 
 /// <summary>A person or AI agent assigned to a note.</summary>
@@ -71,12 +74,12 @@ public record ChecklistItem(
     [property: Required, StringLength(300, MinimumLength = 1)] string Text,
     bool Done = false);
 
-/// <summary>A link related to a note.</summary>
+/// <summary>A link related to a note: a web page, or another note.</summary>
 /// <param name="Title">Text shown for the link, e.g. "Retry-After handling (PR #415)".</param>
-/// <param name="Url">Absolute http or https address.</param>
+/// <param name="Url">An absolute http or https address, or another note's path (path in getNote), e.g. "/#/boards/{boardId}/notes/{noteId}". The web app shows a linked note with its current title.</param>
 public record NoteLink(
     [property: Required, StringLength(200, MinimumLength = 1)] string Title,
-    [property: Required, StringLength(2000), Url] string Url);
+    [property: Required, StringLength(2000)] string Url);
 
 /// <summary>
 /// Sticks a new note on a board. Give a bucketId to drop it in a free spot inside that bucket, or X and Y to place it exactly.
