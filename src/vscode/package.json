@@ -1,0 +1,137 @@
+{
+  "name": "prikboard-vscode",
+  "displayName": "PrikBoard",
+  "description": "Your PrikBoard boards, buckets and notes in the VS Code side bar.",
+  "version": "0.0.1",
+  "private": true,
+  "publisher": "prikboard",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "prikboard",
+          "title": "PrikBoard",
+          "icon": "media/prikboard.svg"
+        }
+      ]
+    },
+    "views": {
+      "prikboard": [
+        {
+          "id": "prikboard.boards",
+          "name": "Boards"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "prikboard.boards",
+        "contents": "Sign in to see your boards.\n[Sign in with an access token](command:prikboard.signIn)\nCreate a token in PrikBoard under Account, Agents and access tokens.",
+        "when": "!prikboard.signedIn"
+      }
+    ],
+    "commands": [
+      {
+        "command": "prikboard.signIn",
+        "title": "Sign in with an Access Token",
+        "category": "PrikBoard"
+      },
+      {
+        "command": "prikboard.signOut",
+        "title": "Sign Out",
+        "category": "PrikBoard"
+      },
+      {
+        "command": "prikboard.refresh",
+        "title": "Refresh",
+        "category": "PrikBoard",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "prikboard.openInBrowser",
+        "title": "Open in PrikBoard",
+        "category": "PrikBoard",
+        "icon": "$(link-external)"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "prikboard.signIn",
+          "when": "!prikboard.signedIn"
+        },
+        {
+          "command": "prikboard.signOut",
+          "when": "prikboard.signedIn"
+        },
+        {
+          "command": "prikboard.openInBrowser",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "prikboard.refresh",
+          "when": "view == prikboard.boards && prikboard.signedIn",
+          "group": "navigation"
+        },
+        {
+          "command": "prikboard.signOut",
+          "when": "view == prikboard.boards && prikboard.signedIn",
+          "group": "overflow"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "prikboard.openInBrowser",
+          "when": "view == prikboard.boards && (viewItem == board || viewItem == note)",
+          "group": "inline"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "PrikBoard",
+      "properties": {
+        "prikboard.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:5080",
+          "markdownDescription": "Where the PrikBoard API runs (the part before `/api`)."
+        },
+        "prikboard.webUrl": {
+          "type": "string",
+          "default": "http://localhost:5173",
+          "markdownDescription": "Where the PrikBoard web app runs, used by **Open in PrikBoard**. Leave empty to use `#prikboard.serverUrl#`."
+        },
+        "prikboard.refreshSeconds": {
+          "type": "number",
+          "default": 15,
+          "minimum": 5,
+          "markdownDescription": "How often the open view reloads its boards."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "lint": "oxlint",
+    "package": "npm run build -- --production && vsce package --no-dependencies --skip-license --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.25.0",
+    "oxlint": "^1.81.0",
+    "typescript": "~6.0.2"
+  }
+}

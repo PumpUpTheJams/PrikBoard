@@ -47,3 +47,20 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+
+  vscode:
+    name: VS Code extension lint, build and package
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/vscode
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      # No lockfile yet: generate one with `npm install` in src/vscode, commit it, then switch this to `npm ci`.
+      - run: npm install
+      - run: npm run lint
+      - run: npm run build
+      - run: npm run package
