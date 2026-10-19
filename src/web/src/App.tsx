@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { api, errorMessage, setUnauthorizedHandler } from './api/client'
 import type { Assignee, BoardSummary, Caller } from './api/types'
 import { BoardCanvas } from './board/BoardCanvas'
@@ -9,6 +9,7 @@ import {
   ExternalIcon,
   PeopleIcon,
   PostItIcon,
+  RulesIcon,
   SignOutIcon,
   TrashIcon,
   UploadIcon,
@@ -27,6 +28,8 @@ import { Presence } from './components/Presence'
 import { QuickAdd } from './components/QuickAdd'
 import { ShareDialog } from './components/ShareDialog'
 import { SignIn } from './components/SignIn'
+
+const BoardRulesDialog = lazy(() => import('./components/BoardRulesDialog').then((m) => ({ default: m.BoardRulesDialog })))
 
 const boardIdFromHash = () => window.location.hash.match(/^#\/boards\/([\w-]+)/)?.[1] ?? null
 /** Invite links look like /#/invite/{token}; the token never reaches a server log. */
@@ -97,7 +100,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   const [error, setError] = useState<string | null>(null)
   const [boardToDelete, setBoardToDelete] = useState<BoardSummary | null>(null)
   const [boardToLeave, setBoardToLeave] = useState<BoardSummary | null>(null)
-  const [dialog, setDialog] = useState<'share' | 'account' | null>(null)
+  const [dialog, setDialog] = useState<'share' | 'account' | 'rules' | null>(null)
 
   const loadBoards = useCallback(() => api.listBoards().then(setBoards, (e) => setError(errorMessage(e))), [])
 
@@ -272,6 +275,21 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
                 {activeBoard && isOwner && (
                   <QuickAdd label="Rename board" placeholder={activeBoard.name} onAdd={(name) => renameBoard(activeBoard, name)} />
                 )}
+                {board && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="menu-item"
+                    title="What this board is about and how agents should handle its notes"
+                    onClick={() => {
+                      close()
+                      setDialog('rules')
+                    }}
+                  >
+                    <RulesIcon />
+                    Agent rules
+                  </button>
+                )}
                 {activeBoard && (
                   <button
                     type="button"
@@ -438,6 +456,15 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
 
       {dialog === 'share' && activeBoard && (
         <ShareDialog key={activeBoard.id} board={activeBoard} onClose={() => setDialog(null)} onLeft={() => left(activeBoard)} />
+      )}
+      {dialog === 'rules' && board && (
+        <Suspense>
+          <BoardRulesDialog
+            board={board}
+            onSave={(rules) => run(() => api.updateBoard(board.id, { rules }))}
+            onClose={() => setDialog(null)}
+          />
+        </Suspense>
       )}
       {dialog === 'account' && <AccountDialog user={user} boards={boards ?? []} onChange={onUserChange} onClose={() => setDialog(null)} />}
 

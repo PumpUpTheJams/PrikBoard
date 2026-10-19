@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react'
 import { noteColors, type NoteColor } from '../api/types'
-import { FrameIcon, ImageIcon, PanIcon, PostItIcon, RulesIcon, SelectIcon } from './icons'
+import { FrameIcon, ImageIcon, PanIcon, PostItIcon, SelectIcon } from './icons'
 import type { Tool } from './tools'
 
 interface ToolDef {
@@ -23,16 +23,12 @@ interface ToolRailProps {
   onFillChange: (fill: NoteColor) => void
   /** Opens the file picker to add images (an action, not a tool you stay in). */
   onAddImage: () => void
-  /** Opens the board's agent rules. */
-  onOpenRules: () => void
-  /** Whether the board has agent rules (shows a dot on the button). */
-  hasRules: boolean
-  /** Viewers only get Select, Pan and the rules. */
+  /** Viewers only get Select and Pan. */
   readOnly?: boolean
 }
 
 /** The floating tool rail on the left of the board. */
-export function ToolRail({ tool, onToolChange, fill, onFillChange, onAddImage, onOpenRules, hasRules, readOnly }: ToolRailProps) {
+export function ToolRail({ tool, onToolChange, fill, onFillChange, onAddImage, readOnly }: ToolRailProps) {
   const button = ({ tool: t, label, shortcut, Icon }: ToolDef, className = '') => (
     <button
       key={t}
@@ -77,16 +73,6 @@ export function ToolRail({ tool, onToolChange, fill, onFillChange, onAddImage, o
           </button>
         </>
       )}
-      <span className="rail-divider" aria-hidden="true" />
-      <button
-        type="button"
-        className={`rail-button${hasRules ? ' has-dot' : ''}`}
-        aria-label={hasRules ? 'Agent rules' : 'Agent rules (none yet)'}
-        title="Agent rules: what this board is about and how agents should handle its notes"
-        onClick={onOpenRules}
-      >
-        <RulesIcon />
-      </button>
     </nav>
   )
 }
