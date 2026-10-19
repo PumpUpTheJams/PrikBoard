@@ -31,6 +31,22 @@ export const PostItIcon = ({ size = 18 }: IconProps) => (
   </Icon>
 )
 
+/** A post-it with a frown, for pages with nothing to show. */
+export const SadPostItIcon = ({ size = 18 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M4 4h16v10l-6 6H4z" />
+    <path d="M14 20v-6h6" />
+    <path d="M8.5 8.5h.01M13.5 8.5h.01" />
+    <path d="M8 14c1.2-1.4 3.8-1.4 5 0" />
+  </Icon>
+)
+
+export const ShieldIcon = ({ size = 16 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />
+  </Icon>
+)
+
 export const SelectIcon = ({ size = 18 }: IconProps) => (
   <Icon size={size}>
     <path d="M5 3l14 7-6 2-2 6z" />

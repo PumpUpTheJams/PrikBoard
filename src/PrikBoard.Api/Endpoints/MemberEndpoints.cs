@@ -209,10 +209,10 @@ public static class MemberEndpoints
     internal static Task LockBoard(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
         db.Database.ExecuteSqlInterpolatedAsync($"""SELECT 1 FROM "Boards" WHERE "Id" = {boardId} FOR UPDATE""", ct);
 
-    private static async Task<bool> IsLastOwner(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
+    internal static async Task<bool> IsLastOwner(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
         await db.BoardMembers.CountAsync(m => m.BoardId == boardId && m.Role == BoardRole.Owner, ct) <= 1;
 
-    private static ProblemHttpResult LastOwner() =>
+    internal static ProblemHttpResult LastOwner() =>
         TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Last owner",
             detail: "A board needs at least one owner. Make someone else an owner first.");
 }

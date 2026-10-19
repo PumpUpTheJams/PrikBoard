@@ -1,5 +1,8 @@
 import type {
   AccessToken,
+  AdminBoard,
+  AdminBoardMember,
+  AdminUser,
   CreatedAccessToken,
   AuthProvider,
   ServerVersion,
@@ -206,4 +209,15 @@ export const api = {
   revokeBoardInvite: (boardId: string, inviteId: string) => request<void>('DELETE', `/boards/${boardId}/invites/${inviteId}`),
   previewInvite: (token: string) => request<InvitePreview>('POST', '/invites/preview', { token }),
   acceptInvite: (token: string) => request<AcceptedInvite>('POST', '/invites/accept', { token }),
+
+  adminListBoards: () => request<AdminBoard[]>('GET', '/admin/boards'),
+  adminDeleteBoard: (boardId: string) => request<void>('DELETE', `/admin/boards/${boardId}`),
+  adminListUsers: () => request<AdminUser[]>('GET', '/admin/users'),
+  /** Adds the user to the board with the role, or changes the role they have. */
+  adminSetBoardMember: (boardId: string, userId: string, role: BoardRole) =>
+    request<AdminBoardMember>('PUT', `/admin/boards/${boardId}/members/${userId}`, { role }),
+  adminRemoveBoardMember: (boardId: string, principalId: string) =>
+    request<void>('DELETE', `/admin/boards/${boardId}/members/${principalId}`),
+  adminUpdateUser: (userId: string, changes: { isAdmin?: boolean }) => request<void>('PATCH', `/admin/users/${userId}`, changes),
+  adminDeleteUser: (userId: string) => request<void>('DELETE', `/admin/users/${userId}`),
 }

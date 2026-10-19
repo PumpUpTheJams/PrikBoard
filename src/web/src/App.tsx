@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { api, errorMessage, setUnauthorizedHandler } from './api/client'
-import type { Assignee, BoardSummary, Caller } from './api/types'
+import type { BoardSummary, Caller } from './api/types'
 import { BoardCanvas } from './board/BoardCanvas'
 import {
   CheckIcon,
@@ -10,6 +10,7 @@ import {
   PeopleIcon,
   PostItIcon,
   RulesIcon,
+  ShieldIcon,
   SignOutIcon,
   TrashIcon,
   UploadIcon,
@@ -19,11 +20,12 @@ import { pickBoardFile, saveFile } from './board/files'
 import { useBoard } from './board/useBoard'
 import { useLive } from './live/useLive'
 import { AccountDialog, DisplayNameDialog } from './components/AccountDialogs'
-import { AvatarStack } from './components/Avatar'
+import { AdminPage } from './components/AdminPage'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { initials } from './components/initials'
 import { InvitePage } from './components/InvitePage'
 import { Menu } from './components/Menu'
+import { NoAccess } from './components/NoAccess'
 import { Presence } from './components/Presence'
 import { QuickAdd } from './components/QuickAdd'
 import { ShareDialog } from './components/ShareDialog'
@@ -32,15 +34,12 @@ import { SignIn } from './components/SignIn'
 const BoardRulesDialog = lazy(() => import('./components/BoardRulesDialog').then((m) => ({ default: m.BoardRulesDialog })))
 
 const boardIdFromHash = () => window.location.hash.match(/^#\/boards\/([\w-]+)/)?.[1] ?? null
-/** Invite links look like /#/invite/{token}; the token never reaches a server log. */
+/**
+ * Invite links look like /#/invite/{token}. Signed out, the token goes along in the sign-in's return URL, so the
+ * server can let a newcomer with an open invite in; otherwise only the request body of preview and accept carries it.
+ */
 const inviteFromHash = () => window.location.hash.match(/^#\/invite\/([\w-]+)/)?.[1] ?? null
-
-/** Everyone assigned to something on the board, people first. */
-function boardAssignees(notes: { assignees: Assignee[] }[]): Assignee[] {
-  const unique = new Map<string, Assignee>()
-  for (const a of notes.flatMap((n) => n.assignees)) unique.set(a.principalId, a)
-  return [...unique.values()].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'Person' ? -1 : 1))
-}
+const adminFromHash = () => window.location.hash === '#/admin'
 
 export default function App() {
   // undefined while checking the session, null when signed out.
@@ -97,6 +96,9 @@ interface WorkspaceProps {
 function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   const [boards, setBoards] = useState<BoardSummary[] | null>(null)
   const [selectedId, setSelectedId] = useState(boardIdFromHash)
+  const [adminView, setAdminView] = useState(adminFromHash)
+  // A board in the hash that isn't in your list is looked up once more (you may just have joined) before the sad page.
+  const [recheckedId, setRecheckedId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [serverVersion, setServerVersion] = useState<string | null>(null)
   useEffect(() => {
@@ -111,21 +113,29 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   useEffect(() => {
     void loadBoards()
 
-    const onHashChange = () => setSelectedId(boardIdFromHash())
+    const onHashChange = () => {
+      setSelectedId(boardIdFromHash())
+      setAdminView(adminFromHash())
+    }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [loadBoards])
 
-  // Fall back to the newest board when nothing (or something stale) is selected.
-  const activeBoard = boards?.find((b) => b.id === selectedId) ?? boards?.[0] ?? null
+  const selectedMissing = boards !== null && selectedId !== null && !boards.some((b) => b.id === selectedId)
+  useEffect(() => {
+    if (!selectedMissing || recheckedId === selectedId) return
+    void loadBoards().finally(() => setRecheckedId(selectedId))
+  }, [selectedMissing, selectedId, recheckedId, loadBoards])
+
+  // Fall back to the newest board when nothing is selected; a board you can't open gets the sad page instead.
+  const activeBoard = adminView || selectedMissing ? null : (boards?.find((b) => b.id === selectedId) ?? boards?.[0] ?? null)
   const isOwner = activeBoard?.yourRole === 'Owner'
 
-  // The board was deleted or you were removed from it (by an owner, possibly in another tab).
+  // The board was deleted or you were removed from it (by an owner or admin, possibly in another tab): the board's
+  // link stays and shows the sad page. The canvas keeps the open board in the hash, so read it from there.
   const onLost = useCallback(() => {
-    setError('You no longer have access to that board.')
     setDialog(null)
-    window.location.hash = ''
-    setSelectedId(null)
+    setSelectedId(boardIdFromHash())
     void loadBoards()
   }, [loadBoards])
   // Live updates tell the open board to reload when others save; until connected, the board polls.
@@ -146,7 +156,6 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   // Someone's finished drag stays where they dropped it until the reload shows where it landed.
   useEffect(() => boardLoaded(), [board, boardLoaded])
   const othersHere = live.viewers.filter((v) => v.principalId !== user.id)
-  const assignees = board ? boardAssignees(board.notes) : []
   const provider = user.identities.find((i) => i.provider === user.provider)?.providerName ?? user.provider
 
   function selectBoard(id: string | null) {
@@ -354,21 +363,16 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
               </>
             )}
           </Menu>
-        </div>
-
-        <div className="topbar-end">
-          <Presence viewers={othersHere} />
           {activeBoard && (
             <button type="button" className="share-button" onClick={() => setDialog('share')}>
               <PeopleIcon />
               Share
             </button>
           )}
-          {assignees.length > 0 && (
-            <div className="topbar-people" aria-label="Assigned on this board">
-              <AvatarStack assignees={assignees} max={3} size="md" />
-            </div>
-          )}
+        </div>
+
+        <div className="topbar-end">
+          <Presence viewers={othersHere} />
           <span className="topbar-divider" aria-hidden="true" />
           <Menu
             label="Your settings"
@@ -405,6 +409,20 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
                     Account
                   </button>
                 )}
+                {user.isAdmin && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="menu-item"
+                    onClick={() => {
+                      close()
+                      window.location.hash = '/admin'
+                    }}
+                  >
+                    <ShieldIcon />
+                    Admin
+                  </button>
+                )}
                 <a role="menuitem" className="menu-item" href="/scalar" target="_blank" rel="noreferrer" onClick={close}>
                   <ExternalIcon />
                   API reference
@@ -434,8 +452,23 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
       )}
 
       <main>
-        {boards === null ? (
+        {adminView ? (
+          user.isAdmin ? (
+            <AdminPage
+              onYouChanged={() => void api.whoAmI().then(onUserChange)}
+              onBack={() => selectBoard(null)}
+            />
+          ) : (
+            <NoAccess
+              title="This page is for admins"
+              message="Only admins of this PrikBoard can see it."
+              onBack={() => selectBoard(null)}
+            />
+          )
+        ) : boards === null ? (
           <p className="status">Loading…</p>
+        ) : selectedMissing ? (
+          recheckedId === selectedId ? <NoAccess onBack={() => selectBoard(null)} /> : <p className="status">Loading…</p>
         ) : activeBoard ? (
           board ? (
             <BoardCanvas

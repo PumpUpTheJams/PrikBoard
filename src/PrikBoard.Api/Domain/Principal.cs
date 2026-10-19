@@ -30,6 +30,12 @@ public class User : Principal
 {
     public List<UserIdentity> Identities { get; set; } = [];
 
+    /// <summary>
+    /// Runs the whole instance: sees every board and user, sets anyone's board roles and deletes users. The first user
+    /// becomes one; there is always at least one.
+    /// </summary>
+    public bool IsAdmin { get; set; }
+
     // GUID v7 starts with a timestamp, so the random tail tells people apart better than the head.
     public override string FallbackName => $"User {Id.ToString("N")[^4..]}";
 }

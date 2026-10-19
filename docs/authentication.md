@@ -106,7 +106,7 @@ openssl rand -base64 32
 
 Set it with `dotnet user-secrets set "Auth:HashKey" "<key>" --project src/PrikBoard.Api`, or the environment variable `Auth__HashKey`. Outside Development the API refuses to start without it. Development and the tests fall back to a fixed, public development key.
 
-**Losing or changing the key orphans every account.** People's next sign-in creates a new, empty user, and email search stops finding anyone. There is no key rotation yet.
+**Losing or changing the key orphans every account.** Nobody's sign-in is recognised any more, so people are turned away as newcomers (they would need a new invite link and get a new, empty user), and email search stops finding anyone. There is no key rotation yet.
 
 ## Boards, roles and agents
 
@@ -118,9 +118,9 @@ Boards are members-only. The roles are:
 | **Editor** | Also change buckets, notes and images. |
 | **Owner** | Also rename or delete the board, and manage members and invite links. |
 
-The creator becomes the owner, and a board always keeps at least one. Owners add people by exact email, or with a single-use invite link (`/#/invite/{token}`, 7 days by default). Only a hash of the invite token is stored.
+The creator becomes the owner, and a board always keeps at least one. Owners add people with a single-use invite link (`/#/invite/{token}`, 7 days by default) in the Share dialog, or through the API by exact email (findUserByEmail, then addBoardMember). Only a hash of the invite token is stored.
 
-Every machine token acts as an **agent** principal, keyed by issuer id and client id (azp, client_id or appid). The exception is a client the issuer lists under `UserClients`, see [Interactive apps acting for a person](#interactive-apps-acting-for-a-person-vs-code-extension). An agent sees no boards until an owner adds it with *Share → Add an agent*. Agents become owners of the boards they create. Token scopes still apply on top of the role: a `boards:read` token cannot write even as an Editor. Agents cannot accept invite links or search people by email, so an agent that reads a link somewhere cannot use it to join a board.
+Every machine token acts as an **agent** principal, keyed by issuer id and client id (azp, client_id or appid). The exception is a client the issuer lists under `UserClients`, see [Interactive apps acting for a person](#interactive-apps-acting-for-a-person-vs-code-extension). An agent sees no boards until an owner adds it through the API (addBoardAgent). Agents become owners of the boards they create. Token scopes still apply on top of the role: a `boards:read` token cannot write even as an Editor. Agents cannot accept invite links or search people by email, so an agent that reads a link somewhere cannot use it to join a board.
 
 ## Personal access tokens
 
@@ -190,7 +190,7 @@ An app that signs a person in itself, such as the VS Code extension (authorizati
 }
 ```
 
-For a token whose client (azp, client_id or appid) is listed and that has a `sub`, PrikBoard finds or creates the user for `UserProvider` (default: the issuer id) and that `sub`, with the same keyed hash as a browser sign-in. For the person to be the *same* user as in the browser, give the issuer and the sign-in provider the same id and the same identity provider (Auth0 as both `Providers:auth0` and `Tokens:Issuers:auth0`), or set `UserProvider` to the provider's id. Otherwise they become a second user.
+For a token whose client (azp, client_id or appid) is listed and that has a `sub`, PrikBoard finds the user for `UserProvider` (default: the issuer id) and that `sub`, with the same keyed hash as a browser sign-in. For the person to be the *same* user as in the browser, give the issuer and the sign-in provider the same id and the same identity provider (Auth0 as both `Providers:auth0` and `Tokens:Issuers:auth0`), or set `UserProvider` to the provider's id. Otherwise the token finds no user. Tokens never create users (see [Who may sign in](#who-may-sign-in)), so a person who has not joined in the browser yet gets `401`.
 
 - `whoAmI` shows `kind: Token` and `principalKind: User`. Boards, roles, display name and memberships are the person's. Scopes from the token still apply on top of the role.
 - Sign-ins are still managed in the browser. A token cannot link or unlink sign-ins, accept invite links or look people up by email.
@@ -206,7 +206,24 @@ All other tokens, including Client Credentials ones, keep acting as agents. A de
 
 ## Who may sign in
 
-Anyone who can sign in with a configured provider gets in; there is no allowlist. They see only boards they are a member of, so enable only providers whose users you trust. A failed provider round trip returns to `/?authError=failed`.
+PrikBoard is **invite-only**. Signing in at a provider is not enough: a person only gets an account when they arrive through a board invite link.
+
+- **The very first user** may sign in without one, and becomes the instance's **admin**. Sign-ups are serialised with a PostgreSQL advisory lock, so two first sign-ins at once cannot both become admin. (Upgrading an existing database makes its oldest user the admin.)
+- **Newcomers** open an invite link (`/#/invite/{token}`) while signed out. Signing in carries the link in its return URL, which travels in the encrypted OAuth state, and the callback creates their user only if the token is an invite that is neither used, revoked nor expired. They then accept it on the invite page as usual, and from then on they can create boards of their own.
+- **Anyone else** is turned away at the callback (`/?authError=invite_required`), and nothing about them is stored.
+- **People who already have an account** sign in as before, with or without a link.
+- **Delegated tokens** (the VS Code extension) never create users: a `sub` without a user gets `401` until the person has joined in the browser.
+
+A failed provider round trip returns to `/?authError=failed`.
+
+### Admins
+
+Admins (`User.IsAdmin`) run the instance from *Admin* in the settings menu: they see every board with its members (not its content) and every user, give anyone any role on any board, take people off boards, delete any board, make others admin and delete users. The rules:
+
+- There is always at least one admin (`409` otherwise), and an admin cannot delete themselves.
+- A user who is the only owner of a board cannot be deleted until that board has another owner (`409`, with the boards in the problem's `boards` field).
+- Deleting a user deletes their sign-ins, memberships and access tokens. Their notes and images stay (the creator becomes unknown). Their session cookie stops working on the next request: the cookie handler checks that the user still exists (`UserState`, cached for a minute and evicted on delete).
+- The admin endpoints (`/api/admin/*`) are **sessions only**, like token management: tokens get `403`, and there are no MCP tools for them.
 
 ## Local development
 

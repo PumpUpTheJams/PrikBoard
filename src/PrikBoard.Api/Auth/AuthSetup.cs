@@ -85,6 +85,17 @@ public static partial class AuthSetup
                 // This is an API: answer with status codes instead of redirecting to a login page.
                 options.Events.OnRedirectToLogin = context => SetStatus(context, StatusCodes.Status401Unauthorized);
                 options.Events.OnRedirectToAccessDenied = context => SetStatus(context, StatusCodes.Status403Forbidden);
+                // A deleted user's cookie stops working (and is cleared) on their next request.
+                options.Events.OnValidatePrincipal = async context =>
+                {
+                    if (Guid.TryParse(context.Principal?.FindFirstValue(UserPrincipal.IdClaim), out var userId)
+                        && await UserState.ExistsAsync(context.HttpContext.RequestServices, userId, context.HttpContext.RequestAborted))
+                    {
+                        return;
+                    }
+                    context.RejectPrincipal();
+                    await context.HttpContext.SignOutAsync(CookieScheme);
+                };
             })
             .AddScheme<AuthenticationSchemeOptions, AccessTokenHandler>(AccessTokenScheme, null);
 
@@ -206,6 +217,12 @@ public static partial class AuthSetup
                     var principalId = subject is not null && issuer.UserClients.Contains(clientId, StringComparer.Ordinal)
                         ? await UserSignIn.ResolveUserIdAsync(services, issuer.UserProvider ?? id, subject, ct)
                         : await AgentRegistry.ResolveAsync(services, id, clientId, ct);
+                    if (principalId is null)
+                    {
+                        // Only people who joined through an invite in the browser have a user for the app to act as.
+                        context.Fail("This person has no PrikBoard account.");
+                        return;
+                    }
                     identity.AddClaim(new Claim(UserPrincipal.PrincipalClaim, principalId.ToString()));
                 },
             };

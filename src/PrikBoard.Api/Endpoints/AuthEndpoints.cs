@@ -195,12 +195,12 @@ public static class AuthEndpoints
             {
                 case Agent agent:
                     return new Caller(CallerKind.Token, PrincipalKind.Agent, agent.Id, agent.ShownName, agent.DisplayName, null,
-                        agent.Issuer, agent.ClientId, [], scopes);
+                        agent.Issuer, agent.ClientId, [], scopes, false);
                 // A token from one of the issuer's UserClients: the person themselves, limited to the token's scopes.
                 // Sign-ins are managed in the browser, so none are listed.
                 case User person:
                     return new Caller(CallerKind.Token, PrincipalKind.User, person.Id, person.ShownName, person.DisplayName, null,
-                        issuer, AgentRegistry.ClientId(principal), [], scopes);
+                        issuer, AgentRegistry.ClientId(principal), [], scopes, false);
                 default:
                     return null;
             }
@@ -216,7 +216,7 @@ public static class AuthEndpoints
             .ToList();
         var suggested = user.DisplayName is null ? principal.FindFirstValue(UserPrincipal.SuggestedNameClaim) : null;
         return new Caller(CallerKind.Session, PrincipalKind.User, user.Id, user.ShownName, user.DisplayName, suggested,
-            principal.FindFirstValue(UserPrincipal.ProviderClaim), null, identities, scopes);
+            principal.FindFirstValue(UserPrincipal.ProviderClaim), null, identities, scopes, user.IsAdmin);
     }
 
     /// <summary>Only same-site paths, so a crafted login link cannot bounce people to another site.</summary>

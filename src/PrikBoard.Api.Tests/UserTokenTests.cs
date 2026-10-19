@@ -82,13 +82,14 @@ public class UserTokenTests(UserTokenTests.Factory factory) : IClassFixture<User
     }
 
     [Fact]
-    public async Task A_person_who_only_ever_signed_in_with_the_app_gets_a_user_that_the_browser_reuses()
+    public async Task The_app_cannot_create_an_account_for_someone_who_never_joined_in_the_browser()
     {
-        var first = await Client(Token("newcomer-subject", ExtensionClient, "boards:read")).GetFromJsonAsync<Caller>("/api/me");
+        var app = Client(Token("newcomer-subject", ExtensionClient, "boards:read"));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await app.GetAsync("/api/me")).StatusCode);
 
         var browser = await (await factory.CreateSignedInClientAsync("newcomer@example.com", subject: "newcomer-subject")).MeAsync();
 
-        Assert.Equal(first!.Id, browser.Id);
+        Assert.Equal(browser.Id, (await app.GetFromJsonAsync<Caller>("/api/me"))!.Id);
     }
 
     [Fact]

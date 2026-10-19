@@ -39,7 +39,7 @@ Every board has members, each with a role:
 Every token client is an **agent**, identified by its issuer id and client id. A new agent sees no boards.
 
 1. Call `whoAmI` with the token. It returns `principalKind: Agent`, your `id` and your `clientId`.
-2. Ask a board owner to add you: *Share → Add an agent* in the browser, or `POST /api/boards/{boardId}/agents` with `{"issuer": "...", "clientId": "...", "role": "Editor"}`.
+2. Ask a board owner to add you with `POST /api/boards/{boardId}/agents` with `{"issuer": "...", "clientId": "...", "role": "Editor"}`.
 3. Optionally set your display name with `PATCH /api/me` (`{"displayName": "Release bot"}`).
 
 Boards an agent creates itself belong to it. Agents cannot accept invite links or look people up by email; those are browser-only, so a link an agent comes across cannot get it onto a board.
@@ -47,6 +47,12 @@ Boards an agent creates itself belong to it. Agents cannot accept invite links o
 ### Invite links
 
 Owners create single-use links with createBoardInvite. The response holds the token and a `path` (`/#/invite/{token}`) **once**; only a hash is stored. The link expires after 7 days by default (`expiresInDays`, 1 to 30), and owners can revoke it. The first signed-in person to accept it becomes a member with the link's role, or keeps their current role if that is higher. Tokens travel in POST bodies, never in query strings.
+
+PrikBoard is invite-only: an open invite link is also the only way for a newcomer to get an account. Someone who opens it while signed out signs in with the link as the return URL, and only then is their user created ([Authentication](authentication.md#who-may-sign-in)).
+
+### Admins
+
+The instance's first user is its admin, and admins can make others admin. `whoAmI` returns `isAdmin`. The `admin*` operations below are for admins in the browser only: everyone else, and every token, gets `403`, and there are no MCP tools for them. Admins see who is on every board, not what is on it; to look inside a board, an admin adds themself, which its members see.
 
 Setting up providers and issuers is described in [Authentication](authentication.md).
 
@@ -208,6 +214,13 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | revokeBoardInvite | `DELETE /api/boards/{boardId}/invites/{inviteId}` | Revoke an invite link (Owner) |
 | previewInvite | `POST /api/invites/preview` | Board name and role behind an invite token (sessions only) |
 | acceptInvite | `POST /api/invites/accept` | Spend an invite token and join the board (sessions only) |
+| adminListBoards | `GET /api/admin/boards` | Every board with its members and their roles, newest first (admins, sessions only) |
+| adminDeleteBoard | `DELETE /api/admin/boards/{boardId}` | Delete any board with everything on it (admins, sessions only) |
+| adminListUsers | `GET /api/admin/users` | Every user, with admin flag, board count and the boards they own alone (admins, sessions only) |
+| adminSetBoardMember | `PUT /api/admin/boards/{boardId}/members/{userId}` | Add a person to any board with a role, or change their role (admins, sessions only) |
+| adminRemoveBoardMember | `DELETE /api/admin/boards/{boardId}/members/{principalId}` | Take anyone off any board; the last owner stays (admins, sessions only) |
+| adminUpdateUser | `PATCH /api/admin/users/{userId}` | Make a user an admin or take it away; one admin always stays (admins, sessions only) |
+| adminDeleteUser | `DELETE /api/admin/users/{userId}` | Delete a user who owns no board alone; not yourself (admins, sessions only) |
 
 Board, bucket, note and image endpoints need the **Viewer** role to read and **Editor** to change anything; updateBoard and deleteBoard need **Owner**.
 

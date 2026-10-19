@@ -281,6 +281,11 @@ input[aria-invalid='true'] {
   gap: 6px;
 }
 
+.topbar-start .share-button {
+  flex: none;
+  margin-left: 6px;
+}
+
 .board-tile {
   display: grid;
   flex: none;
@@ -326,10 +331,6 @@ input[aria-invalid='true'] {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.topbar-people .avatar {
-  border: 2px solid var(--bar);
 }
 
 .topbar-divider {
@@ -2542,16 +2543,22 @@ a.button.primary:hover {
   min-width: 0;
 }
 
-.agent-form {
+/* A member's role and button in fixed columns, so every row lines up (Share dialog). */
+.member-actions {
   display: grid;
-  grid-template-columns: auto 1fr 1fr auto auto;
+  flex: none;
+  grid-template-columns: 112px 76px;
+  align-items: center;
   gap: 8px;
 }
 
-@media (max-width: 640px) {
-  .agent-form {
-    grid-template-columns: 1fr 1fr;
-  }
+.member-actions .select-trigger,
+.member-actions button {
+  width: 100%;
+}
+
+.member-actions .row-meta {
+  padding-left: 12px;
 }
 
 /* Select: a dropdown that looks like the app's menus */
@@ -2631,10 +2638,6 @@ a.button.primary:hover {
 .select-option-detail {
   color: var(--subtle);
   font-size: 12px;
-}
-
-.agent-form .select-trigger {
-  min-width: 0;
 }
 
 .row-list {
@@ -3345,4 +3348,337 @@ a.button.primary:hover {
   .toast {
     animation: none;
   }
+}
+
+/* No-access page: a link to a board you can't open */
+
+.no-access .board-tile {
+  transform: rotate(-8deg) translateY(4px);
+}
+
+/* Admin page: people on the left; the Admins bucket and every board on the right. The page fills the window and each
+   list scrolls by itself, so the person you drag and the board you aim for can both be in view. */
+
+.admin-page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 20px clamp(16px, 4vw, 40px);
+}
+
+.admin-page.dragging,
+.admin-page.dragging * {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.admin-head {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto 14px;
+}
+
+.admin-head h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.admin-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.admin-error {
+  flex: none;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto 12px;
+}
+
+.admin-columns {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(280px, 2fr) 3fr;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 20px;
+  width: 100%;
+  max-width: 1200px;
+  min-height: 0;
+  margin: 0 auto;
+}
+
+@media (max-width: 760px) {
+  .admin-columns {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1.4fr);
+  }
+}
+
+.admin-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.admin-panel h3 {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.admin-search {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin-bottom: 10px;
+  color: var(--muted);
+}
+
+.admin-search svg {
+  position: absolute;
+  left: 10px;
+  pointer-events: none;
+}
+
+.admin-search input {
+  width: 100%;
+  padding-left: 32px;
+}
+
+/* The list that scrolls (and scrolls by itself while a drag nears its top or bottom edge). */
+.admin-scroll {
+  flex: 1;
+  min-height: 0;
+  margin-right: -6px;
+  padding-right: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.admin-none {
+  margin: 8px 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.admin-people li {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.admin-people li.admin-none {
+  min-height: 0;
+  cursor: default;
+}
+
+.admin-people li.admin-none:hover {
+  background: none;
+}
+
+.admin-people li.lifted {
+  opacity: 0.45;
+}
+
+.badge.admin {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.admin-bucket {
+  position: relative;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--frame-bg);
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.admin-bucket.drop-target {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--frame-bg));
+}
+
+.admin-admins {
+  flex: none;
+  margin-bottom: 16px;
+  border-style: dashed;
+}
+
+.admin-board-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* One compact row per board: member count, name and delete on top, at most a few member chips below. */
+.admin-board {
+  flex: none;
+  min-height: 80px;
+}
+
+.admin-board header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  margin-bottom: 6px;
+}
+
+.admin-count {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-width: 38px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--muted);
+  font: 11px var(--mono);
+}
+
+.admin-board-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-board-delete {
+  flex: none;
+  width: 26px;
+  height: 26px;
+}
+
+.admin-board-delete:hover {
+  color: var(--danger);
+}
+
+.admin-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 4px 0 9px;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--text-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.admin-chip.agent {
+  background: #2a2140;
+  color: #d9c9ff;
+}
+
+.admin-chip-role {
+  color: var(--muted);
+  font: 10px var(--mono);
+  text-transform: uppercase;
+}
+
+.admin-chip button {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.admin-chip button:hover {
+  background: var(--hover);
+  color: var(--danger);
+}
+
+.admin-more {
+  height: 24px;
+  padding: 0 9px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-more:hover {
+  border-style: solid;
+  color: var(--text);
+}
+
+/* While a person hovers a board, its member chips make way (keeping the row's size) for the role zones. */
+.admin-board.drop-target .admin-chips {
+  visibility: hidden;
+}
+
+/* One zone per role, where the member chips were (match ZONES_TOP). */
+.admin-zones {
+  position: absolute;
+  inset: 40px 8px 8px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.admin-zone {
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.admin-zone.drop-target {
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel-2));
+  color: var(--accent);
+}
+
+.admin-ghost {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 6px;
+  border-radius: 999px;
+  background: var(--dialog);
+  color: var(--text);
+  font-size: 13px;
+  opacity: 0.95;
 }

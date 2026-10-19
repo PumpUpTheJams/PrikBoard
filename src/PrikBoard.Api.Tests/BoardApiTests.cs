@@ -392,6 +392,8 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
                 "listBoardTags", "createBoardTag", "renameBoardTag", "deleteBoardTag",
                 "whoAmI", "listAuthProviders", "getVersion",
                 "uploadImage", "getImageContent", "updateImage", "deleteImage",
+                "adminListBoards", "adminDeleteBoard", "adminListUsers", "adminSetBoardMember", "adminRemoveBoardMember",
+                "adminUpdateUser", "adminDeleteUser",
             },
             operationIds);
     }
