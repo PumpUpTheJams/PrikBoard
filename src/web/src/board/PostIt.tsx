@@ -4,6 +4,7 @@ import { AvatarStack } from '../components/Avatar'
 import { Highlight } from './Highlight'
 import { ExpandIcon, LayersIcon } from './icons'
 import { NOTE_HEIGHT, NOTE_WIDTH } from './layout'
+import { tagColorClass, type TagColors } from './tagColors'
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
 
@@ -38,6 +39,8 @@ interface PostItProps {
   point: Point
   /** How many images are attached to it (they count with its blocks in the content badge). */
   images?: number
+  /** The board's tag colours; tags without one are a shade of the fill. */
+  tagColors?: TagColors
   selected: boolean
   lifted: boolean
   /** Faded: it doesn't match the board's tag filter or search. */
@@ -68,7 +71,7 @@ interface PostItProps {
  * (see ExpandedNote).
  */
 export function PostIt(props: PostItProps) {
-  const { note, point, images = 0, selected, lifted, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
+  const { note, point, images = 0, tagColors, selected, lifted, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
   const { editingTitle, titleCaret, onRenameTitle, onTitleDone } = props
   /** A saved title, shown until the reload brings it (while the server still has `from`). */
   const [saved, setSaved] = useState<{ title: string; from: string } | null>(null)
@@ -90,7 +93,7 @@ export function PostIt(props: PostItProps) {
   if (dropTarget) classes.push('drop-target')
 
   const tags = note.tags.map((tag) => (
-    <span key={tag} className="tag">
+    <span key={tag} className={`tag${tagColorClass(tagColors, tag)}`}>
       <Highlight text={tag} terms={highlight} />
     </span>
   ))

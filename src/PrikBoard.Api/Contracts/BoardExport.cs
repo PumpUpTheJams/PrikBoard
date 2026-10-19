@@ -18,6 +18,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Tags">Names of the board's tags, including ones no note uses.</param>
 /// <param name="Notes">Notes, the most recently edited last (they are drawn on top). A note's bucket follows from where it sits.</param>
 /// <param name="Images">Images on the canvas and attached to notes, with their bytes.</param>
+/// <param name="TagColors">Colours of the tags that have one (not Default), by tag name. Optional; files without it import with default colours.</param>
 public record BoardExport(
     [property: Required] string Format,
     [property: Range(1, int.MaxValue)] int Version,
@@ -28,7 +29,8 @@ public record BoardExport(
     [property: Required, MaxLength(BoardExport.MaxBuckets)] List<ExportedBucket> Buckets,
     [property: Required, MaxLength(BoardTag.MaxPerBoard)] List<string> Tags,
     [property: Required, MaxLength(BoardExport.MaxNotes)] List<ExportedNote> Notes,
-    [property: Required, MaxLength(BoardExport.MaxImages)] List<ExportedImage> Images)
+    [property: Required, MaxLength(BoardExport.MaxImages)] List<ExportedImage> Images,
+    Dictionary<string, TagColor>? TagColors = null)
 {
     public const string FormatName = "prikboard-board";
     public const int CurrentVersion = 2;

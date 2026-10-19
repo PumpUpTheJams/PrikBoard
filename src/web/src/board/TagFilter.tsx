@@ -2,10 +2,12 @@ import { useRef, useState } from 'react'
 import type { BoardTag } from '../api/types'
 import { PickerWindow } from '../components/PickerWindow'
 import { CloseIcon, FilterIcon } from './icons'
+import { tagColorClass, type TagColors } from './tagColors'
 import { normalizeTag } from './tags'
 
 interface TagFilterProps {
   boardTags: BoardTag[]
+  tagColors: TagColors
   /** The picked tags; post-its with any of them stay bright, the others fade. */
   value: string[]
   onChange: (tags: string[]) => void
@@ -15,7 +17,7 @@ interface TagFilterProps {
 }
 
 /** A floating pill at the bottom left of the board that filters post-its by tag. */
-export function TagFilter({ boardTags, value, onChange, matching, total }: TagFilterProps) {
+export function TagFilter({ boardTags, tagColors, value, onChange, matching, total }: TagFilterProps) {
   const [anchor, setAnchor] = useState<DOMRect | null>(null)
   const [query, setQuery] = useState('')
   const pill = useRef<HTMLDivElement>(null)
@@ -37,7 +39,7 @@ export function TagFilter({ boardTags, value, onChange, matching, total }: TagFi
         {value.length === 0 ? 'Filter by tag' : `${matching} of ${total}`}
       </button>
       {value.map((tag) => (
-        <span key={tag} className="tag-filter-chip">
+        <span key={tag} className={`tag-filter-chip${tagColorClass(tagColors, tag)}`}>
           {tag}
           <button type="button" className="chip-remove" aria-label={`Stop filtering on ${tag}`} onClick={() => toggle(tag)}>
             <CloseIcon size={10} />
@@ -58,7 +60,18 @@ export function TagFilter({ boardTags, value, onChange, matching, total }: TagFi
           onQueryChange={setQuery}
           rows={boardTags
             .filter((t) => t.name.includes(wanted))
-            .map((t) => ({ key: t.id, label: t.name, meta: t.noteCount, checked: value.includes(t.name), onSelect: () => toggle(t.name) }))}
+            .map((t) => ({
+              key: t.id,
+              label: t.name,
+              meta: t.noteCount,
+              checked: value.includes(t.name),
+              onSelect: () => toggle(t.name),
+              trailing: (
+                <span className="picker-color" aria-hidden="true">
+                  <span className={`tag-dot tag-color-${t.color.toLowerCase()}`} />
+                </span>
+              ),
+            }))}
           empty="No tag matches."
           footer="Post-its with any of the picked tags stay bright."
           owner={pill}

@@ -376,37 +376,45 @@ public sealed class BoardTools
         IHttpContextAccessor accessor,
         [Description("The board id.")] Guid boardId,
         [Description("The tag; lower-cased and hyphenated by the server, at most 30 characters.")] string name,
-        CancellationToken ct)
+        [Description(TagColorHelp + " Default when omitted.")] TagColor? color = null,
+        CancellationToken ct = default)
     {
         var http = McpCall.Http(accessor);
         await McpCall.AuthorizeAsync(http, BoardScope.Board, boardId, BoardRole.Editor);
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
-        var request = new CreateTagRequest(name);
+        var request = new CreateTagRequest(name, color);
         McpCall.Validate(request);
         var tag = McpCall.Value<BoardTagDetail>(await TagEndpoints.CreateBoardTag(boardId, request, db, ct));
         await McpCall.AnnounceAsync(http, boardId);
         return tag;
     }
 
-    [McpServerTool(Name = "rename_tag", Title = "Rename a tag", Idempotent = true, OpenWorld = false)]
-    [Description("Renames a tag on the board and on every note that has it. Needs the Editor role.")]
-    public static async Task<BoardTagDetail> RenameTag(
+    [McpServerTool(Name = "update_tag", Title = "Rename or recolour a tag", Idempotent = true, OpenWorld = false)]
+    [Description("Renames a tag (on the board and on every note that has it) and/or changes its colour on post-its. Give a name, " +
+                 "a colour or both. Needs the Editor role.")]
+    public static async Task<BoardTagDetail> UpdateTag(
         IHttpContextAccessor accessor,
         [Description("The board id.")] Guid boardId,
-        [Description("The tag to rename: its name or id.")] string tag,
-        [Description("The new name; it must not be another tag on the board.")] string name,
-        CancellationToken ct)
+        [Description("The tag to change: its name or id.")] string tag,
+        [Description("A new name; it must not be another tag on the board.")] string? name = null,
+        [Description(TagColorHelp)] TagColor? color = null,
+        CancellationToken ct = default)
     {
+        if (name is null && color is null) throw new McpException("Give a new name, a colour or both.");
         var http = McpCall.Http(accessor);
         await McpCall.AuthorizeAsync(http, BoardScope.Board, boardId, BoardRole.Editor);
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
         var tagId = await ResolveTagAsync(db, boardId, tag, ct);
-        var request = new RenameTagRequest(name);
+        var request = new UpdateTagRequest(name, color);
         McpCall.Validate(request);
-        var renamed = McpCall.Value<BoardTagDetail>(await TagEndpoints.RenameBoardTag(boardId, tagId, request, db, ct));
+        var updated = McpCall.Value<BoardTagDetail>(await TagEndpoints.UpdateBoardTag(boardId, tagId, request, db, ct));
         await McpCall.AnnounceAsync(http, boardId);
-        return renamed;
+        return updated;
     }
+
+    private const string TagColorHelp =
+        "Its colour on post-its: Default (a shade of the post-it's fill) or Brick, Rust, Ochre, Moss, Pine, Teal, Ocean, " +
+        "Indigo, Violet, Berry or Ink, a solid chip that stands out (for example for priority).";
 
     [McpServerTool(Name = "delete_tag", Title = "Delete a tag", Destructive = true, OpenWorld = false)]
     [Description("Deletes a tag from the board and removes it from every note that has it (the notes stay); restore_tag puts it " +

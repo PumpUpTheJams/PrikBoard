@@ -6,6 +6,10 @@ export type NoteColor = (typeof noteColors)[number]
 export const bucketColors = ['Blue', 'Amber', 'Violet', 'Teal', 'Rose'] as const
 export type BucketColor = (typeof bucketColors)[number]
 
+/** Default is a shade of the post-it's own fill; the others are solid chips of their own, in palette order. */
+export const tagColors = ['Default', 'Brick', 'Rust', 'Ochre', 'Moss', 'Pine', 'Teal', 'Ocean', 'Indigo', 'Violet', 'Berry', 'Ink'] as const
+export type TagColor = (typeof tagColors)[number]
+
 /** Ordered: each role includes the ones before it. */
 export const boardRoles = ['Viewer', 'Editor', 'Owner'] as const
 export type BoardRole = (typeof boardRoles)[number]
@@ -45,7 +49,14 @@ export interface BoardDetail extends BoardSummary {
 export interface BoardTag {
   id: string
   name: string
+  color: TagColor
   noteCount: number
+}
+
+/** A PATCH of a board tag: omitted fields stay unchanged. A new name changes it on every note too. */
+export interface TagChanges {
+  name?: string
+  color?: TagColor
 }
 
 /** Someone who can be assigned to notes on a board: a member, or the agent of a member's access token. */

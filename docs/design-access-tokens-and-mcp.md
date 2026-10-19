@@ -155,7 +155,7 @@ Hand-written and curated, rather than generated one per OpenAPI operation. Agent
 | `set_working` | idempotent | Assign yourself and set `agentWorking` on or off (REST: `setNoteWorking`) |
 | `delete_note` | **destructive** | |
 | `create_bucket`, `update_bucket` | | Rare for agents, but cheap to add |
-| `create_tag`, `rename_tag`, `delete_tag` | `delete_tag` **destructive** | The board's tags by name or id; renaming and deleting change every note |
+| `create_tag`, `update_tag`, `delete_tag` | `delete_tag` **destructive** | The board's tags by name or id; renaming and deleting change every note, and `update_tag` also changes the colour |
 
 - **No member, invite, board-delete or token tools.** Agents never manage access, and the tool list itself says so.
 - **Annotations** (`ReadOnly`, `Destructive`, `Idempotent`) let clients ask before a destructive call.

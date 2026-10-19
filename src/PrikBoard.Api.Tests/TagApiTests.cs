@@ -57,7 +57,7 @@ public class TagApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardA
         var renamed = await client.PatchAsJsonAsync($"/api/boards/{board.Id}/tags/{ui.Id}", new { name = "Front End" });
         renamed.EnsureSuccessStatusCode();
 
-        Assert.Equal(new BoardTagDetail(ui.Id, "front-end", 2), await renamed.Content.ReadFromJsonAsync<BoardTagDetail>());
+        Assert.Equal(new BoardTagDetail(ui.Id, "front-end", TagColor.Default, 2), await renamed.Content.ReadFromJsonAsync<BoardTagDetail>());
         Assert.Equal(["front-end", "backend"], (await NoteAsync(client, first.Id)).Tags);
         Assert.Equal(["front-end"], (await NoteAsync(client, second.Id)).Tags);
         Assert.Equal(["backend", "front-end"], (await TagsAsync(client, board.Id)).Select(t => t.Name));
@@ -66,6 +66,37 @@ public class TagApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardA
         Assert.Equal(HttpStatusCode.Conflict, clash.StatusCode);
         var tooLong = await client.PatchAsJsonAsync($"/api/boards/{board.Id}/tags/{ui.Id}", new { name = new string('x', 31) });
         Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_tag_gets_a_colour_of_its_own_and_back_to_default()
+    {
+        var client = await factory.CreateSignedInClientAsync("tags-colour@example.com");
+        var board = await client.CreateBoardAsync("Tags colour");
+        var note = await CreateNote(client, board.Id, "Urgent", "ui");
+        var ui = (await TagsAsync(client, board.Id)).Single();
+        Assert.Equal(TagColor.Default, ui.Color);
+
+        var created = await client.PostAsJsonAsync($"/api/boards/{board.Id}/tags", new { name = "urgent", color = "Brick" });
+        Assert.Equal(TagColor.Brick, (await created.Content.ReadFromJsonAsync<BoardTagDetail>())!.Color);
+
+        // Only the colour: the name and the notes stay as they are.
+        var recoloured = await client.PatchAsJsonAsync($"/api/boards/{board.Id}/tags/{ui.Id}", new { color = "Ocean" });
+        recoloured.EnsureSuccessStatusCode();
+        Assert.Equal(new BoardTagDetail(ui.Id, "ui", TagColor.Ocean, 1), await recoloured.Content.ReadFromJsonAsync<BoardTagDetail>());
+        Assert.Equal(["ui"], (await NoteAsync(client, note.Id)).Tags);
+
+        // A new name keeps the colour; both at once change both.
+        var renamed = await client.PatchAsJsonAsync($"/api/boards/{board.Id}/tags/{ui.Id}", new { name = "front-end" });
+        Assert.Equal(TagColor.Ocean, (await renamed.Content.ReadFromJsonAsync<BoardTagDetail>())!.Color);
+        var both = await client.PatchAsJsonAsync($"/api/boards/{board.Id}/tags/{ui.Id}", new { name = "ui", color = "Default" });
+        var reset = (await both.Content.ReadFromJsonAsync<BoardTagDetail>())!;
+        Assert.Equal(("ui", TagColor.Default), (reset.Name, reset.Color));
+
+        var unknown = await client.PatchAsJsonAsync($"/api/boards/{board.Id}/tags/{ui.Id}", new { color = "Neon" });
+        Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
+        var snapshot = (await client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
+        Assert.Equal([("ui", TagColor.Default), ("urgent", TagColor.Brick)], snapshot.Tags.Select(x => (x.Name, x.Color)));
     }
 
     [Fact]

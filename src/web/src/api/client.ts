@@ -32,6 +32,8 @@ import type {
   NoteDetail,
   Point,
   Rect,
+  TagChanges,
+  TagColor,
 } from './types'
 
 export class ApiError extends Error {
@@ -185,10 +187,11 @@ export const api = {
     request<NoteDetail>('POST', `/notes/${noteId}/working`, { working }),
 
   listBoardTags: (boardId: string) => request<BoardTag[]>('GET', `/boards/${boardId}/tags`),
-  createBoardTag: (boardId: string, name: string) => request<BoardTag>('POST', `/boards/${boardId}/tags`, { name }),
-  /** Renames the tag on every note of the board too. */
-  renameBoardTag: (boardId: string, tagId: string, name: string) =>
-    request<BoardTag>('PATCH', `/boards/${boardId}/tags/${tagId}`, { name }),
+  createBoardTag: (boardId: string, name: string, color?: TagColor) =>
+    request<BoardTag>('POST', `/boards/${boardId}/tags`, { name, color }),
+  /** Renames (on every note of the board too) and/or recolours a tag. */
+  updateBoardTag: (boardId: string, tagId: string, changes: TagChanges) =>
+    request<BoardTag>('PATCH', `/boards/${boardId}/tags/${tagId}`, changes),
   /** Removes the tag from every note of the board too. */
   deleteBoardTag: (boardId: string, tagId: string) => request<void>('DELETE', `/boards/${boardId}/tags/${tagId}`),
   /** Brings back a deleted tag and puts it back on the notes it was removed from. */

@@ -14,6 +14,7 @@ import type {
   Point,
   Rect,
   ResizeHandle,
+  TagColor,
 } from '../api/types'
 import { presenceColor } from '../live/presence'
 import type { LiveDrag } from '../live/useLive'
@@ -46,6 +47,7 @@ import { PostIt } from './PostIt'
 import { resizeCursor } from './resizeCursor'
 import { ResizeHandles } from './ResizeHandles'
 import { matchNote, searchTerms, type SearchField } from './search'
+import { tagColorsOf, type TagColorPreview } from './tagColors'
 import { TagFilter } from './TagFilter'
 import { TagPicker } from './TagPicker'
 import { ToolRail } from './ToolRail'
@@ -176,6 +178,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [quickEdit, setQuickEdit] = useState<{ noteId: string; kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
   /** Tags to filter on: post-its with none of them fade. Not kept: every board starts unfiltered. */
   const [tagFilter, setTagFilter] = useState<string[]>([])
+  /** A tag colour under the pointer in the palette, and one being saved: both show on the tag everywhere. */
+  const [tagPreview, setTagPreview] = useState<TagColorPreview | null>(null)
+  const [tagSaving, setTagSaving] = useState<TagColorPreview | null>(null)
   /**
    * The search (BoardSearch): closed (null), or its words, the result picked (null: the first), and whether its list of
    * results shows. Not kept either.
@@ -453,9 +458,19 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
   const renameTag = (tag: BoardTag, name: string) =>
     settle(
-      () => api.renameBoardTag(board.id, tag.id, name),
+      () => api.updateBoardTag(board.id, tag.id, { name }),
       (renamed) => step('Rename tag', [patched(target.tag(tag.id), snap.tag(tag), snap.tag(renamed), ['name'])]),
     )
+  /** Recolours a tag; the new colour shows right away and stays until the reloaded board has it. */
+  async function recolorTag(tag: BoardTag, color: TagColor) {
+    setTagSaving({ tagId: tag.id, color })
+    const ok = await settle(
+      () => api.updateBoardTag(board.id, tag.id, { color }),
+      (recolored) => step('Change tag colour', [patched(target.tag(tag.id), snap.tag(tag), snap.tag(recolored), ['color'])]),
+    )
+    setTagSaving((s) => (s?.tagId === tag.id && s.color === color ? null : s))
+    return ok
+  }
   const deleteTag = (tag: BoardTag) =>
     settle(
       () => api.deleteBoardTag(board.id, tag.id),
@@ -1021,6 +1036,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
   const buckets = board.buckets.map((bucket) => ({ bucket, rect: bucketRect(bucket) }))
   const images = board.images.filter((i) => i.noteId === null).map((image) => ({ image, rect: imageRect(image) }))
+  /** How each tag shows: its saved colour, or one being saved or previewed. */
+  const tagColors = tagColorsOf(board.tags, tagSaving, tagPreview)
   /** How many images are attached to each post-it. */
   const attached = new Map<string, number>()
   for (const image of board.images) if (image.noteId) attached.set(image.noteId, (attached.get(image.noteId) ?? 0) + 1)
@@ -1244,6 +1261,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                 note={note}
                 point={point}
                 images={attached.get(note.id)}
+                tagColors={tagColors}
                 selected={selection?.kind === 'note' && selection.id === note.id}
                 lifted={(draggedNote?.note.id === note.id && !dragging?.done) || remoteDrags.some((r) => r.id === note.id && !r.endedAt)}
                 dimmed={dimmed(note)}
@@ -1290,6 +1308,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       />
       <TagFilter
         boardTags={board.tags}
+        tagColors={tagColors}
         value={filter}
         onChange={setTagFilter}
         matching={board.notes.filter((n) => !tagFaded(n)).length}
@@ -1385,8 +1404,11 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
           anchor={quickEdit.anchor}
           tags={quickNote.tags}
           boardTags={board.tags}
+          tagColors={tagColors}
           onChange={(tags) => editNote(quickNote, { tags })}
           onRename={renameTag}
+          onRecolor={recolorTag}
+          onPreview={setTagPreview}
           onDelete={deleteTag}
           onClose={() => setQuickEdit(null)}
         />
@@ -1419,8 +1441,11 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
           focusTitle={expanded?.fresh ?? false}
           onChange={(changes) => editNote(expandedNote, changes)}
           boardTags={board.tags}
+          tagColors={tagColors}
           people={board.people}
           onRenameTag={renameTag}
+          onRecolorTag={recolorTag}
+          onPreviewTagColor={setTagPreview}
           onDeleteTag={deleteTag}
           onDelete={() => deleteNote(expandedNote.id)}
           onAddImages={(files, at) => void addImages(files, { noteId: expandedNote.id, at })}
@@ -1445,7 +1470,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               transform: `scale(${zoom})`,
             }}
           >
-            <PostIt note={draggedNote.note} point={{ x: 0, y: 0 }} images={attached.get(draggedNote.note.id)} selected={false} lifted onPointerDown={() => {}} onExpand={() => {}} />
+            <PostIt note={draggedNote.note} point={{ x: 0, y: 0 }} images={attached.get(draggedNote.note.id)} tagColors={tagColors} selected={false} lifted onPointerDown={() => {}} onExpand={() => {}} />
           </div>,
           document.body,
         )}

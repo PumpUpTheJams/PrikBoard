@@ -1,5 +1,16 @@
 import { api } from '../api/client'
-import type { BoardDetail, BoardTag, BucketDetail, ImageChanges, ImageDetail, NoteBlock, NoteBlockChanges, NoteChanges, NoteDetail } from '../api/types'
+import type {
+  BoardDetail,
+  BoardTag,
+  BucketDetail,
+  ImageChanges,
+  ImageDetail,
+  NoteBlock,
+  NoteBlockChanges,
+  NoteChanges,
+  NoteDetail,
+  TagChanges,
+} from '../api/types'
 
 /**
  * Undo and redo for changes made in this tab. Each change is recorded as what it touched before and after (the fields
@@ -84,7 +95,7 @@ export const snap = {
   }),
   bucket: (b: BucketDetail): Snapshot => ({ name: b.name, x: b.x, y: b.y, width: b.width, height: b.height }),
   image: (i: ImageDetail): Snapshot => ({ noteId: i.noteId, x: i.x, y: i.y, width: i.width, caption: i.caption }),
-  tag: (t: BoardTag): Snapshot => ({ name: t.name }),
+  tag: (t: BoardTag): Snapshot => ({ name: t.name, color: t.color }),
 }
 
 const pick = (from: Snapshot, keys: string[]): Snapshot => Object.fromEntries(keys.map((k) => [k, from[k]]))
@@ -266,7 +277,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
       return
     }
     case 'tag':
-      await api.renameBoardTag(boardId, t.id, to.name as string)
+      await api.updateBoardTag(boardId, t.id, to as TagChanges)
   }
 }
 

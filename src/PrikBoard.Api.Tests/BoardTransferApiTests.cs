@@ -43,7 +43,7 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         });
         response.EnsureSuccessStatusCode();
         var note = (await response.Content.ReadFromJsonAsync<NoteDetail>())!;
-        (await owner.PostAsJsonAsync($"/api/boards/{board.Id}/tags", new { name = "unused" })).EnsureSuccessStatusCode();
+        (await owner.PostAsJsonAsync($"/api/boards/{board.Id}/tags", new { name = "unused", color = "Teal" })).EnsureSuccessStatusCode();
         var png = TestImages.Png(400, 200);
         var onCanvas = await Upload(owner, board.Id, png, "?fileName=canvas.png&x=600&y=700&width=200&caption=Diagram");
         var attached = await Upload(owner, board.Id, TestImages.Png(100, 100), $"?fileName=attached.png&noteId={note.Id}&x=1000&y=1200");
@@ -68,7 +68,8 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         Assert.Equal(("Release 2.0", "Ship it", "Be brief.", BoardRole.Owner), (copy.Name, copy.Description, copy.Rules, copy.YourRole));
         Assert.Equal(board.Buckets.Select(b => (b.Name, b.Color, b.X, b.Y, b.Width, b.Height)),
             copy.Buckets.Select(b => (b.Name, b.Color, b.X, b.Y, b.Width, b.Height)));
-        Assert.Equal(["docs", "release", "unused"], copy.Tags.Select(t => t.Name).Order());
+        Assert.Equal([("docs", TagColor.Default), ("release", TagColor.Default), ("unused", TagColor.Teal)],
+            copy.Tags.Select(t => (t.Name, t.Color)).Order());
 
         var copiedNote = copy.Notes.Single(n => n.Title == "Write the changelog");
         var copiedTarget = copy.Notes.Single(n => n.Title == "Target");
