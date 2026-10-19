@@ -5,7 +5,7 @@ import { registerNoteCommands } from './commands'
 
 export async function activate(context: vscode.ExtensionContext) {
   const auth = new Auth(context.secrets)
-  const tree = new BoardTree()
+  const tree = new BoardTree(() => auth.me)
   const view = vscode.window.createTreeView('prikboard.boards', { treeDataProvider: tree })
 
   // Reload while the view is on screen, so changes by other people and agents show up.
@@ -31,6 +31,8 @@ export async function activate(context: vscode.ExtensionContext) {
       tree.refresh()
       startPolling()
     }),
+    // "Assigned to you" needs to know who you are, which loads after signing in.
+    auth.onDidChangeMe(() => tree.refresh()),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (!event.affectsConfiguration('prikboard')) return
       auth.reconfigure()

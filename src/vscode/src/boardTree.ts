@@ -6,6 +6,7 @@ import type {
   BoardSummary,
   BucketColor,
   BucketDetail,
+  Caller,
   NoteBlock,
   NoteColor,
   NoteDetail,
@@ -17,10 +18,13 @@ import { webUrl } from './auth'
  * `canEdit` is false on boards where the caller is a Viewer; it decides which commands a row offers.
  */
 export type Node =
+  /** The notes assigned to the signed-in caller, across all their boards. */
+  | { kind: 'mine'; me: Caller }
   | { kind: 'board'; board: BoardSummary }
   /** `bucket` is null for notes that sit in no bucket. */
   | { kind: 'bucket'; boardId: string; bucket: BucketDetail | null; notes: NoteDetail[]; canEdit: boolean }
-  | { kind: 'note'; note: NoteDetail; canEdit: boolean }
+  /** `where` (board and bucket) is set where a note is shown outside its board, under "Assigned to you". */
+  | { kind: 'note'; note: NoteDetail; canEdit: boolean; where?: string }
   /** One item of one of the note's checklist blocks. */
   | { kind: 'checklist'; note: NoteDetail; block: NoteBlock; index: number; canEdit: boolean }
   | { kind: 'link'; link: NoteLink }
@@ -52,7 +56,10 @@ const icon = (id: string, color?: string) => new vscode.ThemeIcon(id, color ? ne
 /** Menus in package.json match these, for example `viewItem == note.edit`. */
 const contextOf = (kind: string, canEdit = false) => (canEdit ? `${kind}.edit` : kind)
 
-/** Boards, then their buckets, notes and a note's checklist, links and assignees. A board loads when it is first opened. */
+/**
+ * "Assigned to you", then boards with their buckets, notes and a note's checklist, links and assignees. A board loads
+ * when it is first opened; "Assigned to you" loads all of them.
+ */
 export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposable {
   private readonly changed = new vscode.EventEmitter<Node | undefined>()
   readonly onDidChangeTreeData = this.changed.event
@@ -60,6 +67,13 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
   private boards: BoardSummary[] | undefined
   private readonly details = new Map<string, BoardDetail>()
   private failed = false
+
+  /** Who is signed in (`whoAmI`), or undefined until it has loaded; assignees are matched on its id. */
+  private readonly me: () => Caller | undefined
+
+  constructor(me: () => Caller | undefined) {
+    this.me = me
+  }
 
   /** Forgets everything loaded; the open rows load again. */
   refresh() {
@@ -76,8 +90,14 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
 
   async getChildren(node?: Node): Promise<Node[]> {
     try {
-      if (!node) return (await this.loadBoards()).map((board): Node => ({ kind: 'board', board }))
+      if (!node) {
+        const me = this.me()
+        const boards = (await this.loadBoards()).map((board): Node => ({ kind: 'board', board }))
+        return me ? [{ kind: 'mine', me }, ...boards] : boards
+      }
       switch (node.kind) {
+        case 'mine':
+          return this.assignedTo(node.me)
         case 'board':
           return this.bucketNodes(await this.loadBoard(node.board.id))
         case 'bucket':
@@ -103,6 +123,14 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
 
   getTreeItem(node: Node): vscode.TreeItem {
     switch (node.kind) {
+      case 'mine': {
+        const item = new vscode.TreeItem('Assigned to you', vscode.TreeItemCollapsibleState.Expanded)
+        item.contextValue = contextOf('mine')
+        item.iconPath = icon('account')
+        item.description = node.me.displayName
+        item.tooltip = `Notes assigned to ${node.me.displayName}, on all your boards`
+        return item
+      }
       case 'board': {
         const item = new vscode.TreeItem(node.board.name, vscode.TreeItemCollapsibleState.Collapsed)
         item.contextValue = contextOf('board')
@@ -120,7 +148,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
         return item
       }
       case 'note':
-        return this.noteItem(node.note, node.canEdit)
+        return this.noteItem(node.note, node.canEdit, node.where)
       case 'checklist': {
         const entry = node.block.items![node.index]
         const item = new vscode.TreeItem(entry.text)
@@ -153,7 +181,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
     return boardId ? `${webUrl()}/#/boards/${boardId}` : undefined
   }
 
-  private noteItem(note: NoteDetail, canEdit: boolean) {
+  private noteItem(note: NoteDetail, canEdit: boolean, where?: string) {
     const items = itemsOf(note)
     const hasDetails = items.length > 0 || linksOf(note).length > 0 || note.assignees.length > 0
     const item = new vscode.TreeItem(
@@ -164,7 +192,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
     item.iconPath = note.agentWorking ? icon('loading~spin') : icon('note', noteColors[note.color])
 
     const done = items.filter((entry) => entry.done).length
-    item.description = [...note.tags.map((tag) => `#${tag}`), items.length > 0 ? `${done}/${items.length}` : '']
+    item.description = [where ?? '', ...note.tags.map((tag) => `#${tag}`), items.length > 0 ? `${done}/${items.length}` : '']
       .filter(Boolean)
       .join(' ')
 
@@ -174,6 +202,25 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
     for (const block of note.blocks) if (block.kind === 'Text' && block.text) tooltip.appendText(`\n\n${block.text}`)
     item.tooltip = tooltip
     return item
+  }
+
+  /** Notes assigned to the caller on every board, board by board in the board's own order. */
+  private async assignedTo(me: Caller): Promise<Node[]> {
+    const boards = await Promise.all((await this.loadBoards()).map((summary) => this.loadBoard(summary.id)))
+    return boards.flatMap((board) =>
+      this.bucketNodes(board).flatMap((node) =>
+        node.kind !== 'bucket'
+          ? []
+          : node.notes
+              .filter((note) => note.assignees.some((assignee) => assignee.principalId === me.id))
+              .map((note): Node => ({
+                kind: 'note',
+                note,
+                canEdit: node.canEdit,
+                where: `${board.name} · ${node.bucket?.name ?? 'no bucket'}`,
+              })),
+      ),
+    )
   }
 
   private bucketNodes(board: BoardDetail): Node[] {
