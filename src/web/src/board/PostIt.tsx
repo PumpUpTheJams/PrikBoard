@@ -2,8 +2,25 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent,
 import type { NoteDetail, Point } from '../api/types'
 import { AvatarStack } from '../components/Avatar'
 import { Highlight } from './Highlight'
-import { ExpandIcon } from './icons'
+import { ExpandIcon, LayersIcon } from './icons'
 import { NOTE_HEIGHT, NOTE_WIDTH } from './layout'
+
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
+
+/** What the post-it holds inside, by kind, e.g. "2 texts, 1 checklist, 1 image". */
+function contentSummary(note: NoteDetail, images: number) {
+  const count = (kind: string) => note.blocks.filter((b) => b.kind === kind).length
+  const parts = [
+    [count('Text'), 'text', 'texts'],
+    [count('Checklist'), 'checklist', 'checklists'],
+    [count('Links'), 'link list', 'link lists'],
+    [images, 'image', 'images'],
+  ] as const
+  return parts
+    .filter(([n]) => n > 0)
+    .map(([n, one, many]) => plural(n, one, many))
+    .join(', ')
+}
 
 /** Rough width of a tag chip: 11 px mono is about 6.6 px per character, plus padding and gap. */
 const tagWidth = (tag: string) => tag.length * 6.6 + 16
@@ -19,6 +36,8 @@ interface PostItProps {
   note: NoteDetail
   /** Where to draw it: the server position, or the live position while dragging. */
   point: Point
+  /** How many images are attached to it (they count with its blocks in the content badge). */
+  images?: number
   selected: boolean
   lifted: boolean
   /** Faded: it doesn't match the board's tag filter or search. */
@@ -44,9 +63,12 @@ interface PostItProps {
   onTitleDone?: () => void
 }
 
-/** On the board a post-it shows its title, tags and assignees. Everything else lives inside (see ExpandedNote). */
+/**
+ * On the board a post-it shows its title, tags, assignees and how many things it holds. Everything else lives inside
+ * (see ExpandedNote).
+ */
 export function PostIt(props: PostItProps) {
-  const { note, point, selected, lifted, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
+  const { note, point, images = 0, selected, lifted, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
   const { editingTitle, titleCaret, onRenameTitle, onTitleDone } = props
   /** A saved title, shown until the reload brings it (while the server still has `from`). */
   const [saved, setSaved] = useState<{ title: string; from: string } | null>(null)
@@ -74,6 +96,8 @@ export function PostIt(props: PostItProps) {
   ))
   const people =
     note.assignees.length > 0 ? <AvatarStack assignees={note.assignees} /> : <span className="avatar-slot" aria-hidden="true" />
+  const contents = note.blocks.length + images
+  const summary = contentSummary(note, images)
 
   return (
     <div
@@ -105,6 +129,12 @@ export function PostIt(props: PostItProps) {
           <ExpandIcon />
         </button>
       </div>
+      {contents > 0 && (
+        <span className="post-it-contents" role="img" title={summary} aria-label={summary}>
+          <LayersIcon />
+          {contents}
+        </span>
+      )}
       <div className="post-it-foot">
         {onEditTags ? (
           <QuickEdit className="post-it-tags" label={`Tags of ${title}`} onOpen={onEditTags}>

@@ -1021,6 +1021,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
   const buckets = board.buckets.map((bucket) => ({ bucket, rect: bucketRect(bucket) }))
   const images = board.images.filter((i) => i.noteId === null).map((image) => ({ image, rect: imageRect(image) }))
+  /** How many images are attached to each post-it. */
+  const attached = new Map<string, number>()
+  for (const image of board.images) if (image.noteId) attached.set(image.noteId, (attached.get(image.noteId) ?? 0) + 1)
   // Most recently updated on top, the note being dragged above everything.
   const notes = board.notes
     .toSorted((a, b) => a.updatedAt.localeCompare(b.updatedAt))
@@ -1240,6 +1243,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                 key={note.id}
                 note={note}
                 point={point}
+                images={attached.get(note.id)}
                 selected={selection?.kind === 'note' && selection.id === note.id}
                 lifted={(draggedNote?.note.id === note.id && !dragging?.done) || remoteDrags.some((r) => r.id === note.id && !r.endedAt)}
                 dimmed={dimmed(note)}
@@ -1441,7 +1445,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               transform: `scale(${zoom})`,
             }}
           >
-            <PostIt note={draggedNote.note} point={{ x: 0, y: 0 }} selected={false} lifted onPointerDown={() => {}} onExpand={() => {}} />
+            <PostIt note={draggedNote.note} point={{ x: 0, y: 0 }} images={attached.get(draggedNote.note.id)} selected={false} lifted onPointerDown={() => {}} onExpand={() => {}} />
           </div>,
           document.body,
         )}

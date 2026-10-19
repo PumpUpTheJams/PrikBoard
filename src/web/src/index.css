@@ -858,6 +858,24 @@ main {
   background: rgba(23, 24, 27, 0.12);
 }
 
+/* How many blocks and images it holds: a small badge on the right, between the expand button and the people. */
+.post-it-contents {
+  position: absolute;
+  top: calc(50% - 3px);
+  right: 7px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 22px;
+  padding: 5px 0 4px;
+  border-radius: 6px;
+  background: rgba(23, 24, 27, 0.1);
+  color: #2a2b30;
+  font: 11px/1 var(--mono);
+  transform: translateY(-50%);
+}
+
 .post-it-foot {
   display: flex;
   align-items: flex-end;
