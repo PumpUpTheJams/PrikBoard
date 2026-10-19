@@ -2959,6 +2959,50 @@ a.button.primary:hover {
   font-size: 12px;
 }
 
+/* The post-it's ID: a click copies a link that opens the post-it */
+
+.note-id {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  margin-right: -8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: 11px var(--mono);
+}
+
+.note-id:hover {
+  background: rgba(23, 24, 27, 0.08);
+}
+
+/* A linked post-it shows its fill; post-its to link show up below the address field while typing */
+
+.link-swatch {
+  flex: none;
+  width: 16px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--fill);
+}
+
+.link-suggestions {
+  margin-top: -6px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.link-suggestions .link-row {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
 /* A post-it's title edited in place: looks like the title itself, as in the expanded post-it (no box, a thin focus ring) */
 
 .post-it-title.editable-title {

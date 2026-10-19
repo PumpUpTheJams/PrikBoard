@@ -146,6 +146,8 @@ export interface NoteDetail {
   createdById: string | null
   createdAt: string
   updatedAt: string
+  /** Where the web app shows it: "/#/boards/{boardId}/notes/{id}". Links to it store this path. */
+  path: string
 }
 
 export interface Point {

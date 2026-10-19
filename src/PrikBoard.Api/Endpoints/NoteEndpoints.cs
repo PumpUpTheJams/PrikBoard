@@ -322,11 +322,11 @@ public static class NoteEndpoints
             }
             note.Tags = normalized;
         }
-        if (links?.Find(l => !IsWebUrl(l.Url)) is { } badLink)
+        if (links?.Find(l => !NoteLinks.IsValid(l.Url)) is { } badLink)
         {
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["links"] = [$"\"{badLink.Url}\" is not an absolute http or https URL."],
+                ["links"] = [$"\"{badLink.Url}\" is neither an absolute http or https URL nor a note's path (/#/boards/{{boardId}}/notes/{{noteId}})."],
             });
         }
 
@@ -344,7 +344,4 @@ public static class NoteEndpoints
         }
         return null;
     }
-
-    private static bool IsWebUrl(string url) =>
-        Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 }

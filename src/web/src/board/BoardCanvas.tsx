@@ -9,6 +9,7 @@ import { BoardImageView } from './BoardImageView'
 import { ExpandedNote } from './ExpandedNote'
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
 import { ResizeIcon } from './icons'
+import { noteIdFromHash, notePath } from './links'
 import { BucketInspector, ImageInspector } from './Inspector'
 import {
   GRID,
@@ -119,7 +120,11 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
   const [tool, setTool] = useState<Tool>('select')
   const [fill, setFill] = useState<NoteColor>('Butter')
   const [selection, setSelection] = useState<Selection | null>(null)
-  const [expanded, setExpanded] = useState<{ id: string; fresh: boolean } | null>(null)
+  /** The opened post-it. A link to a post-it (/#/boards/{id}/notes/{id}) opens it when the board loads. */
+  const [expanded, setExpanded] = useState<{ id: string; fresh: boolean } | null>(() => {
+    const id = noteIdFromHash()
+    return id ? { id, fresh: false } : null
+  })
   const [rulesOpen, setRulesOpen] = useState(false)
   /** Something waiting for the person to confirm its deletion (Delete key on the board, or the image panel). */
   const [pendingDelete, setPendingDelete] = useState<{ kind: 'note' | 'image'; id: string } | null>(null)
@@ -150,6 +155,28 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
   const zoomAnchor = useRef<{ canvas: Point; screen: Point } | null>(null)
   /** Last pointer position over the canvas, in canvas pixels: where pasted images go. */
   const lastPointer = useRef<Point | null>(null)
+
+  // The address bar follows the opened post-it, so it can be bookmarked or shared. Replacing the entry doesn't fire
+  // hashchange; a post-it that isn't (or no longer is) on the board drops out of the address.
+  const openNoteId = expanded && board.notes.some((n) => n.id === expanded.id) ? expanded.id : null
+  useEffect(() => {
+    const hash = openNoteId ? notePath({ boardId: board.id, noteId: openNoteId }).slice(1) : `#/boards/${board.id}`
+    if (window.location.hash !== hash) history.replaceState(history.state, '', hash)
+  }, [openNoteId, board.id])
+
+  // Following a link to another post-it on this board opens it (one on another board loads that board: App).
+  useEffect(() => {
+    function onHashChange() {
+      if (!window.location.hash.startsWith(`#/boards/${board.id}`)) return
+      const id = noteIdFromHash()
+      setTitleEdit(null)
+      setQuickEdit(null)
+      setExpanded(id ? { id, fresh: false } : null)
+      if (id) setSelection({ kind: 'note', id })
+    }
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [board.id])
 
   // Background refreshes would fight with a drag in progress.
   useEffect(() => setPaused(gesture !== null), [gesture, setPaused])
@@ -776,6 +803,7 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
           note={expandedNote}
           bucket={board.buckets.find((b) => b.id === expandedNote.bucketId)}
           images={board.images.filter((i) => i.noteId === expandedNote.id)}
+          notes={board.notes}
           focusTitle={expanded?.fresh ?? false}
           onChange={(changes) => settle(() => api.updateNote(expandedNote.id, changes))}
           boardTags={board.tags}

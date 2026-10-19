@@ -18,15 +18,18 @@ import { AssigneePicker } from './AssigneePicker'
 import { draggingFiles, imageFiles } from './files'
 import {
   BucketIcon,
+  CheckIcon,
   ChecklistIcon,
   CloseIcon,
   ImageIcon,
   LinkIcon,
   NoteDocIcon,
+  PostItIcon,
   PullRequestIcon,
   SparkleIcon,
   TrashIcon,
 } from './icons'
+import { copyText, isNoteId, notePath, noteRoute, type NoteRoute } from './links'
 import { TagPicker } from './TagPicker'
 import { MAX_ASSIGNEES, MAX_TAGS } from './tags'
 
@@ -45,6 +48,8 @@ interface ExpandedNoteProps {
   onDelete: () => void
   /** Images attached to this post-it. */
   images: ImageDetail[]
+  /** The post-its on the board, to link to and to show linked ones by their current title. */
+  notes: NoteDetail[]
   onAddImages: (files: File[]) => void
   onPickImages: () => void
   /** Deletes an attached image; called after the person confirmed. */
@@ -57,7 +62,7 @@ interface ExpandedNoteProps {
 /** A post-it opened up: a header band in its fill, and a mini board with its note, checklist and links. */
 export function ExpandedNote(props: ExpandedNoteProps) {
   const { note, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onDeleteImage, onClose, readOnly } = props
-  const { boardTags, people, onRenameTag, onDeleteTag } = props
+  const { boardTags, people, notes, onRenameTag, onDeleteTag } = props
   const [reveal, setReveal] = useState({ checklist: false, links: false })
   /** The tag or people window, opened from its button in the band. */
   const [picking, setPicking] = useState<{ kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
@@ -170,11 +175,10 @@ export function ExpandedNote(props: ExpandedNoteProps) {
               onAdd={(anchor) => setPicking({ kind: 'people', anchor })}
             />
           </div>
-          {note.createdBy && (
-            <p className="band-meta" title={new Date(note.createdAt).toLocaleString()}>
-              Created by {note.createdBy}
-            </p>
-          )}
+          <div className="band-row band-meta">
+            {note.createdBy ? <span title={new Date(note.createdAt).toLocaleString()}>Created by {note.createdBy}</span> : <span />}
+            <NoteIdButton note={note} />
+          </div>
         </header>
 
         <div className="mini-board">
@@ -197,7 +201,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
               <ChecklistWidget items={note.checklist} inputRef={checklistRef} readOnly={readOnly} onChange={(checklist) => onChange({ checklist })} />
             )}
             {(note.links.length > 0 || reveal.links) && (
-              <LinksWidget links={note.links} inputRef={linkRef} onChange={(links) => onChange({ links })} />
+              <LinksWidget note={note} notes={notes} inputRef={linkRef} onChange={(links) => onChange({ links })} />
             )}
             {images.length > 0 && <ImagesWidget images={images} onDelete={setImageToDelete} />}
           </div>
@@ -497,64 +501,79 @@ function webUrl(value: string): URL | null {
 }
 
 interface LinksWidgetProps {
-  links: NoteLink[]
+  note: NoteDetail
+  notes: NoteDetail[]
   inputRef: RefObject<HTMLInputElement | null>
   onChange: (links: NoteLink[]) => Promise<boolean>
 }
 
-function LinksWidget({ links, inputRef, onChange }: LinksWidgetProps) {
+/** Links to web pages and to other post-its. The address field takes a URL or a post-it's link or ID, or finds post-its by title. */
+function LinksWidget({ note, notes, inputRef, onChange }: LinksWidgetProps) {
+  const links = note.links
   const [url, setUrl] = useState('')
   const [title, setTitle] = useState('')
   const [invalid, setInvalid] = useState(false)
+  const query = url.trim()
+  // Typing words (not an address) looks for post-its on this board to link.
+  const searching = query.length >= 2 && !/^(https?:|\/#)/i.test(query)
+  const linked = new Set(links.map((l) => noteRoute(l.url)?.noteId))
+  const matches = searching
+    ? notes
+        .filter((n) => n.id !== note.id && !linked.has(n.id))
+        .filter((n) => n.title.toLowerCase().includes(query.toLowerCase()) || n.id.startsWith(query.toLowerCase()))
+        .slice(0, 5)
+    : []
 
-  async function add(e: FormEvent) {
-    e.preventDefault()
-    const parsed = webUrl(url.trim())
-    if (!parsed) {
-      setInvalid(true)
-      return
-    }
-    const link = { title: title.trim() || `${parsed.host}${parsed.pathname === '/' ? '' : parsed.pathname}`, url: parsed.href }
+  async function addLink(link: NoteLink) {
     if (await onChange([...links, link])) {
       setUrl('')
       setTitle('')
     }
   }
 
+  /** Links a post-it by its path, titled by its current title unless the person typed one. */
+  function addNote(target: NoteRoute) {
+    const found = notes.find((n) => n.id === target.noteId)
+    return addLink({ title: title.trim() || found?.title || 'Post-it', url: notePath(target) })
+  }
+
+  async function add(e: FormEvent) {
+    e.preventDefault()
+    const route = noteRoute(query) ?? (isNoteId(query) ? { boardId: note.boardId, noteId: query.toLowerCase() } : null)
+    if (route) return addNote(route)
+    if (matches.length > 0) return addNote({ boardId: matches[0].boardId, noteId: matches[0].id })
+    const parsed = webUrl(query)
+    if (!parsed) {
+      setInvalid(true)
+      return
+    }
+    await addLink({ title: title.trim() || `${parsed.host}${parsed.pathname === '/' ? '' : parsed.pathname}`, url: parsed.href })
+  }
+
   return (
     <section className="widget">
       <h2>Links</h2>
       <ul className="links">
-        {links.map((link, i) => {
-          const parsed = webUrl(link.url)
-          const Icon = /\/pulls?\//.test(link.url) ? PullRequestIcon : LinkIcon
-          return (
-            <li key={i}>
-              <a className="link-row" href={parsed?.href} target="_blank" rel="noreferrer noopener">
-                <Icon />
-                <span className="link-text">
-                  <span className="link-title">{link.title}</span>
-                  <span className="link-meta">{parsed ? `${parsed.host}${parsed.pathname}` : link.url}</span>
-                </span>
-              </a>
-              <button
-                type="button"
-                className="row-remove"
-                aria-label={`Remove link ${link.title}`}
-                onClick={() => void onChange(links.filter((_, j) => j !== i))}
-              >
-                <CloseIcon size={12} />
-              </button>
-            </li>
-          )
-        })}
+        {links.map((link, i) => (
+          <li key={i}>
+            <LinkRow link={link} notes={notes} />
+            <button
+              type="button"
+              className="row-remove"
+              aria-label={`Remove link ${link.title}`}
+              onClick={() => void onChange(links.filter((_, j) => j !== i))}
+            >
+              <CloseIcon size={12} />
+            </button>
+          </li>
+        ))}
       </ul>
       <form className="widget-add link-add" onSubmit={add}>
         <input
           ref={inputRef}
-          aria-label="Link address"
+          aria-label="Link address, or a post-it to link"
           aria-invalid={invalid}
-          placeholder="https://…"
+          placeholder="https://… or a post-it"
           value={url}
           maxLength={2000}
           onChange={(e) => {
@@ -563,12 +582,80 @@ function LinksWidget({ links, inputRef, onChange }: LinksWidgetProps) {
           }}
         />
         <input aria-label="Link title" placeholder="Title (optional)" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
-        <button type="submit" className="widget-button" disabled={!url.trim()}>
+        <button type="submit" className="widget-button" disabled={!query}>
           Add
         </button>
       </form>
-      {invalid && <p className="widget-error">Use a full http or https address.</p>}
+      {matches.length > 0 && (
+        <ul className="links link-suggestions" aria-label="Post-its to link">
+          {matches.map((n) => (
+            <li key={n.id}>
+              <button type="button" className="link-row" onClick={() => void addNote({ boardId: n.boardId, noteId: n.id })}>
+                <span className={`link-swatch fill-${n.color.toLowerCase()}`} aria-hidden="true" />
+                <span className="link-text">
+                  <span className="link-title">{n.title}</span>
+                  <span className="link-meta">{n.id}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {invalid && <p className="widget-error">Use a full http or https address, or a post-it's title, link or ID.</p>}
     </section>
+  )
+}
+
+/** One link: a web page opens in a new tab; a post-it opens here, shown with its current title and fill. */
+function LinkRow({ link, notes }: { link: NoteLink; notes: NoteDetail[] }) {
+  const route = noteRoute(link.url)
+  if (route) {
+    const target = notes.find((n) => n.id === route.noteId)
+    return (
+      // Only the hash changes: the board opens the post-it, or App switches to its board.
+      <a className="link-row" href={notePath(route).slice(1)}>
+        {target ? <span className={`link-swatch fill-${target.color.toLowerCase()}`} aria-hidden="true" /> : <PostItIcon size={16} />}
+        <span className="link-text">
+          <span className="link-title">{target?.title ?? link.title}</span>
+          <span className="link-meta">{target ? route.noteId : `On another board · ${route.noteId}`}</span>
+        </span>
+      </a>
+    )
+  }
+  const parsed = webUrl(link.url)
+  const Icon = /\/pulls?\//.test(link.url) ? PullRequestIcon : LinkIcon
+  return (
+    <a className="link-row" href={parsed?.href} target="_blank" rel="noreferrer noopener">
+      <Icon />
+      <span className="link-text">
+        <span className="link-title">{link.title}</span>
+        <span className="link-meta">{parsed ? `${parsed.host}${parsed.pathname}` : link.url}</span>
+      </span>
+    </a>
+  )
+}
+
+/** The post-it's ID. Clicking it copies a link that opens this post-it. */
+function NoteIdButton({ note }: { note: NoteDetail }) {
+  /** Whether the last copy worked; null shows the ID again. */
+  const [copied, setCopied] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    if (copied === null) return
+    const timer = setTimeout(() => setCopied(null), 1600)
+    return () => clearTimeout(timer)
+  }, [copied])
+
+  return (
+    <button
+      type="button"
+      className="note-id"
+      title="Copy a link to this post-it"
+      onClick={async () => setCopied(await copyText(`${window.location.origin}${note.path}`))}
+    >
+      {copied ? <CheckIcon size={12} /> : <LinkIcon size={12} />}
+      <span aria-live="polite">{copied === null ? note.id : copied ? 'Link copied' : "Couldn't copy the link"}</span>
+    </button>
   )
 }
 
