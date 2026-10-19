@@ -194,6 +194,7 @@ For a token whose client (azp, client_id or appid) is listed and that has a `sub
 
 - `whoAmI` shows `kind: Token` and `principalKind: User`. Boards, roles, display name and memberships are the person's. Scopes from the token still apply on top of the role.
 - Sign-ins are still managed in the browser. A token cannot link or unlink sign-ins, accept invite links or look people up by email.
+- The VS Code extension is such an app. Its sign-in settings (`prikboard.oidc.*`) are described in `src/vscode/README.md`.
 - Only list clients you control. Any token from a listed client with a valid `sub` acts as that person, so the client must authenticate the person properly. Public clients (no secret) rely on PKCE.
 - Register the app at the identity provider as a public/native client with PKCE, a redirect URI of the extension (for VS Code, `http://127.0.0.1:<port>` or `vscode://...`), and the `boards:read`/`boards:write` scopes for the audience.
 

@@ -98,7 +98,8 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
         const item = new vscode.TreeItem(node.board.name, vscode.TreeItemCollapsibleState.Collapsed)
         item.contextValue = contextOf('board')
         item.iconPath = icon('project')
-        item.description = node.board.yourRole === 'Viewer' ? 'view only' : undefined
+        // Always shown: it decides whether the edit commands appear.
+        item.description = node.board.yourRole === 'Viewer' ? 'view only' : node.board.yourRole
         item.tooltip = node.board.description ?? node.board.name
         return item
       }
