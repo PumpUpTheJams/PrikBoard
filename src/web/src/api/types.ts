@@ -163,6 +163,8 @@ export interface NewNoteBlock {
   y?: number
   width?: number
   height?: number
+  /** Only to put back a removed block: the id it had. */
+  id?: string
 }
 
 /** A PATCH of a block: omitted fields stay unchanged, a given list replaces the block's whole list. */
@@ -212,6 +214,8 @@ export interface Rect extends Point {
 export interface BucketChanges extends Partial<Rect> {
   name?: string
   color?: BucketColor
+  /** With a move only: exactly these notes move along instead of the bucket's notes (undoing a move). */
+  carryNoteIds?: string[]
 }
 
 /** A PATCH: omitted fields stay unchanged, a given list replaces the whole list. */

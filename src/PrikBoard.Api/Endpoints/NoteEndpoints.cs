@@ -65,7 +65,18 @@ public static class NoteEndpoints
         notes.MapDelete("/notes/{noteId:guid}", DeleteNote)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Note)
             .WithName("deleteNote")
-            .WithSummary("Delete a note");
+            .WithSummary("Delete a note")
+            .WithDescription($"Deletes the note and the images attached to it. restoreNote brings them back within {Tombstones.RetentionText}.");
+
+        notes.MapPost("/notes/{noteId:guid}/restore", RestoreNote)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Note)
+            .WithName("restoreNote")
+            .WithSummary("Restore a deleted note")
+            .WithDescription($"Brings back a note deleted in the last {Tombstones.RetentionText}: same id, content, creator and " +
+                             "place, with the images that were deleted along with it. It joins whichever bucket is at its place now. " +
+                             "409 when the note is not deleted; 404 when it never existed or is gone for good.")
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         return api;
     }
@@ -218,8 +229,38 @@ public static class NoteEndpoints
     internal static async Task<Results<NoContent, NotFound>> DeleteNote(
         Guid noteId, PrikBoardDbContext db, CancellationToken ct)
     {
-        var deleted = await db.Notes.Where(n => n.Id == noteId).ExecuteDeleteAsync(ct);
-        return deleted == 0 ? TypedResults.NotFound() : TypedResults.NoContent();
+        var now = DateTimeOffset.UtcNow;
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var deleted = await db.Notes.Where(n => n.Id == noteId).ExecuteUpdateAsync(s => s.SetProperty(n => n.DeletedAt, now), ct);
+        if (deleted == 0) return TypedResults.NotFound();
+        // Its images share the note's stamp, so they come back with it (and images deleted earlier don't).
+        await db.Images.Where(i => i.NoteId == noteId).ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, now), ct);
+        await transaction.CommitAsync(ct);
+        return TypedResults.NoContent();
+    }
+
+    internal static async Task<Results<Ok<NoteDetail>, NotFound, ValidationProblem, ProblemHttpResult>> RestoreNote(
+        Guid noteId, PrikBoardDbContext db, CancellationToken ct)
+    {
+        var note = await db.Notes.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete]).FirstOrDefaultAsync(n => n.Id == noteId, ct);
+        if (note is null) return TypedResults.NotFound();
+        if (note.DeletedAt is not { } stamp) return TagEndpoints.NotDeleted("note");
+
+        // Tags deleted meanwhile were taken off the note as well, so this only fills a gap.
+        if (await TagEndpoints.EnsureBoardTagsAsync(db, note.BoardId, note.Tags, ct) is { } tooManyTags) return tooManyTags;
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        note.DeletedAt = null;
+        await db.Images.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+            .Where(i => i.NoteId == noteId && i.DeletedAt == stamp)
+            .ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, (DateTimeOffset?)null), ct);
+        // UpdatedAt stays, so the post-it goes back to its place in the stacking order too.
+        var buckets = await db.Buckets.Where(b => b.BoardId == note.BoardId).ToListAsync(ct);
+        var others = await db.Notes.Where(n => n.BoardId == note.BoardId && n.Id != noteId).ToListAsync(ct);
+        Layout.AssignBuckets([note, .. others], buckets);
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return TypedResults.Ok(await DetailAsync(db, note, ct));
     }
 
     /// <summary>

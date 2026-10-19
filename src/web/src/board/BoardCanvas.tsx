@@ -1,10 +1,22 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../api/client'
-import type { BoardDetail, BoardTag, BucketDetail, DragKind, DragUpdate, ImageDetail, NoteColor, NoteDetail, Point, Rect, ResizeHandle } from '../api/types'
+import type {
+  BoardDetail,
+  BoardTag,
+  BucketDetail,
+  DragKind,
+  DragUpdate,
+  ImageDetail,
+  NoteChanges,
+  NoteColor,
+  NoteDetail,
+  Point,
+  Rect,
+  ResizeHandle,
+} from '../api/types'
 import { presenceColor } from '../live/presence'
 import type { LiveDrag } from '../live/useLive'
-import { ConfirmDeleteNote, ConfirmDialog } from '../components/ConfirmDialog'
 import { Toast, type ToastMessage } from '../components/Toast'
 import { AssigneePicker } from './AssigneePicker'
 import { BoardImageView } from './BoardImageView'
@@ -40,6 +52,8 @@ import { ToolRail } from './ToolRail'
 import { toolKeys, type Tool } from './tools'
 import type { IncomingImage } from './NoteCanvas'
 import type { BoardState } from './useBoard'
+import { created, deleted, noteEdit, patched, snap, step, target, type RecordingRun, type UndoEntry } from './undo'
+import { useUndo, type UndoHistory } from './useUndo'
 import { useZoom } from './useZoom'
 import { ViewControls } from './ViewControls'
 import { stepZoom } from './zoom'
@@ -138,6 +152,8 @@ interface Box {
 interface BoardCanvasProps {
   board: BoardDetail
   run: BoardState['run']
+  /** Where this board's undo steps are kept (they outlive the view). */
+  undoHistory: UndoHistory
   setPaused: BoardState['setPaused']
   /** Other people's drags in progress (live updates). */
   remoteDrags?: LiveDrag[]
@@ -145,7 +161,7 @@ interface BoardCanvasProps {
   onDrag?: (update: DragUpdate | null) => void
 }
 
-export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }: BoardCanvasProps) {
+export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = [], onDrag }: BoardCanvasProps) {
   /** Viewers can look around and open post-its, but not change anything. */
   const readOnly = board.yourRole === 'Viewer'
   const [tool, setTool] = useState<Tool>('select')
@@ -156,8 +172,6 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
     const id = noteIdFromHash()
     return id ? { id, fresh: false } : null
   })
-  /** Something waiting for the person to confirm its deletion (Delete key on the board, or the image panel). */
-  const [pendingDelete, setPendingDelete] = useState<{ kind: 'note' | 'image'; id: string } | null>(null)
   /** The tag or people window opened from a post-it on the board, next to the part that was clicked (screen pixels). */
   const [quickEdit, setQuickEdit] = useState<{ noteId: string; kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
   /** Tags to filter on: post-its with none of them fade. Not kept: every board starts unfiltered. */
@@ -214,10 +228,35 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
   // The wheel zooms the board (Shift + wheel scrolls). A quick-edit window sits next to the post-it on screen; after
   // zooming it would point at nothing.
   const { zoom, zoomTo } = useZoom(scrollRef, origin, { onZoom: () => setQuickEdit(null), wheel: 'always' })
-  /** A short confirmation at the bottom of the board (a link was added, an image went into a post-it). */
+  /** A short confirmation at the bottom of the board (a link was added, an image went into a post-it, an undo). */
   const [toast, setToast] = useState<ToastMessage | null>(null)
   const clearToast = useCallback(() => setToast(null), [])
-  const notify = (text: string) => setToast({ id: Date.now(), text })
+  const notify = (message: string | Omit<ToastMessage, 'id'>) =>
+    setToast({ id: Date.now(), ...(typeof message === 'string' ? { text: message } : message) })
+  const undo = useUndo({
+    boardId: board.id,
+    history: undoHistory,
+    run,
+    notify,
+    moving: (id) => remoteDrags.some((r) => r.id === id && !r.endedAt),
+    onApplied: (entry, direction) => {
+      // A post-it or item that is gone now closes and is no longer selected.
+      for (const { target: t, before, after } of entry.changes) {
+        if ((direction === 'undo' ? before : after) !== null) continue
+        if (t.kind === 'note' && expanded?.id === t.id) setExpanded(null)
+        if (selection?.id === t.id) setSelection(null)
+      }
+    },
+  })
+  /** Runs a change through the board and records it for undo, as `describe` tells from its result. */
+  const runRec: RecordingRun = (action, describe) =>
+    undo.track(
+      run(async () => {
+        const result = await action()
+        const entry = describe?.(result)
+        if (entry) undo.record(entry)
+      }),
+    )
   /** Last pointer position over the canvas, in canvas pixels: where pasted images go. */
   const lastPointer = useRef<Point | null>(null)
 
@@ -272,7 +311,6 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       // The open post-it is a window of its own: keys typed in it are its own, and Escape closes it.
-      if (pendingDelete) return
       if (e.target instanceof Element && e.target.closest('input, textarea, select, [role="menu"], [role="dialog"], [role="alertdialog"]')) return
       if (e.key === 'Escape') {
         if (expanded) return
@@ -281,8 +319,9 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
       } else if (readOnly) {
         if (e.key.toLowerCase() === 'v') setTool('select')
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && (selection?.kind === 'note' || selection?.kind === 'image')) {
+        // No question first: the toast that follows has an Undo button, and Ctrl/Cmd+Z works too.
         e.preventDefault()
-        setPendingDelete({ kind: selection.kind, id: selection.id })
+        if (!e.repeat) (selection.kind === 'note' ? deleteNote : deleteImage)(selection.id)
       } else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'd' && selection?.kind === 'note') {
         e.preventDefault()
         if (!e.repeat) duplicateNote(selection.id)
@@ -313,10 +352,30 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
         }
         return
       }
-      if (pendingDelete || target?.closest('input, textarea, select, [role="menu"], [role="alertdialog"]')) return
+      if (target?.closest('input, textarea, select, [role="menu"], [role="alertdialog"]')) return
       if (target?.closest('[role="dialog"]') && !target.closest('.expanded')) return
       e.preventDefault()
       openSearch()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  })
+
+  // Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z or Ctrl+Y redoes: on the board and in the open post-it. In a field the browser
+  // undoes typing instead, and other windows keep the keys.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return
+      const key = e.key.toLowerCase()
+      const redo = (key === 'z' && e.shiftKey) || (key === 'y' && !e.shiftKey)
+      if (key !== 'z' && !redo) return
+      const target = e.target instanceof Element ? e.target : null
+      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="menu"], [role="alertdialog"]')) return
+      if (target?.closest('[role="dialog"]') && !target.closest('.expanded')) return
+      e.preventDefault()
+      if (readOnly || gesture || noteBusy) return
+      if (redo) undo.redo()
+      else undo.undo()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -347,46 +406,70 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
     return () => window.removeEventListener('paste', onPaste)
   })
 
-  /** Runs a change through the board, then lets go of the finished gesture. */
-  async function settle(action: () => Promise<unknown>) {
-    const ok = await run(action)
+  /** Runs a change through the board (recorded for undo as `describe` says), then lets go of the finished gesture. */
+  async function settle<T>(action: () => Promise<T>, describe?: (result: T) => UndoEntry | null | undefined) {
+    const ok = await runRec(action, describe)
     setGesture(null)
     return ok
   }
 
-  /** Deletes a post-it the person has confirmed, closing it if it was open. */
+  /** Edits a post-it's fields, as one undo step. */
+  const editNote = (note: NoteDetail, changes: NoteChanges) =>
+    settle(() => api.updateNote(note.id, changes), (after) => noteEdit(note, after, changes))
+
+  /** Deletes a post-it, closing it if it was open. */
   function deleteNote(id: string) {
-    setPendingDelete(null)
+    const note = board.notes.find((n) => n.id === id)
+    if (!note) return
     if (expanded?.id === id) setExpanded(null)
     setSelection(null)
-    void settle(() => api.deleteNote(id))
+    void settle(
+      () => api.deleteNote(id),
+      () => step('Delete post-it', [deleted(target.note(id), snap.note(note))], { toast: 'Post-it deleted' }),
+    )
   }
 
   /** Copies a post-it's content one grid step down and right of it, and selects the copy. Attached images stay behind. */
   function duplicateNote(id: string) {
     const note = board.notes.find((n) => n.id === id)
     if (!note) return
-    void settle(async () => {
-      const copy = await api.createNote(board.id, {
-        title: note.title,
-        color: note.color,
-        tags: note.tags,
-        // People who have since left the board stay on the original, but can't be put on a new post-it.
-        assigneeIds: note.assignees.map((a) => a.principalId).filter((id) => board.people.some((p) => p.principalId === id)),
-        blocks: note.blocks.map(({ kind, title, text, items, links, x, y, width, height }) => ({ kind, title, text, items, links, x, y, width, height })),
-        ...snapPoint({ x: note.x + GRID, y: note.y + GRID }),
-      })
-      setSelection({ kind: 'note', id: copy.id })
-    })
+    void settle(
+      async () => {
+        const copy = await api.createNote(board.id, {
+          title: note.title,
+          color: note.color,
+          tags: note.tags,
+          // People who have since left the board stay on the original, but can't be put on a new post-it.
+          assigneeIds: note.assignees.map((a) => a.principalId).filter((id) => board.people.some((p) => p.principalId === id)),
+          blocks: note.blocks.map(({ kind, title, text, items, links, x, y, width, height }) => ({ kind, title, text, items, links, x, y, width, height })),
+          ...snapPoint({ x: note.x + GRID, y: note.y + GRID }),
+        })
+        setSelection({ kind: 'note', id: copy.id })
+        return copy
+      },
+      (copy) => step('Duplicate post-it', [created(target.note(copy.id), snap.note(copy))]),
+    )
   }
 
-  const renameTag = (tag: BoardTag, name: string) => settle(() => api.renameBoardTag(board.id, tag.id, name))
-  const deleteTag = (tag: BoardTag) => settle(() => api.deleteBoardTag(board.id, tag.id))
+  const renameTag = (tag: BoardTag, name: string) =>
+    settle(
+      () => api.renameBoardTag(board.id, tag.id, name),
+      (renamed) => step('Rename tag', [patched(target.tag(tag.id), snap.tag(tag), snap.tag(renamed), ['name'])]),
+    )
+  const deleteTag = (tag: BoardTag) =>
+    settle(
+      () => api.deleteBoardTag(board.id, tag.id),
+      () => step('Delete tag', [deleted(target.tag(tag.id), snap.tag(tag))], { toast: `Tag “${tag.name}” deleted` }),
+    )
 
   function deleteImage(id: string) {
-    setPendingDelete(null)
+    const image = board.images.find((i) => i.id === id)
+    if (!image) return
     if (selection?.id === id) setSelection(null)
-    void settle(() => api.deleteImage(id))
+    void settle(
+      () => api.deleteImage(id),
+      () => step('Delete image', [deleted(target.image(id), snap.image(image))], { toast: 'Image deleted' }),
+    )
   }
 
   /** The middle of what is on screen, in canvas pixels. */
@@ -399,20 +482,28 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
    * the middle of the screen), or attached to a note with their top-left at `at` on its canvas (default: a free spot).
    * A single image on the board is selected afterwards.
    */
-  async function addImages(files: File[], target: { at?: Point; noteId?: string }) {
+  async function addImages(files: File[], place: { at?: Point; noteId?: string }) {
     if (files.length === 0) return
-    const at = target.at ?? viewportCenter()
+    const at = place.at ?? viewportCenter()
     setUploads((n) => n + 1)
-    await run(async () => {
-      let last: ImageDetail | undefined
-      for (const [i, file] of files.entries()) {
-        const placement = target.noteId
-          ? { noteId: target.noteId, ...(target.at ? snapPoint({ x: target.at.x + i * 40, y: target.at.y + i * 40 }) : {}) }
-          : snapPoint({ x: at.x - IMAGE_OFFSET.x + i * 40, y: at.y - IMAGE_OFFSET.y + i * 40 })
-        last = await api.uploadImage(board.id, file, placement)
-      }
-      if (last && !target.noteId && files.length === 1) setSelection({ kind: 'image', id: last.id })
-    })
+    await undo.track(
+      run(async () => {
+        const added: ImageDetail[] = []
+        try {
+          for (const [i, file] of files.entries()) {
+            const placement = place.noteId
+              ? { noteId: place.noteId, ...(place.at ? snapPoint({ x: place.at.x + i * 40, y: place.at.y + i * 40 }) : {}) }
+              : snapPoint({ x: at.x - IMAGE_OFFSET.x + i * 40, y: at.y - IMAGE_OFFSET.y + i * 40 })
+            added.push(await api.uploadImage(board.id, file, placement))
+          }
+        } finally {
+          // One step for all of them; when one fails, the ones that made it.
+          const entry = step(added.length === 1 ? 'Add image' : 'Add images', added.map((image) => created(target.image(image.id), snap.image(image))))
+          if (entry) undo.record(entry)
+        }
+        if (added.length === 1 && !place.noteId) setSelection({ kind: 'image', id: added[0].id })
+      }),
+    )
     setUploads((n) => n - 1)
   }
 
@@ -520,20 +611,21 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
   /**
    * Adds a link to `linked` on a post-it: into the links block at `at` on its canvas, else its first links block; only a
    * post-it without one gets a new links block (at `at`, or in a free spot). Nothing changes (false) when it already
-   * links there.
+   * links there; otherwise the undo step.
    */
-  async function linkNote({ note, at }: LinkDrop, linked: NoteDetail) {
+  async function linkNote({ note, at }: LinkDrop, linked: NoteDetail): Promise<UndoEntry | null | false> {
     if (note.blocks.some((b) => b.links?.some((l) => noteRoute(l.url)?.noteId === linked.id))) return false
     const link = { title: linked.title, url: linked.path }
     const lists = note.blocks.filter((b) => b.kind === 'Links')
     const block =
       (at && lists.find((b) => at.x >= b.x && at.x < b.x + b.width && at.y >= b.y && at.y < b.y + b.height)) ?? lists[0]
-    if (block) await api.updateNoteBlock(note.id, block.id, { links: [...(block.links ?? []), link] })
-    else {
-      const place = at ? onNoteCanvas({ x: at.x - GRID, y: at.y - GRID }, defaultBlockSize('Links')) : {}
-      await api.addNoteBlock(note.id, { kind: 'Links', links: [link], ...place })
+    if (block) {
+      const updated = await api.updateNoteBlock(note.id, block.id, { links: [...(block.links ?? []), link] })
+      return step('Link post-it', [patched(target.block(note.id, block.id), snap.block(block), snap.block(updated), ['links'])])
     }
-    return true
+    const place = at ? onNoteCanvas({ x: at.x - GRID, y: at.y - GRID }, defaultBlockSize('Links')) : {}
+    const added = await api.addNoteBlock(note.id, { kind: 'Links', links: [link], ...place })
+    return step('Link post-it', [created(target.block(note.id, added.id), snap.block(added))])
   }
 
   const postItElement = (id: string) => canvasRef.current?.querySelector(`[data-note="${id}"]`)
@@ -722,12 +814,16 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
 
   /** Sticks a new post-it centred on a canvas point, selects it and opens it with its title ready to type. */
   function stickPostIt(p: Point) {
-    void settle(async () => {
-      const note = await api.createNote(board.id, { title: 'New post-it', color: fill, ...postItSpot(p) })
-      setSelection({ kind: 'note', id: note.id })
-      setExpanded({ id: note.id, fresh: true })
-      setTool('select')
-    })
+    void settle(
+      async () => {
+        const note = await api.createNote(board.id, { title: 'New post-it', color: fill, ...postItSpot(p) })
+        setSelection({ kind: 'note', id: note.id })
+        setExpanded({ id: note.id, fresh: true })
+        setTool('select')
+        return note
+      },
+      (note) => step('Add post-it', [created(target.note(note.id), snap.note(note))]),
+    )
   }
 
   /** Where a new post-it dragged from the rail would go, in canvas pixels: over the board, not over the open post-it. */
@@ -808,11 +904,15 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
         return
       }
       setGesture({ ...gesture, done: true })
-      void settle(async () => {
-        const bucket = await api.createBucket(board.id, { name: 'New bucket', ...rect })
-        setSelection({ kind: 'bucket', id: bucket.id, fresh: true })
-        setTool('select')
-      })
+      void settle(
+        async () => {
+          const bucket = await api.createBucket(board.id, { name: 'New bucket', ...rect })
+          setSelection({ kind: 'bucket', id: bucket.id, fresh: true })
+          setTool('select')
+          return bucket
+        },
+        (bucket) => step('Add bucket', [created(target.bucket(bucket.id), snap.bucket(bucket))]),
+      )
       return
     }
     if (!isDrag(gesture)) {
@@ -830,10 +930,16 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
       // Dropped on another post-it (or the open one's window): that one links to it, and the dragged one stays put.
       setGesture(null)
       const linked = board.notes.find((n) => n.id === gesture.id)!
-      let created = false
-      void run(async () => (created = await linkNote(link, linked))).then((ok) => {
+      let added = false
+      void runRec(
+        () => linkNote(link, linked),
+        (entry) => {
+          added = entry !== false
+          return entry || null
+        },
+      ).then((ok) => {
         if (!ok) return
-        if (!created) return notify('Already linked')
+        if (!added) return notify('Already linked')
         // Both post-its pop: the one dragged (back in its place) and the one that got the link.
         pop(postItElement(linked.id))
         if (link.window) expandedRef.current?.pop()
@@ -849,31 +955,67 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
     setIncoming(null)
     const overWindow = !!expandedRef.current?.contains(client)
     const intoNote = gesture.kind === 'image' && !onNote && !overWindow ? noteAt(toCanvas(e)) : undefined
+    /** The undo step for an image that moved, was resized or went into a post-it. */
+    const imageStep = (label: string, before: ImageDetail | undefined, keys: string[]) => (after: ImageDetail) =>
+      before ? step(label, [patched(target.image(id), snap.image(before), snap.image(after), keys)]) : null
     if (expanded && onNote) {
       // Dropped on the open post-it: the image moves onto its canvas.
       setSelection(null)
-      void settle(() => api.updateImage(id, { noteId: expanded.id, ...onNoteCanvas(onNote.at, onNote.image) })).then(
-        (ok) => ok && notify('Image embedded'),
-      )
+      void settle(
+        () => api.updateImage(id, { noteId: expanded.id, ...onNoteCanvas(onNote.at, onNote.image) }),
+        imageStep('Embed image', onNote.image, ['noteId', 'x', 'y']),
+      ).then((ok) => ok && notify('Image embedded'))
     } else if (intoNote) {
       // Dropped on a post-it on the board: sucked into it and attached, in a free spot on its canvas, without opening it.
       // The request waits for the animation, so the reload doesn't take the image away halfway.
       setSelection(null)
       const animation = suckInto(id, intoNote)
-      void settle(async () => {
-        await animation?.finished.catch(() => {})
-        await api.updateImage(id, { noteId: intoNote.id })
-      }).then((ok) => (ok ? notify('Image embedded') : animation?.cancel()))
+      void settle(
+        async () => {
+          await animation?.finished.catch(() => {})
+          return api.updateImage(id, { noteId: intoNote.id })
+        },
+        imageStep('Embed image', board.images.find((i) => i.id === id), ['noteId', 'x', 'y']),
+      ).then((ok) => (ok ? notify('Image embedded') : animation?.cancel()))
     } else if (gesture.kind === 'note') {
       const note = board.notes.find((n) => n.id === id)!
-      void settle(() => api.moveNote(id, notePoint(note)))
+      void settle(
+        () => api.moveNote(id, notePoint(note)),
+        (moved) => step('Move post-it', [patched(target.note(id), snap.note(note), snap.note(moved), ['x', 'y'])]),
+      )
     } else if (gesture.kind === 'image' || gesture.kind === 'image-resize') {
-      const { x, y, width } = imageRect(board.images.find((i) => i.id === id)!)
-      void settle(() => api.updateImage(id, gesture.kind === 'image' ? { x, y } : { x, y, width }))
+      const image = board.images.find((i) => i.id === id)!
+      const { x, y, width } = imageRect(image)
+      const moving = gesture.kind === 'image'
+      void settle(
+        () => api.updateImage(id, moving ? { x, y } : { x, y, width }),
+        imageStep(moving ? 'Move image' : 'Resize image', image, ['x', 'y', 'width']),
+      )
+    } else if (gesture.kind === 'bucket') {
+      // A moved bucket carries its post-its along; undoing the move takes exactly those back.
+      const bucket = board.buckets.find((b) => b.id === id)!
+      const carried = board.notes.filter((n) => n.bucketId === id)
+      const { x, y } = bucketRect(bucket)
+      void settle(
+        () => api.updateBucket(id, { x, y }),
+        (moved) => {
+          const d = { x: moved.x - bucket.x, y: moved.y - bucket.y }
+          return step('Move bucket', [
+            patched(target.bucket(id, carried.map((n) => n.id)), snap.bucket(bucket), snap.bucket(moved), ['x', 'y']),
+            ...carried.map((n) =>
+              patched(target.note(n.id), { x: n.x, y: n.y }, { x: Math.max(0, n.x + d.x), y: Math.max(0, n.y + d.y) }, ['x', 'y'], true),
+            ),
+          ])
+        },
+      )
     } else {
       // With a new size, a new place is a resize from a top or left corner or edge: the server leaves the post-its where they are.
-      const { x, y, width, height } = bucketRect(board.buckets.find((b) => b.id === id)!)
-      void settle(() => api.updateBucket(id, gesture.kind === 'bucket' ? { x, y } : { x, y, width, height }))
+      const bucket = board.buckets.find((b) => b.id === id)!
+      const { x, y, width, height } = bucketRect(bucket)
+      void settle(
+        () => api.updateBucket(id, { x, y, width, height }),
+        (resized) => step('Resize bucket', [patched(target.bucket(id), snap.bucket(bucket), snap.bucket(resized), ['x', 'y', 'width', 'height'])]),
+      )
     }
   }
 
@@ -922,8 +1064,6 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
   const selectedBucket = selection?.kind === 'bucket' ? board.buckets.find((b) => b.id === selection.id) : undefined
   const selectedImage = selection?.kind === 'image' ? board.images.find((i) => i.id === selection.id) : undefined
   const expandedNote = expanded && board.notes.find((n) => n.id === expanded.id)
-  const noteToDelete = pendingDelete?.kind === 'note' ? board.notes.find((n) => n.id === pendingDelete.id) : undefined
-  const imageToDelete = pendingDelete?.kind === 'image' ? board.images.find((i) => i.id === pendingDelete.id) : undefined
   const countIn = (bucketId: string) => board.notes.filter((n) => n.bucketId === bucketId).length
   // Filter on tags that still exist (one may have been renamed or deleted meanwhile); any of them matches.
   const filter = tagFilter.filter((t) => board.tags.some((bt) => bt.name === t))
@@ -1075,7 +1215,7 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
                 lifted={dragging?.id === image.id && !dragging.done}
                 onPointerDown={(e) => onItemPointerDown(e, 'image', image.id)}
                 onResizePointerDown={readOnly ? undefined : (e, handle) => onItemPointerDown(e, 'image-resize', image.id, { handle })}
-                onDelete={readOnly ? undefined : () => setPendingDelete({ kind: 'image', id: image.id })}
+                onDelete={readOnly ? undefined : () => deleteImage(image.id)}
               />
             ))}
 
@@ -1110,7 +1250,7 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
                 onExpand={() => expand(note.id)}
                 editingTitle={titleEdit?.id === note.id}
                 titleCaret={titleEdit?.id === note.id ? titleEdit.caret : undefined}
-                onRenameTitle={readOnly ? undefined : (title) => settle(() => api.updateNote(note.id, { title }))}
+                onRenameTitle={readOnly ? undefined : (title) => editNote(note, { title })}
                 onTitleDone={() => setTitleEdit(null)}
                 onEditTags={readOnly ? undefined : (anchor) => setQuickEdit({ noteId: note.id, kind: 'tags', anchor })}
                 onEditAssignees={readOnly ? undefined : (anchor) => setQuickEdit({ noteId: note.id, kind: 'people', anchor })}
@@ -1177,6 +1317,8 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
         {hint && <div className="canvas-hint">{hint}</div>}
       </div>
       <ViewControls
+        undo={readOnly ? undefined : { label: undo.nextUndo, disabled: !!gesture || noteBusy, onClick: undo.undo }}
+        redo={readOnly ? undefined : { label: undo.nextRedo, disabled: !!gesture || noteBusy, onClick: undo.redo }}
         zoom={zoom}
         onZoom={(direction) => zoomTo(stepZoom(zoom, direction))}
         onZoomReset={() => zoomTo(1)}
@@ -1196,14 +1338,23 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
 
       {selectedBucket && (
         <BucketInspector
-          key={selectedBucket.id}
+          // A new name (an undo, someone else) starts the field afresh.
+          key={`${selectedBucket.id}:${selectedBucket.name}`}
           bucket={selectedBucket}
           noteCount={countIn(selectedBucket.id)}
           autoFocus={!!selection?.fresh}
-          onSave={(changes) => settle(() => api.updateBucket(selectedBucket.id, changes))}
+          onSave={(changes) =>
+            settle(
+              () => api.updateBucket(selectedBucket.id, changes),
+              (after) => step('Rename bucket', [patched(target.bucket(after.id), snap.bucket(selectedBucket), snap.bucket(after), ['name'])]),
+            )
+          }
           onDelete={() => {
             setSelection(null)
-            void settle(() => api.deleteBucket(selectedBucket.id))
+            void settle(
+              () => api.deleteBucket(selectedBucket.id),
+              () => step('Delete bucket', [deleted(target.bucket(selectedBucket.id), snap.bucket(selectedBucket))], { toast: 'Bucket deleted' }),
+            )
           }}
           onClose={() => setSelection(null)}
         />
@@ -1211,10 +1362,15 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
 
       {selectedImage && (
         <ImageInspector
-          key={selectedImage.id}
+          key={`${selectedImage.id}:${selectedImage.caption}`}
           image={selectedImage}
-          onSave={(changes) => settle(() => api.updateImage(selectedImage.id, changes))}
-          onDelete={() => setPendingDelete({ kind: 'image', id: selectedImage.id })}
+          onSave={(changes) =>
+            settle(
+              () => api.updateImage(selectedImage.id, changes),
+              (after) => step('Edit caption', [patched(target.image(after.id), snap.image(selectedImage), snap.image(after), ['caption'])]),
+            )
+          }
+          onDelete={() => deleteImage(selectedImage.id)}
           onClose={() => setSelection(null)}
         />
       )}
@@ -1225,7 +1381,7 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
           anchor={quickEdit.anchor}
           tags={quickNote.tags}
           boardTags={board.tags}
-          onChange={(tags) => settle(() => api.updateNote(quickNote.id, { tags }))}
+          onChange={(tags) => editNote(quickNote, { tags })}
           onRename={renameTag}
           onDelete={deleteTag}
           onClose={() => setQuickEdit(null)}
@@ -1237,7 +1393,7 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
           anchor={quickEdit.anchor}
           assignees={quickNote.assignees}
           people={board.people}
-          onChange={(assigneeIds) => settle(() => api.updateNote(quickNote.id, { assigneeIds }))}
+          onChange={(assigneeIds) => editNote(quickNote, { assigneeIds })}
           onClose={() => setQuickEdit(null)}
         />
       )}
@@ -1250,14 +1406,14 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
           images={board.images.filter((i) => i.noteId === expandedNote.id)}
           notes={board.notes}
           handle={expandedRef}
-          run={run}
+          run={runRec}
           onBusy={setNoteBusy}
           incoming={incoming}
           linking={!!linkDrop?.window}
           boardPoint={boardPoint}
           boardZoom={zoom}
           focusTitle={expanded?.fresh ?? false}
-          onChange={(changes) => settle(() => api.updateNote(expandedNote.id, changes))}
+          onChange={(changes) => editNote(expandedNote, changes)}
           boardTags={board.tags}
           people={board.people}
           onRenameTag={renameTag}
@@ -1312,24 +1468,6 @@ export function BoardCanvas({ board, run, setPaused, remoteDrags = [], onDrag }:
           </div>,
           document.body,
         )}
-
-      {noteToDelete && (
-        <ConfirmDeleteNote
-          title={noteToDelete.title}
-          onConfirm={() => deleteNote(noteToDelete.id)}
-          onCancel={() => setPendingDelete(null)}
-        />
-      )}
-
-      {imageToDelete && (
-        <ConfirmDialog
-          title="Delete this image?"
-          message={`"${imageToDelete.caption ?? imageToDelete.fileName}" will be removed from the board. This can't be undone.`}
-          confirmLabel="Delete"
-          onConfirm={() => deleteImage(imageToDelete.id)}
-          onCancel={() => setPendingDelete(null)}
-        />
-      )}
     </section>
   )
 }

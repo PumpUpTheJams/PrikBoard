@@ -162,6 +162,8 @@ export const api = {
   updateBucket: (bucketId: string, changes: BucketChanges) =>
     request<BucketDetail>('PATCH', `/buckets/${bucketId}`, changes),
   deleteBucket: (bucketId: string) => request<void>('DELETE', `/buckets/${bucketId}`),
+  /** Brings back a bucket deleted in the last 7 days, with the same id. */
+  restoreBucket: (bucketId: string) => request<BucketDetail>('POST', `/buckets/${bucketId}/restore`),
 
   createNote: (
     boardId: string,
@@ -172,6 +174,8 @@ export const api = {
   moveNote: (noteId: string, to: { bucketId: string } | Point) =>
     request<NoteDetail>('POST', `/notes/${noteId}/move`, to),
   deleteNote: (noteId: string) => request<void>('DELETE', `/notes/${noteId}`),
+  /** Brings back a note deleted in the last 7 days, with the same id and the images deleted along with it. */
+  restoreNote: (noteId: string) => request<NoteDetail>('POST', `/notes/${noteId}/restore`),
   addNoteBlock: (noteId: string, block: NewNoteBlock) => request<NoteBlock>('POST', `/notes/${noteId}/blocks`, block),
   updateNoteBlock: (noteId: string, blockId: string, changes: NoteBlockChanges) =>
     request<NoteBlock>('PATCH', `/notes/${noteId}/blocks/${blockId}`, changes),
@@ -187,6 +191,8 @@ export const api = {
     request<BoardTag>('PATCH', `/boards/${boardId}/tags/${tagId}`, { name }),
   /** Removes the tag from every note of the board too. */
   deleteBoardTag: (boardId: string, tagId: string) => request<void>('DELETE', `/boards/${boardId}/tags/${tagId}`),
+  /** Brings back a deleted tag and puts it back on the notes it was removed from. */
+  restoreBoardTag: (boardId: string, tagId: string) => request<BoardTag>('POST', `/boards/${boardId}/tags/${tagId}/restore`),
 
   /** Uploads a file onto the board, or attached to a note with noteId; at x/y (on the note's canvas with noteId) or a free spot. */
   uploadImage: (boardId: string, file: File, placement: ImagePlacement = {}) => {
@@ -196,6 +202,8 @@ export const api = {
   },
   updateImage: (imageId: string, changes: ImageChanges) => request<ImageDetail>('PATCH', `/images/${imageId}`, changes),
   deleteImage: (imageId: string) => request<void>('DELETE', `/images/${imageId}`),
+  /** Brings back an image deleted in the last 7 days (not one whose note is deleted: restore the note). */
+  restoreImage: (imageId: string) => request<ImageDetail>('POST', `/images/${imageId}/restore`),
 
   listBoardMembers: (boardId: string) => request<BoardMember[]>('GET', `/boards/${boardId}/members`),
   addBoardMember: (boardId: string, principalId: string, role: BoardRole) =>

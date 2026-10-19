@@ -22,7 +22,8 @@ public static class NoteBlockEndpoints
             .WithName("addNoteBlock")
             .WithSummary("Add a block to a note")
             .WithDescription("Adds a text, checklist or links block to the note's content. Without x and y it goes in the first " +
-                             $"free spot on the note's canvas. A note has at most {NoteBlock.MaxBlocks} blocks.")
+                             $"free spot on the note's canvas. A note has at most {NoteBlock.MaxBlocks} blocks. " +
+                             "To put back a removed block, send it with the id it had.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
 
@@ -56,6 +57,15 @@ public static class NoteBlockEndpoints
         var taken = Layout.TakenOnNote(note, await db.Images.Where(i => i.NoteId == noteId).ToListAsync(ct));
         if (Build(request, taken, "") is not { } block) return InvalidBlock(request, "");
         if (Check(block, "") is { } invalid) return invalid;
+        if (request.Id is { } id)
+        {
+            if (note.Blocks.Exists(b => b.Id == id))
+            {
+                return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Block exists",
+                    detail: "The note already has a block with this id.");
+            }
+            block.Id = id;
+        }
 
         note.Blocks.Add(block);
         note.UpdatedAt = DateTimeOffset.UtcNow;

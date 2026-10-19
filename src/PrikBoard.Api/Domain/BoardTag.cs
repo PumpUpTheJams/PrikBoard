@@ -14,4 +14,8 @@ public class BoardTag
     /// <summary>Normalized, see <see cref="NoteTags.Normalize(string)"/>; unique on the board.</summary>
     public required string Name { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    /// <summary>When it was deleted; it can be restored until <see cref="Data.Tombstones.Retention"/> has passed. Hidden by the query filter while set.</summary>
+    public DateTimeOffset? DeletedAt { get; set; }
+    /// <summary>While deleted: the notes it was removed from, so restoring puts it back on them.</summary>
+    public List<Guid>? RemovedFromNoteIds { get; set; }
 }

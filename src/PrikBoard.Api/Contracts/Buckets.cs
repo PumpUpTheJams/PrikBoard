@@ -45,10 +45,15 @@ public record CreateBucketRequest(
 /// <param name="Y">New top edge.</param>
 /// <param name="Width">New width.</param>
 /// <param name="Height">New height.</param>
+/// <param name="CarryNoteIds">
+/// Only with a move (X and/or Y without Width or Height): exactly these notes move along, instead of the notes in the
+/// bucket. Used to undo a move, where the notes that came along must go back. Ids not on the board are ignored.
+/// </param>
 public record UpdateBucketRequest(
     [property: StringLength(100, MinimumLength = 1)] string? Name = null,
     BucketColor? Color = null,
     [property: Range(0, Layout.MaxCoordinate)] int? X = null,
     [property: Range(0, Layout.MaxCoordinate)] int? Y = null,
     [property: Range(Layout.MinBucketWidth, Layout.MaxBucketSize)] int? Width = null,
-    [property: Range(Layout.MinBucketHeight, Layout.MaxBucketSize)] int? Height = null);
+    [property: Range(Layout.MinBucketHeight, Layout.MaxBucketSize)] int? Height = null,
+    [property: MaxLength(2000)] List<Guid>? CarryNoteIds = null);

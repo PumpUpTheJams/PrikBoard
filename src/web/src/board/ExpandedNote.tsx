@@ -12,7 +12,6 @@ import {
   type Point,
 } from '../api/types'
 import { Avatar } from '../components/Avatar'
-import { ConfirmDeleteNote } from '../components/ConfirmDialog'
 import { AssigneePicker } from './AssigneePicker'
 import { EditableText } from './EditableText'
 import { draggingFiles, imageFiles } from './files'
@@ -22,6 +21,7 @@ import { copyText } from './links'
 import { pop } from './motion'
 import { NoteCanvas, type IncomingImage, type NoteCanvasHandle } from './NoteCanvas'
 import { TagPicker } from './TagPicker'
+import type { RecordingRun } from './undo'
 import { MAX_ASSIGNEES, MAX_TAGS } from './tags'
 import { useFloatingWindow } from './useFloatingWindow'
 
@@ -46,7 +46,7 @@ interface ExpandedNoteProps {
   people: BoardPerson[]
   onRenameTag: (tag: BoardTag, name: string) => Promise<boolean>
   onDeleteTag: (tag: BoardTag) => Promise<boolean>
-  /** Deletes the post-it; called after the person confirmed. */
+  /** Deletes the post-it (undone with the toast's Undo button or Ctrl/Cmd+Z, so nothing asks first). */
   onDelete: () => void
   /** Images attached to this post-it. */
   images: ImageDetail[]
@@ -61,8 +61,8 @@ interface ExpandedNoteProps {
   /** Words the board search found on it, to mark (opened from the search results). */
   highlight?: string[]
   handle: RefObject<ExpandedNoteHandle | null>
-  /** Runs a change through the board (which then reloads). */
-  run: (action: () => Promise<unknown>) => Promise<boolean>
+  /** Runs a change through the board (which then reloads), recorded for undo. */
+  run: RecordingRun
   /** Whether a drag on the post-it's canvas is in progress, so the board holds back its refreshes. */
   onBusy: (busy: boolean) => void
   /** A board image being dragged over the window. */
@@ -83,7 +83,6 @@ export function ExpandedNote(props: ExpandedNoteProps) {
   const { boardTags, people, notes, onRenameTag, onDeleteTag, handle, run, onBusy, incoming, linking, boardPoint, boardZoom } = props
   /** The tag or people window, opened from its button in the band. */
   const [picking, setPicking] = useState<{ kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
-  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [fileOver, setFileOver] = useState(false)
   /** Whether the pointer is over the window: a paste then goes to the post-it. */
   const [hover, setHover] = useState(true)
@@ -96,15 +95,15 @@ export function ExpandedNote(props: ExpandedNoteProps) {
   }, [focusTitle])
 
   // Escape closes the post-it wherever focus is (it can end up on the page after saving the title). Fields and the
-  // confirmations handle their own Escape first and stop it from getting here.
+  // pickers handle their own Escape first and stop it from getting here.
   useEffect(() => {
-    if (confirmingDelete || picking) return
+    if (picking) return
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [confirmingDelete, picking, onClose])
+  }, [picking, onClose])
 
   // Follows the pointer everywhere (also while the board or the canvas holds it during a drag).
   useEffect(() => {
@@ -237,7 +236,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
           onPickImages={onPickImages}
           boardPoint={boardPoint}
           boardZoom={boardZoom}
-          onDeletePostIt={() => setConfirmingDelete(true)}
+          onDeletePostIt={onDelete}
         />
 
         <span className="window-resize e" aria-hidden="true" onPointerDown={startResize('e')} />
@@ -263,20 +262,6 @@ export function ExpandedNote(props: ExpandedNoteProps) {
           people={people}
           onChange={(assigneeIds) => onChange({ assigneeIds })}
           onClose={closePicker}
-        />
-      )}
-
-      {confirmingDelete && (
-        <ConfirmDeleteNote
-          title={note.title}
-          onConfirm={() => {
-            setConfirmingDelete(false)
-            onDelete()
-          }}
-          onCancel={() => {
-            setConfirmingDelete(false)
-            dialogRef.current?.focus({ preventScroll: true })
-          }}
         />
       )}
     </>

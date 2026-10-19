@@ -18,6 +18,7 @@ import {
 } from './board/icons'
 import { pickBoardFile, saveFile } from './board/files'
 import { useBoard } from './board/useBoard'
+import { UndoHistory } from './board/useUndo'
 import { useLive } from './live/useLive'
 import { AccountDialog, DisplayNameDialog } from './components/AccountDialogs'
 import { AdminPage } from './components/AdminPage'
@@ -158,6 +159,8 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   const refreshBoard = useRef(() => {})
   const live = useLive(activeBoard?.id ?? null, { onBoardChanged: () => refreshBoard.current(), onBoardsChanged: loadBoards })
   const { board, run, setPaused, refresh } = useBoard(activeBoard?.id ?? null, setError, onLost, live.connected)
+  /** Undo history of every board opened in this tab; switching boards keeps it. */
+  const [undoHistory] = useState(() => new UndoHistory())
   const { boardLoaded } = live
   useEffect(() => {
     refreshBoard.current = refresh
@@ -495,6 +498,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
               key={activeBoard.id}
               board={board}
               run={run}
+              undoHistory={undoHistory}
               setPaused={setPaused}
               remoteDrags={live.drags}
               onDrag={live.sendDrag}

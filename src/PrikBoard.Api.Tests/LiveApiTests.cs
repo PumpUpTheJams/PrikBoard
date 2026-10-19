@@ -38,6 +38,24 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
     }
 
     [Fact]
+    public async Task Members_hear_about_restores()
+    {
+        var owner = await SessionAsync("live-restore-owner@example.com");
+        var editor = await SessionAsync("live-restore-editor@example.com");
+        var board = await owner.Http.CreateBoardAsync();
+        await owner.Http.ShareAsync(board.Id, editor.Http, BoardRole.Editor);
+        var note = await editor.Http.CreateNoteAsync(board.Id);
+        (await editor.Http.DeleteAsync($"/api/notes/{note.Id}")).EnsureSuccessStatusCode();
+
+        var live = await ConnectAsync(owner);
+        var changes = live.Inbox<BoardChange>("BoardChanged");
+        await live.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+        (await editor.Http.PostAsync($"/api/notes/{note.Id}/restore", null)).EnsureSuccessStatusCode();
+
+        Assert.Equal(board.Id, (await changes.NextAsync()).BoardId);
+    }
+
+    [Fact]
     public async Task The_tab_that_saved_is_not_told_again_but_the_other_tabs_are()
     {
         var owner = await SessionAsync("live-tabs@example.com");

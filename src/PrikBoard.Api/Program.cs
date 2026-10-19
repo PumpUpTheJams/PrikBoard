@@ -30,6 +30,7 @@ builder.Services.AddSignalR()
 builder.Services.AddSingleton<IUserIdProvider, PrincipalUserIds>();
 builder.Services.AddSingleton<LiveViewers>();
 builder.Services.AddSingleton<BoardEvents>();
+builder.Services.AddHostedService<TombstonePurger>();
 builder.Services.AddHttpClient<ProviderAvatars>(http =>
 {
     http.Timeout = TimeSpan.FromSeconds(10);

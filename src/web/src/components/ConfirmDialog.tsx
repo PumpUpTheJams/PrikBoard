@@ -42,16 +42,3 @@ export function ConfirmDialog({ title, message, confirmLabel, onConfirm, onCance
     </div>
   )
 }
-
-/** Asks before deleting a post-it, from the board (Delete key) or from the expanded post-it. */
-export function ConfirmDeleteNote({ title, onConfirm, onCancel }: { title: string; onConfirm: () => void; onCancel: () => void }) {
-  return (
-    <ConfirmDialog
-      title="Delete this post-it?"
-      message={`"${title}" will be removed from the board. This can't be undone.`}
-      confirmLabel="Delete"
-      onConfirm={onConfirm}
-      onCancel={onCancel}
-    />
-  )
-}

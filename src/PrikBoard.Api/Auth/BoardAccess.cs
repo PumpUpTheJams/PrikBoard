@@ -112,12 +112,15 @@ public static class BoardAccess
     public static async Task<Authorization> AuthorizeAsync(HttpContext http, BoardScope scope, Guid id, BoardRole minimum)
     {
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        // Deleted items still belong to their board, so restoring them is authorized like any other write; the handlers
+        // themselves load through the soft-delete filter and answer 404 for everything else.
+        string[] deleted = [PrikBoardDbContext.SoftDelete];
         var boardIds = scope switch
         {
             BoardScope.Board => db.Boards.Where(b => b.Id == id).Select(b => b.Id),
-            BoardScope.Note => db.Notes.Where(n => n.Id == id).Select(n => n.BoardId),
-            BoardScope.Bucket => db.Buckets.Where(b => b.Id == id).Select(b => b.BoardId),
-            _ => db.Images.Where(i => i.Id == id).Select(i => i.BoardId),
+            BoardScope.Note => db.Notes.IgnoreQueryFilters(deleted).Where(n => n.Id == id).Select(n => n.BoardId),
+            BoardScope.Bucket => db.Buckets.IgnoreQueryFilters(deleted).Where(b => b.Id == id).Select(b => b.BoardId),
+            _ => db.Images.IgnoreQueryFilters(deleted).Where(i => i.Id == id).Select(i => i.BoardId),
         };
         var caller = BoardCaller.Of(http.User);
         var membership = await db.BoardMembers
