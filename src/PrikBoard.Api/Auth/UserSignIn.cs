@@ -53,7 +53,7 @@ public static partial class UserSignIn
     /// becomes the admin. After that a newcomer needs an open invite link (<see cref="InviteIsOpenAsync"/>), which they
     /// then accept as usual. <paramref name="verifiedEmail"/> (only when the provider vouches for it) is hashed for
     /// exact-email search. Never links identities by email: that would let a provider with weak email checks take over accounts.
-    /// <paramref name="picture"/> is the provider's picture URL, only offered to the person as an avatar.
+    /// <paramref name="picture"/> is the provider's picture URL: a copy becomes the avatar unless the person opted out.
     /// </summary>
     public static async Task<ClaimsPrincipal?> SignInAsync(
         HttpContext context, string provider, string subject, string? name, string? verifiedEmail, SignUp signUp, string? picture = null)
@@ -85,6 +85,12 @@ public static partial class UserSignIn
         identity.User!.LastSeenAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
+
+        // Refreshed on every sign-in, so a new picture at the provider shows up. A failed download keeps the old one.
+        if (ProviderAvatars.IsTrusted(picture) && !identity.User.AvatarOptedOut)
+        {
+            await context.RequestServices.GetRequiredService<ProviderAvatars>().TakeAsync(db, identity.User, picture!, ct);
+        }
 
         return UserPrincipal.Create(identity.User, provider, name, AuthSetup.CookieScheme, picture);
     }

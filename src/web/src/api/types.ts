@@ -264,6 +264,8 @@ export interface Caller {
   avatarUrl: string | null
   /** Sessions only: the sign-in provider's picture (GitHub's), which useSignInAvatar takes as avatar; never stored. */
   suggestedAvatarUrl: string | null
+  /** People only: they removed their avatar, so sign-ins no longer take the provider's picture. */
+  avatarOptedOut: boolean
 }
 
 /** A board as an admin sees it: who is on it, never what is on it. */

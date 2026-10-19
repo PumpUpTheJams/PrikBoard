@@ -68,14 +68,16 @@ public static class AuthEndpoints
             .WithName("useSignInAvatar")
             .WithSummary("Take your sign-in picture as avatar")
             .WithDescription("Copies the picture of the provider you signed in with (suggestedAvatarUrl in whoAmI; GitHub only) " +
-                             "and shows it instead of your initials. Taking it again refreshes the copy. People in the browser only.")
+                             "and shows it instead of your initials. GitHub sign-ins do this by themselves unless you removed your " +
+                             "avatar; this undoes that. People in the browser only.")
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status502BadGateway);
 
         me.MapDelete("/avatar", RemoveAvatar)
             .WithName("removeAvatar")
             .WithSummary("Remove your avatar")
-            .WithDescription("Deletes your picture, so your initials are shown again. People in the browser only.");
+            .WithDescription("Deletes your picture, so your initials are shown again, and stops later sign-ins from taking it " +
+                             "(avatarOptedOut). People in the browser only.");
 
         me.MapDelete("/identities/{identityId:guid}", UnlinkIdentity)
             .WithName("unlinkIdentity")
@@ -200,17 +202,12 @@ public static class AuthEndpoints
 
         var user = await db.Users.FindAsync([principal.UserId()], ct);
         if (user is null) return TypedResults.Unauthorized();
-        var avatar = await pictures.DownloadAsync(user.Id, picture, ct);
-        if (avatar is null)
+        if (!await pictures.TakeAsync(db, user, picture, ct))
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status502BadGateway, title: "Picture unavailable",
                 detail: "Your picture could not be fetched from the provider. Try again later.");
         }
 
-        await db.UserAvatars.Where(a => a.UserId == user.Id).ExecuteDeleteAsync(ct);
-        db.UserAvatars.Add(avatar);
-        user.AvatarUpdatedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(ct);
         await AvatarChangedAsync(user, db, http, events, ct);
         return TypedResults.Ok((await CallerOf(principal, db, options.Value, ct))!);
     }
@@ -223,13 +220,12 @@ public static class AuthEndpoints
         var user = await db.Users.FindAsync([principal.UserId()], ct);
         if (user is null) return TypedResults.Unauthorized();
 
-        if (user.AvatarUpdatedAt is not null)
-        {
-            await db.UserAvatars.Where(a => a.UserId == user.Id).ExecuteDeleteAsync(ct);
-            user.AvatarUpdatedAt = null;
-            await db.SaveChangesAsync(ct);
-            await AvatarChangedAsync(user, db, http, events, ct);
-        }
+        var had = user.AvatarUpdatedAt is not null;
+        await db.UserAvatars.Where(a => a.UserId == user.Id).ExecuteDeleteAsync(ct);
+        user.AvatarUpdatedAt = null;
+        user.AvatarOptedOut = true;
+        await db.SaveChangesAsync(ct);
+        if (had) await AvatarChangedAsync(user, db, http, events, ct);
         return TypedResults.Ok((await CallerOf(principal, db, options.Value, ct))!);
     }
 
@@ -284,12 +280,12 @@ public static class AuthEndpoints
             {
                 case Agent agent:
                     return new Caller(CallerKind.Token, PrincipalKind.Agent, agent.Id, agent.ShownName, agent.DisplayName, null,
-                        agent.Issuer, agent.ClientId, [], scopes, false, null, null);
+                        agent.Issuer, agent.ClientId, [], scopes, false, null, null, false);
                 // A token from one of the issuer's UserClients: the person themselves, limited to the token's scopes.
                 // Sign-ins are managed in the browser, so none are listed.
                 case User person:
                     return new Caller(CallerKind.Token, PrincipalKind.User, person.Id, person.ShownName, person.DisplayName, null,
-                        issuer, AgentRegistry.ClientId(principal), [], scopes, false, Avatars.UrlOf(person), null);
+                        issuer, AgentRegistry.ClientId(principal), [], scopes, false, Avatars.UrlOf(person), null, person.AvatarOptedOut);
                 default:
                     return null;
             }
@@ -306,7 +302,7 @@ public static class AuthEndpoints
         var suggested = user.DisplayName is null ? principal.FindFirstValue(UserPrincipal.SuggestedNameClaim) : null;
         return new Caller(CallerKind.Session, PrincipalKind.User, user.Id, user.ShownName, user.DisplayName, suggested,
             principal.FindFirstValue(UserPrincipal.ProviderClaim), null, identities, scopes, user.IsAdmin,
-            Avatars.UrlOf(user), principal.FindFirstValue(UserPrincipal.SuggestedAvatarClaim));
+            Avatars.UrlOf(user), principal.FindFirstValue(UserPrincipal.SuggestedAvatarClaim), user.AvatarOptedOut);
     }
 
     /// <summary>Only same-site paths, so a crafted login link cannot bounce people to another site.</summary>

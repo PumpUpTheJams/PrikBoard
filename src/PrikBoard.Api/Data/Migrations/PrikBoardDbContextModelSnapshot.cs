@@ -554,6 +554,9 @@ namespace PrikBoard.Api.Data.Migrations
                 {
                     b.HasBaseType("PrikBoard.Api.Domain.Principal");
 
+                    b.Property<bool>("AvatarOptedOut")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTimeOffset?>("AvatarUpdatedAt")
                         .HasColumnType("timestamp with time zone");
 

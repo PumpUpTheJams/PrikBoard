@@ -37,10 +37,15 @@ public class User : Principal
     public bool IsAdmin { get; set; }
 
     /// <summary>
-    /// When the person last took their sign-in provider's picture as avatar (see <see cref="UserAvatar"/>); null without
-    /// one. Only set on their say-so: a copy of the picture is kept, never its URL, which holds the provider's account id.
+    /// When the copy of their sign-in provider's picture (see <see cref="UserAvatar"/>) last changed; null without one.
+    /// Only the copy is kept, never the picture's URL, which holds the provider's account id.
     /// </summary>
     public DateTimeOffset? AvatarUpdatedAt { get; set; }
+
+    /// <summary>
+    /// The person removed their avatar, so sign-ins no longer take the provider's picture. Cleared when they take it again.
+    /// </summary>
+    public bool AvatarOptedOut { get; set; }
 
     // GUID v7 starts with a timestamp, so the random tail tells people apart better than the head.
     public override string FallbackName => $"User {Id.ToString("N")[^4..]}";

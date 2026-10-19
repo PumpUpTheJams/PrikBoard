@@ -45,7 +45,8 @@ public enum PrincipalKind
 /// <param name="Scopes">What the caller may do: boards:read and/or boards:write. Sessions have both.</param>
 /// <param name="IsAdmin">Sessions only: whether this person is an admin of this PrikBoard (see the admin endpoints).</param>
 /// <param name="AvatarUrl">The picture others see (see getAvatar), or null when the person has none and initials are shown.</param>
-/// <param name="SuggestedAvatarUrl">Sessions only: the sign-in provider's picture of the person (GitHub's), which useSignInAvatar takes as avatar. Never stored.</param>
+/// <param name="SuggestedAvatarUrl">Sessions only: the sign-in provider's picture of the person (GitHub's), which useSignInAvatar takes as avatar. Its URL is never stored.</param>
+/// <param name="AvatarOptedOut">People only: they removed their avatar, so sign-ins no longer take the provider's picture.</param>
 public record Caller(
     CallerKind Kind,
     PrincipalKind PrincipalKind,
@@ -59,7 +60,8 @@ public record Caller(
     IReadOnlyList<string> Scopes,
     bool IsAdmin,
     string? AvatarUrl,
-    string? SuggestedAvatarUrl);
+    string? SuggestedAvatarUrl,
+    bool AvatarOptedOut);
 
 /// <summary>A sign-in linked to a user.</summary>
 /// <param name="Id">Identity id, used to unlink it.</param>

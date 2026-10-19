@@ -7,19 +7,16 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { Dialog } from './Dialog'
 
 /**
- * Asked once after signing in, while no name is chosen: the provider's name (and picture) are only suggestions and are
- * not stored unless the person accepts them (or types another name).
+ * Asked once after signing in, while no name is chosen: the provider's name is only a suggestion and is not stored
+ * unless the person accepts it (or types another). A GitHub picture is already shown; this says where to remove it.
  */
 export function DisplayNameDialog({ user, onSaved }: { user: Caller; onSaved: (user: Caller) => void }) {
   const [name, setName] = useState(user.suggestedDisplayName ?? '')
-  const offerPicture = user.suggestedAvatarUrl !== null && user.avatarUrl === null
-  const [usePicture, setUsePicture] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function save(displayName: string, withPicture = false) {
+  async function save(displayName: string) {
     try {
-      const named = await api.updateMe({ displayName })
-      onSaved(withPicture ? await api.useSignInAvatar() : named)
+      onSaved(await api.updateMe({ displayName }))
     } catch (e) {
       setError(errorMessage(e))
     }
@@ -27,7 +24,7 @@ export function DisplayNameDialog({ user, onSaved }: { user: Caller; onSaved: (u
 
   function submit(event: FormEvent) {
     event.preventDefault()
-    void save(name.trim(), offerPicture && usePicture)
+    void save(name.trim())
   }
 
   return (
@@ -38,14 +35,13 @@ export function DisplayNameDialog({ user, onSaved }: { user: Caller; onSaved: (u
           shared boards; you can change it any time.
         </p>
         <input autoFocus aria-label="Display name" value={name} maxLength={100} placeholder="Your name" onChange={(e) => setName(e.target.value)} />
-        {offerPicture && (
-          <label className="picture-choice">
-            <input type="checkbox" checked={usePicture} onChange={(e) => setUsePicture(e.target.checked)} />
+        {user.avatarUrl && (
+          <p className="picture-choice dialog-hint">
             <span className="avatar avatar-lg" aria-hidden="true">
-              <Face name={name || user.displayName} avatarUrl={user.suggestedAvatarUrl} />
+              <Face name={name || user.displayName} avatarUrl={user.avatarUrl} />
             </span>
-            Also show my {providerLabel(user)} picture
-          </label>
+            Others see your {providerLabel(user)} picture. You can remove it under Account.
+          </p>
         )}
         {error && <p className="widget-error">{error}</p>}
         <div className="dialog-actions">
@@ -146,9 +142,11 @@ export function AccountDialog({ user, boards, onChange, onClose }: AccountDialog
             )}
           </div>
           <p className="dialog-hint">
-            {user.suggestedAvatarUrl === null && user.avatarUrl === null
-              ? 'Sign in with GitHub to use your GitHub picture; until then others see your initials.'
-              : 'PrikBoard keeps a copy of the picture only once you pick it, and you can remove it any time.'}
+            {user.avatarUrl !== null
+              ? 'PrikBoard keeps a copy of your picture and refreshes it when you sign in. Remove it to show your initials and keep it off.'
+              : user.avatarOptedOut
+                ? 'You removed your picture, so signing in won’t bring it back. Others see your initials.'
+                : 'Signing in with GitHub shows your GitHub picture; until then others see your initials.'}
           </p>
         </section>
 

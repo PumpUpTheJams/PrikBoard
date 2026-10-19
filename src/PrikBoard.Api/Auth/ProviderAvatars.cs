@@ -1,11 +1,13 @@
+using Microsoft.EntityFrameworkCore;
+using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Auth;
 
 /// <summary>
-/// The sign-in provider's picture of a person, which they may take as their avatar. The URL only travels in their own
-/// session cookie as a suggestion; taking it downloads a copy, so the URL (which holds the provider's account id) is
-/// never stored and other people's browsers never contact the provider.
+/// The sign-in provider's picture of a person, which becomes their avatar unless they opted out. A copy is downloaded, so
+/// the URL (which holds the provider's account id) is never stored and other people's browsers never contact the
+/// provider. The URL also travels in the person's own session cookie, so they can take the picture again later.
 /// </summary>
 public class ProviderAvatars(HttpClient http)
 {
@@ -19,6 +21,35 @@ public class ProviderAvatars(HttpClient http)
     public static bool IsTrusted(string? url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps && uri.IsDefaultPort
         && TrustedHosts.Contains(uri.Host, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Makes the picture at <paramref name="url"/> the user's avatar (saving the context), or keeps the current one when
+    /// it is the same. False when it cannot be downloaded; then nothing changes.
+    /// </summary>
+    public async Task<bool> TakeAsync(PrikBoardDbContext db, User user, string url, CancellationToken ct)
+    {
+        var avatar = await DownloadAsync(user.Id, url, ct);
+        if (avatar is null) return false;
+
+        var current = await db.UserAvatars.FirstOrDefaultAsync(a => a.UserId == user.Id, ct);
+        if (current is null || !current.Data.AsSpan().SequenceEqual(avatar.Data))
+        {
+            if (current is null)
+            {
+                db.UserAvatars.Add(avatar);
+            }
+            else
+            {
+                current.ContentType = avatar.ContentType;
+                current.Data = avatar.Data;
+            }
+            // A new version, so browsers fetch it instead of their cached copy.
+            user.AvatarUpdatedAt = DateTimeOffset.UtcNow;
+        }
+        user.AvatarOptedOut = false;
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
 
     /// <summary>Downloads the picture at a trusted <paramref name="url"/>; null when it fails or is not a supported image.</summary>
     public async Task<UserAvatar?> DownloadAsync(Guid userId, string url, CancellationToken ct)
