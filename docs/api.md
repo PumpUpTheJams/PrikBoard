@@ -98,7 +98,7 @@ claude mcp add --transport http prikboard http://localhost:5173/mcp --header "Au
 | `set_working` | Assign yourself and show (or hide) the working halo, like setNoteWorking |
 | `delete_note`, `restore_note` | `delete_note` is marked destructive, so clients ask first; `restore_note` brings a deleted note back within 7 days |
 | `create_bucket`, `rename_bucket` | Bucket housekeeping |
-| `create_tag`, `rename_tag`, `delete_tag`, `restore_tag` | The board's tags, by name or id. Renaming and deleting change every note; `delete_tag` is marked destructive, and `restore_tag` puts a deleted tag back on its notes |
+| `create_tag`, `update_tag`, `delete_tag`, `restore_tag` | The board's tags, by name or id. `create_tag` and `update_tag` take a `color`; renaming and deleting change every note. `delete_tag` is marked destructive, and `restore_tag` puts a deleted tag back on its notes |
 
 The tools offer the same features as the REST endpoints. Where REST takes ids (`bucketId`, `assigneeIds`, a tag id), the tools also take names, resolved on the note's board.
 
@@ -116,7 +116,7 @@ Besides a title, a note has a `color` (fill), `tags`, `assignees` (people and ag
 
 A note's content lives on its own small canvas, shown when the post-it is expanded. It holds any number of blocks: `Text` (free text), `Checklist` (`items`) and `Links` (titled `links`), each with an optional `title` and a place (`x`, `y`, `width`, `height` in note pixels, snapped to the 20 px grid). Images attached to the note sit on the same canvas. Change blocks one at a time with addNoteBlock, updateNoteBlock and deleteNoteBlock, so people editing different blocks of a note never overwrite each other. A note's `path` is its address in the web app: opening `/#/boards/{boardId}/notes/{noteId}` shows the board with that post-it expanded.
 
-A board has its own list of **tags** (`tags` in getBoard, with how many notes use each). Notes pick their tags from it, and a new name on a note adds it to the list. A tag stays when no note uses it; renaming or deleting one changes every note on the board. **Assignees** are the board's `people`: its members, and the agents of members' personal access tokens that reach the board.
+A board has its own list of **tags** (`tags` in getBoard, with how many notes use each). Notes pick their tags from it, and a new name on a note adds it to the list. A tag stays when no note uses it; renaming or deleting one changes every note on the board. Each tag has a `color`: `Default` shows it as a shade of the post-it's fill, while `Brick`, `Rust`, `Ochre`, `Moss`, `Pine`, `Teal`, `Ocean`, `Indigo`, `Violet`, `Berry` and `Ink` make it a solid chip of that colour on every post-it, for things that should stand out, such as priority. **Assignees** are the board's `people`: its members, and the agents of members' personal access tokens that reach the board.
 
 ## Typical agent workflow
 
@@ -172,7 +172,7 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | getBoard | `GET /api/boards/{boardId}` | Full snapshot: agent `rules` and `rulesUpdatedAt`, buckets back to front, notes grouped by bucket, images, the board's `tags` and the `people` who can be assigned |
 | updateBoard | `PATCH /api/boards/{boardId}` | Rename, or edit the description or agent `rules` (Markdown, at most 20000 characters; an empty string clears them) |
 | deleteBoard | `DELETE /api/boards/{boardId}` | Delete the board with all buckets and notes |
-| exportBoard | `GET /api/boards/{boardId}/export` | The board as one downloadable JSON file (`format: "prikboard-board"`, `version: 2`): name, description, agent rules, buckets, tags, notes with their blocks, and images (bytes as base64; attached ones keep their place on the note's canvas). No members, roles, user ids or assignees. Ids in the file are local to it |
+| exportBoard | `GET /api/boards/{boardId}/export` | The board as one downloadable JSON file (`format: "prikboard-board"`, `version: 2`): name, description, agent rules, buckets, tags (and `tagColors` for tags with a colour), notes with their blocks, and images (bytes as base64; attached ones keep their place on the note's canvas). No members, roles, user ids or assignees. Ids in the file are local to it |
 | importBoard | `POST /api/boards/import` | Send an export file as the body. Always makes a new board that you own (`201`), with new ids; positions snap to the grid and each note's bucket follows from where it sits. Notes are created by you. Version 1 files still import: a note's `body`, `checklist` and `links` become a Text, a Checklist and a Links block, and attached images go in a row under them. `400` for a file that is not valid or newer than the server reads; `403` for tokens limited to chosen boards. Body at most 64 MB |
 | createBucket | `POST /api/boards/{boardId}/buckets` | Draw a bucket at a rectangle, or to the right of the others. Loose notes it covers join it |
 | updateBucket | `PATCH /api/buckets/{bucketId}` | Rename, recolour, move or resize. Moving carries the bucket's notes along (or exactly the notes in `carryNoteIds`, which undo uses); a new `x`/`y` together with a new size is a resize from a top or left corner or edge, and the notes stay put |
@@ -190,8 +190,8 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | updateNoteBlock | `PATCH /api/notes/{noteId}/blocks/{blockId}` | Edit a block's `title`, content (`text`, `items` or `links`, whichever fits its kind), position or size |
 | deleteNoteBlock | `DELETE /api/notes/{noteId}/blocks/{blockId}` | Remove a block |
 | listBoardTags | `GET /api/boards/{boardId}/tags` | The board's tags by name, with how many notes use each |
-| createBoardTag | `POST /api/boards/{boardId}/tags` | Add a tag without putting it on a note (`409` when it exists or the board has 100) |
-| renameBoardTag | `PATCH /api/boards/{boardId}/tags/{tagId}` | Rename a tag on the board and on every note (`409` when the new name is taken) |
+| createBoardTag | `POST /api/boards/{boardId}/tags` | Add a tag, optionally with a `color`, without putting it on a note (`409` when it exists or the board has 100) |
+| updateBoardTag | `PATCH /api/boards/{boardId}/tags/{tagId}` | Rename a tag (on the board and on every note; `409` when the new name is taken) and/or change its `color` |
 | deleteBoardTag | `DELETE /api/boards/{boardId}/tags/{tagId}` | Delete a tag from the board and from every note |
 | restoreBoardTag | `POST /api/boards/{boardId}/tags/{tagId}/restore` | Bring back a deleted tag and put it back (last) on the notes it was removed from (`409` when a tag has that name again) |
 | uploadImage | `POST /api/boards/{boardId}/images?fileName=&noteId=&x=&y=&width=&caption=` | Add an image or GIF: the file itself is the request body, with its content type. On the board at `x`/`y` (default: right of everything), or attached to a note with `noteId`, at `x`/`y` on its canvas (default: a free spot) |

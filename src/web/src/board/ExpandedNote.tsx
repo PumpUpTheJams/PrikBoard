@@ -10,6 +10,7 @@ import {
   type NoteColor,
   type NoteDetail,
   type Point,
+  type TagColor,
 } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { AssigneePicker } from './AssigneePicker'
@@ -20,6 +21,7 @@ import { BucketIcon, CheckIcon, CloseIcon, LinkIcon, SparkleIcon } from './icons
 import { copyText } from './links'
 import { pop } from './motion'
 import { NoteCanvas, type IncomingImage, type NoteCanvasHandle } from './NoteCanvas'
+import { tagColorClass, type TagColorPreview, type TagColors } from './tagColors'
 import { TagPicker } from './TagPicker'
 import type { RecordingRun } from './undo'
 import { MAX_ASSIGNEES, MAX_TAGS } from './tags'
@@ -43,8 +45,12 @@ interface ExpandedNoteProps {
   onChange: (changes: NoteChanges) => Promise<boolean>
   /** The board's tags and the people who can be assigned, to pick from. */
   boardTags: BoardTag[]
+  /** How each tag shows, including a colour being previewed. */
+  tagColors: TagColors
   people: BoardPerson[]
   onRenameTag: (tag: BoardTag, name: string) => Promise<boolean>
+  onRecolorTag: (tag: BoardTag, color: TagColor) => Promise<boolean>
+  onPreviewTagColor: (preview: TagColorPreview | null) => void
   onDeleteTag: (tag: BoardTag) => Promise<boolean>
   /** Deletes the post-it (undone with the toast's Undo button or Ctrl/Cmd+Z, so nothing asks first). */
   onDelete: () => void
@@ -80,7 +86,7 @@ interface ExpandedNoteProps {
  */
 export function ExpandedNote(props: ExpandedNoteProps) {
   const { note, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onClose, readOnly, highlight } = props
-  const { boardTags, people, notes, onRenameTag, onDeleteTag, handle, run, onBusy, incoming, linking, boardPoint, boardZoom } = props
+  const { boardTags, tagColors, people, notes, onRenameTag, onRecolorTag, onPreviewTagColor, onDeleteTag, handle, run, onBusy, incoming, linking, boardPoint, boardZoom } = props
   /** The tag or people window, opened from its button in the band. */
   const [picking, setPicking] = useState<{ kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
   const [fileOver, setFileOver] = useState(false)
@@ -199,6 +205,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
           <div className="band-row">
             <TagChips
               tags={note.tags}
+              tagColors={tagColors}
               highlight={highlight}
               onRemove={(tag) => void onChange({ tags: note.tags.filter((t) => t !== tag) })}
               onAdd={(anchor) => setPicking({ kind: 'tags', anchor })}
@@ -249,8 +256,11 @@ export function ExpandedNote(props: ExpandedNoteProps) {
           anchor={picking.anchor}
           tags={note.tags}
           boardTags={boardTags}
+          tagColors={tagColors}
           onChange={(tags) => onChange({ tags })}
           onRename={onRenameTag}
+          onRecolor={onRecolorTag}
+          onPreview={onPreviewTagColor}
           onDelete={onDeleteTag}
           onClose={closePicker}
         />
@@ -288,6 +298,7 @@ function FillPicker({ value, onChange }: { value: NoteColor; onChange: (color: N
 
 interface TagChipsProps {
   tags: string[]
+  tagColors: TagColors
   /** Search words to mark. */
   highlight?: string[]
   onRemove: (tag: string) => void
@@ -295,11 +306,11 @@ interface TagChipsProps {
   onAdd: (anchor: DOMRect) => void
 }
 
-function TagChips({ tags, highlight, onRemove, onAdd }: TagChipsProps) {
+function TagChips({ tags, tagColors, highlight, onRemove, onAdd }: TagChipsProps) {
   return (
     <div className="band-tags">
       {tags.map((tag) => (
-        <span key={tag} className="band-tag">
+        <span key={tag} className={`band-tag${tagColorClass(tagColors, tag)}`}>
           <Highlight text={tag} terms={highlight} />
           <button type="button" className="chip-remove" aria-label={`Remove tag ${tag}`} onClick={() => onRemove(tag)}>
             <CloseIcon size={10} />

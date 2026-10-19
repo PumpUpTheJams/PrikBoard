@@ -6,6 +6,8 @@ export interface PickerChip {
   key: string
   label: string
   leading?: ReactNode
+  /** Extra class names, e.g. a tag's colour. */
+  className?: string
   onRemove: () => void
 }
 
@@ -21,6 +23,8 @@ export interface PickerRow {
   checked?: boolean
   disabled?: boolean
   onSelect: () => void
+  /** Shown at the end of the row, before the edit button, e.g. a tag's colour circle. */
+  trailing?: ReactNode
   /** Shows an edit button on the row. */
   onEdit?: () => void
   /** Replaces the row while it is being edited. */
@@ -43,6 +47,8 @@ interface PickerWindowProps {
   holdOpen?: boolean
   /** What the window belongs to (its toggle button, say): pressing there doesn't count as clicking outside. */
   owner?: RefObject<HTMLElement | null>
+  /** Something that opens over the window, part of it (a palette): pressing there doesn't close the window. */
+  overlay?: ReactNode
   onClose: () => void
 }
 
@@ -55,7 +61,7 @@ const WIDTH = 300
  * stays in its field, so the board's shortcuts (Delete removes the selected post-it) never fire while it is open.
  */
 export function PickerWindow(props: PickerWindowProps) {
-  const { anchor, label, placeholder, query, onQueryChange, chips = [], rows, footer, empty, holdOpen, owner, onClose } = props
+  const { anchor, label, placeholder, query, onQueryChange, chips = [], rows, footer, empty, holdOpen, owner, overlay, onClose } = props
   const id = useId()
   const panel = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null)
@@ -152,7 +158,7 @@ export function PickerWindow(props: PickerWindowProps) {
       {chips.length > 0 && (
         <div className="picker-chips">
           {chips.map((chip) => (
-            <span key={chip.key} className="picker-chip">
+            <span key={chip.key} className={`picker-chip${chip.className ?? ''}`}>
               {chip.leading}
               <span className="picker-chip-label">{chip.label}</span>
               <button
@@ -202,6 +208,7 @@ export function PickerWindow(props: PickerWindowProps) {
                 </span>
                 {row.meta !== undefined && <span className="picker-meta">{row.meta}</span>}
               </button>
+              {row.trailing}
               {row.onEdit && (
                 <button
                   type="button"
@@ -221,6 +228,7 @@ export function PickerWindow(props: PickerWindowProps) {
         {rows.length === 0 && empty && <li className="picker-empty">{empty}</li>}
       </ul>
       {footer && <p className="picker-footer">{footer}</p>}
+      {overlay}
     </div>,
     document.body,
   )

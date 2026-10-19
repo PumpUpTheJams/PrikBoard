@@ -51,6 +51,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
         modelBuilder.Entity<BoardTag>(tag =>
         {
             tag.Property(t => t.Name).HasMaxLength(NoteTags.MaxLength);
+            tag.Property(t => t.Color).HasConversion<string>().HasMaxLength(20);
             // A deleted tag keeps its name, so a new tag may take it; restoring the old one then fails.
             tag.HasIndex(t => new { t.BoardId, t.Name }).IsUnique().HasFilter("\"DeletedAt\" IS NULL");
             tag.PrimitiveCollection(t => t.RemovedFromNoteIds);

@@ -64,7 +64,8 @@ public static class BoardTransferEndpoints
             board.Notes.OrderBy(n => n.UpdatedAt).ThenBy(n => n.Id)
                 .Select(n => new ExportedNote(n.Id, n.Title, n.Color, n.Tags, n.X, n.Y, n.Blocks.Select(Exported).ToList())).ToList(),
             board.Images.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id)
-                .Select(i => new ExportedImage(i.NoteId, i.FileName, i.Caption, i.X, i.Y, i.Width, i.Content!.Data)).ToList());
+                .Select(i => new ExportedImage(i.NoteId, i.FileName, i.Caption, i.X, i.Y, i.Width, i.Content!.Data)).ToList(),
+            board.Tags.Where(t => t.Color != TagColor.Default).ToDictionary(t => t.Name, t => t.Color));
 
         var fileName = $"{CleanName(board.Name)}.prikboard.json";
         response.Headers[HeaderNames.ContentDisposition] = new ContentDispositionHeaderValue("attachment") { FileNameStar = fileName }.ToString();
@@ -145,10 +146,12 @@ public static class BoardTransferEndpoints
         }
 
         // The tags the file lists (also unused ones), then any a note uses that the list missed.
+        var colors = new Dictionary<string, TagColor>();
+        foreach (var (name, color) in file.TagColors ?? []) colors[NoteTags.Normalize(name)] = color;
         foreach (var (name, i) in NoteTags.Normalize(file.Tags).Concat(tags).Distinct().Select((t, i) => (t, i)))
         {
             if (name.Length > NoteTags.MaxLength) return Invalid("tags", $"A tag is at most {NoteTags.MaxLength} characters.");
-            board.Tags.Add(new BoardTag { Name = name, CreatedAt = clock.AddMilliseconds(i) });
+            board.Tags.Add(new BoardTag { Name = name, Color = colors.GetValueOrDefault(name), CreatedAt = clock.AddMilliseconds(i) });
         }
         if (board.Tags.Count > BoardTag.MaxPerBoard) return Invalid("tags", $"A board has at most {BoardTag.MaxPerBoard} tags.");
 

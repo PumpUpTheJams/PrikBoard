@@ -858,6 +858,24 @@ main {
   background: rgba(23, 24, 27, 0.12);
 }
 
+/* How many blocks and images it holds: a small badge on the right, between the expand button and the people. */
+.post-it-contents {
+  position: absolute;
+  top: calc(50% - 3px);
+  right: 7px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 22px;
+  padding: 5px 0 4px;
+  border-radius: 6px;
+  background: rgba(23, 24, 27, 0.1);
+  color: #2a2b30;
+  font: 11px/1 var(--mono);
+  transform: translateY(-50%);
+}
+
 .post-it-foot {
   display: flex;
   align-items: flex-end;
@@ -3132,6 +3150,108 @@ a.button.primary:hover {
 
 .picker-footer {
   border-top: 1px solid var(--line);
+}
+
+/*
+ * Tag colours (TagColor). Default is a shade of whatever the tag sits on; the 11 others are deep, muted takes on the
+ * post-it fills (brick ~ coral, ochre ~ butter, pine ~ mint, ocean ~ sky, violet ~ lilac) plus hues in between, all
+ * equally light (OKLCH L ~0.52), so each stands out on every fill without clashing. White text reads on all of them.
+ */
+.tag-color-brick { --tag: #ae4538; }
+.tag-color-rust { --tag: #ad5c15; }
+.tag-color-ochre { --tag: #926e10; }
+.tag-color-moss { --tag: #59772b; }
+.tag-color-pine { --tag: #277659; }
+.tag-color-teal { --tag: #117780; }
+.tag-color-ocean { --tag: #236daa; }
+.tag-color-indigo { --tag: #5156a8; }
+.tag-color-violet { --tag: #794da5; }
+.tag-color-berry { --tag: #a73b6d; }
+.tag-color-ink { --tag: #272c33; }
+
+.tag.tag-colored,
+.band-tag.tag-colored,
+.picker-chip.tag-colored,
+.tag-filter-chip.tag-colored {
+  background: var(--tag);
+  color: #fff;
+}
+
+.tag-colored.tag-color-ink {
+  color: var(--text);
+}
+
+/* Ink is nearly the colour of the dark windows, so there it gets a light edge. */
+.picker-chip.tag-color-ink,
+.tag-filter-chip.tag-color-ink {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+.tag-colored .chip-remove {
+  color: inherit;
+}
+
+/* A tag's colour circle in the tag windows; in the post-it's tag window it opens the palette. */
+.picker-color {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+}
+
+.picker-color:last-child {
+  margin-right: 4px;
+}
+
+button.picker-color:hover,
+.picker-color[aria-expanded='true'] {
+  background: var(--tool-hover);
+}
+
+.tag-dot {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid rgba(0, 0, 0, 0.25);
+  border-radius: 50%;
+  background: var(--tag);
+}
+
+.tag-dot.tag-color-default,
+.tag-swatch.tag-color-default {
+  border: 1.5px dashed var(--subtle);
+  background: transparent;
+}
+
+.tag-dot.tag-color-ink,
+.tag-swatch.tag-color-ink {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+/* The palette: the same look as the tool rail's fill flyout (.fill-flyout, .swatch), fixed to the screen. */
+.tag-palette {
+  position: fixed;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(6, 20px);
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--float-shadow);
+}
+
+.tag-swatch {
+  background: var(--tag);
+}
+
+.tag-swatch:hover:not([aria-pressed='true']) {
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--line-strong);
 }
 
 /* Quick edit on a post-it: its tags and people open the search window */

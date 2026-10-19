@@ -24,8 +24,8 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         var tools = (await mcp.ListToolsAsync()).ToDictionary(t => t.Name, t => t.ProtocolTool);
         Assert.Equal(
             ["add_note_block", "create_bucket", "create_note", "create_tag", "delete_note", "delete_note_block", "delete_tag", "get_board",
-             "get_board_rules", "get_note", "list_boards", "move_note", "rename_bucket", "rename_tag", "restore_note", "restore_tag",
-             "search_notes", "set_working", "update_note", "update_note_block"],
+             "get_board_rules", "get_note", "list_boards", "move_note", "rename_bucket", "restore_note", "restore_tag",
+             "search_notes", "set_working", "update_note", "update_note_block", "update_tag"],
             tools.Keys.Order());
         Assert.True(tools["get_board"].Annotations!.ReadOnlyHint);
         Assert.True(tools["delete_note"].Annotations!.DestructiveHint);
@@ -183,9 +183,14 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor));
         var note = await CallAsync(mcp, "create_note", new() { ["boardId"] = board.Id, ["title"] = "Tagged", ["tags"] = new[] { "ui" } });
 
-        await CallAsync(mcp, "create_tag", new() { ["boardId"] = board.Id, ["name"] = "Later" });
-        var renamed = await CallAsync(mcp, "rename_tag", new() { ["boardId"] = board.Id, ["tag"] = "UI", ["name"] = "front-end" });
+        var later = await CallAsync(mcp, "create_tag", new() { ["boardId"] = board.Id, ["name"] = "Later", ["color"] = "Ink" });
+        Assert.Equal("Ink", later.GetProperty("color").GetString());
+        var renamed = await CallAsync(mcp, "update_tag", new() { ["boardId"] = board.Id, ["tag"] = "UI", ["name"] = "front-end" });
         Assert.Equal(1, renamed.GetProperty("noteCount").GetInt32());
+        var recoloured = await CallAsync(mcp, "update_tag", new() { ["boardId"] = board.Id, ["tag"] = "front-end", ["color"] = "Brick" });
+        Assert.Equal(("front-end", "Brick"), (recoloured.GetProperty("name").GetString(), recoloured.GetProperty("color").GetString()));
+        var nothing = await CallRawAsync(mcp, "update_tag", new() { ["boardId"] = board.Id, ["tag"] = "front-end" });
+        Assert.True(nothing.IsError);
         Assert.StartsWith("Deleted.", Text(await CallRawAsync(mcp, "delete_tag", new() { ["boardId"] = board.Id, ["tag"] = "later" })));
 
         var overview = await CallAsync(mcp, "get_board", new() { ["boardId"] = board.Id });

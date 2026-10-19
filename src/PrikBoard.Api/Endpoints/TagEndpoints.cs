@@ -28,16 +28,17 @@ public static class TagEndpoints
             .RequireBoardRole(BoardRole.Editor)
             .WithName("createBoardTag")
             .WithSummary("Add a tag to a board")
-            .WithDescription($"Adds a tag without putting it on a note. Using a new name in a note's tags (createNote, updateNote) " +
+            .WithDescription($"Adds a tag, optionally with a colour, without putting it on a note. Using a new name in a note's tags (createNote, updateNote) " +
                              $"adds it too. A board has at most {BoardTag.MaxPerBoard} tags.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
 
-        tags.MapPatch("/{tagId:guid}", RenameBoardTag)
+        tags.MapPatch("/{tagId:guid}", UpdateBoardTag)
             .RequireBoardRole(BoardRole.Editor)
-            .WithName("renameBoardTag")
-            .WithSummary("Rename a tag")
-            .WithDescription("Renames the tag on the board and on every note that has it.")
+            .WithName("updateBoardTag")
+            .WithSummary("Rename or recolour a tag")
+            .WithDescription("Changes the tag's name (on the board and on every note that has it) and/or its colour on post-its. " +
+                             "Omitted fields stay unchanged.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
 
@@ -76,34 +77,40 @@ public static class TagEndpoints
         if (existing.Contains(name)) return Exists(name);
         if (existing.Count >= BoardTag.MaxPerBoard) return TooMany();
 
-        var tag = new BoardTag { BoardId = boardId, Name = name };
+        var tag = new BoardTag { BoardId = boardId, Name = name, Color = request.Color ?? TagColor.Default };
         db.BoardTags.Add(tag);
         await db.SaveChangesAsync(ct);
-        return TypedResults.Created($"/api/boards/{boardId}/tags/{tag.Id}", new BoardTagDetail(tag.Id, tag.Name, 0));
+        return TypedResults.Created($"/api/boards/{boardId}/tags/{tag.Id}", BoardTagDetail.From(tag, 0));
     }
 
-    internal static async Task<Results<Ok<BoardTagDetail>, NotFound, ValidationProblem, ProblemHttpResult>> RenameBoardTag(
-        Guid boardId, Guid tagId, RenameTagRequest request, PrikBoardDbContext db, CancellationToken ct)
+    internal static async Task<Results<Ok<BoardTagDetail>, NotFound, ValidationProblem, ProblemHttpResult>> UpdateBoardTag(
+        Guid boardId, Guid tagId, UpdateTagRequest request, PrikBoardDbContext db, CancellationToken ct)
     {
         var tag = await db.BoardTags.FirstOrDefaultAsync(t => t.Id == tagId && t.BoardId == boardId, ct);
         if (tag is null) return TypedResults.NotFound();
-        if (Normalized(request.Name) is not { } name) return InvalidName(request.Name);
 
         var old = tag.Name;
-        if (name != old)
+        var name = old;
+        if (request.Name is not null)
         {
-            if (await db.BoardTags.AnyAsync(t => t.BoardId == boardId && t.Name == name, ct)) return Exists(name);
-
-            await using var transaction = await db.Database.BeginTransactionAsync(ct);
-            tag.Name = name;
-            await db.SaveChangesAsync(ct);
-            await db.Database.ExecuteSqlAsync(
-                $"""UPDATE "Notes" SET "Tags" = array_replace("Tags", {old}, {name}) WHERE "BoardId" = {boardId}""", ct);
-            await transaction.CommitAsync(ct);
+            if (Normalized(request.Name) is not { } normalized) return InvalidName(request.Name);
+            name = normalized;
+            if (name != old && await db.BoardTags.AnyAsync(t => t.BoardId == boardId && t.Name == name, ct)) return Exists(name);
         }
 
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        tag.Name = name;
+        if (request.Color is { } color) tag.Color = color;
+        await db.SaveChangesAsync(ct);
+        if (name != old)
+        {
+            await db.Database.ExecuteSqlAsync(
+                $"""UPDATE "Notes" SET "Tags" = array_replace("Tags", {old}, {name}) WHERE "BoardId" = {boardId}""", ct);
+        }
+        await transaction.CommitAsync(ct);
+
         var count = await db.Notes.CountAsync(n => n.BoardId == boardId && n.Tags.Contains(name), ct);
-        return TypedResults.Ok(new BoardTagDetail(tag.Id, tag.Name, count));
+        return TypedResults.Ok(BoardTagDetail.From(tag, count));
     }
 
     internal static async Task<Results<NoContent, NotFound>> DeleteBoardTag(
@@ -151,7 +158,7 @@ public static class TagEndpoints
         await transaction.CommitAsync(ct);
 
         var count = await db.Notes.CountAsync(n => n.BoardId == boardId && n.Tags.Contains(tag.Name), ct);
-        return TypedResults.Ok(new BoardTagDetail(tag.Id, tag.Name, count));
+        return TypedResults.Ok(BoardTagDetail.From(tag, count));
     }
 
     /// <summary>The most tags on one note (the MaxLength on tags in createNote and updateNote).</summary>
