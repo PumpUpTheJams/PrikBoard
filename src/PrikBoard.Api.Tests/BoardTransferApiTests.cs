@@ -65,8 +65,8 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         var copiedNote = copy.Notes.Single(n => n.Title == "Write the changelog");
         var copiedTarget = copy.Notes.Single(n => n.Title == "Target");
         Assert.Equal(copy.Buckets.Single(b => b.Name == "Doing").Id, copiedNote.BucketId);
-        Assert.Equal(("Everything that changed.", NoteColor.Mint, new[] { "docs", "release" }),
-            (copiedNote.Body, copiedNote.Color, copiedNote.Tags.ToArray()));
+        Assert.Equal(("Everything that changed.", NoteColor.Mint), (copiedNote.Body, copiedNote.Color));
+        Assert.Equal(["docs", "release"], copiedNote.Tags);
         Assert.Equal(("Draft", true), (copiedNote.Checklist[0].Text, copiedNote.Checklist[0].Done));
         Assert.Equal((note.X, note.Y), (copiedNote.X, copiedNote.Y));
         Assert.Equal([("Spec", "https://example.com/spec"), ("The target", copiedTarget.Path)],
