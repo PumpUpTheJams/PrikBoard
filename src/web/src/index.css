@@ -1101,6 +1101,17 @@ main {
   gap: 8px;
 }
 
+/* The minimap with the zoom buttons under it, as wide as the map. */
+.view-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.view-stack .zoom-controls {
+  justify-content: space-between;
+}
+
 .minimap {
   position: relative;
   width: 150px;
@@ -3629,6 +3640,32 @@ a.button.primary:hover {
 
 .toast svg {
   color: var(--accent);
+}
+
+/* A toast with a button (Undo after a delete) takes the pointer, unlike the region around it. */
+.toast.has-action {
+  pointer-events: auto;
+  padding-right: 6px;
+}
+
+.toast.warn {
+  border-color: var(--danger);
+}
+
+.toast-action {
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toast-action:hover {
+  filter: brightness(1.1);
 }
 
 @keyframes toast-in {

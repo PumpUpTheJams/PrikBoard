@@ -96,9 +96,9 @@ claude mcp add --transport http prikboard http://localhost:5173/mcp --header "Au
 | `add_note_block`, `update_note_block`, `delete_note_block` | A note's content. A block is named by its id, its title, or its kind when the note has one block of that kind; `delete_note_block` is marked destructive |
 | `move_note` | To a bucket by name or id; the server finds a free spot |
 | `set_working` | Assign yourself and show (or hide) the working halo, like setNoteWorking |
-| `delete_note` | Marked destructive, so clients ask first |
+| `delete_note`, `restore_note` | `delete_note` is marked destructive, so clients ask first; `restore_note` brings a deleted note back within 7 days |
 | `create_bucket`, `rename_bucket` | Bucket housekeeping |
-| `create_tag`, `rename_tag`, `delete_tag` | The board's tags, by name or id. Renaming and deleting change every note; `delete_tag` is marked destructive |
+| `create_tag`, `rename_tag`, `delete_tag`, `restore_tag` | The board's tags, by name or id. Renaming and deleting change every note; `delete_tag` is marked destructive, and `restore_tag` puts a deleted tag back on its notes |
 
 The tools offer the same features as the REST endpoints. Where REST takes ids (`bucketId`, `assigneeIds`, a tag id), the tools also take names, resolved on the note's board.
 
@@ -175,8 +175,9 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | exportBoard | `GET /api/boards/{boardId}/export` | The board as one downloadable JSON file (`format: "prikboard-board"`, `version: 2`): name, description, agent rules, buckets, tags, notes with their blocks, and images (bytes as base64; attached ones keep their place on the note's canvas). No members, roles, user ids or assignees. Ids in the file are local to it |
 | importBoard | `POST /api/boards/import` | Send an export file as the body. Always makes a new board that you own (`201`), with new ids; positions snap to the grid and each note's bucket follows from where it sits. Notes are created by you. Version 1 files still import: a note's `body`, `checklist` and `links` become a Text, a Checklist and a Links block, and attached images go in a row under them. `400` for a file that is not valid or newer than the server reads; `403` for tokens limited to chosen boards. Body at most 64 MB |
 | createBucket | `POST /api/boards/{boardId}/buckets` | Draw a bucket at a rectangle, or to the right of the others. Loose notes it covers join it |
-| updateBucket | `PATCH /api/buckets/{bucketId}` | Rename, recolour, move or resize. Moving carries the bucket's notes along; a new `x`/`y` together with a new size is a resize from a top or left corner or edge, and the notes stay put |
+| updateBucket | `PATCH /api/buckets/{bucketId}` | Rename, recolour, move or resize. Moving carries the bucket's notes along (or exactly the notes in `carryNoteIds`, which undo uses); a new `x`/`y` together with a new size is a resize from a top or left corner or edge, and the notes stay put |
 | deleteBucket | `DELETE /api/buckets/{bucketId}` | Delete a bucket. Its notes stay where they are and become loose |
+| restoreBucket | `POST /api/buckets/{bucketId}/restore` | Bring back a deleted bucket with the same id and place in the stack; the notes it covers join it again |
 | listNotes | `GET /api/boards/{boardId}/notes?bucketId=&tag=&assignee=&search=` | Filter by bucket, tags (repeat `tag`; any of them matches), assignee (principal id or current name), or search the title and content: text, checklist items and links (all case-insensitive) |
 | createNote | `POST /api/boards/{boardId}/notes` | New note in a bucket's free spot (default: the first bucket), or at `x`/`y`. Butter by default. Can include tags, `assigneeIds` and `blocks` (laid out automatically without `x`/`y`). Records you as its creator |
 | getNote | `GET /api/notes/{noteId}` | A single note |
@@ -184,17 +185,20 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | setNoteWorking | `POST /api/notes/{noteId}/working` | `{"working":true}` assigns you and shows the halo; `false` takes the halo away (you stay assigned) |
 | moveNote | `POST /api/notes/{noteId}/move` | Move into a bucket (`bucketId`) or to coordinates (`x` and `y`) |
 | deleteNote | `DELETE /api/notes/{noteId}` | Delete a note (and the images attached to it) |
-| addNoteBlock | `POST /api/notes/{noteId}/blocks` | Add a `Text`, `Checklist` or `Links` block to the note's content, in a free spot unless `x`/`y` are given (at most 30 blocks) |
+| restoreNote | `POST /api/notes/{noteId}/restore` | Bring back a deleted note with the same id, content, creator and place, and the images deleted along with it |
+| addNoteBlock | `POST /api/notes/{noteId}/blocks` | Add a `Text`, `Checklist` or `Links` block to the note's content, in a free spot unless `x`/`y` are given (at most 30 blocks). `id` puts back a removed block with the id it had (`409` when the note has it) |
 | updateNoteBlock | `PATCH /api/notes/{noteId}/blocks/{blockId}` | Edit a block's `title`, content (`text`, `items` or `links`, whichever fits its kind), position or size |
 | deleteNoteBlock | `DELETE /api/notes/{noteId}/blocks/{blockId}` | Remove a block |
 | listBoardTags | `GET /api/boards/{boardId}/tags` | The board's tags by name, with how many notes use each |
 | createBoardTag | `POST /api/boards/{boardId}/tags` | Add a tag without putting it on a note (`409` when it exists or the board has 100) |
 | renameBoardTag | `PATCH /api/boards/{boardId}/tags/{tagId}` | Rename a tag on the board and on every note (`409` when the new name is taken) |
 | deleteBoardTag | `DELETE /api/boards/{boardId}/tags/{tagId}` | Delete a tag from the board and from every note |
+| restoreBoardTag | `POST /api/boards/{boardId}/tags/{tagId}/restore` | Bring back a deleted tag and put it back (last) on the notes it was removed from (`409` when a tag has that name again) |
 | uploadImage | `POST /api/boards/{boardId}/images?fileName=&noteId=&x=&y=&width=&caption=` | Add an image or GIF: the file itself is the request body, with its content type. On the board at `x`/`y` (default: right of everything), or attached to a note with `noteId`, at `x`/`y` on its canvas (default: a free spot) |
 | getImageContent | `GET /api/images/{imageId}/content` | Download the image file |
 | updateImage | `PATCH /api/images/{imageId}` | Move (`x`, `y`), resize (`width`) or re-caption an image; attach it to a note (`noteId`) or put it back on the board (`detach: true`) |
 | deleteImage | `DELETE /api/images/{imageId}` | Delete an image |
+| restoreImage | `POST /api/images/{imageId}/restore` | Bring back a deleted image (`409` while the note it was attached to is deleted: restore the note) |
 | listAuthProviders | `GET /api/auth/providers` | Sign-in providers for the browser, the default first (public) |
 | logout | `POST /api/auth/logout` | End the browser session (public) |
 | listTokenIssuers | `GET /api/auth/token-issuers` | Ids of the configured token issuers, for adding agents |
@@ -281,4 +285,5 @@ pb -X POST "localhost:5080/api/boards/{boardId}/images?fileName=ingest-errors.pn
 - **Assignees** are sent as `assigneeIds` (principal ids from `people` in getBoard) and come back as `{principalId, name, kind}` with the current display name; `kind` is `Person` or `Agent`. People show as initials, agents as a sparkle. At most 10 per note. Only people who can reach the board can be added; someone who loses access stays on the notes they had until they are taken off.
 - **Links** need an absolute `http` or `https` URL, or another note's `path` (`/#/boards/{boardId}/notes/{noteId}`, in every note) to link that note. The path has no host, so the link works wherever PrikBoard runs; the web app opens it in place and shows the linked note's current title.
 - **Colours.** Note fills are `Butter` (yellow), `Mint` (green), `Sky` (blue), `Coral` (salmon red) and `Lilac` (purple). Buckets also have a `color` (`Blue`, `Amber`, `Violet`, `Teal` or `Rose`); the web UI doesn't show it at the moment.
+- **Deleting and restoring.** Deleting a note, bucket, image or tag hides it at once, but it can be restored for 7 days with the same id (restoreNote, restoreBucket, restoreImage, restoreBoardTag; the web app's undo uses these). After that it is gone for good. Restoring something that is not deleted is a `409`; restoring something that never existed or is gone for good is a `404`. Deleted things can't be changed (`404`). Boards are deleted for good straight away.
 - **Errors** use `application/problem+json`. Validation errors (400) list the offending fields under `errors`, for example a `bucketId` that is not on the note's board. A 401 means the request is not signed in or the token is invalid. A 403 means your role or the token's scope is too low. A 404 means the resource does not exist or you are not a member of its board. A 429 means you hit a rate limit (email lookups and invite links).

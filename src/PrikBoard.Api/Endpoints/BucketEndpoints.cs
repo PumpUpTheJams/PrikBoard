@@ -26,7 +26,7 @@ public static class BucketEndpoints
             .WithName("updateBucket")
             .WithSummary("Rename, recolour, move or resize a bucket")
             .WithDescription("Changes any of name, colour, position and size. Omitted fields stay unchanged. " +
-                             "Moving a bucket carries its notes along.")
+                             "Moving a bucket carries its notes along (or exactly carryNoteIds).")
             .ProducesValidationProblem();
 
         buckets.MapDelete("/buckets/{bucketId:guid}", DeleteBucket)
@@ -34,7 +34,15 @@ public static class BucketEndpoints
             .WithName("deleteBucket")
             .WithSummary("Delete a bucket")
             .WithDescription("Deletes the bucket. Its notes stay where they are and become loose " +
-                             "(or join a bucket underneath).");
+                             $"(or join a bucket underneath). restoreBucket brings it back within {Tombstones.RetentionText}.");
+
+        buckets.MapPost("/buckets/{bucketId:guid}/restore", RestoreBucket)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Bucket)
+            .WithName("restoreBucket")
+            .WithSummary("Restore a deleted bucket")
+            .WithDescription($"Brings back a bucket deleted in the last {Tombstones.RetentionText} with the same id, place and size, " +
+                             "and the notes whose centre it covers join it again. 409 when it is not deleted.")
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         return api;
     }
@@ -65,20 +73,31 @@ public static class BucketEndpoints
         return TypedResults.Created($"/api/buckets/{bucket.Id}", BucketDetail.From(bucket));
     }
 
-    internal static async Task<Results<Ok<BucketDetail>, NotFound>> UpdateBucket(
+    internal static async Task<Results<Ok<BucketDetail>, NotFound, ValidationProblem>> UpdateBucket(
         Guid bucketId, UpdateBucketRequest request, PrikBoardDbContext db, CancellationToken ct)
     {
         var bucket = await db.Buckets.FindAsync([bucketId], ct);
         if (bucket is null) return TypedResults.NotFound();
 
+        // A new place together with a new size is a resize from a top or left corner or edge: the frame's edge moves, its notes stay.
+        var resizing = request.Width is not null || request.Height is not null;
+        if (request.CarryNoteIds is not null && (resizing || request is { X: null, Y: null }))
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["carryNoteIds"] = ["Only a move (X and/or Y without Width or Height) carries notes."],
+            });
+        }
+
         var notes = await db.Notes.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);
         var dx = request.X is { } x ? Layout.Snap(x) - bucket.X : 0;
         var dy = request.Y is { } y ? Layout.Snap(y) - bucket.Y : 0;
-        // A new place together with a new size is a resize from a top or left corner or edge: the frame's edge moves, its notes stay.
-        var resizing = request.Width is not null || request.Height is not null;
         if ((dx != 0 || dy != 0) && !resizing)
         {
-            foreach (var note in notes.Where(n => n.BucketId == bucket.Id))
+            var carried = request.CarryNoteIds is { } ids
+                ? notes.Where(n => ids.Contains(n.Id))
+                : notes.Where(n => n.BucketId == bucket.Id);
+            foreach (var note in carried)
             {
                 note.X = Math.Max(0, note.X + dx);
                 note.Y = Math.Max(0, note.Y + dy);
@@ -105,12 +124,29 @@ public static class BucketEndpoints
         var bucket = await db.Buckets.FindAsync([bucketId], ct);
         if (bucket is null) return TypedResults.NotFound();
 
-        db.Buckets.Remove(bucket);
+        bucket.DeletedAt = DateTimeOffset.UtcNow;
         var remaining = await db.Buckets.Where(b => b.BoardId == bucket.BoardId && b.Id != bucketId).ToListAsync(ct);
         var notes = await db.Notes.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);
         Layout.AssignBuckets(notes, remaining);
 
         await db.SaveChangesAsync(ct);
         return TypedResults.NoContent();
+    }
+
+    internal static async Task<Results<Ok<BucketDetail>, NotFound, ProblemHttpResult>> RestoreBucket(
+        Guid bucketId, PrikBoardDbContext db, CancellationToken ct)
+    {
+        var bucket = await db.Buckets.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete]).FirstOrDefaultAsync(b => b.Id == bucketId, ct);
+        if (bucket is null) return TypedResults.NotFound();
+        if (bucket.DeletedAt is null) return TagEndpoints.NotDeleted("bucket");
+
+        // CreatedAt stays, so it goes back to its place in the stack and takes back the notes it covers.
+        bucket.DeletedAt = null;
+        var others = await db.Buckets.Where(b => b.BoardId == bucket.BoardId && b.Id != bucketId).ToListAsync(ct);
+        var notes = await db.Notes.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);
+        Layout.AssignBuckets(notes, [.. others, bucket]);
+
+        await db.SaveChangesAsync(ct);
+        return TypedResults.Ok(BucketDetail.From(bucket));
     }
 }

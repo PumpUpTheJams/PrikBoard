@@ -5,6 +5,12 @@ namespace PrikBoard.Api.Data;
 
 public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : DbContext(options)
 {
+    /// <summary>
+    /// The query filter that hides deleted notes, buckets, images and tags until they are restored or purged
+    /// (<see cref="Tombstones"/>). Bypass it with <c>IgnoreQueryFilters([SoftDelete])</c>; raw SQL never applies it.
+    /// </summary>
+    public const string SoftDelete = "SoftDelete";
+
     public DbSet<Board> Boards => Set<Board>();
     public DbSet<Bucket> Buckets => Set<Bucket>();
     public DbSet<Note> Notes => Set<Note>();
@@ -45,7 +51,10 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
         modelBuilder.Entity<BoardTag>(tag =>
         {
             tag.Property(t => t.Name).HasMaxLength(NoteTags.MaxLength);
-            tag.HasIndex(t => new { t.BoardId, t.Name }).IsUnique();
+            // A deleted tag keeps its name, so a new tag may take it; restoring the old one then fails.
+            tag.HasIndex(t => new { t.BoardId, t.Name }).IsUnique().HasFilter("\"DeletedAt\" IS NULL");
+            tag.PrimitiveCollection(t => t.RemovedFromNoteIds);
+            tag.HasQueryFilter(SoftDelete, t => t.DeletedAt == null);
         });
 
         modelBuilder.Entity<Bucket>(bucket =>
@@ -53,6 +62,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             bucket.Property(b => b.Name).HasMaxLength(100);
             bucket.Property(b => b.Color).HasConversion<string>().HasMaxLength(20);
             bucket.HasIndex(b => b.BoardId);
+            bucket.HasQueryFilter(SoftDelete, b => b.DeletedAt == null);
         });
 
         modelBuilder.Entity<Note>(note =>
@@ -69,6 +79,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
                 .HasForeignKey(n => n.BucketId)
                 .OnDelete(DeleteBehavior.SetNull);
             note.HasIndex(n => n.BoardId);
+            note.HasQueryFilter(SoftDelete, n => n.DeletedAt == null);
             note.HasOne(n => n.CreatedBy).WithMany().HasForeignKey(n => n.CreatedById).OnDelete(DeleteBehavior.SetNull);
         });
 
@@ -84,6 +95,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             image.HasOne(i => i.Content).WithOne().HasForeignKey<ImageContent>(c => c.ImageId).OnDelete(DeleteBehavior.Cascade);
             image.HasIndex(i => i.BoardId);
             image.HasIndex(i => i.NoteId);
+            image.HasQueryFilter(SoftDelete, i => i.DeletedAt == null);
         });
 
         modelBuilder.Entity<ImageContent>(content => content.HasKey(c => c.ImageId));

@@ -309,7 +309,8 @@ public sealed class BoardTools
     }
 
     [McpServerTool(Name = "delete_note", Title = "Delete a note", Destructive = true, OpenWorld = false)]
-    [Description("Permanently deletes a note and the images attached to it. Prefer moving finished work to \"Done\". Needs the Editor role.")]
+    [Description("Deletes a note and the images attached to it; restore_note brings them back within " + Tombstones.RetentionText + ". " +
+                 "Prefer moving finished work to \"Done\". Needs the Editor role.")]
     public static async Task<string> DeleteNote(IHttpContextAccessor accessor, [Description("The note id.")] Guid noteId, CancellationToken ct)
     {
         var http = McpCall.Http(accessor);
@@ -317,7 +318,20 @@ public sealed class BoardTools
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
         McpCall.Succeeded(await NoteEndpoints.DeleteNote(noteId, db, ct));
         await McpCall.AnnounceAsync(http, boardId);
-        return "Deleted.";
+        return $"Deleted. restore_note brings it back within {Tombstones.RetentionText}.";
+    }
+
+    [McpServerTool(Name = "restore_note", Title = "Restore a deleted note", OpenWorld = false)]
+    [Description("Brings back a note deleted in the last " + Tombstones.RetentionText + ", with the same id, content and place, " +
+                 "and the images deleted along with it. Needs the Editor role.")]
+    public static async Task<NoteDetail> RestoreNote(IHttpContextAccessor accessor, [Description("The note id.")] Guid noteId, CancellationToken ct)
+    {
+        var http = McpCall.Http(accessor);
+        var boardId = await McpCall.AuthorizeAsync(http, BoardScope.Note, noteId, BoardRole.Editor);
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var note = McpCall.Value<NoteDetail>(await NoteEndpoints.RestoreNote(noteId, db, ct));
+        await McpCall.AnnounceAsync(http, boardId);
+        return note;
     }
 
     [McpServerTool(Name = "create_bucket", Title = "Create a bucket", OpenWorld = false)]
@@ -395,7 +409,8 @@ public sealed class BoardTools
     }
 
     [McpServerTool(Name = "delete_tag", Title = "Delete a tag", Destructive = true, OpenWorld = false)]
-    [Description("Deletes a tag from the board and removes it from every note that has it (the notes stay). Needs the Editor role.")]
+    [Description("Deletes a tag from the board and removes it from every note that has it (the notes stay); restore_tag puts it " +
+                 "back within " + Tombstones.RetentionText + ". Needs the Editor role.")]
     public static async Task<string> DeleteTag(
         IHttpContextAccessor accessor,
         [Description("The board id.")] Guid boardId,
@@ -408,7 +423,25 @@ public sealed class BoardTools
         var tagId = await ResolveTagAsync(db, boardId, tag, ct);
         McpCall.Succeeded(await TagEndpoints.DeleteBoardTag(boardId, tagId, db, ct));
         await McpCall.AnnounceAsync(http, boardId);
-        return "Deleted.";
+        return $"Deleted. restore_tag puts it back within {Tombstones.RetentionText}.";
+    }
+
+    [McpServerTool(Name = "restore_tag", Title = "Restore a deleted tag", OpenWorld = false)]
+    [Description("Brings back a tag deleted in the last " + Tombstones.RetentionText + " and puts it back on the notes it was " +
+                 "removed from. Fails when the board has a tag with that name again. Needs the Editor role.")]
+    public static async Task<BoardTagDetail> RestoreTag(
+        IHttpContextAccessor accessor,
+        [Description("The board id.")] Guid boardId,
+        [Description("The deleted tag: its name or id. With a name, the most recently deleted tag of that name.")] string tag,
+        CancellationToken ct)
+    {
+        var http = McpCall.Http(accessor);
+        await McpCall.AuthorizeAsync(http, BoardScope.Board, boardId, BoardRole.Editor);
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var tagId = await ResolveDeletedTagAsync(db, boardId, tag, ct);
+        var restored = McpCall.Value<BoardTagDetail>(await TagEndpoints.RestoreBoardTag(boardId, tagId, db, ct));
+        await McpCall.AnnounceAsync(http, boardId);
+        return restored;
     }
 
     /// <summary>A bucket on the board by id or (case-insensitive) name.</summary>
@@ -450,6 +483,19 @@ public sealed class BoardTools
             : tags.FirstOrDefault(t => t.Name == NoteTags.Normalize(tag));
         return match?.Id ?? throw new McpException(
             $"No tag \"{tag}\" on this board. Tags: {(tags.Count == 0 ? "none" : string.Join(", ", tags.Select(t => $"\"{t.Name}\"")))}.");
+    }
+
+    /// <summary>A deleted tag on the board by id or name; with a name, the most recently deleted one.</summary>
+    private static async Task<Guid> ResolveDeletedTagAsync(PrikBoardDbContext db, Guid boardId, string tag, CancellationToken ct)
+    {
+        var tags = await db.BoardTags.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete]).AsNoTracking()
+            .Where(t => t.BoardId == boardId && t.DeletedAt != null)
+            .OrderByDescending(t => t.DeletedAt).Select(t => new { t.Id, t.Name }).ToListAsync(ct);
+        var match = Guid.TryParse(tag, out var id)
+            ? tags.FirstOrDefault(t => t.Id == id)
+            : tags.FirstOrDefault(t => t.Name == NoteTags.Normalize(tag));
+        return match?.Id ?? throw new McpException(
+            $"No deleted tag \"{tag}\" on this board. Deleted tags: {(tags.Count == 0 ? "none" : string.Join(", ", tags.Select(t => $"\"{t.Name}\"").Distinct()))}.");
     }
 
     /// <summary>

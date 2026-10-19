@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import type { BoardTag } from '../api/types'
-import { ConfirmDialog } from '../components/ConfirmDialog'
 import { PickerWindow, type PickerRow } from '../components/PickerWindow'
 import { CheckIcon, TrashIcon } from './icons'
 import { MAX_TAG_LENGTH, MAX_TAGS, normalizeTag, useDraftList } from './tags'
@@ -15,7 +14,7 @@ interface TagPickerProps {
   onChange: (tags: string[]) => Promise<boolean>
   /** Renames a board tag on every note. */
   onRename: (tag: BoardTag, name: string) => Promise<boolean>
-  /** Deletes a board tag from every note; called after the person confirmed. */
+  /** Deletes a board tag from every note (undone with Ctrl/Cmd+Z or the toast's Undo button, so nothing asks first). */
   onDelete: (tag: BoardTag) => Promise<boolean>
   onClose: () => void
 }
@@ -25,7 +24,6 @@ export function TagPicker({ anchor, tags, boardTags, onChange, onRename, onDelet
   const [draft, change] = useDraftList(tags, onChange)
   const [query, setQuery] = useState('')
   const [editing, setEditing] = useState<{ tag: BoardTag; name: string } | null>(null)
-  const [deleting, setDeleting] = useState<BoardTag | null>(null)
 
   const wanted = normalizeTag(query)
   const full = draft.length >= MAX_TAGS
@@ -96,7 +94,10 @@ export function TagPicker({ anchor, tags, boardTags, onChange, onRename, onDelet
               className="picker-edit danger"
               aria-label={`Delete tag ${tag.name}`}
               title="Delete from the board"
-              onClick={() => setDeleting(tag)}
+              onClick={() => {
+                setEditing(null)
+                void onDelete(tag)
+              }}
             >
               <TrashIcon size={14} />
             </button>
@@ -106,38 +107,17 @@ export function TagPicker({ anchor, tags, boardTags, onChange, onRename, onDelet
   }
 
   return (
-    <>
-      <PickerWindow
-        anchor={anchor}
-        label="Tags"
-        placeholder="Find or add a tag…"
-        query={query}
-        onQueryChange={setQuery}
-        chips={draft.map((name) => ({ key: name, label: name, onRemove: () => toggle(name) }))}
-        rows={rows}
-        empty={boardTags.length === 0 ? 'No tags on this board yet: type one.' : 'No tag matches.'}
-        footer={full ? `A post-it has at most ${MAX_TAGS} tags.` : undefined}
-        holdOpen={deleting !== null}
-        onClose={onClose}
-      />
-      {deleting && (
-        <ConfirmDialog
-          title={`Delete the tag “${deleting.name}”?`}
-          message={
-            deleting.noteCount === 0
-              ? 'No post-it uses it. It is removed from the board.'
-              : `It is removed from the board and from ${deleting.noteCount === 1 ? '1 post-it' : `${deleting.noteCount} post-its`}.`
-          }
-          confirmLabel="Delete tag"
-          onConfirm={() => {
-            const tag = deleting
-            setDeleting(null)
-            setEditing(null)
-            void onDelete(tag)
-          }}
-          onCancel={() => setDeleting(null)}
-        />
-      )}
-    </>
+    <PickerWindow
+      anchor={anchor}
+      label="Tags"
+      placeholder="Find or add a tag…"
+      query={query}
+      onQueryChange={setQuery}
+      chips={draft.map((name) => ({ key: name, label: name, onRemove: () => toggle(name) }))}
+      rows={rows}
+      empty={boardTags.length === 0 ? 'No tags on this board yet: type one.' : 'No tag matches.'}
+      footer={full ? `A post-it has at most ${MAX_TAGS} tags.` : undefined}
+      onClose={onClose}
+    />
   )
 }

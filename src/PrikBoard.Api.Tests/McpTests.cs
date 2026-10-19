@@ -24,8 +24,8 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         var tools = (await mcp.ListToolsAsync()).ToDictionary(t => t.Name, t => t.ProtocolTool);
         Assert.Equal(
             ["add_note_block", "create_bucket", "create_note", "create_tag", "delete_note", "delete_note_block", "delete_tag", "get_board",
-             "get_board_rules", "get_note", "list_boards", "move_note", "rename_bucket", "rename_tag", "search_notes", "set_working", "update_note",
-             "update_note_block"],
+             "get_board_rules", "get_note", "list_boards", "move_note", "rename_bucket", "rename_tag", "restore_note", "restore_tag",
+             "search_notes", "set_working", "update_note", "update_note_block"],
             tools.Keys.Order());
         Assert.True(tools["get_board"].Annotations!.ReadOnlyHint);
         Assert.True(tools["delete_note"].Annotations!.DestructiveHint);
@@ -186,7 +186,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         await CallAsync(mcp, "create_tag", new() { ["boardId"] = board.Id, ["name"] = "Later" });
         var renamed = await CallAsync(mcp, "rename_tag", new() { ["boardId"] = board.Id, ["tag"] = "UI", ["name"] = "front-end" });
         Assert.Equal(1, renamed.GetProperty("noteCount").GetInt32());
-        Assert.Equal("Deleted.", Text(await CallRawAsync(mcp, "delete_tag", new() { ["boardId"] = board.Id, ["tag"] = "later" })));
+        Assert.StartsWith("Deleted.", Text(await CallRawAsync(mcp, "delete_tag", new() { ["boardId"] = board.Id, ["tag"] = "later" })));
 
         var overview = await CallAsync(mcp, "get_board", new() { ["boardId"] = board.Id });
         Assert.Equal(["front-end"], overview.GetProperty("tags").EnumerateArray().Select(t => t.GetProperty("name").GetString()));
@@ -196,6 +196,28 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         var missing = await CallRawAsync(mcp, "delete_tag", new() { ["boardId"] = board.Id, ["tag"] = "nope" });
         Assert.True(missing.IsError);
         Assert.Contains("\"front-end\"", Text(missing));
+    }
+
+    [Fact]
+    public async Task Agents_restore_deleted_notes_and_tags()
+    {
+        var owner = await factory.CreateSignedInClientAsync("mcp-restore@example.com");
+        var board = await owner.CreateBoardAsync("MCP restore");
+        var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor));
+        var note = await CallAsync(mcp, "create_note", new() { ["boardId"] = board.Id, ["title"] = "Oops", ["tags"] = new[] { "keep" } });
+        var noteId = note.GetProperty("id").GetGuid();
+
+        Assert.Contains("restore_tag", Text(await CallRawAsync(mcp, "delete_tag", new() { ["boardId"] = board.Id, ["tag"] = "keep" })));
+        Assert.Contains("restore_note", Text(await CallRawAsync(mcp, "delete_note", new() { ["noteId"] = noteId })));
+        var restoredTag = await CallAsync(mcp, "restore_tag", new() { ["boardId"] = board.Id, ["tag"] = "Keep" });
+        var restoredNote = await CallAsync(mcp, "restore_note", new() { ["noteId"] = noteId });
+
+        Assert.Equal("keep", restoredTag.GetProperty("name").GetString());
+        Assert.Equal(noteId, restoredNote.GetProperty("id").GetGuid());
+        Assert.Equal(["keep"], restoredNote.GetProperty("tags").EnumerateArray().Select(t => t.GetString()));
+        var again = await CallRawAsync(mcp, "restore_tag", new() { ["boardId"] = board.Id, ["tag"] = "keep" });
+        Assert.True(again.IsError);
+        Assert.Contains("No deleted tag", Text(again));
     }
 
     [Fact]

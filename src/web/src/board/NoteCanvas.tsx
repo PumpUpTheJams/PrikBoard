@@ -2,18 +2,17 @@ import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type
 import { createPortal } from 'react-dom'
 import { api } from '../api/client'
 import type { ImageDetail, NoteBlock, NoteBlockKind, NoteDetail, Point, Rect, ResizeHandle } from '../api/types'
-import { ConfirmDialog } from '../components/ConfirmDialog'
 import { BoardImageView } from './BoardImageView'
 import { draggingFiles, imageFiles } from './files'
 import { delta, isDrag } from './gesture'
 import { MinusIcon, PlusIcon } from './icons'
 import { ImageInspector } from './Inspector'
 import { blockSize, defaultBlockSize, freeSpot, onNoteCanvas, resizeFrom, resizeImage, snapPoint } from './layout'
-import { blockKinds } from './blockKinds'
 import { BlockFrame, ChecklistBlock, LinksBlock, TextBlock } from './NoteBlocks'
 import { NoteBar } from './NoteBar'
 import { resizeCursor } from './resizeCursor'
 import { blockMatches } from './search'
+import { blockEdit, created, deleted, patched, snap, step, target, type RecordingRun, type UndoEntry } from './undo'
 import { useZoom } from './useZoom'
 import { stepZoom, ZOOM_LEVELS } from './zoom'
 
@@ -74,8 +73,8 @@ interface NoteCanvasProps {
   /** Search words to point out: blocks they occur in get an outline, and checklists and links mark them. */
   highlight?: string[]
   handle: RefObject<NoteCanvasHandle | null>
-  /** Runs a change through the board (which then reloads). */
-  run: (action: () => Promise<unknown>) => Promise<boolean>
+  /** Runs a change through the board (which then reloads), recorded for undo. */
+  run: RecordingRun
   /** Whether a gesture is in progress, so the board holds back its refreshes. */
   onBusy: (busy: boolean) => void
   incoming: IncomingImage | null
@@ -96,7 +95,6 @@ export function NoteCanvas(props: NoteCanvasProps) {
   const [pan, setPan] = useState<Pan | null>(null)
   /** The block added last: its main field is focused when it appears. */
   const [focusBlock, setFocusBlock] = useState<string | null>(null)
-  const [pendingRemove, setPendingRemove] = useState<{ kind: 'block' | 'image'; id: string } | null>(null)
   const [fileOver, setFileOver] = useState(false)
   /** The scroll viewport in screen pixels, for the canvas size and where new blocks go. */
   const [view, setView] = useState<Rect>({ x: 0, y: 0, width: 0, height: 0 })
@@ -142,37 +140,52 @@ export function NoteCanvas(props: NoteCanvasProps) {
     },
   }))
 
-  async function settle(action: () => Promise<unknown>) {
-    const ok = await run(action)
+  async function settle<T>(action: () => Promise<T>, describe?: (result: T) => UndoEntry | null | undefined) {
+    const ok = await run(action, describe)
     setGesture(null)
     return ok
   }
 
   const saveBlock = (block: NoteBlock, changes: Parameters<typeof api.updateNoteBlock>[2]) =>
-    settle(() => api.updateNoteBlock(note.id, block.id, changes))
+    settle(() => api.updateNoteBlock(note.id, block.id, changes), (after) => blockEdit(note.id, block, after, changes))
+
+  /** The undo step for an image on this canvas that moved, was resized or went onto the board. */
+  const imageStep = (label: string, before: ImageDetail, keys: string[]) => (after: ImageDetail) =>
+    step(label, [patched(target.image(before.id), snap.image(before), snap.image(after), keys)])
 
   /** Adds a block in the first free spot in view (or, with none, wherever the server finds room) and focuses it. */
   function addBlock(kind: NoteBlockKind) {
     const size = defaultBlockSize(kind)
     const spot = freeSpot([...note.blocks, ...images], size, visible())
-    void settle(async () => {
-      const block = await api.addNoteBlock(note.id, { kind, ...(spot ?? {}) })
-      setFocusBlock(block.id)
-      setSelection({ kind: 'block', id: block.id })
-    })
+    void settle(
+      async () => {
+        const block = await api.addNoteBlock(note.id, { kind, ...(spot ?? {}) })
+        setFocusBlock(block.id)
+        setSelection({ kind: 'block', id: block.id })
+        return block
+      },
+      (block) => step('Add block', [created(target.block(note.id, block.id), snap.block(block))]),
+    )
   }
 
-  /** Removes a block or image, asking first unless it is an empty block. */
-  function askRemove(kind: 'block' | 'image', id: string) {
-    const block = kind === 'block' ? note.blocks.find((b) => b.id === id) : undefined
-    if (block && !block.text && !block.items?.length && !block.links?.length && !block.title) remove(kind, id)
-    else setPendingRemove({ kind, id })
-  }
-
+  /** Removes a block or image straight away; the toast that follows can undo it (and so can Ctrl/Cmd+Z). */
   function remove(kind: 'block' | 'image', id: string) {
-    setPendingRemove(null)
     if (selection?.id === id) setSelection(null)
-    void settle(() => (kind === 'block' ? api.deleteNoteBlock(note.id, id) : api.deleteImage(id)))
+    const block = kind === 'block' ? note.blocks.find((b) => b.id === id) : undefined
+    const image = kind === 'image' ? images.find((i) => i.id === id) : undefined
+    if (block) {
+      // An empty block goes quietly; it can still be undone.
+      const empty = !block.text && !block.items?.length && !block.links?.length && !block.title
+      void settle(
+        () => api.deleteNoteBlock(note.id, id),
+        () => step('Remove block', [deleted(target.block(note.id, id), snap.block(block))], { toast: empty ? undefined : 'Block removed' }),
+      )
+    } else if (image) {
+      void settle(
+        () => api.deleteImage(id),
+        () => step('Delete image', [deleted(target.image(id), snap.image(image))], { toast: 'Image deleted' }),
+      )
+    }
   }
 
   // Live geometry: the server's layout with your gesture applied, snapped as the server will.
@@ -260,16 +273,26 @@ export function NoteCanvas(props: NoteCanvasProps) {
       setGesture({ ...gesture, done: true })
       setSelection(null)
       const grab = { x: gesture.start.x - image.x, y: gesture.start.y - image.y }
-      void settle(() => api.updateImage(id, { detach: true, ...snapPoint({ x: at.x - grab.x, y: at.y - grab.y }) }))
+      void settle(
+        () => api.updateImage(id, { detach: true, ...snapPoint({ x: at.x - grab.x, y: at.y - grab.y }) }),
+        imageStep('Put image on the board', image, ['noteId', 'x', 'y']),
+      )
       return
     }
     setGesture({ ...gesture, done: true })
     if (gesture.kind === 'block' || gesture.kind === 'block-resize') {
-      const { x, y, width, height } = blockRect(note.blocks.find((b) => b.id === id)!)
-      void settle(() => api.updateNoteBlock(note.id, id, gesture.kind === 'block' ? { x, y } : { x, y, width, height }))
+      const block = note.blocks.find((b) => b.id === id)!
+      const { x, y, width, height } = blockRect(block)
+      const moving = gesture.kind === 'block'
+      void settle(
+        () => api.updateNoteBlock(note.id, id, moving ? { x, y } : { x, y, width, height }),
+        (after) => step(moving ? 'Move block' : 'Resize block', [patched(target.block(note.id, id), snap.block(block), snap.block(after), ['x', 'y', 'width', 'height'])]),
+      )
     } else {
-      const { x, y, width } = imageRect(images.find((i) => i.id === id)!)
-      void settle(() => api.updateImage(id, gesture.kind === 'image' ? { x, y } : { x, y, width }))
+      const image = images.find((i) => i.id === id)!
+      const { x, y, width } = imageRect(image)
+      const moving = gesture.kind === 'image'
+      void settle(() => api.updateImage(id, moving ? { x, y } : { x, y, width }), imageStep(moving ? 'Move image' : 'Resize image', image, ['x', 'y', 'width']))
     }
   }
 
@@ -283,10 +306,6 @@ export function NoteCanvas(props: NoteCanvasProps) {
   }
   const leavingImage = leaving && images.find((i) => i.id === leaving.id)
   const selectedImage = !readOnly && selection?.kind === 'image' ? images.find((i) => i.id === selection.id) : undefined
-  const toRemove =
-    pendingRemove?.kind === 'block'
-      ? note.blocks.find((b) => b.id === pendingRemove.id)
-      : pendingRemove && images.find((i) => i.id === pendingRemove.id)
 
   return (
     <div className={`note-viewport${incoming ? ' drop-over' : ''}`}>
@@ -300,7 +319,7 @@ export function NoteCanvas(props: NoteCanvasProps) {
           if (e.target instanceof Element && e.target.closest('input, textarea')) return
           e.preventDefault()
           e.stopPropagation()
-          askRemove(selection.kind, selection.id)
+          if (!e.repeat) remove(selection.kind, selection.id)
         }}
         // Dropped files are attached where they land; files over the band are handled by the window.
         onDragOver={(e) => {
@@ -359,7 +378,7 @@ export function NoteCanvas(props: NoteCanvasProps) {
                   lifted={dragging?.id === image.id && !dragging.done}
                   onPointerDown={(e) => onItemPointerDown(e, 'image', image.id)}
                   onResizePointerDown={readOnly ? undefined : (e, handle) => onItemPointerDown(e, 'image-resize', image.id, handle)}
-                  onDelete={readOnly ? undefined : () => askRemove('image', image.id)}
+                  onDelete={readOnly ? undefined : () => remove('image', image.id)}
                 />
               </div>
             ))}
@@ -377,7 +396,7 @@ export function NoteCanvas(props: NoteCanvasProps) {
                 onResizePointerDown={(e, handle) => onItemPointerDown(e, 'block-resize', block.id, handle)}
                 onSelect={() => setSelection({ kind: 'block', id: block.id })}
                 onTitle={(title) => void saveBlock(block, { title })}
-                onRemove={() => askRemove('block', block.id)}
+                onRemove={() => remove('block', block.id)}
               >
                 {block.kind === 'Text' && (
                   <TextBlock
@@ -444,10 +463,10 @@ export function NoteCanvas(props: NoteCanvasProps) {
 
       {selectedImage && (
         <ImageInspector
-          key={selectedImage.id}
+          key={`${selectedImage.id}:${selectedImage.caption}`}
           image={selectedImage}
-          onSave={(changes) => settle(() => api.updateImage(selectedImage.id, changes))}
-          onDelete={() => setPendingRemove({ kind: 'image', id: selectedImage.id })}
+          onSave={(changes) => settle(() => api.updateImage(selectedImage.id, changes), imageStep('Edit caption', selectedImage, ['caption']))}
+          onDelete={() => remove('image', selectedImage.id)}
           onClose={() => setSelection(null)}
         />
       )}
@@ -469,26 +488,6 @@ export function NoteCanvas(props: NoteCanvasProps) {
           </div>,
           document.body,
         )}
-
-      {pendingRemove && toRemove && (
-        <ConfirmDialog
-          title={pendingRemove.kind === 'block' ? 'Remove this block?' : 'Delete this image?'}
-          message={
-            'kind' in toRemove
-              ? `"${toRemove.title ?? blockKinds[toRemove.kind].label}" and its content will be removed from this post-it. This can't be undone.`
-              : `"${toRemove.caption ?? toRemove.fileName}" will be removed from this post-it. This can't be undone.`
-          }
-          confirmLabel={pendingRemove.kind === 'block' ? 'Remove' : 'Delete'}
-          onConfirm={() => {
-            remove(pendingRemove.kind, pendingRemove.id)
-            scrollRef.current?.focus({ preventScroll: true })
-          }}
-          onCancel={() => {
-            setPendingRemove(null)
-            scrollRef.current?.focus({ preventScroll: true })
-          }}
-        />
-      )}
     </div>
   )
 }

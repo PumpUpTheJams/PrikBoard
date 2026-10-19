@@ -102,6 +102,20 @@ export const SparkleIcon = ({ size = 12 }: IconProps) => (
   </Icon>
 )
 
+export const UndoIcon = ({ size = 14 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M9 14 4 9l5-5" />
+    <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+  </Icon>
+)
+
+export const RedoIcon = ({ size = 14 }: IconProps) => (
+  <Icon size={size}>
+    <path d="m15 14 5-5-5-5" />
+    <path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" />
+  </Icon>
+)
+
 export const PlusIcon = ({ size = 14 }: IconProps) => (
   <Icon size={size}>
     <path d="M12 5v14M5 12h14" />

@@ -13,6 +13,8 @@ public class Bucket
     public int Width { get; set; }
     public int Height { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    /// <summary>When it was deleted; it can be restored until <see cref="Data.Tombstones.Retention"/> has passed. Hidden by the query filter while set.</summary>
+    public DateTimeOffset? DeletedAt { get; set; }
 
     public bool Contains(int x, int y) => x >= X && x < X + Width && y >= Y && y < Y + Height;
 }

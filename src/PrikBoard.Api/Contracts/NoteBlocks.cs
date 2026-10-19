@@ -49,6 +49,7 @@ public record NoteBlockDetail(
 /// <param name="Y">Top edge on the note's canvas; snapped to the 20 px grid. Give it together with X.</param>
 /// <param name="Width">Width in note pixels; snapped to the grid, at least 160.</param>
 /// <param name="Height">Height in note pixels; snapped to the grid, at least 80.</param>
+/// <param name="Id">Only for putting back a block that was removed (addNoteBlock): the id it had. Leave it out otherwise; createNote ignores it.</param>
 public record NewNoteBlock(
     [property: Required] NoteBlockKind? Kind,
     [property: StringLength(NoteBlock.MaxTitleLength)] string? Title = null,
@@ -58,7 +59,8 @@ public record NewNoteBlock(
     [property: Range(0, Layout.NoteCanvasMax)] int? X = null,
     [property: Range(0, Layout.NoteCanvasMax)] int? Y = null,
     [property: Range(1, Layout.MaxBlockSize)] int? Width = null,
-    [property: Range(1, Layout.MaxBlockSize)] int? Height = null);
+    [property: Range(1, Layout.MaxBlockSize)] int? Height = null,
+    Guid? Id = null);
 
 /// <summary>
 /// Partially updates a block: its content, position and/or size. Omitted (null) fields stay unchanged. A list that is

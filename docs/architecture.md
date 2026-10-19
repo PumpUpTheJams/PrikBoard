@@ -27,7 +27,7 @@ User 1──* UserIdentity
 ```
 
 - **Board.** One project and a freeform canvas, with a name and an optional description. New boards start with the buckets *To do*, *Doing* and *Done* side by side.
-- **Bucket.** A named rectangle on the board (`x`, `y`, `width`, `height`). Deleting a bucket leaves its notes on the board.
+- **Bucket.** A named rectangle on the board (`x`, `y`, `width`, `height`). Deleting a bucket leaves its notes on the board. Deleted buckets, notes, images and tags can be restored for 7 days (see Soft delete below).
 - **Note.** A 200×120 px post-it at `x`, `y`. It has a title, a fill (`Butter`, `Mint`, `Sky`, `Coral` or `Lilac`), tags, assignees (people or agents), an `AgentWorking` flag that an agent sets while it works on the note, who created it (`CreatedById`, null for older notes) and its content as blocks. Tag names and assignee principal ids are PostgreSQL arrays, always read and replaced whole.
 - **Note block.** A piece of a note's content on the note's own canvas: `Text`, `Checklist` (items) or `Links` (titled links), with an optional title and a place (`x`, `y`, `width`, `height` in note pixels on the 20 px grid). A note's blocks are one `jsonb` column (`Data/NoteBlocksJson.cs`). Each block is changed on its own (add, update, delete), with the note's row locked, so concurrent edits to different blocks don't overwrite each other.
 - **BoardTag.** A tag defined on a board (at most 100). Notes store the names of the board's tags they have; a new name on a note adds it to the board. Renaming or deleting a tag rewrites every note on the board in the same transaction (`array_replace`, `array_remove`).
@@ -68,6 +68,7 @@ The API is built on these conventions:
   - `BoardAccess` announces every successful board-scoped write to the board's group (`BoardEvents.ChangedAsync`), so endpoints don't have to. Endpoints that change board lists or roles also call `BoardEvents` (renames, deletes, members, invites, display names).
   - Drags in progress are relayed between clients as gesture deltas, never stored. Only the drop is saved, through REST.
   - Live state lives in memory, so this works for one API instance. Several instances would need a SignalR backplane (Redis or Azure SignalR) and shared presence.
+- **Soft delete** (`Data/Tombstones.cs`). Deleting a note, bucket, image or tag sets its `DeletedAt` instead of removing the row. A named EF query filter (`PrikBoardDbContext.SoftDelete`) hides it from every query. The restore endpoints bring it back with the same id, so links, stacking order and creators survive an undo. A note's images share its stamp and come back with it. A deleted tag remembers the notes it was taken off (`RemovedFromNoteIds`). Raw SQL ignores the filter, so tag renames and deletes reach deleted notes too. `BoardAccess.AuthorizeAsync` also ignores the filter, so restores are authorized like other writes. `TombstonePurger` deletes for good whatever was deleted more than 7 days ago, once an hour.
 - **Migrations on startup.** They are applied automatically, which is fine for a single instance. Revisit this once the API runs as several instances.
 
 To change the schema, edit the entities or `PrikBoardDbContext`, then add a migration. This uses the `dotnet-ef` tool pinned in `.config/dotnet-tools.json`:
@@ -93,7 +94,8 @@ React 19, TypeScript and Vite, with no state library and no UI kit. The visual d
 - `src/board/ExpandedNote.tsx`: an expanded post-it, a window floating over the board (`useFloatingWindow`: moved by its band, resized from its edges, size and place kept in localStorage). The board stays usable and is never dimmed. A header band in its fill holds the title, tags, assignees and who created it.
 - `src/board/NoteCanvas.tsx`: the post-it's own canvas inside that window, with zoom and pan. Its blocks (`NoteBlocks.tsx`) and images are moved, resized, added and removed like items on the board; `NoteBar.tsx` along the bottom looks like the tool rail. It exposes a handle so the board can drop images into it and route pastes.
 - `src/board/layout.ts`: grid, bucket and note-canvas rules mirrored from the server.
-- `src/components/`: `Avatar` (people and agents), `Menu` (the board and settings menus), `ConfirmDialog` (asks before deleting a post-it or board) and `QuickAdd` (inline add forms).
+- `src/board/undo.ts` and `useUndo.ts`: undo and redo. Each change on the board is recorded with what it touched before and after; undo checks against a fresh getBoard that nothing changed since (otherwise it says why and drops the step) and writes the old values back, restoring deleted things through the restore endpoints. The history is kept per board in the tab, in memory. Deletes therefore don't ask first; they show a toast with *Undo*.
+- `src/components/`: `Avatar` (people and agents), `Menu` (the board and settings menus), `ConfirmDialog` (asks before deleting a board or other things that can't be undone), `Toast` (short messages, optionally with an action) and `QuickAdd` (inline add forms).
 - During a drag the UI shows the snapped position locally. On drop it sends one request and reloads the board, so it always ends up showing the server's layout.
 - Dark ("night shift") is the only theme.
 - In development, Vite proxies `/api` and `/openapi` to `http://localhost:5080`. Set `PRIKBOARD_API_URL` to point the proxy somewhere else.

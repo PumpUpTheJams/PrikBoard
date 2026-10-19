@@ -47,7 +47,16 @@ public static class ImageEndpoints
         images.MapDelete("/images/{imageId:guid}", DeleteImage)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Image)
             .WithName("deleteImage")
-            .WithSummary("Delete an image");
+            .WithSummary("Delete an image")
+            .WithDescription($"Deletes the image. restoreImage brings it back within {Tombstones.RetentionText}.");
+
+        images.MapPost("/images/{imageId:guid}/restore", RestoreImage)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Image)
+            .WithName("restoreImage")
+            .WithSummary("Restore a deleted image")
+            .WithDescription($"Brings back an image deleted in the last {Tombstones.RetentionText}, with the same id, place and file. " +
+                             "409 when it is not deleted, or when it was attached to a note that is deleted (restore the note instead).")
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         return api;
     }
@@ -189,8 +198,28 @@ public static class ImageEndpoints
 
     private static async Task<Results<NoContent, NotFound>> DeleteImage(Guid imageId, PrikBoardDbContext db, CancellationToken ct)
     {
-        var deleted = await db.Images.Where(i => i.Id == imageId).ExecuteDeleteAsync(ct);
+        var deleted = await db.Images.Where(i => i.Id == imageId)
+            .ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, DateTimeOffset.UtcNow), ct);
         return deleted == 0 ? TypedResults.NotFound() : TypedResults.NoContent();
+    }
+
+    internal static async Task<Results<Ok<ImageDetail>, NotFound, ProblemHttpResult>> RestoreImage(
+        Guid imageId, PrikBoardDbContext db, CancellationToken ct)
+    {
+        var image = await db.Images.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+            .Include(i => i.AddedBy)
+            .FirstOrDefaultAsync(i => i.Id == imageId, ct);
+        if (image is null) return TypedResults.NotFound();
+        if (image.DeletedAt is null) return TagEndpoints.NotDeleted("image");
+        if (image.NoteId is { } noteId && !await db.Notes.AnyAsync(n => n.Id == noteId, ct))
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Note deleted",
+                detail: "The image is attached to a deleted note. Restore the note (restoreNote) to bring back its images.");
+        }
+
+        image.DeletedAt = null;
+        await db.SaveChangesAsync(ct);
+        return TypedResults.Ok(ImageDetail.From(image));
     }
 
     /// <summary>The whole body, or null when it is longer than <paramref name="limit"/> bytes.</summary>
