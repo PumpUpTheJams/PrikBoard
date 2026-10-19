@@ -390,7 +390,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
                 "createNote", "moveNote", "updateNote", "deleteNote", "setNoteWorking",
                 "addNoteBlock", "updateNoteBlock", "deleteNoteBlock",
                 "listBoardTags", "createBoardTag", "renameBoardTag", "deleteBoardTag",
-                "whoAmI", "listAuthProviders",
+                "whoAmI", "listAuthProviders", "getVersion",
                 "uploadImage", "getImageContent", "updateImage", "deleteImage",
             },
             operationIds);

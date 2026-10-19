@@ -2,6 +2,7 @@ import type {
   AccessToken,
   CreatedAccessToken,
   AuthProvider,
+  ServerVersion,
   BoardDetail,
   BoardSummary,
   BoardTag,
@@ -118,6 +119,7 @@ async function send(method: string, path: string, body?: unknown): Promise<Respo
 // Method names match the operationIds in the OpenAPI document.
 export const api = {
   listAuthProviders: () => request<AuthProvider[]>('GET', '/auth/providers'),
+  getVersion: () => request<ServerVersion>('GET', '/auth/version'),
   logout: () => request<void>('POST', '/auth/logout'),
   whoAmI: () => request<Caller>('GET', '/me'),
   updateMe: (changes: { displayName?: string }) => request<Caller>('PATCH', '/me', changes),

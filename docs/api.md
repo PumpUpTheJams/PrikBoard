@@ -193,6 +193,7 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | listAccessTokens | `GET /api/me/tokens` | Your personal access tokens (never the tokens themselves). Sessions only |
 | createAccessToken | `POST /api/me/tokens` | New personal access token: `name`, `access` (Viewer or Editor), optional `boardIds` and `expiresInDays`. The token is in the response once. Sessions only |
 | revokeAccessToken | `DELETE /api/me/tokens/{tokenId}` | Revoke a token at once. Sessions only |
+| getVersion | `GET /api/auth/version` | Version of the running server |
 | whoAmI | `GET /api/me` | Who you are: principal id, display name, linked sign-ins (sessions) or issuer and client id (tokens), and scopes |
 | updateMe | `PATCH /api/me` | Set your display name (`""` clears it) |
 | unlinkIdentity | `DELETE /api/me/identities/{identityId}` | Remove a linked sign-in (not the last one). Sessions only |

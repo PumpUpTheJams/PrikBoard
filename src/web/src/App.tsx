@@ -98,6 +98,10 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   const [boards, setBoards] = useState<BoardSummary[] | null>(null)
   const [selectedId, setSelectedId] = useState(boardIdFromHash)
   const [error, setError] = useState<string | null>(null)
+  const [serverVersion, setServerVersion] = useState<string | null>(null)
+  useEffect(() => {
+    api.getVersion().then((v) => setServerVersion(v.version), () => {})
+  }, [])
   const [boardToDelete, setBoardToDelete] = useState<BoardSummary | null>(null)
   const [boardToLeave, setBoardToLeave] = useState<BoardSummary | null>(null)
   const [dialog, setDialog] = useState<'share' | 'account' | 'rules' | null>(null)
@@ -227,7 +231,10 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
     <div className="app">
       <header className="topbar">
         <div className="topbar-start">
-          <span className="board-tile" aria-hidden="true">
+          <span
+            className="board-tile"
+            title={serverVersion ? `PrikBoard server ${serverVersion}` : undefined}
+          >
             <PostItIcon size={16} />
           </span>
           <h1 className="visually-hidden">{activeBoard?.name ?? 'PrikBoard'}</h1>

@@ -8,6 +8,10 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="DisplayName">Label for the sign-in button, for example "Google".</param>
 public record AuthProvider(string Id, string DisplayName);
 
+/// <summary>The running server build.</summary>
+/// <param name="Version">Version of the server that answered, for example "1.2.0+abc1234".</param>
+public record ServerVersion(string Version);
+
 /// <summary>How a request authenticated.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<CallerKind>))]
 public enum CallerKind

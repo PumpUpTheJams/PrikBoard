@@ -221,6 +221,10 @@ export interface NoteChanges {
   agentWorking?: boolean
 }
 
+export interface ServerVersion {
+  version: string
+}
+
 export interface AuthProvider {
   id: string
   displayName: string
