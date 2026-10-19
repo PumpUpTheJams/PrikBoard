@@ -6,9 +6,10 @@ PrikBoard accepts three kinds of callers:
 | --- | --- | --- |
 | People in the browser | Sign in with an identity provider (GitHub by default), then hold an HttpOnly session cookie (`prikboard`, 14 days, sliding) | Cookie |
 | Agents acting for a person | A **personal access token** the person created in PrikBoard, sent as `Authorization: Bearer pb_pat_...` | `pat` (`Auth/AccessTokenHandler.cs`) |
+| The VS Code extension | A personal access token of kind `App`, from [App sign-in](#app-sign-in-vs-code-extension), acting as the person | `pat` |
 | Machines and other OAuth clients | An access token from a trusted issuer, sent as `Authorization: Bearer <token>`. Usually obtained with the **Client Credentials** grant | JWT bearer, one scheme per issuer |
 
-Apart from personal access tokens, PrikBoard does not issue tokens. An external identity provider (Auth0, Entra ID, Okta, Keycloak and so on) does, and PrikBoard validates them: signature, issuer, audience and expiry.
+Apart from personal access tokens (including the extension's app tokens), PrikBoard does not issue tokens. An external identity provider (Auth0, Entra ID, Okta, Keycloak and so on) does, and PrikBoard validates them: signature, issuer, audience and expiry.
 
 A policy scheme picks the scheme per request. A `Bearer` token starting with `pb_pat_` goes to the personal access token scheme. Any other request with a `Bearer` header is validated as an issuer token. When several issuers are configured, the token's `iss` claim picks the issuer's scheme, which then validates everything. Every other request is checked for the cookie. The fallback authorization policy (`AuthSetup.ApiPolicy`) applies to every endpoint that does not say `AllowAnonymous()`.
 
@@ -138,6 +139,19 @@ A signed-in person creates tokens under Account → *Agents and access tokens*, 
 - **Rate limit.** 600 requests a minute per token (`RateLimits:AccessTokenRequestsPerMinute`).
 - **The `/mcp` endpoint** accepts personal access tokens and issuer tokens, never the cookie (`AuthSetup.McpPolicy`). It also refuses requests whose `Origin` header names another site, as the MCP spec requires.
 
+### App sign-in (VS Code extension)
+
+The extension's **Sign in** works like Claude Code's: PrikBoard opens in the browser, the person allows it, and the extension gets a personal access token of kind `App` that acts as **the person** (`whoAmI`: `kind: Token`, `principalKind: User`), with their own roles, Owner included. It needs no identity provider setup. It is an authorization code flow with PKCE in which PrikBoard is the authorization server (`Endpoints/AppSignInEndpoints.cs`):
+
+1. The extension keeps a random PKCE verifier and `state`, listens on `http://127.0.0.1:<port>/callback` (through `asExternalUri`, so Remote SSH forwards it), and opens `{webUrl}/#/connect?state=…&code_challenge=…&name=…&redirect_uri=…`. It leaves out `redirect_uri` when the browser cannot reach it (Codespaces), and on **Paste a Code**.
+2. The connect page (`components/ConnectPage.tsx`) asks the signed-in person to allow it, then calls approveAppSignIn. The server only takes this from a session on PrikBoard's own pages (`SameOrigin`), only a loopback `redirectUri` (`http`, `127.0.0.1`/`localhost`/`[::1]`, explicit port), and at most 5 waiting codes per person. It stores a SHA-256 of a 256-bit code with the challenge, for 5 minutes.
+3. The page redirects to `redirect_uri?code=…&state=…`, or shows the code to paste with a warning never to send it to anyone.
+4. The extension trades code and verifier with exchangeAppSignIn (anonymous, 10 a minute per IP). Any attempt spends the code; a wrong verifier, an expired or a used code all get `400`. The token lasts 90 days.
+
+The code alone is useless, so one leaked through browser history or picked up by another program on the machine cannot be spent. The listener checks `state`, and a pasted code from someone else fails the verifier, so nobody can sign the extension in as another person. What remains is phishing: someone who gets a person to open their link in paste mode and send them the code gets a token. The page warns about exactly that, and the token shows up (with its device name and last use) under Account → *Agents and access tokens*, where the person can revoke it.
+
+An App token is still a token: like any other it cannot manage tokens, approve app sign-ins, accept invites, look people up or link sign-ins. The web app refuses to be framed (`X-Frame-Options: DENY`, `frame-ancestors 'none'` in nginx and the Vite dev server), so the Allow button cannot be clickjacked.
+
 ## Machine-to-machine: Client Credentials
 
 Register PrikBoard as an API at your identity provider, with the scopes `boards:read` and `boards:write`. Then register each machine as a client that may request them. Trust the issuer under `Auth:Tokens`:
@@ -194,7 +208,7 @@ For a token whose client (azp, client_id or appid) is listed and that has a `sub
 
 - `whoAmI` shows `kind: Token` and `principalKind: User`. Boards, roles, display name and memberships are the person's. Scopes from the token still apply on top of the role.
 - Sign-ins are still managed in the browser. A token cannot link or unlink sign-ins, accept invite links or look people up by email.
-- The VS Code extension is such an app. Its sign-in settings (`prikboard.oidc.*`) are described in `src/vscode/README.md`.
+- The VS Code extension can be such an app, when `prikboard.oidc.*` is set (see `src/vscode/README.md`). Without it, the extension uses [App sign-in](#app-sign-in-vs-code-extension), which needs none of this.
 - Only list clients you control. Any token from a listed client with a valid `sub` acts as that person, so the client must authenticate the person properly. Public clients (no secret) rely on PKCE.
 - Register the app at the identity provider as a public/native client with PKCE, a redirect URI of the extension (for VS Code, `http://127.0.0.1:<port>` or `vscode://...`), and the `boards:read`/`boards:write` scopes for the audience.
 

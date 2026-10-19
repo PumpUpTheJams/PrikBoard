@@ -1041,11 +1041,22 @@ main {
   box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--text);
 }
 
-.canvas-hint {
+/* The top centre of the board: the search, then a tool hint or the view-only badge, stacked so they never overlap. */
+.board-top {
   position: absolute;
   top: 16px;
   left: 50%;
-  z-index: 4;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: min(520px, calc(100% - 200px));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.canvas-hint {
   padding: 6px 12px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -1053,7 +1064,6 @@ main {
   color: var(--text-2);
   font-size: 12px;
   box-shadow: var(--float-shadow);
-  transform: translateX(-50%);
   pointer-events: none;
 }
 
@@ -2754,17 +2764,12 @@ a.button.primary:hover {
 /* Viewers: everything visible, nothing editable */
 
 .read-only-badge {
-  position: absolute;
-  top: 16px;
-  left: 50%;
-  z-index: 4;
   padding: 6px 12px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--panel);
   color: var(--muted);
   font-size: 12px;
-  transform: translateX(-50%);
   pointer-events: none;
 }
 
@@ -3218,6 +3223,273 @@ a.button.primary:hover {
   background: var(--accent-bg);
   color: var(--text);
   font: 12px var(--mono);
+}
+
+/*
+ * The board search (BoardSearch): a pill shaped like the tag filter's, with the matching post-its listed under it.
+ * Post-its without the words fade like the tag filter fades them; the words are marked where they show.
+ */
+
+.board-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 44px;
+  padding: 0 6px 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--subtle);
+  box-shadow: var(--float-shadow);
+  pointer-events: auto;
+}
+
+.board-search.active {
+  border-color: var(--accent);
+}
+
+.board-search.active > svg {
+  color: var(--accent);
+}
+
+.board-search input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+
+.board-search input::placeholder {
+  color: var(--subtle);
+}
+
+.board-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.search-count {
+  flex: none;
+  padding: 0 6px;
+  color: var(--muted);
+  font: 11px var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.search-count.none {
+  color: var(--danger);
+}
+
+.search-divider {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--line);
+}
+
+.search-button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.search-button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.search-results {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--float-shadow);
+  pointer-events: auto;
+}
+
+/* About five results show; the rest scroll. */
+.search-result-list {
+  position: relative;
+  max-height: 292px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.search-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.search-result:hover {
+  background: var(--row-hover);
+}
+
+.search-result.active {
+  background: var(--accent-bg);
+}
+
+.search-result-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.search-result-title,
+.search-result-where {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.search-result-where {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.search-where-label {
+  margin-right: 6px;
+  color: var(--subtle);
+}
+
+.search-result-bucket {
+  flex: none;
+  color: var(--subtle);
+  font-size: 12px;
+}
+
+.search-result.active .search-result-bucket {
+  color: var(--text-2);
+}
+
+.search-empty {
+  padding: 14px 10px 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.search-results-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  color: var(--subtle);
+  font-size: 12px;
+}
+
+.search-results-foot > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.search-results-foot kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text-2);
+  font: 10px var(--mono);
+}
+
+.search-results-foot .search-faded {
+  gap: 8px;
+  margin-left: auto;
+}
+
+.search-faded button {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.search-faded button:hover {
+  background: var(--tool-hover);
+}
+
+/* Marked words: a highlighter stroke on the post-it fills, a tint of the accent on dark panels. */
+.post-it mark,
+.band mark {
+  margin: 0 -1px;
+  padding: 0 1px;
+  border-radius: 2px;
+  background: rgba(23, 24, 27, 0.14);
+  color: inherit;
+  box-shadow: inset 0 -2px 0 rgba(23, 24, 27, 0.62);
+}
+
+.tag mark {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: inset 0 -1.5px 0 rgba(23, 24, 27, 0.62);
+}
+
+.search-results mark,
+.note-block mark {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: var(--text);
+}
+
+/* The result being looked at, on the board and in the minimap; blocks in the open post-it where the words were found. */
+.post-it.search-current {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 7px rgba(124, 196, 255, 0.16), 0 6px 14px rgba(0, 0, 0, 0.28);
+}
+
+.minimap-note.current {
+  z-index: 1;
+  opacity: 1;
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+
+.note-block.matched {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
 }
 
 .band-meta {

@@ -49,7 +49,7 @@ builder.Services.AddMcpServer(options =>
     .WithTools<BoardTools>(McpCall.Json)
     .WithRequestFilters(filters => filters.AddCallToolFilter(McpCall.RulesReminder));
 
-// Per-principal limits on endpoints that take guessable input (email lookup, invite tokens).
+// Per-principal limits on endpoints that take guessable input (email lookup, invite tokens, app sign-in codes).
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -63,6 +63,7 @@ builder.Services.AddRateLimiter(options =>
             }));
     Policy(MemberEndpoints.LookupLimit, "LookupsPerMinute", 10);
     Policy(InviteEndpoints.InviteLimit, "InvitesPerMinute", 20);
+    Policy(AppSignInEndpoints.ExchangeLimit, "AppSignInsPerMinute", 10);
 
     // Every request with a personal access token counts against that token, so a leaked token in a loop cannot hammer the API.
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
@@ -158,6 +159,7 @@ api.MapImageEndpoints();
 api.MapMemberEndpoints();
 api.MapInviteEndpoints();
 api.MapAccessTokenEndpoints();
+api.MapAppSignInEndpoints();
 api.MapAdminEndpoints();
 // MCP at /mcp, outside /api where MCP clients expect it; each tool checks board access itself.
 app.MapMcp("/mcp").RequireAuthorization(AuthSetup.McpPolicy).ExcludeFromDescription();

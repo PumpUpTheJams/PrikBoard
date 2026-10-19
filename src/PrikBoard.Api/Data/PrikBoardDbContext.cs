@@ -16,6 +16,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
     public DbSet<BoardMember> BoardMembers => Set<BoardMember>();
     public DbSet<BoardInvite> BoardInvites => Set<BoardInvite>();
     public DbSet<AccessToken> AccessTokens => Set<AccessToken>();
+    public DbSet<AppSignInGrant> AppSignInGrants => Set<AppSignInGrant>();
     public DbSet<BoardImage> Images => Set<BoardImage>();
     public DbSet<ImageContent> ImageContents => Set<ImageContent>();
 
@@ -115,9 +116,21 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             token.HasIndex(t => t.TokenHash).IsUnique();
             token.Property(t => t.Hint).HasMaxLength(8);
             token.Property(t => t.MaxRole).HasConversion<string>().HasMaxLength(10);
+            token.Property(t => t.Kind).HasConversion<string>().HasMaxLength(10);
+            token.Property(t => t.Name).HasMaxLength(100);
             token.HasOne(t => t.Owner).WithMany().HasForeignKey(t => t.OwnerId).OnDelete(DeleteBehavior.Cascade);
             token.HasOne(t => t.Agent).WithMany().HasForeignKey(t => t.AgentId).OnDelete(DeleteBehavior.Cascade);
             token.HasIndex(t => t.OwnerId);
+        });
+
+        modelBuilder.Entity<AppSignInGrant>(grant =>
+        {
+            grant.Property(g => g.CodeHash).HasMaxLength(32);
+            grant.HasIndex(g => g.CodeHash).IsUnique();
+            grant.Property(g => g.CodeChallenge).HasMaxLength(64);
+            grant.Property(g => g.Name).HasMaxLength(100);
+            grant.HasOne(g => g.Owner).WithMany().HasForeignKey(g => g.OwnerId).OnDelete(DeleteBehavior.Cascade);
+            grant.HasIndex(g => g.OwnerId);
         });
 
         modelBuilder.Entity<UserIdentity>(identity =>

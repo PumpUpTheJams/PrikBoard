@@ -18,8 +18,10 @@ interface ViewControlsProps {
   viewport: Rect
   buckets: BucketDetail[]
   notes: NoteDetail[]
-  /** Post-its faded by the tag filter. */
+  /** Post-its faded by the tag filter or the search. */
   dimmed?: (note: NoteDetail) => boolean
+  /** The search result being looked at. */
+  current?: string | null
   /** Images on the canvas (not the ones attached to notes). */
   images: ImageDetail[]
   /** Scroll so that this canvas point is in the middle of the view. */
@@ -27,7 +29,8 @@ interface ViewControlsProps {
 }
 
 /** Minimap and zoom buttons in the bottom-right corner of the board. */
-export function ViewControls({ zoom, onZoom, onZoomReset, extent, viewport, buckets, notes, dimmed, images, onNavigate }: ViewControlsProps) {
+export function ViewControls(props: ViewControlsProps) {
+  const { zoom, onZoom, onZoomReset, extent, viewport, buckets, notes, dimmed, current, images, onNavigate } = props
   // The map shows the canvas and the view, which can reach into the empty margin around it.
   const left = Math.min(0, viewport.x)
   const top = Math.min(0, viewport.y)
@@ -66,7 +69,7 @@ export function ViewControls({ zoom, onZoom, onZoomReset, extent, viewport, buck
         {notes.map((n) => (
           <span
             key={n.id}
-            className={`minimap-note fill-${n.color.toLowerCase()}${dimmed?.(n) ? ' dimmed' : ''}`}
+            className={`minimap-note fill-${n.color.toLowerCase()}${dimmed?.(n) ? ' dimmed' : ''}${n.id === current ? ' current' : ''}`}
             style={toMap({ x: n.x, y: n.y, width: NOTE_WIDTH, height: NOTE_HEIGHT })}
           />
         ))}

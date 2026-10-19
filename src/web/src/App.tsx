@@ -22,6 +22,7 @@ import { useLive } from './live/useLive'
 import { AccountDialog, DisplayNameDialog } from './components/AccountDialogs'
 import { AdminPage } from './components/AdminPage'
 import { ConfirmDialog } from './components/ConfirmDialog'
+import { ConnectPage, connectFromHash } from './components/ConnectPage'
 import { initials } from './components/initials'
 import { InvitePage } from './components/InvitePage'
 import { Menu } from './components/Menu'
@@ -45,13 +46,17 @@ export default function App() {
   // undefined while checking the session, null when signed out.
   const [user, setUser] = useState<Caller | null | undefined>(undefined)
   const [invite, setInvite] = useState(inviteFromHash)
+  const [connect, setConnect] = useState(connectFromHash)
 
   useEffect(() => {
     // Any 401, such as an expired session, drops back to the sign-in screen.
     setUnauthorizedHandler(() => setUser(null))
     api.whoAmI().then(setUser, () => setUser(null))
 
-    const onHashChange = () => setInvite(inviteFromHash())
+    const onHashChange = () => {
+      setInvite(inviteFromHash())
+      setConnect(connectFromHash())
+    }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
@@ -62,8 +67,19 @@ export default function App() {
   }
 
   if (user === undefined) return <p className="status">Loading…</p>
-  // Signing in returns to the same hash, so an invite link survives the round trip.
+  // Signing in returns to the same hash, so an invite link or an app's sign-in survives the round trip.
   if (user === null) return <SignIn />
+  if (connect) {
+    return (
+      <ConnectPage
+        request={connect}
+        user={user}
+        onDone={() => {
+          window.location.hash = ''
+        }}
+      />
+    )
+  }
   if (invite) {
     return (
       <InvitePage

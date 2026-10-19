@@ -394,8 +394,12 @@ export interface RemoteDrag extends DragUpdate {
 }
 
 /** A personal access token, without the token itself (only shown when created). */
+/** Agent: its own agent with capped access. App: a PrikBoard app (the VS Code extension) signed in as you. */
+export type AccessTokenKind = 'Agent' | 'App'
+
 export interface AccessToken {
   id: string
+  kind: AccessTokenKind
   name: string
   /** The token's last four characters. */
   hint: string
@@ -403,7 +407,8 @@ export interface AccessToken {
   access: BoardRole
   /** The only boards it can use, or null for all of yours. */
   boardIds: string[] | null
-  agentId: string
+  /** The agent it acts as; null for app tokens, which act as you. */
+  agentId: string | null
   createdAt: string
   expiresAt: string
   lastUsedAt: string | null
@@ -413,4 +418,10 @@ export interface CreatedAccessToken {
   /** Shown once: `pb_pat_...`. */
   token: string
   details: AccessToken
+}
+
+/** A one-time code for an app you allowed to sign in; it trades it with its PKCE verifier for a token. */
+export interface AppSignInCode {
+  code: string
+  expiresAt: string
 }

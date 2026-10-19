@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 import type { NoteDetail, Point } from '../api/types'
 import { AvatarStack } from '../components/Avatar'
+import { Highlight } from './Highlight'
 import { ExpandIcon } from './icons'
 import { NOTE_HEIGHT, NOTE_WIDTH } from './layout'
 
@@ -20,8 +21,12 @@ interface PostItProps {
   point: Point
   selected: boolean
   lifted: boolean
-  /** Faded: it doesn't match the board's tag filter. */
+  /** Faded: it doesn't match the board's tag filter or search. */
   dimmed?: boolean
+  /** Search words to mark in the title and tags. */
+  highlight?: string[]
+  /** The search result being looked at. */
+  current?: boolean
   /** An image being dragged would be attached to this post-it on release. */
   dropTarget?: boolean
   onPointerDown: (e: PointerEvent<HTMLDivElement>) => void
@@ -41,7 +46,7 @@ interface PostItProps {
 
 /** On the board a post-it shows its title, tags and assignees. Everything else lives inside (see ExpandedNote). */
 export function PostIt(props: PostItProps) {
-  const { note, point, selected, lifted, dimmed, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
+  const { note, point, selected, lifted, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
   const { editingTitle, titleCaret, onRenameTitle, onTitleDone } = props
   /** A saved title, shown until the reload brings it (while the server still has `from`). */
   const [saved, setSaved] = useState<{ title: string; from: string } | null>(null)
@@ -59,11 +64,12 @@ export function PostIt(props: PostItProps) {
   if (lifted) classes.push('lifted')
   if (note.agentWorking) classes.push('agent-working')
   if (dimmed) classes.push('dimmed')
+  if (current) classes.push('search-current')
   if (dropTarget) classes.push('drop-target')
 
   const tags = note.tags.map((tag) => (
     <span key={tag} className="tag">
-      {tag}
+      <Highlight text={tag} terms={highlight} />
     </span>
   ))
   const people =
@@ -85,7 +91,9 @@ export function PostIt(props: PostItProps) {
         {editingTitle && onRenameTitle ? (
           <TitleInput value={title} caret={titleCaret} onSave={rename} onCancel={() => onTitleDone?.()} />
         ) : (
-          <span className={`post-it-title${onRenameTitle ? ' editable-title' : ''}`}>{title}</span>
+          <span className={`post-it-title${onRenameTitle ? ' editable-title' : ''}`}>
+            <Highlight text={title} terms={highlight} />
+          </span>
         )}
         <button
           type="button"

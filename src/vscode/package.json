@@ -34,7 +34,7 @@
     "viewsWelcome": [
       {
         "view": "prikboard.boards",
-        "contents": "Sign in to see your boards.\n[Sign in](command:prikboard.signIn)\nNo identity provider set up? [Use an access token](command:prikboard.signInWithToken) from PrikBoard under Account, Agents and access tokens.",
+        "contents": "Sign in to see your boards. VS Code asks for your PrikBoard address first, then PrikBoard opens in your browser, where you allow VS Code to use it as you.\n[Sign in](command:prikboard.signIn)\nOr [use an access token](command:prikboard.signInWithToken) from PrikBoard under Account, Agents and access tokens. [Change the PrikBoard address](command:prikboard.chooseServer).",
         "when": "!prikboard.signedIn"
       }
     ],
@@ -52,6 +52,11 @@
       {
         "command": "prikboard.signOut",
         "title": "Sign Out",
+        "category": "PrikBoard"
+      },
+      {
+        "command": "prikboard.chooseServer",
+        "title": "Set PrikBoard Address",
         "category": "PrikBoard"
       },
       {
@@ -161,6 +166,11 @@
           "command": "prikboard.signOut",
           "when": "view == prikboard.boards && prikboard.signedIn",
           "group": "overflow"
+        },
+        {
+          "command": "prikboard.chooseServer",
+          "when": "view == prikboard.boards",
+          "group": "overflow"
         }
       ],
       "view/item/context": [
@@ -207,12 +217,12 @@
         "prikboard.serverUrl": {
           "type": "string",
           "default": "http://localhost:5080",
-          "markdownDescription": "Where the PrikBoard API runs (the part before `/api`)."
+          "markdownDescription": "The address you open PrikBoard at, for example `https://prikboard.example.com` (the part before `/api`). **Sign in** asks for it the first time; **PrikBoard: Set PrikBoard Address** changes it. For local development use `http://localhost:5173`, whose proxy serves both the web app and the API."
         },
         "prikboard.webUrl": {
           "type": "string",
-          "default": "http://localhost:5173",
-          "markdownDescription": "Where the PrikBoard web app runs, used by **Open in PrikBoard**. Leave empty to use `#prikboard.serverUrl#`."
+          "default": "",
+          "markdownDescription": "Where the PrikBoard web app runs, used by **Sign in** and **Open in PrikBoard**. Leave empty to use `#prikboard.serverUrl#`."
         },
         "prikboard.refreshSeconds": {
           "type": "number",
@@ -223,7 +233,7 @@
         "prikboard.oidc.authority": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Issuer URL of the identity provider that signs you in, for example `https://your-tenant.eu.auth0.com/`. It must be one of the API's trusted token issuers, with this extension's client id under `UserClients`."
+          "markdownDescription": "Optional. Issuer URL of an identity provider to sign in with instead of PrikBoard's own sign-in, for example `https://your-tenant.eu.auth0.com/`. It must be one of the API's trusted token issuers, with this extension's client id under `UserClients`."
         },
         "prikboard.oidc.clientId": {
           "type": "string",
