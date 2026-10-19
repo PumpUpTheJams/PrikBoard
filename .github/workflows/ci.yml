@@ -59,8 +59,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      # No lockfile yet: generate one with `npm install` in src/vscode, commit it, then switch this to `npm ci`.
-      - run: npm install
+          cache: npm
+          cache-dependency-path: src/vscode/package-lock.json
+      - run: npm ci
       - run: npm run lint
       - run: npm run build
       - run: npm run package

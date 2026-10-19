@@ -24,7 +24,11 @@ export class Auth implements vscode.Disposable {
   /** Fires with the new signed-in state. */
   readonly onDidChange = this.changed.event
 
-  constructor(private readonly secrets: vscode.SecretStorage) {}
+  private readonly secrets: vscode.SecretStorage
+
+  constructor(secrets: vscode.SecretStorage) {
+    this.secrets = secrets
+  }
 
   get signedIn() {
     return this.token !== undefined
@@ -41,7 +45,7 @@ export class Auth implements vscode.Disposable {
   reconfigure() {
     configureClient({
       baseUrl: serverUrl(),
-      headers: () => (this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+      headers: (): Record<string, string> => (this.token ? { Authorization: `Bearer ${this.token}` } : {}),
     })
   }
 

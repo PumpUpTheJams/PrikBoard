@@ -20,7 +20,7 @@ A personal access token acts as its own agent with the board access you gave it,
 
 ## Code
 
-The extension reuses the web app's API client and types ([src/web/src/api](../web/src/api)) instead of keeping a copy. esbuild bundles them in, so those two files must stay free of DOM and React imports. `configureClient` points the client at a server and adds the bearer token.
+The extension reuses the web app's API client and types (`src/web/src/api`) instead of keeping a copy. esbuild bundles them in, so those two files must stay free of DOM and React imports. `configureClient` points the client at a server and adds the bearer token.
 
 ```bash
 npm run build      # type check and bundle to dist/

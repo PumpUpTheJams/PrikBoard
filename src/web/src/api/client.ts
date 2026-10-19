@@ -96,7 +96,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   if (response.status === 401) onUnauthorized()
   if (!response.ok) {
-    const problem: ProblemDetails | null = await response.json().catch(() => null)
+    const problem = (await response.json().catch(() => null)) as ProblemDetails | null
     const firstError = problem?.errors && Object.values(problem.errors)[0]?.[0]
     throw new ApiError(response.status, firstError ?? problem?.detail ?? problem?.title ?? response.statusText)
   }
