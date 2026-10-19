@@ -88,7 +88,7 @@ React 19, TypeScript and Vite, with no state library and no UI kit. The visual d
 - `src/board/layout.ts`: grid and bucket rules mirrored from the server.
 - `src/components/`: `Avatar` (people and agents), `Menu` (the board and settings menus), `ConfirmDialog` (asks before deleting a post-it or board) and `QuickAdd` (inline add forms).
 - During a drag the UI shows the snapped position locally. On drop it sends one request and reloads the board, so it always ends up showing the server's layout.
-- Dark ("night shift") is the default theme. The light theme is a `data-theme="light"` override, remembered in `localStorage`.
+- Dark ("night shift") is the only theme.
 - In development, Vite proxies `/api` and `/openapi` to `http://localhost:5080`. Set `PRIKBOARD_API_URL` to point the proxy somewhere else.
 
 ## Tests

@@ -1,6 +1,5 @@
 /*
- * "Night shift" board design (docs/Scrum Board — Night shift.html). Dark is the default theme;
- * App sets data-theme="light" when the viewer switches. Post-it fills and their ink are the same in both.
+ * "Night shift" board design (docs/Scrum Board — Night shift.html). Dark only.
  */
 :root {
   --bg: #0e1014;
@@ -53,44 +52,6 @@
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
-}
-
-:root[data-theme='light'] {
-  --bg: #f3f2ee;
-  --bar: #ffffff;
-  --bar-line: #e4e2dc;
-  --panel: #ffffff;
-  --panel-2: #ffffff;
-  --dialog: #ffffff;
-  --dialog-line: #dedbd4;
-  --line: #dedbd4;
-  --line-strong: #d2cfc7;
-  --text: #1f1e1d;
-  --text-2: #3b3a37;
-  --text-body: #34332f;
-  --muted: #6b6a68;
-  --subtle: #8a8884;
-  --hover: #efede8;
-  --tool-hover: #ebe9e3;
-  --row-hover: #f4f3ef;
-  --accent: #2f7fd6;
-  --accent-ink: #ffffff;
-  --accent-bg: #dcebfa;
-  --danger: #c62828;
-  --danger-strong: #d93036;
-  --frame-bg: rgba(255, 255, 255, 0.72);
-  --dot: rgba(0, 0, 0, 0.14);
-  --mini-bg: #f7f6f2;
-  --mini-dot: rgba(0, 0, 0, 0.1);
-  --chip: #ebe9e3;
-  --dim: rgba(40, 38, 34, 0.45);
-  --dock: #ffffff;
-  --dock-hover: #ebe9e3;
-  --minimap-block: #dddad3;
-  --slot: #c9c6be;
-  --float-shadow: 0 12px 32px rgba(40, 38, 34, 0.16);
-
-  color-scheme: light;
 }
 
 .fill-butter { --fill: var(--fill-butter); --ink-soft: #5a4a14; }
@@ -923,10 +884,6 @@ main {
 .rail-button.tone-coral { color: var(--fill-coral); }
 .rail-button.tone-lilac { color: var(--fill-lilac); }
 
-:root[data-theme='light'] .rail-button[class*='tone-'] {
-  color: color-mix(in srgb, var(--fill-butter) 55%, #6b5410);
-}
-
 .rail-divider {
   height: 1px;
   margin: 4px 6px;
@@ -1387,10 +1344,6 @@ main {
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
 }
 
-:root[data-theme='light'] .widget {
-  box-shadow: 0 6px 18px rgba(40, 38, 34, 0.08);
-}
-
 .widget h2 {
   margin: 0;
   color: var(--muted);
@@ -1592,10 +1545,6 @@ li:hover .row-remove,
   background: var(--dock);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
   transform: translateX(-50%);
-}
-
-:root[data-theme='light'] .dock {
-  box-shadow: var(--float-shadow);
 }
 
 .dock-button {
@@ -1859,10 +1808,6 @@ a.button.primary:hover {
   border-radius: 6px;
   background: var(--panel);
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
-}
-
-:root[data-theme='light'] .board-image-frame {
-  box-shadow: 0 10px 24px rgba(40, 38, 34, 0.18);
 }
 
 .board-image-frame img {
