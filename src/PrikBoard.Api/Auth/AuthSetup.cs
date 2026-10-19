@@ -194,12 +194,19 @@ public static partial class AuthSetup
             {
                 OnTokenValidated = async context =>
                 {
-                    // Every token client acts as an agent principal, which board owners can add as a member.
                     var identity = (ClaimsIdentity)context.Principal!.Identity!;
                     identity.AddClaim(new Claim(ApiScopes.IssuerIdClaim, id));
-                    var agentId = await AgentRegistry.ResolveAsync(
-                        context.HttpContext.RequestServices, id, AgentRegistry.ClientId(context.Principal), context.HttpContext.RequestAborted);
-                    identity.AddClaim(new Claim(UserPrincipal.PrincipalClaim, agentId.ToString()));
+                    var services = context.HttpContext.RequestServices;
+                    var ct = context.HttpContext.RequestAborted;
+                    var clientId = AgentRegistry.ClientId(context.Principal);
+
+                    // An interactive app the issuer lists acts for the person who signed in (their User, token scopes still apply).
+                    // Every other client acts as an agent principal, which board owners can add as a member.
+                    var subject = context.Principal.FindFirstValue("sub");
+                    var principalId = subject is not null && issuer.UserClients.Contains(clientId, StringComparer.Ordinal)
+                        ? await UserSignIn.ResolveUserIdAsync(services, issuer.UserProvider ?? id, subject, ct)
+                        : await AgentRegistry.ResolveAsync(services, id, clientId, ct);
+                    identity.AddClaim(new Claim(UserPrincipal.PrincipalClaim, principalId.ToString()));
                 },
             };
         });

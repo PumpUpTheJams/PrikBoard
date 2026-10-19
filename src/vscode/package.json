@@ -1,0 +1,268 @@
+{
+  "name": "prikboard-vscode",
+  "displayName": "PrikBoard",
+  "description": "Your PrikBoard boards, buckets and notes in the VS Code side bar.",
+  "version": "0.0.1",
+  "private": true,
+  "publisher": "prikboard",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "prikboard",
+          "title": "PrikBoard",
+          "icon": "media/prikboard.svg"
+        }
+      ]
+    },
+    "views": {
+      "prikboard": [
+        {
+          "id": "prikboard.boards",
+          "name": "Boards"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "prikboard.boards",
+        "contents": "Sign in to see your boards.\n[Sign in](command:prikboard.signIn)\nNo identity provider set up? [Use an access token](command:prikboard.signInWithToken) from PrikBoard under Account, Agents and access tokens.",
+        "when": "!prikboard.signedIn"
+      }
+    ],
+    "commands": [
+      {
+        "command": "prikboard.signIn",
+        "title": "Sign In",
+        "category": "PrikBoard"
+      },
+      {
+        "command": "prikboard.signInWithToken",
+        "title": "Sign in with an Access Token",
+        "category": "PrikBoard"
+      },
+      {
+        "command": "prikboard.signOut",
+        "title": "Sign Out",
+        "category": "PrikBoard"
+      },
+      {
+        "command": "prikboard.refresh",
+        "title": "Refresh",
+        "category": "PrikBoard",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "prikboard.openInBrowser",
+        "title": "Open in PrikBoard",
+        "category": "PrikBoard",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "prikboard.newNote",
+        "title": "New Note",
+        "category": "PrikBoard",
+        "icon": "$(add)"
+      },
+      {
+        "command": "prikboard.renameNote",
+        "title": "Rename Note",
+        "category": "PrikBoard"
+      },
+      {
+        "command": "prikboard.editTags",
+        "title": "Edit Tags",
+        "category": "PrikBoard"
+      },
+      {
+        "command": "prikboard.moveNote",
+        "title": "Move to Bucket",
+        "category": "PrikBoard"
+      },
+      {
+        "command": "prikboard.toggleChecklist",
+        "title": "Tick or Untick Checklist Item",
+        "category": "PrikBoard"
+      },
+      {
+        "command": "prikboard.toggleAgentWorking",
+        "title": "Toggle Agent Working",
+        "category": "PrikBoard",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "prikboard.deleteNote",
+        "title": "Delete Note",
+        "category": "PrikBoard"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "prikboard.signIn",
+          "when": "!prikboard.signedIn"
+        },
+        {
+          "command": "prikboard.signInWithToken",
+          "when": "!prikboard.signedIn"
+        },
+        {
+          "command": "prikboard.signOut",
+          "when": "prikboard.signedIn"
+        },
+        {
+          "command": "prikboard.openInBrowser",
+          "when": "false"
+        },
+        {
+          "command": "prikboard.newNote",
+          "when": "false"
+        },
+        {
+          "command": "prikboard.renameNote",
+          "when": "false"
+        },
+        {
+          "command": "prikboard.editTags",
+          "when": "false"
+        },
+        {
+          "command": "prikboard.moveNote",
+          "when": "false"
+        },
+        {
+          "command": "prikboard.toggleChecklist",
+          "when": "false"
+        },
+        {
+          "command": "prikboard.toggleAgentWorking",
+          "when": "false"
+        },
+        {
+          "command": "prikboard.deleteNote",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "prikboard.refresh",
+          "when": "view == prikboard.boards && prikboard.signedIn",
+          "group": "navigation"
+        },
+        {
+          "command": "prikboard.signOut",
+          "when": "view == prikboard.boards && prikboard.signedIn",
+          "group": "overflow"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "prikboard.openInBrowser",
+          "when": "view == prikboard.boards && viewItem =~ /^(board|note)/",
+          "group": "inline"
+        },
+        {
+          "command": "prikboard.newNote",
+          "when": "view == prikboard.boards && viewItem == bucket.edit",
+          "group": "inline"
+        },
+        {
+          "command": "prikboard.toggleAgentWorking",
+          "when": "view == prikboard.boards && viewItem == note.edit",
+          "group": "inline"
+        },
+        {
+          "command": "prikboard.renameNote",
+          "when": "view == prikboard.boards && viewItem == note.edit",
+          "group": "1_edit@1"
+        },
+        {
+          "command": "prikboard.editTags",
+          "when": "view == prikboard.boards && viewItem == note.edit",
+          "group": "1_edit@2"
+        },
+        {
+          "command": "prikboard.moveNote",
+          "when": "view == prikboard.boards && viewItem == note.edit",
+          "group": "1_edit@3"
+        },
+        {
+          "command": "prikboard.deleteNote",
+          "when": "view == prikboard.boards && viewItem == note.edit",
+          "group": "2_danger"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "PrikBoard",
+      "properties": {
+        "prikboard.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:5080",
+          "markdownDescription": "Where the PrikBoard API runs (the part before `/api`)."
+        },
+        "prikboard.webUrl": {
+          "type": "string",
+          "default": "http://localhost:5173",
+          "markdownDescription": "Where the PrikBoard web app runs, used by **Open in PrikBoard**. Leave empty to use `#prikboard.serverUrl#`."
+        },
+        "prikboard.refreshSeconds": {
+          "type": "number",
+          "default": 15,
+          "minimum": 5,
+          "markdownDescription": "How often the open view reloads its boards."
+        },
+        "prikboard.oidc.authority": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Issuer URL of the identity provider that signs you in, for example `https://your-tenant.eu.auth0.com/`. It must be one of the API's trusted token issuers, with this extension's client id under `UserClients`."
+        },
+        "prikboard.oidc.clientId": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Client id of the extension's application at the identity provider (a public or native client with PKCE)."
+        },
+        "prikboard.oidc.scopes": {
+          "type": "string",
+          "default": "openid offline_access boards:read boards:write",
+          "markdownDescription": "Scopes to request, space separated. Name them as your issuer does (Entra: `api://prikboard/boards:write`). `offline_access` lets the sign-in renew itself."
+        },
+        "prikboard.oidc.audience": {
+          "type": "string",
+          "default": "api://prikboard",
+          "markdownDescription": "Sent as `audience` for issuers that take the API from it (Auth0). Leave empty for issuers that take it from the scopes (Entra)."
+        },
+        "prikboard.oidc.redirectPort": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65535,
+          "markdownDescription": "Fixed local port for the sign-in redirect `http://127.0.0.1:<port>/callback`, for issuers that need the exact redirect URI registered (Auth0). `0` picks a free port, which Entra and Keycloak allow for loopback addresses."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "lint": "oxlint",
+    "package": "npm run build -- --production && vsce package --no-dependencies --skip-license --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.25.0",
+    "oxlint": "^1.81.0",
+    "typescript": "~6.0.2"
+  }
+}

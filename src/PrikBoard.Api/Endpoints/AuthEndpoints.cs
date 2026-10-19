@@ -175,11 +175,20 @@ public static class AuthEndpoints
 
         if (principal.IsToken())
         {
-            var agent = await db.Agents.FindAsync([principal.PrincipalId()], ct);
-            return agent is null
-                ? null
-                : new Caller(CallerKind.Token, PrincipalKind.Agent, agent.Id, agent.ShownName, agent.DisplayName, null,
-                    agent.Issuer, agent.ClientId, [], scopes);
+            var issuer = principal.FindFirstValue(ApiScopes.IssuerIdClaim);
+            switch (await db.Principals.FindAsync([principal.PrincipalId()], ct))
+            {
+                case Agent agent:
+                    return new Caller(CallerKind.Token, PrincipalKind.Agent, agent.Id, agent.ShownName, agent.DisplayName, null,
+                        agent.Issuer, agent.ClientId, [], scopes);
+                // A token from one of the issuer's UserClients: the person themselves, limited to the token's scopes.
+                // Sign-ins are managed in the browser, so none are listed.
+                case User person:
+                    return new Caller(CallerKind.Token, PrincipalKind.User, person.Id, person.ShownName, person.DisplayName, null,
+                        issuer, AgentRegistry.ClientId(principal), [], scopes);
+                default:
+                    return null;
+            }
         }
 
         var user = await db.Users.Include(u => u.Identities).FirstOrDefaultAsync(u => u.Id == principal.UserId(), ct);

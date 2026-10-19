@@ -39,6 +39,21 @@ export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** How requests are sent. The web app is served next to the API and signs in with a cookie, so it needs none of this. */
+export interface ClientConfig {
+  /** Origin of the API, for example http://localhost:5080. Default: relative to the page. */
+  baseUrl?: string
+  /** Headers for every request, for example a bearer token. Called per request, so a token can be refreshed. */
+  headers?: () => Record<string, string> | Promise<Record<string, string>>
+}
+
+let config: ClientConfig = {}
+
+/** For clients that are not the web app (the VS Code extension): point the client at an API and add its credentials. */
+export function configureClient(next: ClientConfig) {
+  config = next
+}
+
 let onUnauthorized = () => {}
 
 /** Called whenever the API answers 401, for example when the session cookie expired. */
@@ -71,10 +86,10 @@ export function setLiveConnectionId(id: string | null) {
 
 /** A JSON request, or with a Blob body the file itself (sent with the file's own content type). */
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = { ...(await config.headers?.()) }
   if (body !== undefined) headers['Content-Type'] = body instanceof Blob ? body.type : 'application/json'
   if (method !== 'GET' && liveConnectionId) headers['X-PrikBoard-Live'] = liveConnectionId
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(`${config.baseUrl ?? ''}/api${path}`, {
     method,
     headers,
     body: body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body),
@@ -82,7 +97,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   if (response.status === 401) onUnauthorized()
   if (!response.ok) {
-    const problem: ProblemDetails | null = await response.json().catch(() => null)
+    const problem = (await response.json().catch(() => null)) as ProblemDetails | null
     const firstError = problem?.errors && Object.values(problem.errors)[0]?.[0]
     throw new ApiError(response.status, firstError ?? problem?.detail ?? problem?.title ?? response.statusText)
   }

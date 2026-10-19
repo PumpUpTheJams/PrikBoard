@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
@@ -58,6 +59,33 @@ public static class UserSignIn
         await db.SaveChangesAsync(context.RequestAborted);
 
         return UserPrincipal.Create(identity.User, provider, name, AuthSetup.CookieScheme);
+    }
+
+    /// <summary>
+    /// The user a delegated token's subject belongs to, found or created exactly like a browser sign-in with the same
+    /// provider would. Leaves the stored email hash alone: a token carries no email the provider vouched for.
+    /// </summary>
+    public static async Task<Guid> ResolveUserIdAsync(IServiceProvider services, string provider, string subject, CancellationToken ct)
+    {
+        var cache = services.GetRequiredService<IMemoryCache>();
+        var key = ("user", provider, subject);
+        if (cache.TryGetValue(key, out Guid cached)) return cached;
+
+        var db = services.GetRequiredService<PrikBoardDbContext>();
+        var subjectHash = services.GetRequiredService<KeyedHasher>().Subject(provider, subject);
+        var identity = await db.UserIdentities.Include(i => i.User)
+            .FirstOrDefaultAsync(i => i.Provider == provider && i.SubjectHash == subjectHash, ct);
+        if (identity is null)
+        {
+            identity = new UserIdentity { User = new User(), Provider = provider, SubjectHash = subjectHash };
+            db.UserIdentities.Add(identity);
+        }
+
+        identity.User!.LastSeenAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        cache.Set(key, identity.User.Id, TimeSpan.FromMinutes(10));
+        return identity.User.Id;
     }
 
     /// <summary>Adds a provider identity to an existing user. Accounts are never merged: an identity of another user is refused.</summary>
