@@ -1,6 +1,15 @@
 # PrikBoard for VS Code
 
-Your PrikBoard boards, buckets and notes in the side bar. Work in progress: the view is read-only for now.
+Your PrikBoard boards, buckets and notes in the side bar. Work in progress.
+
+On boards where you are an Editor or Owner you can, from the tree:
+
+- add a note to a bucket (the **+** on the bucket row),
+- rename a note, edit its tags, move it to another bucket, or delete it (right-click),
+- tick or untick a checklist item (click it),
+- toggle **Agent working** (the sparkle on the note row).
+
+Viewers get a read-only tree. The server decides what is allowed and its message is shown if a change is refused.
 
 ## Use it
 

@@ -60,6 +60,43 @@
         "title": "Open in PrikBoard",
         "category": "PrikBoard",
         "icon": "$(link-external)"
+      },
+      {
+        "command": "prikboard.newNote",
+        "title": "New Note",
+        "category": "PrikBoard",
+        "icon": "$(add)"
+      },
+      {
+        "command": "prikboard.renameNote",
+        "title": "Rename Note",
+        "category": "PrikBoard"
+      },
+      {
+        "command": "prikboard.editTags",
+        "title": "Edit Tags",
+        "category": "PrikBoard"
+      },
+      {
+        "command": "prikboard.moveNote",
+        "title": "Move to Bucket",
+        "category": "PrikBoard"
+      },
+      {
+        "command": "prikboard.toggleChecklist",
+        "title": "Tick or Untick Checklist Item",
+        "category": "PrikBoard"
+      },
+      {
+        "command": "prikboard.toggleAgentWorking",
+        "title": "Toggle Agent Working",
+        "category": "PrikBoard",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "prikboard.deleteNote",
+        "title": "Delete Note",
+        "category": "PrikBoard"
       }
     ],
     "menus": {
@@ -74,6 +111,34 @@
         },
         {
           "command": "prikboard.openInBrowser",
+          "when": "false"
+        },
+        {
+          "command": "prikboard.newNote",
+          "when": "false"
+        },
+        {
+          "command": "prikboard.renameNote",
+          "when": "false"
+        },
+        {
+          "command": "prikboard.editTags",
+          "when": "false"
+        },
+        {
+          "command": "prikboard.moveNote",
+          "when": "false"
+        },
+        {
+          "command": "prikboard.toggleChecklist",
+          "when": "false"
+        },
+        {
+          "command": "prikboard.toggleAgentWorking",
+          "when": "false"
+        },
+        {
+          "command": "prikboard.deleteNote",
           "when": "false"
         }
       ],
@@ -92,8 +157,38 @@
       "view/item/context": [
         {
           "command": "prikboard.openInBrowser",
-          "when": "view == prikboard.boards && (viewItem == board || viewItem == note)",
+          "when": "view == prikboard.boards && viewItem =~ /^(board|note)/",
           "group": "inline"
+        },
+        {
+          "command": "prikboard.newNote",
+          "when": "view == prikboard.boards && viewItem == bucket.edit",
+          "group": "inline"
+        },
+        {
+          "command": "prikboard.toggleAgentWorking",
+          "when": "view == prikboard.boards && viewItem == note.edit",
+          "group": "inline"
+        },
+        {
+          "command": "prikboard.renameNote",
+          "when": "view == prikboard.boards && viewItem == note.edit",
+          "group": "1_edit@1"
+        },
+        {
+          "command": "prikboard.editTags",
+          "when": "view == prikboard.boards && viewItem == note.edit",
+          "group": "1_edit@2"
+        },
+        {
+          "command": "prikboard.moveNote",
+          "when": "view == prikboard.boards && viewItem == note.edit",
+          "group": "1_edit@3"
+        },
+        {
+          "command": "prikboard.deleteNote",
+          "when": "view == prikboard.boards && viewItem == note.edit",
+          "group": "2_danger"
         }
       ]
     },
