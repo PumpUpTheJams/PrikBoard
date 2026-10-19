@@ -34,13 +34,18 @@
     "viewsWelcome": [
       {
         "view": "prikboard.boards",
-        "contents": "Sign in to see your boards.\n[Sign in with an access token](command:prikboard.signIn)\nCreate a token in PrikBoard under Account, Agents and access tokens.",
+        "contents": "Sign in to see your boards.\n[Sign in](command:prikboard.signIn)\nNo identity provider set up? [Use an access token](command:prikboard.signInWithToken) from PrikBoard under Account, Agents and access tokens.",
         "when": "!prikboard.signedIn"
       }
     ],
     "commands": [
       {
         "command": "prikboard.signIn",
+        "title": "Sign In",
+        "category": "PrikBoard"
+      },
+      {
+        "command": "prikboard.signInWithToken",
         "title": "Sign in with an Access Token",
         "category": "PrikBoard"
       },
@@ -103,6 +108,10 @@
       "commandPalette": [
         {
           "command": "prikboard.signIn",
+          "when": "!prikboard.signedIn"
+        },
+        {
+          "command": "prikboard.signInWithToken",
           "when": "!prikboard.signedIn"
         },
         {
@@ -210,6 +219,33 @@
           "default": 15,
           "minimum": 5,
           "markdownDescription": "How often the open view reloads its boards."
+        },
+        "prikboard.oidc.authority": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Issuer URL of the identity provider that signs you in, for example `https://your-tenant.eu.auth0.com/`. It must be one of the API's trusted token issuers, with this extension's client id under `UserClients`."
+        },
+        "prikboard.oidc.clientId": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Client id of the extension's application at the identity provider (a public or native client with PKCE)."
+        },
+        "prikboard.oidc.scopes": {
+          "type": "string",
+          "default": "openid offline_access boards:read boards:write",
+          "markdownDescription": "Scopes to request, space separated. Name them as your issuer does (Entra: `api://prikboard/boards:write`). `offline_access` lets the sign-in renew itself."
+        },
+        "prikboard.oidc.audience": {
+          "type": "string",
+          "default": "api://prikboard",
+          "markdownDescription": "Sent as `audience` for issuers that take the API from it (Auth0). Leave empty for issuers that take it from the scopes (Entra)."
+        },
+        "prikboard.oidc.redirectPort": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65535,
+          "markdownDescription": "Fixed local port for the sign-in redirect `http://127.0.0.1:<port>/callback`, for issuers that need the exact redirect URI registered (Auth0). `0` picks a free port, which Entra and Keycloak allow for loopback addresses."
         }
       }
     }

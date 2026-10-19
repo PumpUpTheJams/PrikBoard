@@ -37,7 +37,8 @@ export async function activate(context: vscode.ExtensionContext) {
       tree.refresh()
       startPolling()
     }),
-    vscode.commands.registerCommand('prikboard.signIn', () => auth.signIn()),
+    vscode.commands.registerCommand('prikboard.signIn', () => auth.signInWithBrowser()),
+    vscode.commands.registerCommand('prikboard.signInWithToken', () => auth.signInWithToken()),
     vscode.commands.registerCommand('prikboard.signOut', () => auth.signOut()),
     vscode.commands.registerCommand('prikboard.refresh', () => tree.refresh()),
     vscode.commands.registerCommand('prikboard.openInBrowser', (node?: Node) => {
