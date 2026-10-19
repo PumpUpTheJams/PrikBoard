@@ -57,7 +57,7 @@ public class AdminApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
 
         var boards = (await admin.GetFromJsonAsync<List<AdminBoard>>("/api/admin/boards"))!;
         var seen = Assert.Single(boards, b => b.Id == board.Id);
-        Assert.Equal(new AdminBoardMember(ownerId, PrincipalKind.User, "Lister", BoardRole.Owner), Assert.Single(seen.Members));
+        Assert.Equal(new AdminBoardMember(ownerId, PrincipalKind.User, "Lister", BoardRole.Owner, null), Assert.Single(seen.Members));
         using var raw = JsonDocument.Parse(await admin.GetStringAsync("/api/admin/boards"));
         Assert.False(raw.RootElement[0].TryGetProperty("notes", out _));
 

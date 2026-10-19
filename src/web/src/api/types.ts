@@ -56,6 +56,8 @@ export interface BoardPerson {
   isYou: boolean
   /** For an access token's agent: the person whose token it is. */
   ownerId: string | null
+  /** People only: their chosen picture (getAvatar), shown instead of initials; null without one. */
+  avatarUrl: string | null
 }
 
 /** File types the API accepts for images. */
@@ -120,6 +122,8 @@ export interface Assignee {
   /** Their current display name, or "Unknown". */
   name: string
   kind: AssigneeKind
+  /** People only: their chosen picture (getAvatar), shown instead of initials; null without one. */
+  avatarUrl: string | null
 }
 
 export interface ChecklistItem {
@@ -256,6 +260,10 @@ export interface Caller {
   scopes: string[]
   /** Sessions only: an admin of this PrikBoard, who may use the admin* operations. */
   isAdmin: boolean
+  /** The picture others see (getAvatar), or null when initials are shown. */
+  avatarUrl: string | null
+  /** Sessions only: the sign-in provider's picture (GitHub's), which useSignInAvatar takes as avatar; never stored. */
+  suggestedAvatarUrl: string | null
 }
 
 /** A board as an admin sees it: who is on it, never what is on it. */
@@ -273,6 +281,8 @@ export interface AdminBoardMember {
   kind: PrincipalKind
   displayName: string
   role: BoardRole
+  /** People only: their chosen picture (getAvatar), shown instead of initials; null without one. */
+  avatarUrl: string | null
 }
 
 export interface AdminBoardRef {
@@ -291,6 +301,8 @@ export interface AdminUser {
   boardCount: number
   /** Boards they are the only owner of; they can't be deleted until each has another owner. */
   soleOwnerOf: AdminBoardRef[]
+  /** People only: their chosen picture (getAvatar), shown instead of initials; null without one. */
+  avatarUrl: string | null
 }
 
 export interface TokenIssuer {
@@ -306,6 +318,8 @@ export interface BoardMember {
   isYou: boolean
   issuer: string | null
   clientId: string | null
+  /** People only: their chosen picture (getAvatar), shown instead of initials; null without one. */
+  avatarUrl: string | null
 }
 
 export interface UserMatch {
@@ -357,6 +371,8 @@ export interface LiveViewer {
   principalId: string
   kind: PrincipalKind
   displayName: string
+  /** People only: their chosen picture (getAvatar), shown instead of initials; null without one. */
+  avatarUrl: string | null
 }
 
 export interface BoardPresence {

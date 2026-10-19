@@ -69,12 +69,13 @@ public record BoardDetail(
 /// <param name="Kind">Person or Agent.</param>
 /// <param name="IsYou">Whether this is the caller.</param>
 /// <param name="OwnerId">For the agent of a personal access token: the person whose token it is. Null otherwise.</param>
-public record BoardPerson(Guid PrincipalId, string Name, AssigneeKind Kind, bool IsYou, Guid? OwnerId)
+/// <param name="AvatarUrl">The person's chosen picture (see getAvatar); null without one.</param>
+public record BoardPerson(Guid PrincipalId, string Name, AssigneeKind Kind, bool IsYou, Guid? OwnerId, string? AvatarUrl)
 {
     /// <summary>You first, then people before agents, each by name.</summary>
     public static List<BoardPerson> List(IEnumerable<Principal> people, Guid caller) => people
         .DistinctBy(p => p.Id)
-        .Select(p => new BoardPerson(p.Id, p.ShownName, Assignee.KindOf(p), p.Id == caller, (p as Agent)?.OwnerId))
+        .Select(p => new BoardPerson(p.Id, p.ShownName, Assignee.KindOf(p), p.Id == caller, (p as Agent)?.OwnerId, Avatars.UrlOf(p)))
         .OrderByDescending(p => p.IsYou).ThenBy(p => p.Kind).ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
         .ToList();
 }

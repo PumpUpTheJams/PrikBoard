@@ -19,6 +19,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
     public DbSet<AppSignInGrant> AppSignInGrants => Set<AppSignInGrant>();
     public DbSet<BoardImage> Images => Set<BoardImage>();
     public DbSet<ImageContent> ImageContents => Set<ImageContent>();
+    public DbSet<UserAvatar> UserAvatars => Set<UserAvatar>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -99,7 +100,16 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
         });
 
         modelBuilder.Entity<User>(user =>
-            user.HasMany(u => u.Identities).WithOne(i => i.User).HasForeignKey(i => i.UserId).OnDelete(DeleteBehavior.Cascade));
+        {
+            user.HasMany(u => u.Identities).WithOne(i => i.User).HasForeignKey(i => i.UserId).OnDelete(DeleteBehavior.Cascade);
+            user.HasOne<UserAvatar>().WithOne().HasForeignKey<UserAvatar>(a => a.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<UserAvatar>(avatar =>
+        {
+            avatar.HasKey(a => a.UserId);
+            avatar.Property(a => a.ContentType).HasMaxLength(50);
+        });
 
         modelBuilder.Entity<Agent>(agent =>
         {

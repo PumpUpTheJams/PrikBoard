@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
+using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
 
@@ -28,6 +29,50 @@ public class MeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardAp
 
         var tooLong = await client.PatchAsJsonAsync("/api/me", new { displayName = new string('x', 101) });
         Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
+    }
+
+    [Fact]
+    public async Task People_take_their_GitHub_picture_as_avatar_and_others_see_a_copy()
+    {
+        var client = await factory.CreateSignedInClientAsync("picture@example.com", avatar: PrikBoardApiFactory.GitHubAvatar);
+        var me = await client.MeAsync();
+        Assert.Equal((null, PrikBoardApiFactory.GitHubAvatar), (me.AvatarUrl, me.SuggestedAvatarUrl));
+
+        // Choosing a name re-issues the cookie, which keeps the picture on offer.
+        await client.RenameAsync("Pia");
+        Assert.Equal(PrikBoardApiFactory.GitHubAvatar, (await client.MeAsync()).SuggestedAvatarUrl);
+
+        var taken = await (await client.PutAsync("/api/me/avatar", null)).Content.ReadFromJsonAsync<Caller>();
+        Assert.StartsWith($"/api/avatars/{me.Id}?v=", taken!.AvatarUrl);
+
+        // Another person sees the copy on a shared board; the GitHub URL is never handed out.
+        var other = await factory.CreateSignedInClientAsync("picture-viewer@example.com");
+        var board = await client.CreateBoardAsync();
+        await client.ShareAsync(board.Id, other, BoardRole.Viewer);
+        var seen = await other.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
+        Assert.Equal(taken.AvatarUrl, seen!.People.Single(p => p.PrincipalId == me.Id).AvatarUrl);
+
+        var picture = await other.GetAsync(taken.AvatarUrl);
+        Assert.Equal("image/png", picture.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(PrikBoardApiFactory.TestAvatar, await picture.Content.ReadAsByteArrayAsync());
+
+        var removed = await (await client.DeleteAsync("/api/me/avatar")).Content.ReadFromJsonAsync<Caller>();
+        Assert.Null(removed!.AvatarUrl);
+        Assert.Equal(HttpStatusCode.NotFound, (await other.GetAsync(taken.AvatarUrl)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Pictures_from_other_hosts_are_not_offered_and_nothing_is_taken_without_one()
+    {
+        var client = await factory.CreateSignedInClientAsync("no-picture@example.com", avatar: "https://tracker.example/me.png");
+        Assert.Null((await client.MeAsync()).SuggestedAvatarUrl);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsync("/api/me/avatar", null)).StatusCode);
+
+        // A trusted host that has no such picture: the download fails and nothing changes.
+        var missing = await factory.CreateSignedInClientAsync("gone-picture@example.com",
+            avatar: "https://avatars.githubusercontent.com/missing");
+        Assert.Equal(HttpStatusCode.BadGateway, (await missing.PutAsync("/api/me/avatar", null)).StatusCode);
+        Assert.Null((await missing.MeAsync()).AvatarUrl);
     }
 
     [Fact]

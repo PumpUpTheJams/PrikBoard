@@ -36,6 +36,12 @@ public class User : Principal
     /// </summary>
     public bool IsAdmin { get; set; }
 
+    /// <summary>
+    /// When the person last took their sign-in provider's picture as avatar (see <see cref="UserAvatar"/>); null without
+    /// one. Only set on their say-so: a copy of the picture is kept, never its URL, which holds the provider's account id.
+    /// </summary>
+    public DateTimeOffset? AvatarUpdatedAt { get; set; }
+
     // GUID v7 starts with a timestamp, so the random tail tells people apart better than the head.
     public override string FallbackName => $"User {Id.ToString("N")[^4..]}";
 }
@@ -59,6 +65,16 @@ public class Agent : Principal
     public Guid? OwnerId { get; set; }
 
     public override string FallbackName => $"Agent {(ClientId.Length <= 60 ? ClientId : ClientId[..60])}";
+}
+
+/// <summary>A copy of the picture a person chose as avatar, kept apart so it never loads with the user.</summary>
+public class UserAvatar
+{
+    public const int MaxBytes = 1024 * 1024;
+
+    public Guid UserId { get; set; }
+    public required string ContentType { get; set; }
+    public required byte[] Data { get; set; }
 }
 
 /// <summary>One sign-in a user linked: the provider and keyed hashes of its subject id and (verified) email.</summary>

@@ -83,9 +83,10 @@ A GitHub OAuth App has exactly one callback URL, so register a separate app for 
 
 ## Users, linked sign-ins and personal data
 
-PrikBoard stores **no personal data** about people: no name, no email and no raw provider id.
+PrikBoard stores **no personal data** about people that they did not choose to share: no name, no email and no raw provider id.
 
 - A **user** is a GUID with an optional display name the person chooses (`PATCH /api/me`). Until they pick one, others see a fallback such as `User 1a2b`. The provider's name is offered once as a suggestion. It travels only in the encrypted session cookie and is never stored.
+- **Avatars** are opt-in too. A GitHub sign-in offers the person's GitHub picture (`suggestedAvatarUrl` in `whoAmI`), carried only in the session cookie. Only pictures on `avatars.githubusercontent.com` are offered (`ProviderAvatars`); other providers' `picture` claims are ignored for now. When the person takes it (the first-name dialog or Account → *Picture*, `PUT /api/me/avatar`), the server downloads a copy (at most 1 MB, PNG, JPEG, GIF or WebP) into `UserAvatars`. The GitHub URL is never stored, because it contains the GitHub account id, and other people's browsers load the copy from `GET /api/avatars/{id}` without ever contacting GitHub. `DELETE /api/me/avatar` removes the copy.
 - Each **sign-in** a user has (GitHub, Google, ...) is a `UserIdentity`. It holds the provider id plus two keyed hashes:
   - an HMAC-SHA256 of the provider's subject id, used to recognise the person when they sign in again;
   - an HMAC-SHA256 of their verified email, used for exact-email search.

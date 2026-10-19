@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
+using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Contracts;
 
@@ -43,6 +44,8 @@ public enum PrincipalKind
 /// <param name="Identities">Sessions only: the sign-ins linked to this user.</param>
 /// <param name="Scopes">What the caller may do: boards:read and/or boards:write. Sessions have both.</param>
 /// <param name="IsAdmin">Sessions only: whether this person is an admin of this PrikBoard (see the admin endpoints).</param>
+/// <param name="AvatarUrl">The picture others see (see getAvatar), or null when the person has none and initials are shown.</param>
+/// <param name="SuggestedAvatarUrl">Sessions only: the sign-in provider's picture of the person (GitHub's), which useSignInAvatar takes as avatar. Never stored.</param>
 public record Caller(
     CallerKind Kind,
     PrincipalKind PrincipalKind,
@@ -54,7 +57,9 @@ public record Caller(
     string? ClientId,
     IReadOnlyList<LinkedIdentity> Identities,
     IReadOnlyList<string> Scopes,
-    bool IsAdmin);
+    bool IsAdmin,
+    string? AvatarUrl,
+    string? SuggestedAvatarUrl);
 
 /// <summary>A sign-in linked to a user.</summary>
 /// <param name="Id">Identity id, used to unlink it.</param>
@@ -66,6 +71,17 @@ public record LinkedIdentity(Guid Id, string Provider, string ProviderName, Date
 /// <summary>Changes the caller's own profile.</summary>
 /// <param name="DisplayName">The name others see, at most 100 characters; an empty string clears it.</param>
 public record UpdateMeRequest([property: StringLength(100)] string? DisplayName = null);
+
+/// <summary>Where a principal's avatar is served.</summary>
+public static class Avatars
+{
+    /// <summary>
+    /// The getAvatar path of a person's chosen picture, versioned so browsers may cache it for good; null without one.
+    /// Agents never have one.
+    /// </summary>
+    public static string? UrlOf(Principal? principal) =>
+        principal is User { AvatarUpdatedAt: { } at } ? $"/api/avatars/{principal.Id}?v={at.ToUnixTimeMilliseconds()}" : null;
+}
 
 /// <summary>A trusted token issuer, needed to add an agent to a board.</summary>
 /// <param name="Id">Issuer id as configured, for example "auth0".</param>

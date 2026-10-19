@@ -206,6 +206,9 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | getVersion | `GET /api/auth/version` | Version of the running server |
 | whoAmI | `GET /api/me` | Who you are: principal id, display name, linked sign-ins (sessions) or issuer and client id (tokens), and scopes |
 | updateMe | `PATCH /api/me` | Set your display name (`""` clears it) |
+| useSignInAvatar | `PUT /api/me/avatar` | Take the picture of the provider you signed in with (`suggestedAvatarUrl`; GitHub only) as your avatar; the server keeps a copy. `409` without one, `502` when it can't be fetched. Sessions only |
+| removeAvatar | `DELETE /api/me/avatar` | Remove your avatar, so your initials show again. Sessions only |
+| getAvatar | `GET /api/avatars/{principalId}` | A person's avatar picture: the `avatarUrl` on people in other answers (versioned with `v`, so cacheable) |
 | unlinkIdentity | `DELETE /api/me/identities/{identityId}` | Remove a linked sign-in (not the last one). Sessions only |
 | listBoardMembers | `GET /api/boards/{boardId}/members` | People and agents on the board, with their roles (Viewer) |
 | addBoardMember | `POST /api/boards/{boardId}/members` | Add a person by `principalId` with a role (Owner) |

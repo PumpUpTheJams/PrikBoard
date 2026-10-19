@@ -14,15 +14,23 @@ public static class UserPrincipal
     public const string ProviderClaim = "prikboard_provider";
     /// <summary>The provider's name for the person, offered once as their display name; never stored on the server.</summary>
     public const string SuggestedNameClaim = "prikboard_suggested_name";
+    /// <summary>The provider's picture URL, which the person may take as avatar (see <see cref="ProviderAvatars"/>); never stored.</summary>
+    public const string SuggestedAvatarClaim = "prikboard_suggested_avatar";
     /// <summary>On token principals: the <see cref="Agent"/> id the token's client maps to.</summary>
     public const string PrincipalClaim = "prikboard_principal";
 
-    public static ClaimsPrincipal Create(User user, string provider, string? suggestedName, string authenticationType)
+    public static ClaimsPrincipal Create(
+        User user, string provider, string? suggestedName, string authenticationType, string? suggestedAvatar = null)
     {
         List<Claim> claims = [new(IdClaim, user.Id.ToString()), new(ProviderClaim, provider)];
         if (user.DisplayName is null && !string.IsNullOrWhiteSpace(suggestedName))
         {
             claims.Add(new Claim(SuggestedNameClaim, suggestedName.Length <= 100 ? suggestedName : suggestedName[..100]));
+        }
+        // Kept even once an avatar is taken, so the person can take the provider's current picture again.
+        if (ProviderAvatars.IsTrusted(suggestedAvatar) && suggestedAvatar!.Length <= 500)
+        {
+            claims.Add(new Claim(SuggestedAvatarClaim, suggestedAvatar));
         }
         return new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType, IdClaim, null));
     }

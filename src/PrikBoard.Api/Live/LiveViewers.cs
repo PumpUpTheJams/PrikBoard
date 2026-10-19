@@ -16,6 +16,7 @@ public sealed class LiveViewers
         Guid PrincipalId,
         PrincipalKind Kind,
         string DisplayName,
+        string? AvatarUrl,
         bool CanWrite,
         Guid? BoardId = null,
         BoardRole Role = BoardRole.Viewer,
@@ -62,7 +63,7 @@ public sealed class LiveViewers
         {
             return connections.Values.Where(e => e.BoardId == boardId)
                 .DistinctBy(e => e.PrincipalId)
-                .Select(e => new LiveViewer(e.PrincipalId, e.Kind, e.DisplayName))
+                .Select(e => new LiveViewer(e.PrincipalId, e.Kind, e.DisplayName, e.AvatarUrl))
                 .ToList();
         }
     }

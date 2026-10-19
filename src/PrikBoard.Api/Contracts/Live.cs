@@ -44,7 +44,8 @@ public enum ResizeHandle
 /// <param name="PrincipalId">The user or agent.</param>
 /// <param name="Kind">User or Agent.</param>
 /// <param name="DisplayName">Their display name.</param>
-public sealed record LiveViewer(Guid PrincipalId, PrincipalKind Kind, string DisplayName);
+/// <param name="AvatarUrl">People only: their chosen picture (see getAvatar); null without one.</param>
+public sealed record LiveViewer(Guid PrincipalId, PrincipalKind Kind, string DisplayName, string? AvatarUrl);
 
 /// <summary>Who is on a board right now; sent whenever someone joins or leaves it.</summary>
 public sealed record BoardPresence(Guid BoardId, List<LiveViewer> Viewers);

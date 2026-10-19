@@ -23,7 +23,7 @@ import { AccountDialog, DisplayNameDialog } from './components/AccountDialogs'
 import { AdminPage } from './components/AdminPage'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { ConnectPage, connectFromHash } from './components/ConnectPage'
-import { initials } from './components/initials'
+import { Face } from './components/Avatar'
 import { InvitePage } from './components/InvitePage'
 import { Menu } from './components/Menu'
 import { NoAccess } from './components/NoAccess'
@@ -396,7 +396,9 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
             triggerClassName="settings-trigger"
             trigger={
               <>
-                <span className="me">{initials(user.displayName)}</span>
+                <span className="me">
+                  <Face name={user.displayName} avatarUrl={user.avatarUrl} />
+                </span>
                 <ChevronDownIcon />
               </>
             }
@@ -404,7 +406,9 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
             {(close) => (
               <>
                 <div className="menu-user">
-                  <span className="me">{initials(user.displayName)}</span>
+                  <span className="me">
+                  <Face name={user.displayName} avatarUrl={user.avatarUrl} />
+                </span>
                   <span className="menu-user-text">
                     <span className="menu-user-name">{user.displayName}</span>
                     <span className="menu-user-detail">{provider ? `Signed in with ${provider}` : 'Signed in'}</span>

@@ -12,6 +12,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="IsYou">Whether this member is the caller.</param>
 /// <param name="Issuer">Agents only: the token issuer id.</param>
 /// <param name="ClientId">Agents only: the client id.</param>
+/// <param name="AvatarUrl">People only: their chosen picture (see getAvatar); null without one.</param>
 public record BoardMemberDetail(
     Guid PrincipalId,
     PrincipalKind Kind,
@@ -20,14 +21,15 @@ public record BoardMemberDetail(
     DateTimeOffset AddedAt,
     bool IsYou,
     string? Issuer,
-    string? ClientId)
+    string? ClientId,
+    string? AvatarUrl)
 {
     public static BoardMemberDetail From(BoardMember member, Guid caller) => member.Principal switch
     {
         Agent agent => new(member.PrincipalId, PrincipalKind.Agent, agent.ShownName, member.Role, member.AddedAt,
-            member.PrincipalId == caller, agent.Issuer, agent.ClientId),
+            member.PrincipalId == caller, agent.Issuer, agent.ClientId, null),
         var principal => new(member.PrincipalId, PrincipalKind.User, principal!.ShownName, member.Role, member.AddedAt,
-            member.PrincipalId == caller, null, null),
+            member.PrincipalId == caller, null, null, Avatars.UrlOf(principal)),
     };
 }
 
