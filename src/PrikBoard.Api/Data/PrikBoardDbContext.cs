@@ -24,6 +24,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
     public DbSet<AccessToken> AccessTokens => Set<AccessToken>();
     public DbSet<AppSignInGrant> AppSignInGrants => Set<AppSignInGrant>();
     public DbSet<BoardImage> Images => Set<BoardImage>();
+    public DbSet<ImageUpload> ImageUploads => Set<ImageUpload>();
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
     public DbSet<BoardDrawing> Drawings => Set<BoardDrawing>();
     public DbSet<DrawingContent> DrawingContents => Set<DrawingContent>();
@@ -181,6 +182,22 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             grant.Property(g => g.Name).HasMaxLength(100);
             grant.HasOne(g => g.Owner).WithMany().HasForeignKey(g => g.OwnerId).OnDelete(DeleteBehavior.Cascade);
             grant.HasIndex(g => g.OwnerId);
+        });
+
+        // Gone with its board, note, caller, member or token: an upload URL never outlives the access it was given for.
+        modelBuilder.Entity<ImageUpload>(upload =>
+        {
+            upload.Property(u => u.TokenHash).HasMaxLength(32);
+            upload.HasIndex(u => u.TokenHash).IsUnique();
+            upload.Property(u => u.Caption).HasMaxLength(500);
+            upload.Property(u => u.FileName).HasMaxLength(255);
+            upload.Property(u => u.Cap).HasConversion<string>().HasMaxLength(10);
+            upload.HasOne<Board>().WithMany().HasForeignKey(u => u.BoardId).OnDelete(DeleteBehavior.Cascade);
+            upload.HasOne<Note>().WithMany().HasForeignKey(u => u.NoteId).OnDelete(DeleteBehavior.Cascade);
+            upload.HasOne<Principal>().WithMany().HasForeignKey(u => u.PrincipalId).OnDelete(DeleteBehavior.Cascade);
+            upload.HasOne<Principal>().WithMany().HasForeignKey(u => u.MemberId).OnDelete(DeleteBehavior.Cascade);
+            upload.HasOne<AccessToken>().WithMany().HasForeignKey(u => u.AccessTokenId).OnDelete(DeleteBehavior.Cascade);
+            upload.HasIndex(u => u.PrincipalId);
         });
 
         modelBuilder.Entity<UserIdentity>(identity =>

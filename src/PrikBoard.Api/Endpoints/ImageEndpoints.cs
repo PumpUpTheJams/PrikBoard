@@ -1,10 +1,13 @@
+using System.Buffers.Text;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
+using PrikBoard.Api.Live;
 
 namespace PrikBoard.Api.Endpoints;
 
@@ -24,6 +27,33 @@ public static class ImageEndpoints
                              "board, or on the note's canvas with noteId; default: a free spot), width (display width; default: the image's own width, " +
                              "at most 360) and caption. The format and pixel size are read from the file; SVG is not accepted.")
             .Accepts<Stream>(ImageFormats.ContentTypes[0], ImageFormats.ContentTypes[1..])
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+            .ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
+
+        images.MapPost("/boards/{boardId:guid}/image-uploads", CreateImageUpload)
+            .RequireBoardRole(BoardRole.Editor)
+            .Quiet()
+            .WithName("createImageUpload")
+            .WithSummary("Get a one-time URL to upload an image to")
+            .WithDescription("For agents that can run commands: instead of sending the file through this API (or base64 through MCP), " +
+                             "get a URL and send the file there with a plain PUT, e.g. curl -T shot.png \"<uploadUrl>\". The URL needs no " +
+                             "authentication, adds one image where this request says (a note, x and y, width, caption, file name) as you, " +
+                             $"and expires after {ImageUpload.Lifetime.TotalMinutes:0} minutes. Your access is checked again on upload. " +
+                             $"At most {ImageUpload.MaxPendingPerPrincipal} unused URLs per caller (409 beyond that).")
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
+        images.MapPut("/image-uploads/{token}", CompleteImageUpload)
+            .AllowAnonymous()
+            .NoBoardScope()
+            .WithName("completeImageUpload")
+            .WithSummary("Upload an image to a one-time URL")
+            .WithDescription("The uploadUrl from createImageUpload. Send the file itself as the body (PNG, JPEG, GIF or WebP, at most 10 MB; " +
+                             "the format is read from the file, so the content type does not matter). No authentication: the URL is the key. " +
+                             "Answers the new image (201); 404 when the URL is unknown, used or expired, or its creator lost access. " +
+                             "After a 413 or 415 the URL can be used again.")
+            .Accepts<Stream>(ImageFormats.ContentTypes[0], [.. ImageFormats.ContentTypes[1..], "application/octet-stream"])
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
             .ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
@@ -72,31 +102,22 @@ public static class ImageEndpoints
             if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
             return Unsupported("Send the image file itself as the request body, with Content-Type image/png, image/jpeg, image/gif or image/webp.");
         }
-        return await AddImage(boardId, body, principal, db, files, ct, fileName, noteId, x, y, width, caption);
+        return await AddImage(boardId, body, principal.PrincipalId(), db, files, ct, fileName, noteId, x, y, width, caption);
     }
 
     /// <summary>
     /// uploadImage after its content type check: reads the file from <paramref name="body"/>, detects its format and places it.
-    /// The add_image MCP tool calls this with the decoded file.
+    /// The add_image MCP tool calls this with the decoded file, and completeImageUpload with the upload URL's placement.
     /// </summary>
     internal static async Task<Results<Created<ImageDetail>, NotFound, ValidationProblem, ProblemHttpResult>> AddImage(
-        Guid boardId, Stream body, ClaimsPrincipal principal, PrikBoardDbContext db, FileStore files, CancellationToken ct,
+        Guid boardId, Stream body, Guid addedById, PrikBoardDbContext db, FileStore files, CancellationToken ct,
         string? fileName = null, Guid? noteId = null, int? x = null, int? y = null, int? width = null, string? caption = null)
     {
         if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
 
-        if ((Invalid(x is null != y is null, x is null ? "x" : "y", "Give x and y together.")
-            ?? Invalid(x is < Layout.MinCoordinate or > Layout.MaxCoordinate || y is < Layout.MinCoordinate or > Layout.MaxCoordinate, "x", $"Coordinates run from {Layout.MinCoordinate} to {Layout.MaxCoordinate}.")
-            ?? Invalid(width is < Layout.MinImageWidth or > Layout.MaxImageWidth, "width", $"Width runs from {Layout.MinImageWidth} to {Layout.MaxImageWidth}.")
-            ?? Invalid(caption?.Length > 500, "caption", "A caption is at most 500 characters.")) is { } invalid)
-        {
-            return invalid;
-        }
+        if (InvalidPlacement(x, y, width, caption) is { } invalid) return invalid;
         var note = noteId is null ? null : await db.Notes.FirstOrDefaultAsync(n => n.Id == noteId && n.BoardId == boardId, ct);
-        if (noteId is not null && note is null)
-        {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["noteId"] = ["The note does not exist on this board."] });
-        }
+        if (noteId is not null && note is null) return NoteNotOnBoard();
 
         var data = await ReadUpTo(body, ImageFormats.MaxBytes, ct);
         if (data is null)
@@ -116,7 +137,7 @@ public static class ImageEndpoints
             PixelWidth = info.Width,
             PixelHeight = info.Height,
             Caption = PatchText.Apply(null, caption),
-            AddedBy = await db.Principals.FindAsync([principal.PrincipalId()], ct),
+            AddedBy = await db.Principals.FindAsync([addedById], ct),
             File = StoredFile.For(boardId, CleanFileName(fileName, info.ContentType), info.ContentType, data),
         };
         image.Resize(width ?? Math.Min(info.Width, Layout.DefaultImageWidth));
@@ -127,6 +148,95 @@ public static class ImageEndpoints
         db.Images.Add(image);
         await db.SaveChangesAsync(ct);
         return TypedResults.Created($"/api/images/{image.Id}", ImageDetail.From(image));
+    }
+
+    /// <summary>
+    /// createImageUpload: checks the placement now (it is checked again on upload) and stores it with who is asking, under
+    /// the hash of a new random token that the URL carries. The begin_image_upload MCP tool calls this too.
+    /// </summary>
+    internal static async Task<Results<Ok<ImageUploadUrl>, ValidationProblem, ProblemHttpResult>> CreateImageUpload(
+        Guid boardId, CreateImageUploadRequest request, HttpContext http, PrikBoardDbContext db, CancellationToken ct)
+    {
+        if (InvalidPlacement(request.X, request.Y, request.Width, request.Caption) is { } invalid) return invalid;
+        if (request.NoteId is { } noteId && !await db.Notes.AnyAsync(n => n.Id == noteId && n.BoardId == boardId, ct)) return NoteNotOnBoard();
+
+        var principalId = http.User.PrincipalId();
+        var now = DateTimeOffset.UtcNow;
+        await db.ImageUploads.Where(u => u.PrincipalId == principalId && u.ExpiresAt <= now).ExecuteDeleteAsync(ct);
+        if (await db.ImageUploads.CountAsync(u => u.PrincipalId == principalId, ct) >= ImageUpload.MaxPendingPerPrincipal)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Too many upload URLs waiting",
+                detail: $"Use the upload URLs you asked for, or wait up to {ImageUpload.Lifetime.TotalMinutes:0} minutes for them to expire.");
+        }
+
+        var caller = BoardCaller.Of(http.User);
+        var token = ImageUpload.Prefix + Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
+        var upload = new ImageUpload
+        {
+            BoardId = boardId,
+            NoteId = request.NoteId,
+            X = request.X,
+            Y = request.Y,
+            Width = request.Width,
+            Caption = request.Caption,
+            FileName = request.FileName,
+            PrincipalId = principalId,
+            MemberId = caller.MemberId,
+            Cap = caller.Cap,
+            AccessTokenId = http.User.FindFirstValue(ApiScopes.IssuerIdClaim) == Agent.AccessTokenIssuer
+                ? Guid.Parse(http.User.FindFirstValue("client_id")!)
+                : null,
+            TokenHash = AccessTokens.Hash(token),
+            ExpiresAt = now.Add(ImageUpload.Lifetime),
+        };
+        db.ImageUploads.Add(upload);
+        await db.SaveChangesAsync(ct);
+
+        var url = $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}/api/image-uploads/{token}";
+        return TypedResults.Ok(new ImageUploadUrl(url, upload.ExpiresAt, $"curl -sS -T FILE \"{url}\""));
+    }
+
+    private static async Task<Results<Created<ImageDetail>, NotFound, ValidationProblem, ProblemHttpResult>> CompleteImageUpload(
+        string token, Stream body, HttpContext http, PrikBoardDbContext db, FileStore files, BoardEvents events, CancellationToken ct)
+    {
+        if (!token.StartsWith(ImageUpload.Prefix, StringComparison.Ordinal)) return TypedResults.NotFound();
+        var hash = AccessTokens.Hash(token);
+
+        // The row lock makes a second upload to the same URL wait, and then find it spent.
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var upload = await db.ImageUploads
+            .FromSql($"""SELECT * FROM "ImageUploads" WHERE "TokenHash" = {hash} FOR UPDATE""")
+            .FirstOrDefaultAsync(ct);
+        if (upload is null || upload.ExpiresAt <= DateTimeOffset.UtcNow) return TypedResults.NotFound();
+        db.ImageUploads.Remove(upload);
+        if (!await StillAllowedAsync(db, upload, ct))
+        {
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+            return TypedResults.NotFound();
+        }
+
+        // Saves the image and spends the URL together; a failed upload saves nothing, so the URL can be used again.
+        var result = await AddImage(upload.BoardId, body, upload.PrincipalId, db, files, ct,
+            upload.FileName, upload.NoteId, upload.X, upload.Y, upload.Width, upload.Caption);
+        if (result.Result is not Created<ImageDetail>) return result;
+        await transaction.CommitAsync(ct);
+        await events.ChangedAsync(upload.BoardId, upload.PrincipalId);
+        return result;
+    }
+
+    /// <summary>
+    /// Whoever asked for the upload URL may still add images there: their (or their token owner's) role, capped as it
+    /// was, is still Editor or more, and the access token they used is still valid and still reaches the board.
+    /// </summary>
+    private static async Task<bool> StillAllowedAsync(PrikBoardDbContext db, ImageUpload upload, CancellationToken ct)
+    {
+        var role = await BoardAccess.RoleOnBoardAsync(db, upload.BoardId, upload.MemberId, ct);
+        if (role is not { } member || (member < upload.Cap ? member : upload.Cap) < BoardRole.Editor) return false;
+        if (upload.AccessTokenId is not { } tokenId) return true;
+        var now = DateTimeOffset.UtcNow;
+        return await db.AccessTokens.AnyAsync(
+            t => t.Id == tokenId && t.ExpiresAt > now && (t.BoardIds == null || t.BoardIds.Contains(upload.BoardId)), ct);
     }
 
     private static async Task<Results<FileContentHttpResult, PhysicalFileHttpResult, NotFound>> GetImageContent(
@@ -257,6 +367,16 @@ public static class ImageEndpoints
     }
 
     private static string Truncate(string value, int length) => value.Length <= length ? value : value[..length];
+
+    /// <summary>The checks on where an image goes that DataAnnotations can't make (uploadImage takes them as query parameters).</summary>
+    private static ValidationProblem? InvalidPlacement(int? x, int? y, int? width, string? caption) =>
+        Invalid(x is null != y is null, x is null ? "x" : "y", "Give x and y together.")
+        ?? Invalid(x is < Layout.MinCoordinate or > Layout.MaxCoordinate || y is < Layout.MinCoordinate or > Layout.MaxCoordinate, "x", $"Coordinates run from {Layout.MinCoordinate} to {Layout.MaxCoordinate}.")
+        ?? Invalid(width is < Layout.MinImageWidth or > Layout.MaxImageWidth, "width", $"Width runs from {Layout.MinImageWidth} to {Layout.MaxImageWidth}.")
+        ?? Invalid(caption?.Length > 500, "caption", "A caption is at most 500 characters.");
+
+    private static ValidationProblem NoteNotOnBoard() =>
+        TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["noteId"] = ["The note does not exist on this board."] });
 
     private static ValidationProblem? Invalid(bool condition, string field, string message) =>
         condition ? TypedResults.ValidationProblem(new Dictionary<string, string[]> { [field] = [message] }) : null;

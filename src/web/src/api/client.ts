@@ -28,6 +28,8 @@ import type {
   DrawingDetail,
   ImageChanges,
   ImageDetail,
+  ImageUploadRequest,
+  ImageUploadUrl,
   ImagePlacement,
   NewDrawing,
   NewNoteBlock,
@@ -215,6 +217,12 @@ export const api = {
     for (const [key, value] of Object.entries(placement)) if (value !== undefined) query.set(key, String(value))
     return request<ImageDetail>('POST', `/boards/${boardId}/images?${query}`, file)
   },
+  /** A one-time URL (for agents: curl -T) that adds one image where the request says, as you; expires after 15 minutes. */
+  createImageUpload: (boardId: string, upload: ImageUploadRequest = {}) =>
+    request<ImageUploadUrl>('POST', `/boards/${boardId}/image-uploads`, upload),
+  /** Sends a file to an upload URL from createImageUpload; the URL itself is the key. */
+  completeImageUpload: (uploadUrl: string, file: Blob) =>
+    request<ImageDetail>('PUT', `/image-uploads/${uploadUrl.slice(uploadUrl.lastIndexOf('/') + 1)}`, file),
   updateImage: (imageId: string, changes: ImageChanges) => request<ImageDetail>('PATCH', `/images/${imageId}`, changes),
   deleteImage: (imageId: string) => request<void>('DELETE', `/images/${imageId}`),
   /** Brings back an image deleted in the last 7 days (not one whose note is deleted: restore the note). */

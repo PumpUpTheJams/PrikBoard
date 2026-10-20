@@ -111,6 +111,20 @@ export interface ImagePlacement {
   width?: number
 }
 
+/** Where an image sent to a one-time upload URL goes (createImageUpload). */
+export interface ImageUploadRequest extends ImagePlacement {
+  caption?: string
+  fileName?: string
+}
+
+/** A one-time upload URL: PUT the file there, without authentication. */
+export interface ImageUploadUrl {
+  uploadUrl: string
+  expiresAt: string
+  /** A curl command that uploads FILE there. */
+  command: string
+}
+
 /** x and y are on the board, or on the note's canvas when attached (or being attached). */
 export interface ImageChanges {
   x?: number

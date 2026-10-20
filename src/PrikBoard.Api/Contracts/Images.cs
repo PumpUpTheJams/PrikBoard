@@ -68,3 +68,27 @@ public record UpdateImageRequest(
     [property: StringLength(500)] string? Caption = null,
     Guid? NoteId = null,
     bool? Detach = null);
+
+/// <summary>
+/// Asks for a one-time upload URL (createImageUpload): where the image goes once its file is sent there. The fields are
+/// those of uploadImage's query parameters; they are checked now and again on upload.
+/// </summary>
+/// <param name="NoteId">Attach the image to this note on the board, instead of putting it on the board.</param>
+/// <param name="X">Left edge on the board, or on the note's canvas with noteId. Give it together with Y; default: a free spot.</param>
+/// <param name="Y">Top edge on the board, or on the note's canvas with noteId. Give it together with X.</param>
+/// <param name="Width">Display width, 80 to 4000. Default: the image's own width, at most 360.</param>
+/// <param name="Caption">Caption shown under the image.</param>
+/// <param name="FileName">File name, e.g. "ingest-errors.png". Default: image.&lt;format&gt;.</param>
+public record CreateImageUploadRequest(
+    Guid? NoteId = null,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X = null,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null,
+    [property: Range(Layout.MinImageWidth, Layout.MaxImageWidth)] int? Width = null,
+    [property: StringLength(500)] string? Caption = null,
+    [property: StringLength(255)] string? FileName = null);
+
+/// <summary>A one-time upload URL for an image.</summary>
+/// <param name="UploadUrl">Send the file here with a PUT, the raw bytes as the body (no form encoding, no authentication: the URL itself is the key, so keep it private). The answer is the new image (201).</param>
+/// <param name="ExpiresAt">When the URL stops working (UTC). It adds one image; a failed upload (not an image, too large) can be retried with another file.</param>
+/// <param name="Command">A command that uploads a file there, with FILE in place of its path.</param>
+public record ImageUploadUrl(string UploadUrl, DateTimeOffset ExpiresAt, string Command);

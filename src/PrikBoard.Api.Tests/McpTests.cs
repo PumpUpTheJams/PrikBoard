@@ -23,7 +23,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
 
         var tools = (await mcp.ListToolsAsync()).ToDictionary(t => t.Name, t => t.ProtocolTool);
         Assert.Equal(
-            ["add_image", "add_note_block", "collapse_bucket", "create_bucket", "create_note", "create_tag", "delete_note", "delete_note_block", "delete_tag", "get_board",
+            ["add_image", "add_note_block", "begin_image_upload", "collapse_bucket", "create_bucket", "create_note", "create_tag", "delete_note", "delete_note_block", "delete_tag", "get_board",
              "get_board_rules", "get_note", "list_boards", "list_deleted_notes", "move_note", "rename_bucket", "restore_note", "restore_tag",
              "search_notes", "set_working", "update_note", "update_note_block", "update_tag"],
             tools.Keys.Order());
@@ -382,6 +382,44 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
 
         var readOnly = await ConnectAsync(await TokenAsync(owner, BoardRole.Viewer, "Reader"));
         var refused = await CallRawAsync(readOnly, "add_image", new() { ["note"] = note.Id, ["data"] = Convert.ToBase64String(png) });
+        Assert.Contains("read-only", Text(refused));
+    }
+
+    [Fact]
+    public async Task Agents_upload_image_files_through_a_one_time_url()
+    {
+        var owner = await factory.CreateSignedInClientAsync("mcp-upload@example.com");
+        var board = await owner.CreateBoardAsync("MCP uploads");
+        var note = await owner.CreateNoteAsync(board.Id, "Screenshots");
+        var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor, "Claude Code"));
+        var png = TestImages.Png(800, 600);
+
+        var upload = await CallAsync(mcp, "begin_image_upload", new()
+        {
+            ["note"] = note.ReadableId, ["fileName"] = "shot.png", ["caption"] = "Before the fix",
+        });
+        var url = upload.GetProperty("uploadUrl").GetString()!;
+        Assert.Contains(url, upload.GetProperty("command").GetString());
+
+        // What curl -T does: a plain PUT of the file, without the token.
+        var response = await factory.CreateAnonymousClient().PutAsync(url, new ByteArrayContent(png));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var image = (await response.Content.ReadFromJsonAsync<ImageDetail>())!;
+        Assert.Equal((note.Id, "shot.png", "Before the fix", "Claude Code"), (image.NoteId, image.FileName, image.Caption, image.AddedBy));
+        Assert.Equal(png, await owner.GetByteArrayAsync(image.ContentUrl));
+
+        async Task Fails(Dictionary<string, object?> args, string message)
+        {
+            var result = await CallRawAsync(mcp, "begin_image_upload", args);
+            Assert.True(result.IsError, Text(result));
+            Assert.Contains(message, Text(result));
+        }
+        await Fails(new(), "Give note");
+        await Fails(new() { ["board"] = board.Id, ["x"] = 20 }, "together");
+        await Fails(new() { ["board"] = board.Id, ["width"] = 5 }, "Width");
+
+        var readOnly = await ConnectAsync(await TokenAsync(owner, BoardRole.Viewer, "Reader"));
+        var refused = await CallRawAsync(readOnly, "begin_image_upload", new() { ["board"] = board.Id });
         Assert.Contains("read-only", Text(refused));
     }
 
