@@ -6,7 +6,7 @@ namespace PrikBoard.Api.Data;
 public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : DbContext(options)
 {
     /// <summary>
-    /// The query filter that hides deleted notes, buckets, images and tags until they are restored or purged
+    /// The query filter that hides deleted notes, buckets, images, drawings and tags until they are restored or purged
     /// (<see cref="Tombstones"/>). Bypass it with <c>IgnoreQueryFilters([SoftDelete])</c>; raw SQL never applies it.
     /// </summary>
     public const string SoftDelete = "SoftDelete";
@@ -25,6 +25,8 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
     public DbSet<AppSignInGrant> AppSignInGrants => Set<AppSignInGrant>();
     public DbSet<BoardImage> Images => Set<BoardImage>();
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
+    public DbSet<BoardDrawing> Drawings => Set<BoardDrawing>();
+    public DbSet<DrawingContent> DrawingContents => Set<DrawingContent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -104,6 +106,27 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             file.Property(f => f.FileName).HasMaxLength(255);
             file.Property(f => f.ContentType).HasMaxLength(50);
             file.Property(f => f.Sha256).HasMaxLength(32);
+        });
+
+        modelBuilder.Entity<BoardDrawing>(drawing =>
+        {
+            drawing.Property(d => d.Color).HasConversion<string>().HasMaxLength(20);
+            drawing.HasOne(d => d.AddedBy).WithMany().HasForeignKey(d => d.AddedById).OnDelete(DeleteBehavior.SetNull);
+            drawing.HasOne(d => d.Board).WithMany(b => b.Drawings).HasForeignKey(d => d.BoardId).OnDelete(DeleteBehavior.Cascade);
+            // A drawing on a note goes when its note goes.
+            drawing.HasOne<Note>().WithMany().HasForeignKey(d => d.NoteId).OnDelete(DeleteBehavior.Cascade);
+            // Like a note, a drawing in a purged bucket stays on the board, loose.
+            drawing.HasOne<Bucket>().WithMany().HasForeignKey(d => d.BucketId).OnDelete(DeleteBehavior.SetNull);
+            drawing.HasOne(d => d.Content).WithOne().HasForeignKey<DrawingContent>(c => c.DrawingId).OnDelete(DeleteBehavior.Cascade);
+            drawing.HasIndex(d => d.BoardId);
+            drawing.HasIndex(d => d.NoteId);
+            drawing.HasQueryFilter(SoftDelete, d => d.DeletedAt == null);
+        });
+
+        modelBuilder.Entity<DrawingContent>(content =>
+        {
+            content.HasKey(c => c.DrawingId);
+            content.Property(c => c.Points).HasColumnType("jsonb").HasConversion(DrawingPointsJson.Converter, DrawingPointsJson.Comparer);
         });
 
         // Users and agents share one table, so memberships, invites and images point at a single kind of id.

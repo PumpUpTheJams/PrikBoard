@@ -3,6 +3,8 @@ import type {
   BoardDetail,
   BoardTag,
   BucketDetail,
+  DrawingChanges,
+  DrawingDetail,
   ImageChanges,
   ImageDetail,
   NoteBlock,
@@ -26,15 +28,17 @@ export type Snapshot = Record<string, unknown>
 export type UndoTarget =
   | { kind: 'note'; id: string }
   | { kind: 'block'; noteId: string; id: string }
-  /** `carry`: for a move, the post-its and images it took along. */
+  /** `carry`: for a move, the post-its, images and drawings it took along. */
   | { kind: 'bucket'; id: string; carry?: BucketCarry }
   | { kind: 'image'; id: string }
+  | { kind: 'drawing'; id: string }
   | { kind: 'tag'; id: string }
 
-/** What a moved bucket took along: post-its, and images on the board. */
+/** What a moved bucket took along: post-its, and images and drawings on the board. */
 export interface BucketCarry {
   notes: string[]
   images: string[]
+  drawings: string[]
 }
 
 /** One item's part of a step: null `before` means it was created, null `after` that it was deleted. */
@@ -74,6 +78,7 @@ export const target = {
   block: (noteId: string, id: string): UndoTarget => ({ kind: 'block', noteId, id }),
   bucket: (id: string, carry?: BucketCarry): UndoTarget => ({ kind: 'bucket', id, carry }),
   image: (id: string): UndoTarget => ({ kind: 'image', id }),
+  drawing: (id: string): UndoTarget => ({ kind: 'drawing', id }),
   tag: (id: string): UndoTarget => ({ kind: 'tag', id }),
 }
 
@@ -102,6 +107,7 @@ export const snap = {
   }),
   bucket: (b: BucketDetail): Snapshot => ({ name: b.name, x: b.x, y: b.y, width: b.width, height: b.height, collapsed: b.collapsed }),
   image: (i: ImageDetail): Snapshot => ({ noteId: i.noteId, x: i.x, y: i.y, width: i.width, caption: i.caption }),
+  drawing: (d: DrawingDetail): Snapshot => ({ noteId: d.noteId, x: d.x, y: d.y, color: d.color }),
   tag: (t: BoardTag): Snapshot => ({ name: t.name, color: t.color }),
 }
 
@@ -169,6 +175,10 @@ function read(board: BoardDetail, t: UndoTarget): Snapshot | null {
       const image = board.images.find((i) => i.id === t.id)
       return image ? snap.image(image) : null
     }
+    case 'drawing': {
+      const drawing = board.drawings.find((d) => d.id === t.id)
+      return drawing ? snap.drawing(drawing) : null
+    }
     case 'tag': {
       const tag = board.tags.find((x) => x.id === t.id)
       return tag ? snap.tag(tag) : null
@@ -176,7 +186,14 @@ function read(board: BoardDetail, t: UndoTarget): Snapshot | null {
   }
 }
 
-const noun: Record<UndoTarget['kind'], string> = { note: 'the post-it', block: 'the block', bucket: 'the bucket', image: 'the image', tag: 'the tag' }
+const noun: Record<UndoTarget['kind'], string> = {
+  note: 'the post-it',
+  block: 'the block',
+  bucket: 'the bucket',
+  image: 'the image',
+  drawing: 'the drawing',
+  tag: 'the tag',
+}
 
 /**
  * Why the step can't be taken on `board` as it is now, or null when it can. `moving` tells whether someone else is
@@ -205,7 +222,7 @@ export function check(entry: UndoEntry, direction: UndoDirection, board: BoardDe
     if (t.kind === 'tag' && typeof goal.name === 'string' && board.tags.some((x) => x.id !== t.id && x.name === goal.name)) {
       return `a tag called “${goal.name}” exists now`
     }
-    if (t.kind === 'image' && typeof goal.noteId === 'string' && !board.notes.some((n) => n.id === goal.noteId)) {
+    if ((t.kind === 'image' || t.kind === 'drawing') && typeof goal.noteId === 'string' && !board.notes.some((n) => n.id === goal.noteId)) {
       return 'its post-it was deleted since'
     }
   }
@@ -233,6 +250,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
     else if (t.kind === 'block') await api.deleteNoteBlock(t.noteId, t.id)
     else if (t.kind === 'bucket') await api.deleteBucket(t.id)
     else if (t.kind === 'image') await api.deleteImage(t.id)
+    else if (t.kind === 'drawing') await api.deleteDrawing(t.id)
     else await api.deleteBoardTag(boardId, t.id)
     return
   }
@@ -243,6 +261,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
       await api.addNoteBlock(t.noteId, { id: t.id, kind: b.kind, title: b.title, text: b.text, items: b.items, links: b.links, x: b.x, y: b.y, width: b.width, height: b.height })
     } else if (t.kind === 'bucket') await api.restoreBucket(t.id)
     else if (t.kind === 'image') await api.restoreImage(t.id)
+    else if (t.kind === 'drawing') await api.restoreDrawing(t.id)
     else await api.restoreBoardTag(boardId, t.id)
     return
   }
@@ -266,7 +285,13 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
         // A new place with a new size is a resize: the post-its stay.
         await api.updateBucket(t.id, { x: at('x'), y: at('y'), width: at('width'), height: at('height') })
       } else if ('x' in to) {
-        await api.updateBucket(t.id, { x: at('x'), y: at('y'), carryNoteIds: t.carry?.notes ?? [], carryImageIds: t.carry?.images ?? [] })
+        await api.updateBucket(t.id, {
+          x: at('x'),
+          y: at('y'),
+          carryNoteIds: t.carry?.notes ?? [],
+          carryImageIds: t.carry?.images ?? [],
+          carryDrawingIds: t.carry?.drawings ?? [],
+        })
       }
       if ('name' in to) await api.updateBucket(t.id, { name: to.name as string })
       if ('collapsed' in to) await api.updateBucket(t.id, { collapsed: to.collapsed as boolean })
@@ -284,13 +309,24 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
       await api.updateImage(t.id, changes)
       return
     }
+    case 'drawing': {
+      const changes: DrawingChanges = {}
+      if ('noteId' in to) {
+        if (to.noteId) changes.noteId = to.noteId as string
+        else changes.detach = true
+      }
+      if ('x' in to) Object.assign(changes, { x: to.x, y: to.y })
+      if ('color' in to) changes.color = to.color as DrawingChanges['color']
+      await api.updateDrawing(t.id, changes)
+      return
+    }
     case 'tag':
       await api.updateBoardTag(boardId, t.id, to as TagChanges)
   }
 }
 
 /**
- * A moved bucket carries its post-its and images by the same distance, but never past the end of the coordinate range.
+ * A moved bucket carries its post-its, images and drawings by the same distance, but never past the end of the coordinate range.
  * One that was stopped there on the way doesn't come back exactly, so it is put where it belongs.
  */
 async function fixCarried(entry: UndoEntry, direction: UndoDirection, from: Snapshot, to: Snapshot) {
@@ -299,7 +335,7 @@ async function fixCarried(entry: UndoEntry, direction: UndoDirection, from: Snap
   const dy = (to.y as number) - (from.y as number)
   for (const change of entry.changes) {
     const kind = change.target.kind
-    if (!change.implied || (kind !== 'note' && kind !== 'image')) continue
+    if (!change.implied || (kind !== 'note' && kind !== 'image' && kind !== 'drawing')) continue
     const was = direction === 'undo' ? change.after : change.before
     const goal = direction === 'undo' ? change.before : change.after
     if (!was || !goal) continue
@@ -307,6 +343,7 @@ async function fixCarried(entry: UndoEntry, direction: UndoDirection, from: Snap
     if (landed.x === goal.x && landed.y === goal.y) continue
     const place = { x: goal.x as number, y: goal.y as number }
     if (kind === 'note') await api.moveNote(change.target.id, place)
-    else await api.updateImage(change.target.id, place)
+    else if (kind === 'image') await api.updateImage(change.target.id, place)
+    else await api.updateDrawing(change.target.id, place)
   }
 }

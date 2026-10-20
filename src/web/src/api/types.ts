@@ -39,6 +39,8 @@ export interface BoardDetail extends BoardSummary {
   notes: NoteDetail[]
   /** On the canvas (noteId null) and attached to notes, oldest first. */
   images: ImageDetail[]
+  /** Pen strokes on the canvas (noteId null) and on notes' canvases, oldest first. */
+  drawings: DrawingDetail[]
   /** The board's tags by name, with how many notes use each. Notes pick their tags from these. */
   tags: BoardTag[]
   /** Who can be assigned: you first, then people, then agents. */
@@ -114,6 +116,65 @@ export interface ImageChanges {
   /** Attach the image to this note. */
   noteId?: string
   /** Take an attached image off its note and put it on the board. */
+  detach?: boolean
+}
+
+/**
+ * Pen inks in two rows of matching pairs: light ones for the dark board, then dark ones for drawing over a post-it's
+ * light fill. Mirrored as `--ink-*` tokens in index.css.
+ */
+export const inkColors = ['Chalk', 'Butter', 'Mint', 'Sky', 'Coral', 'Lilac', 'Ink', 'Ochre', 'Pine', 'Ocean', 'Brick', 'Violet'] as const
+export type InkColor = (typeof inkColors)[number]
+
+/** Base line widths: fine, medium and bold. */
+export const strokeWidths = [2, 4, 8] as const
+export type StrokeWidth = (typeof strokeWidths)[number]
+
+/** One point of a stroke: x and y from the drawing's x/y, then pressure from 0 to 1 (0.5 without pressure). */
+export type StrokePoint = [number, number, number]
+
+/** A freehand pen stroke; its points come from contentUrl (getDrawingContent). */
+export interface DrawingDetail {
+  id: string
+  boardId: string
+  noteId: string | null
+  /** The bucket it sits in on the board (it moves with it); null when loose or on a note. */
+  bucketId: string | null
+  x: number
+  y: number
+  width: number
+  height: number
+  color: InkColor
+  strokeWidth: number
+  pointCount: number
+  addedBy: string
+  addedById: string | null
+  contentUrl: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DrawingContent {
+  drawingId: string
+  points: StrokePoint[]
+}
+
+/** A new stroke: x and y on the grid, points measured from there. */
+export interface NewDrawing {
+  x: number
+  y: number
+  points: StrokePoint[]
+  color?: InkColor
+  strokeWidth?: number
+  noteId?: string
+}
+
+/** A PATCH of a drawing; x and y are on wherever it ends up (give both when attaching or detaching). */
+export interface DrawingChanges {
+  x?: number
+  y?: number
+  color?: InkColor
+  noteId?: string
   detach?: boolean
 }
 
@@ -241,6 +302,8 @@ export interface BucketChanges extends Partial<Rect> {
   carryNoteIds?: string[]
   /** Likewise for images on the board, instead of the images in the bucket. */
   carryImageIds?: string[]
+  /** Like carryImageIds, for drawings on the board. */
+  carryDrawingIds?: string[]
   collapsed?: boolean
 }
 

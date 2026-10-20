@@ -47,6 +47,20 @@
   --fill-coral: #f4a99a;
   --fill-lilac: #cdb8f5;
 
+  /* Pen inks (InkColor): light ones for the dark board, dark ones for drawing over a post-it's fill. */
+  --ink-chalk: #e6e8ec;
+  --ink-butter: #f3d77a;
+  --ink-mint: #9fe0c0;
+  --ink-sky: #9ccbf5;
+  --ink-coral: #f4a99a;
+  --ink-lilac: #cdb8f5;
+  --ink-ink: #17181b;
+  --ink-ochre: #7a5a00;
+  --ink-pine: #1f6249;
+  --ink-ocean: #1d5a8c;
+  --ink-brick: #963528;
+  --ink-violet: #663d8f;
+
   --font: Geist, ui-sans-serif, system-ui, sans-serif;
   --mono: 'Geist Mono', ui-monospace, monospace;
 
@@ -659,6 +673,30 @@ main {
   cursor: crosshair;
 }
 
+/* A pen or a finger draws instead of scrolling the board; the ring under the pointer (.pen-ring) is the cursor. */
+.canvas.tool-pen {
+  touch-action: none;
+  cursor: none;
+}
+
+.canvas.tool-pen.panning {
+  cursor: grabbing;
+}
+
+.pen-ring {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 6;
+  width: var(--ring);
+  height: var(--ring);
+  margin: calc(-0.5 * var(--ring)) 0 0 calc(-0.5 * var(--ring));
+  border: 1.5px solid var(--text);
+  border-radius: 50%;
+  opacity: 0.9;
+  pointer-events: none;
+}
+
 .canvas.panning {
   cursor: grabbing;
 }
@@ -1130,6 +1168,72 @@ main {
 
 .swatch[aria-pressed='true'] {
   box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--text);
+}
+
+/* The pen's flyout and a selected drawing's toolbar: the inks in two rows (light over dark), then sizes or delete. */
+.pen-flyout {
+  align-items: center;
+}
+
+.ink-swatches {
+  display: grid;
+  grid-template-columns: repeat(6, 20px);
+  gap: 8px;
+}
+
+.ink-chalk { --fill: var(--ink-chalk); }
+.ink-butter { --fill: var(--ink-butter); }
+.ink-mint { --fill: var(--ink-mint); }
+.ink-sky { --fill: var(--ink-sky); }
+.ink-coral { --fill: var(--ink-coral); }
+.ink-lilac { --fill: var(--ink-lilac); }
+.ink-ink { --fill: var(--ink-ink); }
+.ink-ochre { --fill: var(--ink-ochre); }
+.ink-pine { --fill: var(--ink-pine); }
+.ink-ocean { --fill: var(--ink-ocean); }
+.ink-brick { --fill: var(--ink-brick); }
+.ink-violet { --fill: var(--ink-violet); }
+
+/* The darkest ink would vanish into the panel without a rim. */
+.swatch.ink-ink {
+  box-shadow: inset 0 0 0 1px var(--scrollbar-thumb-hover);
+}
+
+.swatch.ink-ink[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 1px var(--scrollbar-thumb-hover), 0 0 0 2px var(--panel), 0 0 0 4px var(--text);
+}
+
+.toolbar-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 0 2px;
+  background: var(--line);
+}
+
+.pen-size {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.pen-size:hover {
+  background: var(--tool-hover);
+}
+
+.pen-size[aria-pressed='true'] {
+  background: var(--accent-bg);
+}
+
+.pen-size span {
+  display: block;
+  border-radius: 50%;
+  background: var(--text);
 }
 
 /* The top centre of the board: the search, then a tool hint or the view-only badge, stacked so they never overlap. */
@@ -1780,8 +1884,24 @@ input.editable {
   cursor: grab;
 }
 
-.leaving .board-image {
+.leaving .board-image,
+.leaving .drawing {
   opacity: 0.3;
+}
+
+.incoming-drawing {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* A stroke dragged outside its canvas: just the line, at the zoom of where it would land. */
+.drag-ghost.drawing-ghost {
+  border-radius: 0;
+  box-shadow: none;
+  transform-origin: 0 0;
 }
 
 .incoming-image {
@@ -1845,6 +1965,58 @@ input.editable {
   width: 1px;
   height: auto;
   margin: 6px 4px;
+}
+
+/* The post-it's pen: its ink shows as a dot on the button (a dark ink wouldn't show as the icon's colour), and its inks
+   and sizes open above the bar. */
+.note-pen {
+  position: relative;
+  display: flex;
+}
+
+.note-pen-button {
+  position: relative;
+}
+
+.note-pen-button::after {
+  content: '';
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--pen-ink);
+  box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 2.5px var(--scrollbar-thumb-hover);
+}
+
+.note-pen-flyout {
+  position: absolute;
+  bottom: calc(100% + 14px);
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--float-shadow);
+  transform: translateX(-50%);
+}
+
+.note-canvas.pen {
+  cursor: none;
+}
+
+.note-canvas.pen.panning {
+  cursor: grabbing;
+}
+
+/* With the pen on, presses on strokes and blocks draw instead. */
+.note-canvas.pen .stroke-hit,
+.note-canvas.pen .drawing-box {
+  cursor: inherit;
 }
 
 .checklist,
@@ -2224,6 +2396,95 @@ a.button.primary:hover {
 .status-inline code {
   font-family: var(--mono);
   font-size: 12px;
+}
+
+/* Pen strokes: an SVG at the drawing's place that overflows its 1 px box; only the line (and a wider band around it) takes presses. */
+
+.stroke {
+  position: absolute;
+  overflow: visible;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.drawing {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.stroke-hit {
+  stroke: transparent;
+  pointer-events: stroke;
+  cursor: grab;
+}
+
+.canvas:not(.tool-select) .stroke-hit {
+  cursor: inherit;
+}
+
+.drawing.lifted {
+  opacity: 0.6;
+}
+
+.drawing.lifted .stroke-hit {
+  cursor: grabbing;
+}
+
+.drawing-box {
+  position: absolute;
+  border: 1.5px dashed var(--accent);
+  border-radius: 4px;
+  pointer-events: auto;
+  cursor: move;
+}
+
+.drawing-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--accent);
+  border-radius: 2px;
+  background: var(--bg);
+}
+
+.drawing-toolbar {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--float-shadow);
+  transform-origin: top left;
+  cursor: default;
+}
+
+.drawing-toolbar .ink-swatches {
+  padding: 4px 0;
+}
+
+.drawing-delete {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.drawing-delete:hover {
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
 }
 
 /* Images on the board: a frame with the picture and a mono caption underneath */

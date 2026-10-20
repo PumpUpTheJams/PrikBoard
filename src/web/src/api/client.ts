@@ -23,9 +23,13 @@ import type {
   TokenIssuer,
   TrashContents,
   UserMatch,
+  DrawingChanges,
+  DrawingContent,
+  DrawingDetail,
   ImageChanges,
   ImageDetail,
   ImagePlacement,
+  NewDrawing,
   NewNoteBlock,
   NoteBlock,
   NoteBlockChanges,
@@ -213,6 +217,15 @@ export const api = {
   deleteImage: (imageId: string) => request<void>('DELETE', `/images/${imageId}`),
   /** Brings back an image deleted in the last 7 days (not one whose note is deleted: restore the note). */
   restoreImage: (imageId: string) => request<ImageDetail>('POST', `/images/${imageId}/restore`),
+
+  createDrawing: (boardId: string, drawing: NewDrawing) => request<DrawingDetail>('POST', `/boards/${boardId}/drawings`, drawing),
+  /** The stroke's points; they never change, so the browser may cache them. */
+  getDrawingContent: (drawingId: string) => request<DrawingContent>('GET', `/drawings/${drawingId}/content`),
+  updateDrawing: (drawingId: string, changes: DrawingChanges) =>
+    request<DrawingDetail>('PATCH', `/drawings/${drawingId}`, changes),
+  deleteDrawing: (drawingId: string) => request<void>('DELETE', `/drawings/${drawingId}`),
+  /** Brings back a drawing deleted in the last 7 days (not one whose note is deleted: restore the note). */
+  restoreDrawing: (drawingId: string) => request<DrawingDetail>('POST', `/drawings/${drawingId}/restore`),
 
   listBoardMembers: (boardId: string) => request<BoardMember[]>('GET', `/boards/${boardId}/members`),
   addBoardMember: (boardId: string, principalId: string, role: BoardRole) =>

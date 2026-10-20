@@ -240,8 +240,9 @@ public static class NoteEndpoints
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var deleted = await db.Notes.Where(n => n.Id == noteId).ExecuteUpdateAsync(s => s.SetProperty(n => n.DeletedAt, now), ct);
         if (deleted == 0) return TypedResults.NotFound();
-        // Its images share the note's stamp, so they come back with it (and images deleted earlier don't).
+        // Its images and drawings share the note's stamp, so they come back with it (and ones deleted earlier don't).
         await db.Images.Where(i => i.NoteId == noteId).ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, now), ct);
+        await db.Drawings.Where(d => d.NoteId == noteId).ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, now), ct);
         await transaction.CommitAsync(ct);
         return TypedResults.NoContent();
     }
@@ -301,6 +302,9 @@ public static class NoteEndpoints
         await db.Images.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
             .Where(i => i.NoteId == noteId && i.DeletedAt == stamp)
             .ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, (DateTimeOffset?)null), ct);
+        await db.Drawings.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+            .Where(d => d.NoteId == noteId && d.DeletedAt == stamp)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, (DateTimeOffset?)null), ct);
         var stacked = Layout.BackToFront(await db.Buckets.Where(b => b.BoardId == note.BoardId).ToListAsync(ct));
         if (request is { X: { } x, Y: { } y })
         {

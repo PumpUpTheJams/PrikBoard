@@ -231,8 +231,8 @@ public static class ImageEndpoints
         return TypedResults.Ok(ImageDetail.From(image));
     }
 
-    /// <summary>The board's buckets, back to front: what decides which bucket an image joins.</summary>
-    private static async Task<List<Bucket>> StackAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
+    /// <summary>The board's buckets, back to front: what decides which bucket an image or drawing joins.</summary>
+    internal static async Task<List<Bucket>> StackAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
         Layout.BackToFront(await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct));
 
     /// <summary>The whole body, or null when it is longer than <paramref name="limit"/> bytes.</summary>

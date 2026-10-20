@@ -30,6 +30,7 @@ public record BoardSummary(Guid Id, string Name, string? Description, DateTimeOf
 /// <param name="Buckets">Buckets in stacking order, back to front (oldest first).</param>
 /// <param name="Notes">Notes grouped by bucket in the order of Buckets, loose notes last, each group top to bottom and left to right.</param>
 /// <param name="Images">Images on the canvas and attached to notes (see noteId), oldest first. Download them from contentUrl.</param>
+/// <param name="Drawings">Freehand pen strokes on the canvas and on notes (see noteId), oldest first (drawn in that order). Fetch their points from contentUrl.</param>
 /// <param name="Tags">The tags defined on the board, by name, with how many notes use each. Notes pick their tags from this list.</param>
 /// <param name="People">Who can be assigned to notes: members, and the agents of members' access tokens that reach the board. You first, then people, then agents.</param>
 /// <param name="YourRole">Your role on the board: Viewer (read only), Editor or Owner.</param>
@@ -44,12 +45,13 @@ public record BoardDetail(
     IReadOnlyList<BucketDetail> Buckets,
     IReadOnlyList<NoteDetail> Notes,
     IReadOnlyList<ImageDetail> Images,
+    IReadOnlyList<DrawingDetail> Drawings,
     IReadOnlyList<BoardTagDetail> Tags,
     IReadOnlyList<BoardPerson> People,
     BoardRole YourRole)
 {
     /// <summary>
-    /// Maps a board with its buckets, notes and images; <paramref name="principals"/> holds the notes' creators and
+    /// Maps a board with its buckets, notes, images and drawings; <paramref name="principals"/> holds the notes' creators and
     /// assignees, <paramref name="people"/> who can be assigned (see BoardAccess.PeopleAsync).
     /// </summary>
     public static BoardDetail From(
@@ -58,6 +60,7 @@ public record BoardDetail(
             Layout.BackToFront(board.Buckets).Select(BucketDetail.From).ToList(),
             Layout.ReadingOrder(board.Notes, board.Buckets).Select(n => NoteDetail.From(n, principals)).ToList(),
             board.Images.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id).Select(ImageDetail.From).ToList(),
+            board.Drawings.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id).Select(DrawingDetail.From).ToList(),
             BoardTagDetail.List(board.Tags, board.Notes),
             BoardPerson.List(people, caller),
             role);
