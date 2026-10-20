@@ -9,8 +9,10 @@ namespace PrikBoard.Api.Auth;
 /// the URL (which holds the provider's account id) is never stored and other people's browsers never contact the
 /// provider. The URL also travels in the person's own session cookie, so they can take the picture again later.
 /// </summary>
-public class ProviderAvatars(HttpClient http)
+public class ProviderAvatars(HttpClient http, FileStore files)
 {
+    public const int MaxBytes = 1024 * 1024;
+
     /// <summary>Hosts whose pictures are offered. Only GitHub's: other providers' picture URLs are ignored for now.</summary>
     private static readonly string[] TrustedHosts = ["avatars.githubusercontent.com"];
 
@@ -28,21 +30,16 @@ public class ProviderAvatars(HttpClient http)
     /// </summary>
     public async Task<bool> TakeAsync(PrikBoardDbContext db, User user, string url, CancellationToken ct)
     {
-        var avatar = await DownloadAsync(user.Id, url, ct);
-        if (avatar is null) return false;
+        if (await DownloadAsync(url, ct) is not { } picture) return false;
 
-        var current = await db.UserAvatars.FirstOrDefaultAsync(a => a.UserId == user.Id, ct);
-        if (current is null || !current.Data.AsSpan().SequenceEqual(avatar.Data))
+        var file = StoredFile.For($"avatar.{ImageFormats.ExtensionOf(picture.ContentType)}", picture.ContentType, picture.Data);
+        var current = user.AvatarFileId is { } currentId ? await db.StoredFiles.FindAsync([currentId], ct) : null;
+        if (current is null || !current.Sha256.AsSpan().SequenceEqual(file.Sha256))
         {
-            if (current is null)
-            {
-                db.UserAvatars.Add(avatar);
-            }
-            else
-            {
-                current.ContentType = avatar.ContentType;
-                current.Data = avatar.Data;
-            }
+            // The old file goes at the next sweep, once nothing refers to it.
+            await files.WriteAsync(file, picture.Data, ct);
+            db.StoredFiles.Add(file);
+            user.AvatarFile = file;
             // A new version, so browsers fetch it instead of their cached copy.
             user.AvatarUpdatedAt = DateTimeOffset.UtcNow;
         }
@@ -52,7 +49,7 @@ public class ProviderAvatars(HttpClient http)
     }
 
     /// <summary>Downloads the picture at a trusted <paramref name="url"/>; null when it fails or is not a supported image.</summary>
-    public async Task<UserAvatar?> DownloadAsync(Guid userId, string url, CancellationToken ct)
+    public async Task<(byte[] Data, string ContentType)?> DownloadAsync(string url, CancellationToken ct)
     {
         if (!IsTrusted(url)) return null;
         // GitHub scales its avatars with the s parameter.
@@ -62,7 +59,7 @@ public class ProviderAvatars(HttpClient http)
         try
         {
             using var response = await http.GetAsync(sized.Uri, HttpCompletionOption.ResponseHeadersRead, ct);
-            if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > UserAvatar.MaxBytes) return null;
+            if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > MaxBytes) return null;
 
             await using var stream = await response.Content.ReadAsStreamAsync(ct);
             using var buffer = new MemoryStream();
@@ -70,12 +67,12 @@ public class ProviderAvatars(HttpClient http)
             int read;
             while ((read = await stream.ReadAsync(chunk, ct)) > 0)
             {
-                if (buffer.Length + read > UserAvatar.MaxBytes) return null;
+                if (buffer.Length + read > MaxBytes) return null;
                 buffer.Write(chunk, 0, read);
             }
 
             var data = buffer.ToArray();
-            return ImageFormats.Detect(data) is { } info ? new UserAvatar { UserId = userId, ContentType = info.ContentType, Data = data } : null;
+            return ImageFormats.Detect(data) is { } info ? (data, info.ContentType) : null;
         }
         catch (HttpRequestException)
         {

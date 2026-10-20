@@ -11,6 +11,8 @@ namespace PrikBoard.Api.Tests;
 public class NoteBlockMigrationTests : IAsyncLifetime
 {
     private const string BeforeBlocks = "20261019010826_BoardRules";
+    /// <summary>The images here have no bytes, which the move of bytes to disk (StartupMigration) would drop.</summary>
+    private const string BeforeStoredFiles = "20261019220831_TagColors";
 
     private readonly PrikBoardDbContext db = new(new DbContextOptionsBuilder<PrikBoardDbContext>()
         .UseNpgsql(new NpgsqlConnectionStringBuilder(
@@ -52,7 +54,7 @@ public class NoteBlockMigrationTests : IAsyncLifetime
                    ({second}, {board}, {full}, 'b.png', 'image/png', 1, 200, 200, 0, 0, 200, 200, now() + interval '1 second', now());
             """);
 
-        await db.GetService<IMigrator>().MigrateAsync();
+        await db.GetService<IMigrator>().MigrateAsync(BeforeStoredFiles);
 
         var notes = await db.Notes.AsNoTracking().ToDictionaryAsync(n => n.Id);
         var blocks = notes[full].Blocks;

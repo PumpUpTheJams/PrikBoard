@@ -172,21 +172,14 @@ namespace PrikBoard.Api.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset?>("DeletedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
+                    b.Property<Guid>("FileId")
+                        .HasColumnType("uuid");
 
                     b.Property<int>("Height")
                         .HasColumnType("integer");
@@ -199,9 +192,6 @@ namespace PrikBoard.Api.Data.Migrations
 
                     b.Property<int>("PixelWidth")
                         .HasColumnType("integer");
-
-                    b.Property<long>("Size")
-                        .HasColumnType("bigint");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -220,6 +210,9 @@ namespace PrikBoard.Api.Data.Migrations
                     b.HasIndex("AddedById");
 
                     b.HasIndex("BoardId");
+
+                    b.HasIndex("FileId")
+                        .IsUnique();
 
                     b.HasIndex("NoteId");
 
@@ -378,20 +371,6 @@ namespace PrikBoard.Api.Data.Migrations
                     b.ToTable("Buckets");
                 });
 
-            modelBuilder.Entity("PrikBoard.Api.Domain.ImageContent", b =>
-                {
-                    b.Property<Guid>("ImageId")
-                        .HasColumnType("uuid");
-
-                    b.Property<byte[]>("Data")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.HasKey("ImageId");
-
-                    b.ToTable("ImageContents");
-                });
-
             modelBuilder.Entity("PrikBoard.Api.Domain.Note", b =>
                 {
                     b.Property<Guid>("Id")
@@ -488,9 +467,10 @@ namespace PrikBoard.Api.Data.Migrations
                     b.UseTphMappingStrategy();
                 });
 
-            modelBuilder.Entity("PrikBoard.Api.Domain.UserAvatar", b =>
+            modelBuilder.Entity("PrikBoard.Api.Domain.StoredFile", b =>
                 {
-                    b.Property<Guid>("UserId")
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
                     b.Property<string>("ContentType")
@@ -498,13 +478,25 @@ namespace PrikBoard.Api.Data.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<byte[]>("Data")
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FileName")
                         .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<byte[]>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(32)
                         .HasColumnType("bytea");
 
-                    b.HasKey("UserId");
+                    b.Property<long>("Size")
+                        .HasColumnType("bigint");
 
-                    b.ToTable("UserAvatars");
+                    b.HasKey("Id");
+
+                    b.ToTable("StoredFiles");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.UserIdentity", b =>
@@ -575,6 +567,9 @@ namespace PrikBoard.Api.Data.Migrations
                 {
                     b.HasBaseType("PrikBoard.Api.Domain.Principal");
 
+                    b.Property<Guid?>("AvatarFileId")
+                        .HasColumnType("uuid");
+
                     b.Property<bool>("AvatarOptedOut")
                         .HasColumnType("boolean");
 
@@ -583,6 +578,9 @@ namespace PrikBoard.Api.Data.Migrations
 
                     b.Property<bool>("IsAdmin")
                         .HasColumnType("boolean");
+
+                    b.HasIndex("AvatarFileId")
+                        .IsUnique();
 
                     b.HasDiscriminator().HasValue("User");
                 });
@@ -629,6 +627,12 @@ namespace PrikBoard.Api.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("PrikBoard.Api.Domain.StoredFile", "File")
+                        .WithOne()
+                        .HasForeignKey("PrikBoard.Api.Domain.BoardImage", "FileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("PrikBoard.Api.Domain.Note", null)
                         .WithMany()
                         .HasForeignKey("NoteId")
@@ -637,6 +641,8 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Navigation("AddedBy");
 
                     b.Navigation("Board");
+
+                    b.Navigation("File");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.BoardInvite", b =>
@@ -701,15 +707,6 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Navigation("Board");
                 });
 
-            modelBuilder.Entity("PrikBoard.Api.Domain.ImageContent", b =>
-                {
-                    b.HasOne("PrikBoard.Api.Domain.BoardImage", null)
-                        .WithOne("Content")
-                        .HasForeignKey("PrikBoard.Api.Domain.ImageContent", "ImageId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("PrikBoard.Api.Domain.Note", b =>
                 {
                     b.HasOne("PrikBoard.Api.Domain.Board", "Board")
@@ -733,15 +730,6 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Navigation("CreatedBy");
                 });
 
-            modelBuilder.Entity("PrikBoard.Api.Domain.UserAvatar", b =>
-                {
-                    b.HasOne("PrikBoard.Api.Domain.User", null)
-                        .WithOne()
-                        .HasForeignKey("PrikBoard.Api.Domain.UserAvatar", "UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("PrikBoard.Api.Domain.UserIdentity", b =>
                 {
                     b.HasOne("PrikBoard.Api.Domain.User", "User")
@@ -761,6 +749,16 @@ namespace PrikBoard.Api.Data.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
                 });
 
+            modelBuilder.Entity("PrikBoard.Api.Domain.User", b =>
+                {
+                    b.HasOne("PrikBoard.Api.Domain.StoredFile", "AvatarFile")
+                        .WithOne()
+                        .HasForeignKey("PrikBoard.Api.Domain.User", "AvatarFileId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("AvatarFile");
+                });
+
             modelBuilder.Entity("PrikBoard.Api.Domain.Board", b =>
                 {
                     b.Navigation("Buckets");
@@ -772,11 +770,6 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Navigation("Notes");
 
                     b.Navigation("Tags");
-                });
-
-            modelBuilder.Entity("PrikBoard.Api.Domain.BoardImage", b =>
-                {
-                    b.Navigation("Content");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.User", b =>

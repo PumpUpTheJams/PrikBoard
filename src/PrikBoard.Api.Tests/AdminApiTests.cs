@@ -177,9 +177,13 @@ public class AdminApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
 
         var users = await admin.GetFromJsonAsync<List<AdminUser>>("/api/admin/users");
         Assert.Equal(me.AvatarUrl, users!.Single(u => u.Id == me.Id).AvatarUrl);
+        var picture = (await factory.AvatarPathAsync(me.Id))!;
 
         Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/admin/users/{me.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await admin.GetAsync(me.AvatarUrl)).StatusCode);
+        // The file itself goes at the next sweep.
+        await factory.SweepFilesAsync();
+        Assert.False(File.Exists(picture));
     }
 
     [Fact]

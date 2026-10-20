@@ -69,6 +69,32 @@ public class MeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardAp
     }
 
     [Fact]
+    public async Task A_changed_GitHub_picture_becomes_a_new_file_and_the_sweep_deletes_replaced_and_removed_ones()
+    {
+        const string email = "changing-picture@example.com";
+        var client = await factory.CreateSignedInClientAsync(email, avatar: PrikBoardApiFactory.GitHubAvatar);
+        var before = await client.MeAsync();
+        var first = (await factory.AvatarPathAsync(before.Id))!;
+        var download = await client.GetAsync(before.AvatarUrl);
+        using var revalidate = new HttpRequestMessage(HttpMethod.Get, before.AvatarUrl) { Headers = { IfNoneMatch = { download.Headers.ETag! } } };
+        Assert.Equal(HttpStatusCode.NotModified, (await client.SendAsync(revalidate)).StatusCode);
+
+        var changed = await factory.CreateSignedInClientAsync(email, avatar: PrikBoardApiFactory.OtherGitHubAvatar);
+        var after = await changed.MeAsync();
+        Assert.NotEqual(before.AvatarUrl, after.AvatarUrl);
+        Assert.Equal(PrikBoardApiFactory.OtherAvatar, await changed.GetByteArrayAsync(after.AvatarUrl));
+        var second = (await factory.AvatarPathAsync(before.Id))!;
+
+        await factory.SweepFilesAsync();
+        Assert.False(File.Exists(first));
+        Assert.True(File.Exists(second));
+
+        Assert.Equal(HttpStatusCode.OK, (await changed.DeleteAsync("/api/me/avatar")).StatusCode);
+        await factory.SweepFilesAsync();
+        Assert.False(File.Exists(second));
+    }
+
+    [Fact]
     public async Task Pictures_from_other_hosts_are_ignored_and_a_failed_download_does_not_stop_the_sign_in()
     {
         var client = await factory.CreateSignedInClientAsync("no-picture@example.com", avatar: "https://tracker.example/me.png");

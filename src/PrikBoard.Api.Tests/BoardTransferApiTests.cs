@@ -226,14 +226,18 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         var client = await factory.CreateSignedInClientAsync("export-badimage@example.com");
         var board = await client.CreateBoardAsync("Bad image");
         await Upload(client, board.Id, TestImages.Png(100, 100), "");
+        await Upload(client, board.Id, TestImages.Png(200, 100), "");
         var file = JsonNode.Parse(await (await client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync())!;
-        file["images"]![0]!["data"] = Convert.ToBase64String("<svg onload=alert(1)/>"u8.ToArray());
+        file["images"]![1]!["data"] = Convert.ToBase64String("<svg onload=alert(1)/>"u8.ToArray());
         var before = await BoardCount(client);
+        var files = factory.FilesOnDisk().Length;
 
         var response = await Import(client, file.ToJsonString());
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(before, await BoardCount(client));
+        // Not even the good image before it.
+        Assert.Equal(files, factory.FilesOnDisk().Length);
     }
 
     private static async Task<int> BoardCount(HttpClient client) =>

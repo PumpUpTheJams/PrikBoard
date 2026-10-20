@@ -16,6 +16,9 @@ public static class ImageFormats
 
     public record Info(string ContentType, int Width, int Height);
 
+    /// <summary>The usual file extension, without the dot, for one of <see cref="ContentTypes"/>: png, jpg, gif or webp.</summary>
+    public static string ExtensionOf(string contentType) => contentType["image/".Length..].Replace("jpeg", "jpg");
+
     /// <summary>The format and pixel size, or null when the bytes are not a supported, well-formed image.</summary>
     public static Info? Detect(ReadOnlySpan<byte> data)
     {

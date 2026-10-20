@@ -24,8 +24,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
     public DbSet<AccessToken> AccessTokens => Set<AccessToken>();
     public DbSet<AppSignInGrant> AppSignInGrants => Set<AppSignInGrant>();
     public DbSet<BoardImage> Images => Set<BoardImage>();
-    public DbSet<ImageContent> ImageContents => Set<ImageContent>();
-    public DbSet<UserAvatar> UserAvatars => Set<UserAvatar>();
+    public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -86,20 +85,24 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
 
         modelBuilder.Entity<BoardImage>(image =>
         {
-            image.Property(i => i.FileName).HasMaxLength(255);
-            image.Property(i => i.ContentType).HasMaxLength(50);
             image.Property(i => i.Caption).HasMaxLength(500);
             image.HasOne(i => i.AddedBy).WithMany().HasForeignKey(i => i.AddedById).OnDelete(DeleteBehavior.SetNull);
             image.HasOne(i => i.Board).WithMany(b => b.Images).HasForeignKey(i => i.BoardId).OnDelete(DeleteBehavior.Cascade);
             // An attached image goes when its note goes.
             image.HasOne<Note>().WithMany().HasForeignKey(i => i.NoteId).OnDelete(DeleteBehavior.Cascade);
-            image.HasOne(i => i.Content).WithOne().HasForeignKey<ImageContent>(c => c.ImageId).OnDelete(DeleteBehavior.Cascade);
+            // Files are deleted by the sweep once nothing refers to them (FileStore.SweepAsync), never by a cascade.
+            image.HasOne(i => i.File).WithOne().HasForeignKey<BoardImage>(i => i.FileId).OnDelete(DeleteBehavior.Restrict);
             image.HasIndex(i => i.BoardId);
             image.HasIndex(i => i.NoteId);
             image.HasQueryFilter(SoftDelete, i => i.DeletedAt == null);
         });
 
-        modelBuilder.Entity<ImageContent>(content => content.HasKey(c => c.ImageId));
+        modelBuilder.Entity<StoredFile>(file =>
+        {
+            file.Property(f => f.FileName).HasMaxLength(255);
+            file.Property(f => f.ContentType).HasMaxLength(50);
+            file.Property(f => f.Sha256).HasMaxLength(32);
+        });
 
         // Users and agents share one table, so memberships, invites and images point at a single kind of id.
         modelBuilder.Entity<Principal>(principal =>
@@ -115,13 +118,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
         modelBuilder.Entity<User>(user =>
         {
             user.HasMany(u => u.Identities).WithOne(i => i.User).HasForeignKey(i => i.UserId).OnDelete(DeleteBehavior.Cascade);
-            user.HasOne<UserAvatar>().WithOne().HasForeignKey<UserAvatar>(a => a.UserId).OnDelete(DeleteBehavior.Cascade);
-        });
-
-        modelBuilder.Entity<UserAvatar>(avatar =>
-        {
-            avatar.HasKey(a => a.UserId);
-            avatar.Property(a => a.ContentType).HasMaxLength(50);
+            user.HasOne(u => u.AvatarFile).WithOne().HasForeignKey<User>(u => u.AvatarFileId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Agent>(agent =>
