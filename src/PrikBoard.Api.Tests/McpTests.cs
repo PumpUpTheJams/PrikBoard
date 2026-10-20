@@ -23,7 +23,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
 
         var tools = (await mcp.ListToolsAsync()).ToDictionary(t => t.Name, t => t.ProtocolTool);
         Assert.Equal(
-            ["add_note_block", "create_bucket", "create_note", "create_tag", "delete_note", "delete_note_block", "delete_tag", "get_board",
+            ["add_image", "add_note_block", "create_bucket", "create_note", "create_tag", "delete_note", "delete_note_block", "delete_tag", "get_board",
              "get_board_rules", "get_note", "list_boards", "move_note", "rename_bucket", "restore_note", "restore_tag",
              "search_notes", "set_working", "update_note", "update_note_block", "update_tag"],
             tools.Keys.Order());
@@ -263,6 +263,55 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
 
         var readOnly = await ConnectAsync(await TokenAsync(owner, BoardRole.Viewer, "Reader"));
         Assert.True((await CallRawAsync(readOnly, "add_note_block", new() { ["noteId"] = noteId, ["kind"] = "Text" })).IsError);
+    }
+
+    [Fact]
+    public async Task Agents_add_images_to_notes_and_boards()
+    {
+        var owner = await factory.CreateSignedInClientAsync("mcp-images@example.com");
+        var board = await owner.CreateBoardAsync("MCP images");
+        var note = await owner.CreateNoteAsync(board.Id, "Ingest errors");
+        var other = await owner.CreateBoardAsync("MCP images elsewhere");
+        var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor, "Claude Code"));
+        var png = TestImages.Png(800, 600);
+
+        var attached = await CallAsync(mcp, "add_image", new()
+        {
+            ["noteId"] = note.Id, ["data"] = Convert.ToBase64String(png), ["fileName"] = "errors.png", ["caption"] = "Last night",
+        });
+        Assert.Equal(note.Id, attached.GetProperty("noteId").GetGuid());
+        Assert.Equal(board.Id, attached.GetProperty("boardId").GetGuid());
+        Assert.Equal(("errors.png", "image/png", 360), (attached.GetProperty("fileName").GetString(),
+            attached.GetProperty("contentType").GetString(), attached.GetProperty("width").GetInt32()));
+        Assert.Equal("Claude Code", attached.GetProperty("addedBy").GetString());
+
+        var loose = await CallAsync(mcp, "add_image", new()
+        {
+            ["boardId"] = board.Id, ["data"] = "data:image/png;base64," + Convert.ToBase64String(png), ["x"] = 1000, ["y"] = 1010, ["width"] = 200,
+        });
+        Assert.False(loose.TryGetProperty("noteId", out _));
+        Assert.Equal((1000, 1020, 200), (loose.GetProperty("x").GetInt32(), loose.GetProperty("y").GetInt32(), loose.GetProperty("width").GetInt32()));
+
+        // Both are real images on the board, with the same bytes as sent.
+        var saved = (await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
+        Assert.Equal(2, saved.Images.Count);
+        Assert.Equal(png, await owner.GetByteArrayAsync($"/api/images/{attached.GetProperty("id").GetGuid()}/content"));
+
+        async Task Fails(Dictionary<string, object?> args, string message)
+        {
+            var result = await CallRawAsync(mcp, "add_image", args);
+            Assert.True(result.IsError, Text(result));
+            Assert.Contains(message, Text(result));
+        }
+        await Fails(new() { ["data"] = Convert.ToBase64String(png) }, "noteId");
+        await Fails(new() { ["noteId"] = note.Id, ["data"] = "not base64!" }, "base64");
+        await Fails(new() { ["noteId"] = note.Id, ["data"] = Convert.ToBase64String("<svg/>"u8.ToArray()) }, "not a PNG");
+        await Fails(new() { ["noteId"] = note.Id, ["boardId"] = other.Id, ["data"] = Convert.ToBase64String(png) }, "not on that board");
+        await Fails(new() { ["noteId"] = note.Id, ["data"] = Convert.ToBase64String(png), ["x"] = 20 }, "together");
+
+        var readOnly = await ConnectAsync(await TokenAsync(owner, BoardRole.Viewer, "Reader"));
+        var refused = await CallRawAsync(readOnly, "add_image", new() { ["noteId"] = note.Id, ["data"] = Convert.ToBase64String(png) });
+        Assert.Contains("read-only", Text(refused));
     }
 
     [Fact]

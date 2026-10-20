@@ -65,14 +65,25 @@ public static class ImageEndpoints
         Guid boardId, Stream body, HttpRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, FileStore files, CancellationToken ct,
         string? fileName = null, Guid? noteId = null, int? x = null, int? y = null, int? width = null, string? caption = null)
     {
-        if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
-
         // Only image types (or octet-stream): form encodings would let another site post here with someone's session cookie.
         var declared = request.ContentType?.Split(';')[0].Trim().ToLowerInvariant();
         if (declared is null || !(declared.StartsWith("image/") || declared == "application/octet-stream"))
         {
+            if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
             return Unsupported("Send the image file itself as the request body, with Content-Type image/png, image/jpeg, image/gif or image/webp.");
         }
+        return await AddImage(boardId, body, principal, db, files, ct, fileName, noteId, x, y, width, caption);
+    }
+
+    /// <summary>
+    /// uploadImage after its content type check: reads the file from <paramref name="body"/>, detects its format and places it.
+    /// The add_image MCP tool calls this with the decoded file.
+    /// </summary>
+    internal static async Task<Results<Created<ImageDetail>, NotFound, ValidationProblem, ProblemHttpResult>> AddImage(
+        Guid boardId, Stream body, ClaimsPrincipal principal, PrikBoardDbContext db, FileStore files, CancellationToken ct,
+        string? fileName = null, Guid? noteId = null, int? x = null, int? y = null, int? width = null, string? caption = null)
+    {
+        if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
 
         if ((Invalid(x is null != y is null, x is null ? "x" : "y", "Give x and y together.")
             ?? Invalid(x is < Layout.MinCoordinate or > Layout.MaxCoordinate || y is < Layout.MinCoordinate or > Layout.MaxCoordinate, "x", $"Coordinates run from {Layout.MinCoordinate} to {Layout.MaxCoordinate}.")
