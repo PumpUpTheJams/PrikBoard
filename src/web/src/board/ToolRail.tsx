@@ -1,6 +1,8 @@
 import type { ComponentType, PointerEvent, Ref } from 'react'
-import { noteColors, type NoteColor } from '../api/types'
-import { FrameIcon, ImageIcon, PostItIcon, SearchIcon, SelectIcon, TrashIcon } from './icons'
+import { noteColors, type InkColor, type NoteColor } from '../api/types'
+import { inkHex, strokeSizes } from './drawings'
+import { InkSwatches } from './DrawingView'
+import { FrameIcon, ImageIcon, PenIcon, PostItIcon, SearchIcon, SelectIcon, TrashIcon } from './icons'
 import type { Tool } from './tools'
 
 interface ToolDef {
@@ -28,6 +30,11 @@ interface ToolRailProps {
   trash?: 'shown' | 'over'
   trashRef?: Ref<HTMLButtonElement>
   onFillChange: (fill: NoteColor) => void
+  /** The pen's ink and base line width, picked in its flyout. */
+  ink: InkColor
+  onInkChange: (ink: InkColor) => void
+  strokeWidth: number
+  onStrokeWidthChange: (width: number) => void
   /** Opens the file picker to add images (an action, not a tool you stay in). */
   onAddImage: () => void
   /** Viewers only get Select and Search. */
@@ -40,11 +47,13 @@ interface ToolRailProps {
 /** The floating tool rail on the left of the board. */
 export function ToolRail(props: ToolRailProps) {
   const { tool, onToolChange, fill, onFillChange, onPostItPointerDown, trash, trashRef, onAddImage, readOnly, searching, onSearch } = props
+  const { ink, onInkChange, strokeWidth, onStrokeWidthChange } = props
   const button = (
     { tool: t, label, shortcut, Icon, title }: ToolDef,
     className = '',
     onPointerDown?: (e: PointerEvent<HTMLButtonElement>) => void,
     ref?: Ref<HTMLButtonElement>,
+    color?: string,
   ) => (
     <button
       key={t}
@@ -54,6 +63,7 @@ export function ToolRail(props: ToolRailProps) {
       aria-label={label}
       title={title ?? `${label} (${shortcut})`}
       aria-pressed={tool === t}
+      style={color ? { color } : undefined}
       onPointerDown={onPointerDown}
       onClick={() => onToolChange(t)}
     >
@@ -101,6 +111,28 @@ export function ToolRail(props: ToolRailProps) {
           <button type="button" className="rail-button" aria-label="Image" title="Image (I), or paste or drop one on the board" onClick={onAddImage}>
             <ImageIcon />
           </button>
+          <div className="rail-note">
+            {button({ tool: 'pen', label: 'Pen', shortcut: 'P', Icon: PenIcon }, '', undefined, undefined, inkHex[ink])}
+            {tool === 'pen' && (
+              <div className="fill-flyout pen-flyout" role="group" aria-label="Pen colour and size">
+                <InkSwatches value={ink} onChange={onInkChange} />
+                <span className="toolbar-divider" aria-hidden="true" />
+                {strokeSizes.map((s) => (
+                  <button
+                    key={s.width}
+                    type="button"
+                    className="pen-size"
+                    title={`${s.name} (${s.width} px)`}
+                    aria-label={`${s.name} (${s.width} px)`}
+                    aria-pressed={s.width === strokeWidth}
+                    onClick={() => onStrokeWidthChange(s.width)}
+                  >
+                    <span style={{ width: s.dot, height: s.dot }} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </>
       )}
       <span className="rail-divider" aria-hidden="true" />

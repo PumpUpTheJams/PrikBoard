@@ -7,13 +7,16 @@ import type {
   BucketDetail,
   DragKind,
   DragUpdate,
+  DrawingDetail,
   ImageDetail,
+  InkColor,
   NoteChanges,
   NoteColor,
   NoteDetail,
   Point,
   Rect,
   ResizeHandle,
+  StrokePoint,
   TagColor,
 } from '../api/types'
 import { presenceColor } from '../live/presence'
@@ -23,6 +26,8 @@ import { AssigneePicker } from './AssigneePicker'
 import { BoardImageView } from './BoardImageView'
 import { BoardSearch, type SearchResult } from './BoardSearch'
 import { ExpandedNote, type ExpandedNoteHandle } from './ExpandedNote'
+import { addPoint, inkHex, pressureOf, rememberPoints, strokeToDrawing } from './drawings'
+import { DrawingToolbar, DrawingView, StrokeSvg } from './DrawingView'
 import { TrashWindow, type OutgoingNote, type TrashWindowHandle } from './TrashWindow'
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
 import { delta, isDrag } from './gesture'
@@ -68,7 +73,7 @@ import { stepZoom } from './zoom'
 // Loaded on first open: the Markdown renderer is the biggest part of it.
 
 interface Selection {
-  kind: 'note' | 'bucket' | 'image'
+  kind: 'note' | 'bucket' | 'image' | 'drawing'
   id: string
   /** Just created: its name or title is focused so it can be typed straight away. */
   fresh?: boolean
@@ -79,7 +84,7 @@ interface Selection {
  * reloaded, so the dropped item doesn't jump back to its old place while the request is in flight.
  */
 type Gesture = GestureTarget & { start: Point; current: Point; done?: boolean }
-type ItemGesture = 'note' | 'bucket' | 'resize' | 'image' | 'image-resize'
+type ItemGesture = 'note' | 'bucket' | 'resize' | 'image' | 'image-resize' | 'drawing'
 /** `handle`: for resizes, the corner or edge being dragged. */
 type GestureTarget = { kind: ItemGesture; id: string; handle?: ResizeHandle } | { kind: 'draw' }
 
@@ -115,6 +120,15 @@ const IMAGE_OFFSET = { x: 180, y: 120 }
 const hints: Partial<Record<Tool, string>> = {
   note: 'Click anywhere to stick a post-it',
   bucket: 'Drag across the board to draw a bucket',
+  pen: 'Draw anywhere on the board. Esc or V to stop',
+}
+
+/** A pen stroke being drawn: its points in canvas pixels. A finished one (`done`) shows until the board has it. */
+interface Stroke {
+  points: StrokePoint[]
+  color: InkColor
+  width: number
+  done?: boolean
 }
 
 /** A drag applied on top of the server's layout: your own gesture, or someone else's relayed by live updates. */
@@ -132,7 +146,8 @@ const fromDragKind: Record<DragKind, ItemGesture> = {
   Image: 'image',
   ImageResize: 'image-resize',
 }
-const toDragKind = Object.fromEntries(Object.entries(fromDragKind).map(([k, v]) => [v, k])) as Record<ItemGesture, DragKind>
+/** Drags others are told about (not drawings, yet). */
+const toDragKind = Object.fromEntries(Object.entries(fromDragKind).map(([k, v]) => [v, k])) as Partial<Record<ItemGesture, DragKind>>
 
 /** Where in a post-it's title text a screen point is, as a character offset; undefined when it isn't on the text. */
 function caretAt(x: number, y: number): number | undefined {
@@ -173,6 +188,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const readOnly = board.yourRole === 'Viewer'
   const [tool, setTool] = useState<Tool>('select')
   const [fill, setFill] = useState<NoteColor>('Butter')
+  const [ink, setInk] = useState<InkColor>('Chalk')
+  const [strokeWidth, setStrokeWidth] = useState(4)
+  const [stroke, setStroke] = useState<Stroke | null>(null)
   const [selection, setSelection] = useState<Selection | null>(null)
   /** The opened post-it. A link to a post-it (/#/boards/{id}/notes/{id}) opens it when the board loads. */
   const [expanded, setExpanded] = useState<{ id: string; fresh: boolean } | null>(() => {
@@ -337,7 +355,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }, [margin.x, margin.y])
 
   // Background refreshes would fight with a drag in progress.
-  useEffect(() => setPaused(gesture !== null || noteBusy || deletedBusy), [gesture, noteBusy, deletedBusy, setPaused])
+  useEffect(
+    () => setPaused(gesture !== null || stroke !== null || noteBusy || deletedBusy),
+    [gesture, stroke, noteBusy, deletedBusy, setPaused],
+  )
 
   useLayoutEffect(() => {
     const el = scrollRef.current!
@@ -362,10 +383,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         setSelection(null)
       } else if (readOnly) {
         if (e.key.toLowerCase() === 'v') setTool('select')
-      } else if ((e.key === 'Delete' || e.key === 'Backspace') && (selection?.kind === 'note' || selection?.kind === 'image')) {
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selection && selection.kind !== 'bucket') {
         // No question first: the toast that follows has an Undo button, and Ctrl/Cmd+Z works too.
         e.preventDefault()
-        if (!e.repeat) (selection.kind === 'note' ? deleteNote : deleteImage)(selection.id)
+        if (!e.repeat) ({ note: deleteNote, image: deleteImage, drawing: deleteDrawing })[selection.kind](selection.id)
       } else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'd' && selection?.kind === 'note') {
         e.preventDefault()
         if (!e.repeat) duplicateNote(selection.id)
@@ -417,7 +438,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       if (target?.closest('input, textarea, select, [contenteditable="true"], [role="menu"], [role="alertdialog"]')) return
       if (target?.closest('[role="dialog"]') && !target.closest('.expanded')) return
       e.preventDefault()
-      if (readOnly || gesture || noteBusy) return
+      if (readOnly || gesture || stroke || noteBusy) return
       if (redo) undo.redo()
       else undo.undo()
     }
@@ -575,6 +596,37 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     )
   }
 
+  function deleteDrawing(id: string) {
+    const drawing = board.drawings.find((d) => d.id === id)
+    if (!drawing) return
+    if (selection?.id === id) setSelection(null)
+    void settle(
+      () => api.deleteDrawing(id),
+      () => step('Delete drawing', [deleted(target.drawing(id), snap.drawing(drawing))], { toast: 'Drawing deleted' }),
+    )
+  }
+
+  function recolorDrawing(drawing: DrawingDetail, color: InkColor) {
+    void settle(
+      () => api.updateDrawing(drawing.id, { color }),
+      (after) => step('Change ink', [patched(target.drawing(drawing.id), snap.drawing(drawing), snap.drawing(after), ['color'])]),
+    )
+  }
+
+  /** Saves a finished pen stroke as a drawing; the stroke shows until the reloaded board has it. */
+  function finishStroke(done: Stroke) {
+    setStroke(done)
+    const { x, y, points } = strokeToDrawing(done.points, done.width)
+    void runRec(
+      async () => {
+        const drawing = await api.createDrawing(board.id, { x, y, points, color: done.color, strokeWidth: done.width })
+        rememberPoints(drawing.id, points)
+        return drawing
+      },
+      (drawing) => step('Draw', [created(target.drawing(drawing.id), snap.drawing(drawing))]),
+    ).then(() => setStroke((s) => (s === done ? null : s)))
+  }
+
   /** The middle of what is on screen, in canvas pixels. */
   function viewportCenter(): Point {
     return { x: (view.x - origin.x + view.width / 2) / zoom, y: (view.y - origin.y + view.height / 2) / zoom }
@@ -624,7 +676,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
   // Tell the others about your drag while it is in progress (as a string, so an unchanged drag sends nothing).
   const sentDrag =
-    dragging && !dragging.done
+    dragging && !dragging.done && toDragKind[dragging.kind]
       ? JSON.stringify({ kind: toDragKind[dragging.kind], id: dragging.id, dx: delta(dragging).x, dy: delta(dragging).y, handle: dragging.handle })
       : null
   useEffect(() => onDrag?.(sentDrag ? (JSON.parse(sentDrag) as DragUpdate) : null), [sentDrag, onDrag])
@@ -666,6 +718,16 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       return { ...image, ...resized, ...snapPoint(resized) }
     }
     return image
+  }
+
+  function drawingRect(drawing: DrawingDetail): Rect {
+    const drag = dragOf(drawing.id)
+    if (drag?.kind === 'drawing') return { ...drawing, ...snapPoint({ x: drawing.x + drag.d.x, y: drawing.y + drag.d.y }) }
+    // A moving bucket carries its drawings along, as the server does.
+    const bucket = dragOf(drawing.bucketId)?.kind === 'bucket' && board.buckets.find((b) => b.id === drawing.bucketId)
+    if (!bucket) return drawing
+    const moved = bucketRect(bucket)
+    return { ...drawing, x: onBoard(drawing.x + moved.x - bucket.x), y: onBoard(drawing.y + moved.y - bucket.y) }
   }
 
   /** Where someone else's drag is right now, to outline it with their name. */
@@ -892,9 +954,12 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       return
     }
     if (kind === 'note' || kind === 'image') e.currentTarget.focus({ preventScroll: true })
+    // A drawing has nothing to focus: let go of whatever had it, so Delete reaches the board.
+    if (kind === 'drawing' && document.activeElement instanceof HTMLElement) document.activeElement.blur()
     const onTitle = e.target instanceof Element && e.target.closest('.post-it-title') !== null
     titlePress.current = kind === 'note' && onTitle ? id : null
-    setSelection({ kind: kind === 'note' ? 'note' : kind === 'image' || kind === 'image-resize' ? 'image' : 'bucket', id })
+    const selected = kind === 'note' || kind === 'drawing' ? kind : kind === 'image' || kind === 'image-resize' ? 'image' : 'bucket'
+    setSelection({ kind: selected, id })
     if (move) beginGesture(e, { kind, id, handle })
   }
 
@@ -909,7 +974,14 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       return
     }
     if (e.button !== 0) return
-    if (tool === 'bucket') {
+    if (tool === 'pen') {
+      if (readOnly) return
+      e.preventDefault()
+      setQuickEdit(null)
+      setSelection(null)
+      canvasRef.current!.setPointerCapture(e.pointerId)
+      setStroke({ points: addPoint([], toCanvas(e), pressureOf(e)), color: ink, width: strokeWidth })
+    } else if (tool === 'bucket') {
       e.preventDefault()
       beginGesture(e, { kind: 'draw' })
     } else if (tool === 'note') {
@@ -1002,6 +1074,12 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       const el = scrollRef.current!
       el.scrollLeft = pan.left - (e.clientX - pan.x)
       el.scrollTop = pan.top - (e.clientY - pan.y)
+    } else if (stroke && !stroke.done) {
+      // Every point the pointer went through since the last event, for a smooth line.
+      const events = e.nativeEvent.getCoalescedEvents?.() ?? []
+      let points = stroke.points
+      for (const ev of events.length > 0 ? events : [e.nativeEvent]) points = addPoint(points, toCanvas(ev), pressureOf(ev))
+      if (points !== stroke.points) setStroke({ ...stroke, points })
     } else if (gesture && !gesture.done) {
       const next = { ...gesture, current: toCanvas(e) }
       const client = { x: e.clientX, y: e.clientY }
@@ -1022,6 +1100,11 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   function onCanvasPointerUp(e: PointerEvent) {
     if (pan) {
       setPan(null)
+      return
+    }
+    if (stroke && !stroke.done) {
+      // The last move has the end of the line already (a pen lifting off reports no pressure).
+      finishStroke({ ...stroke, done: true })
       return
     }
     if (!gesture || gesture.done) return
@@ -1146,22 +1229,31 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         () => api.updateImage(id, moving ? { x, y } : { x, y, width }),
         imageStep(moving ? 'Move image' : 'Resize image', image, ['x', 'y', 'width']),
       )
+    } else if (gesture.kind === 'drawing') {
+      const drawing = board.drawings.find((d) => d.id === id)!
+      const { x, y } = drawingRect(drawing)
+      void settle(
+        () => api.updateDrawing(id, { x, y }),
+        (after) => step('Move drawing', [patched(target.drawing(id), snap.drawing(drawing), snap.drawing(after), ['x', 'y'])]),
+      )
     } else if (gesture.kind === 'bucket') {
-      // A moved bucket carries its post-its and images along; undoing the move takes exactly those back.
+      // A moved bucket carries its post-its, images and drawings along; undoing the move takes exactly those back.
       const bucket = board.buckets.find((b) => b.id === id)!
       const carried = board.notes.filter((n) => n.bucketId === id)
       const carriedImages = board.images.filter((i) => i.bucketId === id)
+      const carriedDrawings = board.drawings.filter((d) => d.bucketId === id)
       const { x, y } = bucketRect(bucket)
       const along = (item: Point, d: Point) => ({ x: onBoard(item.x + d.x), y: onBoard(item.y + d.y) })
       void settle(
         () => api.updateBucket(id, { x, y }),
         (moved) => {
           const d = { x: moved.x - bucket.x, y: moved.y - bucket.y }
-          const carry = { notes: carried.map((n) => n.id), images: carriedImages.map((i) => i.id) }
+          const carry = { notes: carried.map((n) => n.id), images: carriedImages.map((i) => i.id), drawings: carriedDrawings.map((d) => d.id) }
           return step('Move bucket', [
             patched(target.bucket(id, carry), snap.bucket(bucket), snap.bucket(moved), ['x', 'y']),
             ...carried.map((n) => patched(target.note(n.id), { x: n.x, y: n.y }, along(n, d), ['x', 'y'], true)),
             ...carriedImages.map((i) => patched(target.image(i.id), { x: i.x, y: i.y }, along(i, d), ['x', 'y'], true)),
+            ...carriedDrawings.map((dr) => patched(target.drawing(dr.id), { x: dr.x, y: dr.y }, along(dr, d), ['x', 'y'], true)),
           ])
         },
       )
@@ -1181,6 +1273,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const images = board.images
     .filter((i) => i.noteId === null && !(i.bucketId && collapsedIds.has(i.bucketId)))
     .map((image) => ({ image, rect: imageRect(image) }))
+  // Drawings in a collapsed bucket fold away too.
+  const drawings = board.drawings
+    .filter((d) => d.noteId === null && !(d.bucketId && collapsedIds.has(d.bucketId)))
+    .map((drawing) => ({ drawing, rect: drawingRect(drawing) }))
   /** How each tag shows: its saved colour, or one being saved or previewed. */
   const tagColors = tagColorsOf(board.tags, tagSaving, tagPreview)
   /** How many images are attached to each post-it. */
@@ -1212,8 +1308,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   // The canvas reaches from the leftmost and topmost item (or 0,0) to past the furthest one; the margin around it fills
   // the rest of the viewport. Items left of or above 0,0 grow it that way, while they are dragged there too.
   const low = {
-    x: Math.min(0, ...buckets.map((b) => b.rect.x), ...notes.map((n) => n.point.x), ...images.map((i) => i.rect.x)),
-    y: Math.min(0, ...buckets.map((b) => b.rect.y), ...notes.map((n) => n.point.y), ...images.map((i) => i.rect.y)),
+    x: Math.min(0, ...buckets.map((b) => b.rect.x), ...notes.map((n) => n.point.x), ...images.map((i) => i.rect.x), ...drawings.map((d) => d.rect.x)),
+    y: Math.min(0, ...buckets.map((b) => b.rect.y), ...notes.map((n) => n.point.y), ...images.map((i) => i.rect.y), ...drawings.map((d) => d.rect.y)),
   }
   /** Where canvas point 0,0 is in the scrolled area. */
   const origin = { x: corner.x - low.x * zoom, y: corner.y - low.y * zoom }
@@ -1225,6 +1321,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         ...buckets.map((b) => b.rect.x + b.rect.width),
         ...notes.map((n) => n.point.x + NOTE_WIDTH),
         ...images.map((i) => i.rect.x + i.rect.width),
+        ...drawings.map((d) => d.rect.x + d.rect.width),
       ),
     height:
       CANVAS_MARGIN +
@@ -1233,6 +1330,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         ...buckets.map((b) => b.rect.y + b.rect.height),
         ...notes.map((n) => n.point.y + NOTE_HEIGHT),
         ...images.map((i) => i.rect.y + i.rect.height),
+        ...drawings.map((d) => d.rect.y + d.rect.height),
       ),
   }
 
@@ -1248,6 +1346,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
   const selectedBucket = selection?.kind === 'bucket' ? board.buckets.find((b) => b.id === selection.id) : undefined
   const selectedImage = selection?.kind === 'image' ? board.images.find((i) => i.id === selection.id) : undefined
+  const selectedDrawing = selection?.kind === 'drawing' ? drawings.find((d) => d.drawing.id === selection.id) : undefined
   const expandedNote = expanded && board.notes.find((n) => n.id === expanded.id)
   const countIn = (bucketId: string) => board.notes.filter((n) => n.bucketId === bucketId).length
   // Filter on tags that still exist (one may have been renamed or deleted meanwhile); any of them matches.
@@ -1336,6 +1435,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             onPointerUp={onCanvasPointerUp}
             onPointerCancel={() => {
               setGesture(null)
+              setStroke((s) => (s && !s.done ? null : s))
               setPan(null)
               setIncoming(null)
               setLinkDrop(null)
@@ -1345,6 +1445,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             onLostPointerCapture={() => {
               setPan(null)
               setGesture((g) => (g && !g.done ? null : g))
+              setStroke((s) => (s && !s.done ? null : s))
               setIncoming(null)
               setLinkDrop(null)
               setOverTrash(false)
@@ -1501,6 +1602,29 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               />
             ))}
 
+            {drawings.map(({ drawing, rect }) => (
+              <DrawingView
+                key={drawing.id}
+                drawing={drawing}
+                rect={rect}
+                selected={selectedDrawing?.drawing.id === drawing.id}
+                lifted={dragging?.id === drawing.id && !dragging.done}
+                onPointerDown={(e) => onItemPointerDown(e as PointerEvent<HTMLElement>, 'drawing', drawing.id)}
+              />
+            ))}
+
+            {stroke && <StrokeSvg points={stroke.points} color={inkHex[stroke.color]} strokeWidth={stroke.width} at={{ x: 0, y: 0 }} />}
+
+            {selectedDrawing && !readOnly && !(dragging?.id === selectedDrawing.drawing.id && !dragging.done) && (
+              <DrawingToolbar
+                drawing={selectedDrawing.drawing}
+                rect={selectedDrawing.rect}
+                zoom={zoom}
+                onRecolor={(color) => recolorDrawing(selectedDrawing.drawing, color)}
+                onDelete={() => deleteDrawing(selectedDrawing.drawing.id)}
+              />
+            )}
+
             {remoteDrags
               .filter((r) => !r.endedAt && r.id !== dragging?.id)
               .map((r) => {
@@ -1522,6 +1646,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         onToolChange={setTool}
         fill={fill}
         onFillChange={setFill}
+        ink={ink}
+        onInkChange={setInk}
+        strokeWidth={strokeWidth}
+        onStrokeWidthChange={setStrokeWidth}
         onPostItPointerDown={onPostItPointerDown}
         trash={(draggedNote && !dragging?.done) || newPostIt ? (overTrash ? 'over' : 'shown') : undefined}
         trashRef={trashRef}
@@ -1564,8 +1692,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         {hint && <div className="canvas-hint">{hint}</div>}
       </div>
       <ViewControls
-        undo={readOnly ? undefined : { label: undo.nextUndo, disabled: !!gesture || noteBusy, onClick: undo.undo }}
-        redo={readOnly ? undefined : { label: undo.nextRedo, disabled: !!gesture || noteBusy, onClick: undo.redo }}
+        undo={readOnly ? undefined : { label: undo.nextUndo, disabled: !!gesture || !!stroke || noteBusy, onClick: undo.undo }}
+        redo={readOnly ? undefined : { label: undo.nextRedo, disabled: !!gesture || !!stroke || noteBusy, onClick: undo.redo }}
         zoom={zoom}
         onZoom={(direction) => zoomTo(stepZoom(zoom, direction))}
         onZoomReset={() => zoomTo(1)}
