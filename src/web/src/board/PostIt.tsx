@@ -4,6 +4,7 @@ import { AvatarStack } from '../components/Avatar'
 import { Highlight } from './Highlight'
 import { CheckIcon, ExpandIcon, LinkIcon } from './icons'
 import { NOTE_HEIGHT, NOTE_WIDTH } from './layout'
+import { keepPress } from './gesture'
 import { tagColorClass, type TagColors } from './tagColors'
 import { useCopyLink } from './useCopyLink'
 
@@ -105,7 +106,8 @@ export function PostIt(props: PostItProps) {
     note.assignees.length > 0 ? <AvatarStack assignees={note.assignees} /> : <span className="avatar-slot" aria-hidden="true" />
   const contents = note.blocks.length + images
   const summary = contentSummary(note, images)
-  // The corner's buttons work on a click of their own: no drag, and a double-click doesn't expand the post-it twice.
+  // The corner's buttons work on a click of their own: no drag (keepPress, which lets the middle button pan), and a
+  // double-click doesn't expand the post-it twice.
   const stop = (e: PointerEvent | MouseEvent) => e.stopPropagation()
 
   return (
@@ -135,7 +137,7 @@ export function PostIt(props: PostItProps) {
             {contents}
           </span>
         )}
-        <button type="button" className="expand" aria-label={`Expand ${title}`} title="Expand" onPointerDown={stop} onClick={onExpand}>
+        <button type="button" className="expand" aria-label={`Expand ${title}`} title="Expand" onPointerDown={keepPress} onClick={onExpand}>
           <ExpandIcon size={13} />
         </button>
         <button
@@ -143,7 +145,7 @@ export function PostIt(props: PostItProps) {
           className={copied ? 'copied' : undefined}
           aria-label={`Copy a link to ${title}`}
           title="Copy link"
-          onPointerDown={stop}
+          onPointerDown={keepPress}
           onDoubleClick={stop}
           onClick={copy}
         >
@@ -176,8 +178,9 @@ export function PostIt(props: PostItProps) {
 }
 
 /**
- * The title edited in place: Enter (or clicking elsewhere) saves, Escape cancels. Pointer and double-click events stay
- * inside, so selecting text doesn't drag the post-it and a double-click selects a word instead of expanding it.
+ * The title edited in place: Enter (or clicking elsewhere) saves, Escape cancels. Presses (but the middle button's, which
+ * pans) and double-clicks stay inside, so selecting text doesn't drag the post-it and a double-click selects a word
+ * instead of expanding it.
  */
 function TitleInput(props: { value: string; caret?: number; onSave: (title: string) => void; onCancel: () => void }) {
   const { value, caret, onSave, onCancel } = props
@@ -217,7 +220,7 @@ function TitleInput(props: { value: string; caret?: number; onSave: (title: stri
       value={draft}
       maxLength={200}
       onChange={(e) => setDraft(e.target.value)}
-      onPointerDown={stop}
+      onPointerDown={keepPress}
       onDoubleClick={stop}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
@@ -243,7 +246,7 @@ function QuickEdit({ className, label, onOpen, children }: { className: string; 
       className={`${className} quick-edit`}
       aria-label={label}
       aria-haspopup="dialog"
-      onPointerDown={stop}
+      onPointerDown={keepPress}
       onDoubleClick={stop}
       onClick={(e) => onOpen(e.currentTarget.getBoundingClientRect())}
     >
