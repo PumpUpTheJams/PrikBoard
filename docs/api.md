@@ -94,6 +94,7 @@ claude mcp add --transport http prikboard http://localhost:5173/mcp --header "Au
 | `create_note` | In a bucket by name or id (default: the first bucket). `assignees` are names or principal ids from `people`. `body`, `checklist` and `links` become its first Text, Checklist and Links blocks |
 | `update_note` | Same PATCH rules as updateNote; `assignees` by name or id |
 | `add_note_block`, `update_note_block`, `delete_note_block` | A note's content. A block is named by its id, its title, or its kind when the note has one block of that kind; `delete_note_block` is marked destructive |
+| `add_image` | Like uploadImage, with the file base64-encoded in `data` (a `data:` URL works too): attached to a note (`noteId`) or on the board (`boardId`), in a free spot unless `x` and `y` are given |
 | `move_note` | To a bucket by name or id; the server finds a free spot |
 | `set_working` | Assign yourself and show (or hide) the working halo, like setNoteWorking |
 | `delete_note`, `restore_note` | `delete_note` is marked destructive, so clients ask first; `restore_note` brings a deleted note back within 7 days |
