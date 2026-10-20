@@ -195,7 +195,7 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | deleteBoardTag | `DELETE /api/boards/{boardId}/tags/{tagId}` | Delete a tag from the board and from every note |
 | restoreBoardTag | `POST /api/boards/{boardId}/tags/{tagId}/restore` | Bring back a deleted tag and put it back (last) on the notes it was removed from (`409` when a tag has that name again) |
 | uploadImage | `POST /api/boards/{boardId}/images?fileName=&noteId=&x=&y=&width=&caption=` | Add an image or GIF: the file itself is the request body, with its content type. On the board at `x`/`y` (default: right of everything), or attached to a note with `noteId`, at `x`/`y` on its canvas (default: a free spot) |
-| getImageContent | `GET /api/images/{imageId}/content` | Download the image file |
+| getImageContent | `GET /api/images/{imageId}/content` | Download the image file: inline, under its own `fileName`. Cacheable for good (ETag, `304` on `If-None-Match`), with byte ranges |
 | updateImage | `PATCH /api/images/{imageId}` | Move (`x`, `y`), resize (`width`) or re-caption an image; attach it to a note (`noteId`) or put it back on the board (`detach: true`) |
 | deleteImage | `DELETE /api/images/{imageId}` | Delete an image |
 | restoreImage | `POST /api/images/{imageId}/restore` | Bring back a deleted image (`409` while the note it was attached to is deleted: restore the note) |
@@ -273,7 +273,7 @@ pb -X POST "localhost:5080/api/boards/{boardId}/images?fileName=ingest-errors.pn
 
 - **Formats.** PNG, JPEG, GIF and WebP up to 10 MB and 20000 pixels on a side. The server detects the format and pixel size from the file itself; SVG is refused because it can carry script.
 - **Size.** `width` is the display width in canvas pixels, snapped to the grid and between 80 and 4000. The height always follows the aspect ratio. Without a width, an image keeps its own width up to 360.
-- **Download** images from `contentUrl` with the same authentication as the rest of the API. The content of an image never changes, so it can be cached.
+- **Download** images from `contentUrl` with the same authentication as the rest of the API. The content of an image never changes, so it can be cached for good; revalidating with its `ETag` (`If-None-Match`) or `Last-Modified` answers `304`, and `Range` requests are served. The file comes with `Content-Disposition: inline` and its `fileName`, so saving it keeps the name.
 
 ## Conventions
 

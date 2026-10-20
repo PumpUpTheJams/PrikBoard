@@ -45,7 +45,7 @@ public record ImageDetail(
     DateTimeOffset UpdatedAt)
 {
     public static ImageDetail From(BoardImage image) =>
-        new(image.Id, image.BoardId, image.NoteId, image.BucketId, image.FileName, image.ContentType, image.Size, image.PixelWidth,
+        new(image.Id, image.BoardId, image.NoteId, image.BucketId, image.File!.FileName, image.File.ContentType, image.File.Size, image.PixelWidth,
             image.PixelHeight, image.X, image.Y, image.Width, image.Height, image.Caption, image.AddedBy?.ShownName ?? "Unknown", image.AddedById,
             $"/api/images/{image.Id}/content", image.CreatedAt, image.UpdatedAt);
 }

@@ -10,12 +10,14 @@ using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using PrikBoard.Api.Auth;
 using PrikBoard.Api.Data;
+using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
 
 /// <summary>
 /// Runs the real API in memory against a throwaway PostgreSQL database, created on the server from
-/// <c>compose.yaml</c> (or the one in <c>PRIKBOARD_TEST_POSTGRES</c>) and dropped again on dispose.
+/// <c>compose.yaml</c> (or the one in <c>PRIKBOARD_TEST_POSTGRES</c>), and a throwaway folder for its files, both deleted
+/// again on dispose.
 /// </summary>
 public class PrikBoardApiFactory : WebApplicationFactory<Program>
 {
@@ -34,10 +36,17 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
         Database = $"prikboard_tests_{Guid.NewGuid():N}",
     }.ConnectionString;
 
+    /// <summary>
+    /// Where this API keeps its files (<c>Storage:Path</c>). Each factory has its own, so one's sweep never sees another's
+    /// files as strays.
+    /// </summary>
+    public string FilesPath { get; } = Path.Combine(Path.GetTempPath(), $"prikboard_tests_{Guid.NewGuid():N}");
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Startup migrations create the database.
         builder.UseSetting("ConnectionStrings:PrikBoard", _connectionString);
+        builder.UseSetting(FileStore.PathKey, FilesPath);
         // Not Development, so the developer's user secrets stay out. appsettings.json ships a GitHub client id;
         // clearing it starts every test without sign-in providers, and test classes add the ones they need.
         builder.UseEnvironment("Testing");
@@ -58,13 +67,54 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
     /// <summary>A GitHub picture URL as the provider would hand it out.</summary>
     public const string GitHubAvatar = "https://avatars.githubusercontent.com/u/583231?v=4";
 
+    /// <summary>Another account's picture URL, which the fake host answers with <see cref="OtherAvatar"/>.</summary>
+    public const string OtherGitHubAvatar = "https://avatars.githubusercontent.com/u/583232?v=4";
+
+    public static readonly byte[] OtherAvatar = TestImages.Png(2, 2);
+
     private class FakeAvatarHost : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(request.RequestUri!.AbsolutePath.StartsWith("/u/")
-                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(TestAvatar) }
-                : new HttpResponseMessage(HttpStatusCode.NotFound));
+            Task.FromResult(request.RequestUri!.AbsolutePath switch
+            {
+                "/u/583232" => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(OtherAvatar) },
+                var path when path.StartsWith("/u/") => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(TestAvatar) },
+                _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+            });
     }
+
+    /// <summary>
+    /// Runs the file sweep as the hourly purger does, at <paramref name="now"/>; by default two days on, past every grace
+    /// period. Answers how many files went.
+    /// </summary>
+    public async Task<int> SweepFilesAsync(DateTimeOffset? now = null)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        return await Services.GetRequiredService<FileStore>().SweepAsync(
+            scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>(), now ?? DateTimeOffset.UtcNow.AddDays(2), CancellationToken.None);
+    }
+
+    /// <summary>The file row of an image (deleted ones too) and where its file is on disk.</summary>
+    public async Task<(StoredFile File, string Path)> ImageFileAsync(Guid imageId)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var file = await scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>().Images
+            .IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+            .Where(i => i.Id == imageId).Select(i => i.File!).SingleAsync();
+        return (file, Services.GetRequiredService<FileStore>().PathOf(file));
+    }
+
+    /// <summary>Where a person's avatar file is on disk, or null without one.</summary>
+    public async Task<string?> AvatarPathAsync(Guid userId)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var file = await scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>().Users
+            .Where(u => u.Id == userId).Select(u => u.AvatarFile).SingleAsync();
+        return file is null ? null : Services.GetRequiredService<FileStore>().PathOf(file);
+    }
+
+    /// <summary>Every file in <see cref="FilesPath"/>.</summary>
+    public string[] FilesOnDisk() => Directory.GetFiles(FilesPath, "*", SearchOption.AllDirectories);
 
     /// <summary>A client without redirects, so tests can inspect login responses.</summary>
     public HttpClient CreateAnonymousClient() => CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -164,5 +214,6 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
             await scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>().Database.EnsureDeletedAsync();
         }
         await base.DisposeAsync();
+        if (Directory.Exists(FilesPath)) Directory.Delete(FilesPath, recursive: true);
     }
 }

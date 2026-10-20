@@ -31,6 +31,9 @@ builder.Services.AddSingleton<IUserIdProvider, PrincipalUserIds>();
 builder.Services.AddSingleton<LiveViewers>();
 builder.Services.AddSingleton<BoardEvents>();
 builder.Services.AddHostedService<TombstonePurger>();
+// Resolved (and so validated) at startup below; see FileStore.FromConfiguration.
+builder.Services.AddSingleton(services => FileStore.FromConfiguration(
+    services.GetRequiredService<IConfiguration>(), services.GetRequiredService<IHostEnvironment>(), services.GetRequiredService<ILogger<FileStore>>()));
 builder.Services.AddHttpClient<ProviderAvatars>(http =>
 {
     http.Timeout = TimeSpan.FromSeconds(10);
@@ -125,13 +128,16 @@ builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document,
 
 var app = builder.Build();
 
+// Fail fast when Auth:HashKey is missing outside Development, rather than on the first sign-in, and when Storage:Path is
+// missing or not writable, before the migrations move files there.
+app.Services.GetRequiredService<KeyedHasher>();
+var files = app.Services.GetRequiredService<FileStore>();
+
 await using (var scope = app.Services.CreateAsyncScope())
 {
-    await scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>().Database.MigrateAsync();
+    await StartupMigration.RunAsync(scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>(), files,
+        app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(StartupMigration)), CancellationToken.None);
 }
-
-// Fail fast when Auth:HashKey is missing outside Development, rather than on the first sign-in.
-app.Services.GetRequiredService<KeyedHasher>();
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
