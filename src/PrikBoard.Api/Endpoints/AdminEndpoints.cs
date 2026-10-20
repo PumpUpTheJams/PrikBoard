@@ -256,6 +256,7 @@ public static class AdminEndpoints
 
         var tokenHashes = await db.AccessTokens.Where(t => t.OwnerId == userId).Select(t => t.TokenHash).ToListAsync(ct);
         // The database cascades to their sign-ins, memberships and tokens, and clears them from notes, images and invites.
+        // Their avatar's file goes at the next sweep.
         await db.Users.Where(u => u.Id == userId).ExecuteDeleteAsync(ct);
         await transaction.CommitAsync(ct);
 

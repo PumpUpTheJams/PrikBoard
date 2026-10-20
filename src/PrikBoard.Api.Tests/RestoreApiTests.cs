@@ -196,8 +196,16 @@ public class RestoreApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
             await db.Images.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete]).Where(i => i.Id == image.Id)
                 .ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, longAgo));
 
+            var fileId = await db.Images.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete]).Where(i => i.Id == image.Id)
+                .Select(i => i.FileId).SingleAsync();
             Assert.Equal(2, await Tombstones.PurgeAsync(db, DateTimeOffset.UtcNow - Tombstones.Retention, CancellationToken.None));
-            Assert.False(await db.ImageContents.AnyAsync(c => c.ImageId == image.Id));
+
+            // The purged image's file goes at the next sweep.
+            var files = scope.ServiceProvider.GetRequiredService<FileStore>();
+            Assert.True(File.Exists(files.PathOf(fileId)));
+            Assert.True(await files.SweepAsync(db, DateTimeOffset.UtcNow.AddDays(2), CancellationToken.None) >= 1);
+            Assert.False(await db.StoredFiles.AnyAsync(f => f.Id == fileId));
+            Assert.False(File.Exists(files.PathOf(fileId)));
         }
 
         Assert.Equal(HttpStatusCode.NotFound, (await _client.PostAsync($"/api/notes/{old.Id}/restore", null)).StatusCode);

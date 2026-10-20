@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Net.Http.Headers;
 using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
@@ -33,7 +32,8 @@ public static class ImageEndpoints
             .RequireBoardRole(BoardRole.Viewer, BoardScope.Image)
             .WithName("getImageContent")
             .WithSummary("Download an image")
-            .WithDescription("Returns the image file with its content type. An image's content never changes, so it can be cached.");
+            .WithDescription("Returns the image file with its content type, inline but with its own name for saving. An image's content " +
+                             "never changes, so it can be cached for good; revalidating with its ETag answers 304, and byte ranges are served.");
 
         images.MapPatch("/images/{imageId:guid}", UpdateImage)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Image)
@@ -62,7 +62,7 @@ public static class ImageEndpoints
     }
 
     private static async Task<Results<Created<ImageDetail>, NotFound, ValidationProblem, ProblemHttpResult>> UploadImage(
-        Guid boardId, Stream body, HttpRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct,
+        Guid boardId, Stream body, HttpRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, FileStore files, CancellationToken ct,
         string? fileName = null, Guid? noteId = null, int? x = null, int? y = null, int? width = null, string? caption = null)
     {
         if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
@@ -102,43 +102,33 @@ public static class ImageEndpoints
         {
             BoardId = boardId,
             NoteId = noteId,
-            FileName = CleanFileName(fileName, info.ContentType),
-            ContentType = info.ContentType,
-            Size = data.Length,
             PixelWidth = info.Width,
             PixelHeight = info.Height,
             Caption = PatchText.Apply(null, caption),
             AddedBy = await db.Principals.FindAsync([principal.PrincipalId()], ct),
-            Content = new ImageContent { Data = data },
+            File = StoredFile.For(CleanFileName(fileName, info.ContentType), info.ContentType, data),
         };
         image.Resize(width ?? Math.Min(info.Width, Layout.DefaultImageWidth));
         await PlaceAsync(db, image, note, x, y, ct);
 
+        await files.WriteAsync(image.File, data, ct);
         db.Images.Add(image);
         await db.SaveChangesAsync(ct);
         return TypedResults.Created($"/api/images/{image.Id}", ImageDetail.From(image));
     }
 
-    private static async Task<Results<FileContentHttpResult, NotFound>> GetImageContent(
-        Guid imageId, HttpResponse response, PrikBoardDbContext db, CancellationToken ct)
+    private static async Task<Results<FileContentHttpResult, PhysicalFileHttpResult, NotFound>> GetImageContent(
+        Guid imageId, HttpResponse response, PrikBoardDbContext db, FileStore files, CancellationToken ct)
     {
-        var image = await db.Images.AsNoTracking()
-            .Where(i => i.Id == imageId)
-            .Select(i => new { i.ContentType, i.FileName, i.Content!.Data })
-            .FirstOrDefaultAsync(ct);
-        if (image is null) return TypedResults.NotFound();
-
-        response.Headers[HeaderNames.XContentTypeOptions] = "nosniff";
-        response.Headers[HeaderNames.ContentDisposition] = new ContentDispositionHeaderValue("inline") { FileNameStar = image.FileName }.ToString();
-        // Content never changes for an id, and every request is authenticated, so private caching is safe.
-        response.Headers[HeaderNames.CacheControl] = "private, max-age=31536000, immutable";
-        return TypedResults.File(image.Data, image.ContentType, entityTag: new EntityTagHeaderValue($"\"{imageId:N}\""));
+        var file = await db.Images.AsNoTracking().Where(i => i.Id == imageId).Select(i => i.File).FirstOrDefaultAsync(ct);
+        if (file is null) return TypedResults.NotFound();
+        return await StoredFileResults.ServeAsync(file, files, response, ct);
     }
 
     private static async Task<Results<Ok<ImageDetail>, NotFound, ValidationProblem>> UpdateImage(
         Guid imageId, UpdateImageRequest request, PrikBoardDbContext db, CancellationToken ct)
     {
-        var image = await db.Images.Include(i => i.AddedBy).FirstOrDefaultAsync(i => i.Id == imageId, ct);
+        var image = await db.Images.Include(i => i.AddedBy).Include(i => i.File).FirstOrDefaultAsync(i => i.Id == imageId, ct);
         if (image is null) return TypedResults.NotFound();
 
         var detach = request.Detach == true;
@@ -208,6 +198,7 @@ public static class ImageEndpoints
     {
         var image = await db.Images.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
             .Include(i => i.AddedBy)
+            .Include(i => i.File)
             .FirstOrDefaultAsync(i => i.Id == imageId, ct);
         if (image is null) return TypedResults.NotFound();
         if (image.DeletedAt is null) return TagEndpoints.NotDeleted("image");
@@ -240,7 +231,7 @@ public static class ImageEndpoints
     internal static string CleanFileName(string? fileName, string contentType)
     {
         var name = new string(Path.GetFileName(fileName ?? "").Where(c => !char.IsControl(c)).ToArray()).Trim();
-        return name.Length > 0 ? Truncate(name, 255) : $"image.{contentType["image/".Length..].Replace("jpeg", "jpg")}";
+        return name.Length > 0 ? Truncate(name, 255) : $"image.{ImageFormats.ExtensionOf(contentType)}";
     }
 
     private static string Truncate(string value, int length) => value.Length <= length ? value : value[..length];

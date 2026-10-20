@@ -3,7 +3,9 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
+using Microsoft.Extensions.DependencyInjection;
 using PrikBoard.Api.Contracts;
+using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
@@ -40,6 +42,109 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
 
         var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
         Assert.Equal(image.Id, Assert.Single(snapshot!.Images).Id);
+    }
+
+    [Fact]
+    public async Task An_uploaded_image_is_kept_as_a_file_named_after_its_id_and_downloads_with_its_own_name()
+    {
+        var board = await CreateBoard("Files");
+        var png = TestImages.Png(40, 30);
+        const string name = "Ingest errors – week 3.png";
+
+        var image = await Upload(board.Id, png, "image/png", $"?fileName={Uri.EscapeDataString(name)}");
+
+        var (file, path) = await factory.ImageFileAsync(image.Id);
+        Assert.Equal((name, "image/png", png.Length), (file.FileName, file.ContentType, file.Size));
+        Assert.Equal(png, await File.ReadAllBytesAsync(path));
+        Assert.Equal(file.Id.ToString("N"), Path.GetFileName(path));
+
+        var response = await _client.GetAsync(image.ContentUrl);
+        var disposition = response.Content.Headers.ContentDisposition!;
+        Assert.Equal(("inline", name), (disposition.DispositionType, disposition.FileNameStar));
+        var cache = response.Headers.CacheControl!;
+        Assert.True(cache.Private);
+        Assert.Equal(TimeSpan.FromDays(365), cache.MaxAge);
+        Assert.Contains(cache.Extensions, e => e.Name == "immutable");
+    }
+
+    [Fact]
+    public async Task Image_downloads_answer_not_modified_to_a_matching_etag_or_date_and_serve_byte_ranges()
+    {
+        var board = await CreateBoard("Caching");
+        var png = TestImages.Png(40, 30);
+        var image = await Upload(board.Id, png, "image/png");
+        var first = await _client.GetAsync(image.ContentUrl);
+
+        using var byTag = new HttpRequestMessage(HttpMethod.Get, image.ContentUrl) { Headers = { IfNoneMatch = { first.Headers.ETag! } } };
+        Assert.Equal(HttpStatusCode.NotModified, (await _client.SendAsync(byTag)).StatusCode);
+        using var byDate = new HttpRequestMessage(HttpMethod.Get, image.ContentUrl) { Headers = { IfModifiedSince = first.Content.Headers.LastModified } };
+        Assert.Equal(HttpStatusCode.NotModified, (await _client.SendAsync(byDate)).StatusCode);
+
+        using var range = new HttpRequestMessage(HttpMethod.Get, image.ContentUrl) { Headers = { Range = new RangeHeaderValue(0, 7) } };
+        var part = await _client.SendAsync(range);
+        Assert.Equal(HttpStatusCode.PartialContent, part.StatusCode);
+        Assert.Equal(png[..8], await part.Content.ReadAsByteArrayAsync());
+    }
+
+    [Fact]
+    public async Task A_small_image_keeps_downloading_from_memory_but_a_large_one_needs_its_file()
+    {
+        var board = await CreateBoard("Memory");
+        var small = await Upload(board.Id, TestImages.Png(40, 30), "image/png");
+        // Over the 1 MB that is kept in memory.
+        var large = await Upload(board.Id, [.. TestImages.Png(4000, 3000), .. new byte[1024 * 1024]], "image/png");
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync(small.ContentUrl)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync(large.ContentUrl)).StatusCode);
+
+        File.Delete((await factory.ImageFileAsync(small.Id)).Path);
+        File.Delete((await factory.ImageFileAsync(large.Id)).Path);
+
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync(small.ContentUrl)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync(large.ContentUrl)).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_deleted_image_keeps_its_file_through_the_sweep_but_a_deleted_board_takes_its_files_along()
+    {
+        var board = await CreateBoard("Sweep");
+        var doomed = await CreateBoard("Doomed");
+        var deleted = await Upload(board.Id, TestImages.Png(40, 30), "image/png");
+        var onDoomed = await Upload(doomed.Id, TestImages.Png(40, 30), "image/png");
+        var (deletedPath, doomedPath) = ((await factory.ImageFileAsync(deleted.Id)).Path, (await factory.ImageFileAsync(onDoomed.Id)).Path);
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/images/{deleted.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/boards/{doomed.Id}")).StatusCode);
+
+        await factory.SweepFilesAsync();
+
+        Assert.False(File.Exists(doomedPath));
+        Assert.True(File.Exists(deletedPath));
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsync($"/api/images/{deleted.Id}/restore", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync(deleted.ContentUrl)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Stray_files_are_swept_after_a_day_and_other_things_on_the_volume_are_left_alone()
+    {
+        var board = await CreateBoard("Strays");
+        var kept = await Upload(board.Id, TestImages.Png(40, 30), "image/png");
+        var store = factory.Services.GetRequiredService<FileStore>();
+        var (old, recent) = (store.PathOf(Guid.CreateVersion7()), store.PathOf(Guid.CreateVersion7()));
+        var lostAndFound = Path.Combine(store.Root, "lost+found", Guid.NewGuid().ToString("N"));
+        var notOurs = Path.Combine(Path.GetDirectoryName(old)!, "notes.txt");
+        foreach (var path in new[] { old, recent, lostAndFound, notOurs })
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await File.WriteAllBytesAsync(path, [1]);
+            if (path != recent) File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-2));
+        }
+
+        await factory.SweepFilesAsync(DateTimeOffset.UtcNow);
+
+        Assert.False(File.Exists(old));
+        Assert.True(File.Exists(recent)); // may be an upload that is still saving
+        Assert.True(File.Exists(lostAndFound));
+        Assert.True(File.Exists(notOurs));
+        Assert.True(File.Exists((await factory.ImageFileAsync(kept.Id)).Path));
     }
 
     [Fact]

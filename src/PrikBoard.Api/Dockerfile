@@ -8,14 +8,18 @@ COPY PrikBoard.Api.csproj ./
 RUN dotnet restore -a $TARGETARCH
 COPY . ./
 RUN dotnet publish --no-restore -a $TARGETARCH -c Release -o /app
-# Created up front so a volume mounted here (to keep sign-in sessions across restarts) is owned by "app". Made in
-# this stage and copied with --chown, because a RUN in the final stage would need emulation for other platforms.
-RUN mkdir -p /home-app/.aspnet/DataProtection-Keys
+# Created up front so volumes mounted here (to keep sign-in sessions across restarts, and for images and avatars) are
+# owned by "app". Made in this stage and copied with --chown, because a RUN in the final stage would need emulation for
+# other platforms.
+RUN mkdir -p /home-app/.aspnet/DataProtection-Keys /home-app/files
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 COPY --from=build /app ./
 COPY --from=build --chown=app:app /home-app/.aspnet /home/app/.aspnet
+# Images and avatars go to Storage__Path, which is deliberately not set here: without a volume the files would be lost
+# on restart, so the API refuses to start until it is given one, e.g. -e Storage__Path=/home/app/files -v files:/home/app/files.
+COPY --from=build --chown=app:app /home-app/files /home/app/files
 # The image runs as the non-root "app" user and listens on 8080. It is meant to sit behind the web container (or
 # another reverse proxy), so trust X-Forwarded-Proto/-For: OAuth callback URLs must use the scheme the browser sees.
 ENV ASPNETCORE_HTTP_PORTS=8080 \
