@@ -733,6 +733,54 @@ main {
   background: color-mix(in srgb, var(--accent) 7%, var(--frame-bg));
 }
 
+/* A bucket's rim moves it, like its name; inside, a drag draws a selection rectangle. */
+.bucket-rim {
+  position: absolute;
+  touch-action: none;
+  cursor: grab;
+}
+
+.bucket-rim.n,
+.bucket-rim.s {
+  right: 0;
+  left: 0;
+  height: 10px;
+}
+
+.bucket-rim.e,
+.bucket-rim.w {
+  top: 0;
+  bottom: 0;
+  width: 10px;
+}
+
+.bucket-rim.n { top: 0; }
+.bucket-rim.s { bottom: 0; }
+.bucket-rim.e { right: 0; }
+.bucket-rim.w { left: 0; }
+
+.canvas:not(.tool-select) .bucket-rim {
+  cursor: inherit;
+}
+
+/* The selection rectangle, on the board and in the expanded post-it. */
+.marquee {
+  position: absolute;
+  z-index: 20;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  pointer-events: none;
+}
+
+/* Space held: a press pans. */
+.canvas.space-pan,
+.canvas.space-pan *,
+.note-canvas.space-pan,
+.note-canvas.space-pan * {
+  cursor: grab !important;
+}
+
 .bucket-head {
   position: absolute;
   right: 0;

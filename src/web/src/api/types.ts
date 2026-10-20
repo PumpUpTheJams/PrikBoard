@@ -464,7 +464,8 @@ export interface AcceptedInvite {
 
 // Live updates over SignalR (/api/live); mirrors Contracts/Live.cs.
 
-export type DragKind = 'Note' | 'Bucket' | 'Resize' | 'Image' | 'ImageResize'
+/** Group: several selected items moving together (`items`). */
+export type DragKind = 'Note' | 'Bucket' | 'Resize' | 'Image' | 'ImageResize' | 'Group'
 
 /** The corner or edge a resize drags; the opposite one stays where it is, and an edge resizes in its direction only. */
 export type ResizeHandle = 'BottomRight' | 'BottomLeft' | 'TopRight' | 'TopLeft' | 'Top' | 'Right' | 'Bottom' | 'Left'
@@ -504,6 +505,11 @@ export interface DragUpdate {
   dy: number
   /** For Resize and ImageResize: the corner or edge being dragged (default BottomRight). */
   handle?: ResizeHandle
+  /**
+   * For Group: every item moving by this distance (notes, buckets, images and drawings), `id` (the one held) among
+   * them. What is in a bucket that moves isn't listed: the bucket carries it.
+   */
+  items?: string[] | null
 }
 
 export interface RemoteDrag extends DragUpdate {

@@ -9,12 +9,13 @@ import { draggingFiles, imageFiles } from './files'
 import { delta, isDrag } from './gesture'
 import { MinusIcon, PlusIcon } from './icons'
 import { ImageInspector } from './Inspector'
-import { blockSize, defaultBlockSize, freeSpot, onNoteCanvas, resizeFrom, resizeImage, snapPoint } from './layout'
+import { blockSize, defaultBlockSize, freeSpot, onNoteCanvas, resizeFrom, resizeImage, snapPoint, spanRect } from './layout'
 import { BlockFrame, ChecklistBlock, LinksBlock, TextBlock } from './NoteBlocks'
 import { NoteBar } from './NoteBar'
 import { resizeCursor } from './resizeCursor'
 import { blockMatches } from './search'
-import { blockEdit, created, deleted, patched, snap, step, target, type RecordingRun, type UndoEntry } from './undo'
+import { adds, isPicked, mergePicked, togglePicked, touches, useSpaceHeld, type Picked } from './selection'
+import { blockEdit, created, deleted, patched, snap, step, target, type RecordingRun, type UndoChange, type UndoEntry } from './undo'
 import { useStroke } from './useStroke'
 import { useZoom } from './useZoom'
 import { stepZoom, ZOOM_LEVELS } from './zoom'
@@ -43,14 +44,20 @@ export interface IncomingDrawing {
 
 type Kind = 'block' | 'block-resize' | 'image' | 'image-resize' | 'drawing'
 
+/** A selected block, image or drawing. */
+type Item = Picked<'block' | 'image' | 'drawing'>
+
 /**
  * A press on a block or image, in note pixels, with the last screen point and whether it is outside the window (an
  * image dragged out, to drop on the board). A finished gesture (`done`) stays until the board has reloaded, so the item
- * doesn't jump back meanwhile.
+ * doesn't jump back meanwhile. `group`: several selected items moved together, `id` the one pressed. `select`: the
+ * selection rectangle (`id` empty).
  */
 interface Gesture {
-  kind: Kind
+  kind: Kind | 'group' | 'select'
   id: string
+  /** For group: the items moving. For select: the selection it adds to. */
+  items?: Item[]
   /** For resizes: the corner or edge being dragged. */
   handle: ResizeHandle
   start: Point
@@ -102,7 +109,13 @@ interface NoteCanvasProps {
 /** The post-it's own small board: its blocks and images, moved and resized like items on the board, with zoom and pan. */
 export function NoteCanvas(props: NoteCanvasProps) {
   const { note, images, drawings, notes, readOnly, highlight, handle, run, onBusy, incoming, incomingDrawing, onAddImages, onPickImages, boardPoint, boardZoom, onDeletePostIt } = props
-  const [selection, setSelection] = useState<{ kind: 'block' | 'image' | 'drawing'; id: string } | null>(null)
+  /** The selected items: one, or several (Shift or Ctrl/Cmd + click, or the selection rectangle). */
+  const [selected, setSelected] = useState<Item[]>([])
+  /** The one item selected, for what works on a single item (its panel, its handles); null with none or several. */
+  const selection = selected.length === 1 ? selected[0] : null
+  const setSelection = (item: Item | null) => setSelected(item ? [item] : [])
+  /** Space is held: a left press pans, as the middle button does. */
+  const spaceHeld = useSpaceHeld()
   const [gesture, setGesture] = useState<Gesture | null>(null)
   const [pan, setPan] = useState<Pan | null>(null)
   /** The block added last: its main field is focused when it appears. */
@@ -197,7 +210,7 @@ export function NoteCanvas(props: NoteCanvasProps) {
 
   /** Removes a block, image or drawing straight away; the toast that follows can undo it (and so can Ctrl/Cmd+Z). */
   function remove(kind: 'block' | 'image' | 'drawing', id: string) {
-    if (selection?.id === id) setSelection(null)
+    setSelected((list) => list.filter((s) => s.id !== id))
     const block = kind === 'block' ? note.blocks.find((b) => b.id === id) : undefined
     const image = kind === 'image' ? images.find((i) => i.id === id) : undefined
     const drawing = kind === 'drawing' ? drawings.find((d) => d.id === id) : undefined
@@ -221,47 +234,136 @@ export function NoteCanvas(props: NoteCanvasProps) {
     }
   }
 
+  const count = (n: number) => (n === 1 ? '1 item' : `${n} items`)
+
+  /** Removes the selected items at once, as one step that the toast can undo. */
+  function removeSelected() {
+    const items = selected
+    setSelected([])
+    void settle(
+      () =>
+        Promise.all(
+          items.map(async ({ kind, id }): Promise<UndoChange | null> => {
+            if (kind === 'block') {
+              const block = note.blocks.find((b) => b.id === id)
+              if (!block) return null
+              await api.deleteNoteBlock(note.id, id)
+              return deleted(target.block(note.id, id), snap.block(block))
+            }
+            if (kind === 'image') {
+              const image = images.find((i) => i.id === id)
+              if (!image) return null
+              await api.deleteImage(id)
+              return deleted(target.image(id), snap.image(image))
+            }
+            const drawing = drawings.find((d) => d.id === id)
+            if (!drawing) return null
+            await api.deleteDrawing(id)
+            return deleted(target.drawing(id), snap.drawing(drawing))
+          }),
+        ),
+      (changes) => step(`Remove ${count(items.length)}`, changes, { toast: `${count(items.length)} removed` }),
+    )
+  }
+
+  /** Drops several items moved together, where the drag shows them, as one step. */
+  function moveGroup(items: Item[]) {
+    // Where they go, worked out now: the drag ends with the first reply.
+    const requests = items.flatMap(({ kind, id }) => {
+      const block = kind === 'block' ? note.blocks.find((b) => b.id === id) : undefined
+      const image = kind === 'image' ? images.find((i) => i.id === id) : undefined
+      const drawing = kind === 'drawing' ? drawings.find((d) => d.id === id) : undefined
+      if (block) {
+        const { x, y } = blockRect(block)
+        return [async () => patched(target.block(note.id, id), snap.block(block), snap.block(await api.updateNoteBlock(note.id, id, { x, y })), ['x', 'y'])]
+      }
+      if (image) {
+        const { x, y } = imageRect(image)
+        return [async () => patched(target.image(id), snap.image(image), snap.image(await api.updateImage(id, { x, y })), ['x', 'y'])]
+      }
+      if (drawing) {
+        const { x, y } = drawingRect(drawing)
+        return [async () => patched(target.drawing(id), snap.drawing(drawing), snap.drawing(await api.updateDrawing(id, { x, y })), ['x', 'y'])]
+      }
+      return []
+    })
+    void settle(
+      () => Promise.all(requests.map((request) => request())),
+      (changes) => step(`Move ${count(items.length)}`, changes),
+    )
+  }
+
+  /** What the selection rectangle takes: the blocks, images and drawings it touches. */
+  function inRectangle(rect: Rect): Item[] {
+    return [
+      ...note.blocks.filter((b) => touches(rect, b)).map((b) => ({ kind: 'block' as const, id: b.id })),
+      ...images.filter((i) => touches(rect, i)).map((i) => ({ kind: 'image' as const, id: i.id })),
+      ...drawings.filter((d) => touches(rect, d)).map((d) => ({ kind: 'drawing' as const, id: d.id })),
+    ]
+  }
+
   // Live geometry: the server's layout with your gesture applied, snapped as the server will.
-  const dragging = gesture && isDrag(gesture) ? gesture : null
+  const dragging = gesture && gesture.kind !== 'select' && isDrag(gesture) ? gesture : null
+  /** Whether an item moves with the drag in progress: the one dragged, or one of several selected moving together. */
+  const moves = (id: string) => !!dragging && (dragging.kind === 'group' ? !!dragging.items?.some((i) => i.id === id) : dragging.id === id)
   /** An image or drawing dragged out of the window, to drop on the board. */
   const leaving = (dragging?.kind === 'image' || dragging?.kind === 'drawing') && !dragging.done && dragging.outside ? dragging : null
 
   function blockRect(block: NoteBlock): Rect {
-    if (dragging?.id !== block.id) return block
+    if (!dragging || !moves(block.id)) return block
     const d = delta(dragging)
-    if (dragging.kind === 'block') return { ...block, ...onNoteCanvas({ x: block.x + d.x, y: block.y + d.y }, block) }
+    if (dragging.kind === 'block' || dragging.kind === 'group') return { ...block, ...onNoteCanvas({ x: block.x + d.x, y: block.y + d.y }, block) }
     const resized = resizeFrom(block, dragging.handle, d, blockSize)
     return { ...block, ...resized, ...onNoteCanvas(resized, resized) }
   }
 
   function imageRect(image: ImageDetail): Rect {
-    if (dragging?.id !== image.id || leaving) return image
+    if (!dragging || !moves(image.id) || leaving) return image
     const d = delta(dragging)
-    if (dragging.kind === 'image') return { ...image, ...onNoteCanvas({ x: image.x + d.x, y: image.y + d.y }, image) }
+    if (dragging.kind === 'image' || dragging.kind === 'group') return { ...image, ...onNoteCanvas({ x: image.x + d.x, y: image.y + d.y }, image) }
     const resized = resizeImage(image, dragging.handle, d)
     return { ...image, ...resized, ...onNoteCanvas(resized, resized) }
   }
 
   function drawingRect(drawing: DrawingDetail): Rect {
-    if (dragging?.id !== drawing.id || leaving) return drawing
+    if (!dragging || !moves(drawing.id) || leaving) return drawing
     const d = delta(dragging)
     return { ...drawing, ...onNoteCanvas({ x: drawing.x + d.x, y: drawing.y + d.y }, drawing) }
   }
 
+  /**
+   * A press on a block's header, an image or a drawing: selects it and starts dragging it. One of several selected drags
+   * them all; with Shift or Ctrl/Cmd it joins or leaves the selection instead. With Space held, the canvas pans.
+   */
   function onItemPointerDown(e: PointerEvent<HTMLElement>, kind: Kind, id: string, handle: ResizeHandle = 'BottomRight') {
     // With the pen on, a press draws over whatever is there (onPenPointerDown took it already).
-    if (e.button !== 0 || drawingOn) return
+    if (e.button !== 0 || drawingOn || spaceHeld) return
     imagePresses.current = [imagePresses.current[1], kind === 'image' ? id : null]
-    setSelection({ kind: kind === 'block' || kind === 'block-resize' ? 'block' : kind === 'drawing' ? 'drawing' : 'image', id })
+    const item: Item = { kind: kind === 'block' || kind === 'block-resize' ? 'block' : kind === 'drawing' ? 'drawing' : 'image', id }
     // The title field and the remove button in a block's header work as usual.
-    if (readOnly || (e.target instanceof Element && e.target.closest('input, button'))) return
+    const control = e.target instanceof Element && e.target.closest('input, button')
+    const several = !readOnly && !control && !kind.endsWith('-resize')
+    if (several && adds(e)) {
+      e.stopPropagation()
+      e.preventDefault()
+      setSelected(togglePicked(selected, item))
+      return
+    }
+    const group = several && selected.length > 1 && isPicked(selected, item.kind, id)
+    if (!group) setSelection(item)
+    if (readOnly || control) return
+    beginGesture(e, group ? { kind: 'group', id, handle, items: selected } : { kind, id, handle })
+  }
+
+  /** Takes the pointer for a gesture on the canvas, from where it was pressed. */
+  function beginGesture(e: PointerEvent, target: Pick<Gesture, 'kind' | 'id' | 'handle' | 'items'>) {
     e.stopPropagation()
     e.preventDefault()
     if (document.activeElement instanceof HTMLElement && document.activeElement.closest('.note-scroll')) document.activeElement.blur()
     scrollRef.current!.focus({ preventScroll: true })
     canvasRef.current!.setPointerCapture(e.pointerId)
     const point = toNote({ x: e.clientX, y: e.clientY })
-    setGesture({ kind, id, handle, start: point, current: point, client: { x: e.clientX, y: e.clientY }, outside: false })
+    setGesture({ ...target, start: point, current: point, client: { x: e.clientX, y: e.clientY }, outside: false })
   }
 
   /** With the pen on, a press anywhere on the canvas (over blocks and images too) starts a stroke. */
@@ -285,16 +387,22 @@ export function NoteCanvas(props: NoteCanvasProps) {
   }
 
   /**
-   * A press on empty canvas pans, and so does the middle button over a block or image, like on the board (without
-   * touching the selection or the field being typed in). Other presses inside blocks and images are theirs.
+   * A press on empty canvas draws a selection rectangle (viewers: pans). The middle button pans, over a block or image
+   * too, like on the board, and so does the left one with Space held (without touching the selection or the field being
+   * typed in). Other presses inside blocks and images are theirs.
    */
   function onCanvasPointerDown(e: PointerEvent) {
     const empty = e.target === e.currentTarget
-    if (!empty && e.button !== 1) return
+    const panning = e.button === 1 || (e.button === 0 && spaceHeld)
+    if (!empty && !panning) return
     if (empty) imagePresses.current = [imagePresses.current[1], null]
     if (e.button !== 0 && e.button !== 1) return
+    if (empty && !panning && !readOnly) {
+      beginGesture(e, { kind: 'select', id: '', handle: 'BottomRight', items: adds(e) ? selected : [] })
+      return
+    }
     e.preventDefault()
-    if (empty) {
+    if (empty && !panning) {
       setSelection(null)
       if (document.activeElement instanceof HTMLElement && document.activeElement.closest('.note-scroll')) document.activeElement.blur()
       scrollRef.current!.focus({ preventScroll: true })
@@ -316,7 +424,9 @@ export function NoteCanvas(props: NoteCanvasProps) {
       el.scrollTop = pan.top - (e.clientY - pan.y)
     } else if (gesture && !gesture.done) {
       const frame = scrollRef.current!.closest('.expanded')!.getBoundingClientRect()
-      setGesture({ ...gesture, current: toNote(client), client, outside: !contains(frame, client) })
+      const next = { ...gesture, current: toNote(client), client, outside: !contains(frame, client) }
+      setGesture(next)
+      if (next.kind === 'select' && isDrag(next)) setSelected(mergePicked(next.items ?? [], inRectangle(spanRect(next.start, next.current))))
     }
   }
 
@@ -330,8 +440,22 @@ export function NoteCanvas(props: NoteCanvasProps) {
       return
     }
     if (!gesture || gesture.done) return
+    if (gesture.kind === 'select') {
+      // A click without dragging leaves only what it was adding to.
+      setGesture(null)
+      if (!isDrag(gesture)) setSelected(gesture.items ?? [])
+      return
+    }
     if (!isDrag(gesture)) {
       setGesture(null)
+      // A click on one of several selected selects just that one.
+      const held = gesture.kind === 'group' && gesture.items?.find((i) => i.id === gesture.id)
+      if (held) setSelection(held)
+      return
+    }
+    if (gesture.kind === 'group') {
+      setGesture({ ...gesture, done: true })
+      moveGroup(gesture.items ?? [])
       return
     }
     const { id } = gesture
@@ -394,6 +518,8 @@ export function NoteCanvas(props: NoteCanvasProps) {
   }
   const leavingImage = leaving && images.find((i) => i.id === leaving.id)
   const leavingDrawing = leaving && drawings.find((d) => d.id === leaving.id)
+  /** The selection rectangle being dragged out. */
+  const marquee = gesture?.kind === 'select' && isDrag(gesture) ? spanRect(gesture.start, gesture.current) : null
   const selectedImage = !readOnly && selection?.kind === 'image' ? images.find((i) => i.id === selection.id) : undefined
   const selectedDrawing = !readOnly && selection?.kind === 'drawing' ? strokes.find((s) => s.drawing.id === selection.id) : undefined
 
@@ -415,10 +541,12 @@ export function NoteCanvas(props: NoteCanvasProps) {
             e.preventDefault()
             e.stopPropagation()
             togglePen()
-          } else if (selection && (e.key === 'Delete' || e.key === 'Backspace')) {
+          } else if (selected.length > 0 && (e.key === 'Delete' || e.key === 'Backspace')) {
             e.preventDefault()
             e.stopPropagation()
-            if (!e.repeat) remove(selection.kind, selection.id)
+            if (e.repeat || gesture) return
+            if (selection) remove(selection.kind, selection.id)
+            else removeSelected()
           }
         }}
         // Dropped files are attached where they land; files over the band are handled by the window.
@@ -443,7 +571,7 @@ export function NoteCanvas(props: NoteCanvasProps) {
         <div className="canvas-sizer" style={{ width: extent.width * zoom, height: extent.height * zoom }}>
           <div
             ref={canvasRef}
-            className={`note-canvas${pan ? ' panning' : ''}${drawingOn ? ' pen' : ''}`}
+            className={`note-canvas${pan ? ' panning' : spaceHeld ? ' space-pan' : ''}${drawingOn ? ' pen' : ''}`}
             style={{
               width: extent.width,
               height: extent.height,
@@ -478,10 +606,13 @@ export function NoteCanvas(props: NoteCanvasProps) {
                 <BoardImageView
                   image={image}
                   rect={rect}
-                  selected={selection?.kind === 'image' && selection.id === image.id}
-                  lifted={dragging?.id === image.id && !dragging.done}
+                  selected={isPicked(selected, 'image', image.id)}
+                  lifted={moves(image.id) && !dragging?.done}
                   onPointerDown={(e) => onItemPointerDown(e, 'image', image.id)}
-                  onResizePointerDown={readOnly ? undefined : (e, handle) => onItemPointerDown(e, 'image-resize', image.id, handle)}
+                  // One of several selected has no handles: they move together, but resize one at a time.
+                  onResizePointerDown={
+                    readOnly || selection?.id !== image.id ? undefined : (e, handle) => onItemPointerDown(e, 'image-resize', image.id, handle)
+                  }
                   onDelete={readOnly ? undefined : () => remove('image', image.id)}
                 />
               </div>
@@ -492,12 +623,12 @@ export function NoteCanvas(props: NoteCanvasProps) {
                 key={block.id}
                 block={block}
                 rect={rect}
-                selected={selection?.kind === 'block' && selection.id === block.id}
-                lifted={dragging?.id === block.id}
+                selected={isPicked(selected, 'block', block.id)}
+                lifted={moves(block.id)}
                 matched={!!highlight && blockMatches(block, highlight)}
                 readOnly={readOnly}
                 onHeadPointerDown={(e) => onItemPointerDown(e, 'block', block.id)}
-                onResizePointerDown={(e, handle) => onItemPointerDown(e, 'block-resize', block.id, handle)}
+                onResizePointerDown={selection?.id === block.id ? (e, handle) => onItemPointerDown(e, 'block-resize', block.id, handle) : undefined}
                 onSelect={() => setSelection({ kind: 'block', id: block.id })}
                 onTitle={(title) => void saveBlock(block, { title })}
                 onRemove={() => remove('block', block.id)}
@@ -537,8 +668,8 @@ export function NoteCanvas(props: NoteCanvasProps) {
                 <DrawingView
                   drawing={drawing}
                   rect={rect}
-                  selected={selection?.kind === 'drawing' && selection.id === drawing.id}
-                  lifted={dragging?.id === drawing.id && !dragging.done}
+                  selected={isPicked(selected, 'drawing', drawing.id)}
+                  lifted={moves(drawing.id) && !dragging?.done}
                   onPointerDown={(e) => onItemPointerDown(e as PointerEvent<HTMLElement>, 'drawing', drawing.id)}
                 />
               </div>
@@ -565,6 +696,10 @@ export function NoteCanvas(props: NoteCanvasProps) {
             {drawingGhost && <IncomingDrawingView drawing={drawingGhost.drawing} at={drawingGhost.at} />}
 
             {drawingOn && <PenRing ringRef={penRing} width={notePen.width} zoom={zoom} />}
+
+            {marquee && (
+              <div className="marquee" aria-hidden="true" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />
+            )}
           </div>
         </div>
       </div>

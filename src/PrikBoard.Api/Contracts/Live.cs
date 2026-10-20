@@ -21,6 +21,9 @@ public enum DragKind
 
     /// <summary>Resizing an image from one of its corners or edges (see <see cref="ResizeHandle"/>).</summary>
     ImageResize,
+
+    /// <summary>Moving several selected items together: notes, buckets, images and drawings, listed in <c>Items</c>.</summary>
+    Group,
 }
 
 /// <summary>
@@ -64,11 +67,20 @@ public sealed record BoardChange(Guid BoardId, Guid By);
 
 /// <summary>A drag in progress, sent by the dragging client (Drag), at most every few dozen milliseconds.</summary>
 /// <param name="Kind">What the gesture does.</param>
-/// <param name="Id">The note, bucket or image being dragged.</param>
+/// <param name="Id">The note, bucket or image being dragged (for Group: the item held).</param>
 /// <param name="Dx">Pointer travel since the drag started, in canvas pixels (not yet snapped).</param>
 /// <param name="Dy">Pointer travel since the drag started, in canvas pixels (not yet snapped).</param>
 /// <param name="Handle">For Resize and ImageResize: the corner or edge being dragged.</param>
-public sealed record DragUpdate(DragKind Kind, Guid Id, double Dx, double Dy, ResizeHandle Handle = ResizeHandle.BottomRight);
+/// <param name="Items">
+/// For Group: every item moving by this distance, the one held among them (at most <see cref="MaxItems"/>). Items in a
+/// bucket that moves aren't listed: the bucket carries them.
+/// </param>
+public sealed record DragUpdate(
+    DragKind Kind, Guid Id, double Dx, double Dy, ResizeHandle Handle = ResizeHandle.BottomRight, List<Guid>? Items = null)
+{
+    /// <summary>The most items one Group drag lists.</summary>
+    public const int MaxItems = 1000;
+}
 
 /// <summary>Someone else's drag in progress, relayed to the other viewers of the board.</summary>
 /// <param name="Key">The dragging connection; DragEnded names the same key.</param>
@@ -79,5 +91,14 @@ public sealed record DragUpdate(DragKind Kind, Guid Id, double Dx, double Dy, Re
 /// <param name="Dx">Pointer travel since the drag started, in canvas pixels.</param>
 /// <param name="Dy">Pointer travel since the drag started, in canvas pixels.</param>
 /// <param name="Handle">For Resize and ImageResize: the corner or edge being dragged.</param>
+/// <param name="Items">For Group: every item moving by this distance (see <see cref="DragUpdate"/>).</param>
 public sealed record RemoteDrag(
-    Guid Key, Guid PrincipalId, string DisplayName, DragKind Kind, Guid Id, double Dx, double Dy, ResizeHandle Handle = ResizeHandle.BottomRight);
+    Guid Key,
+    Guid PrincipalId,
+    string DisplayName,
+    DragKind Kind,
+    Guid Id,
+    double Dx,
+    double Dy,
+    ResizeHandle Handle = ResizeHandle.BottomRight,
+    List<Guid>? Items = null);
