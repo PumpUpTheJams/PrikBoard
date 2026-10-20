@@ -10,6 +10,8 @@ interface EditableTextProps {
   placeholder?: string
   autoFocus?: boolean
   readOnly?: boolean
+  /** Called when the field loses focus, after any save. */
+  onDone?: () => void
 }
 
 /**
@@ -17,7 +19,7 @@ interface EditableTextProps {
  * line, scrolling sideways with the text cursor; multiline text fills its box and scrolls vertically inside it.
  * While it isn't focused it follows the server's value, so edits made by agents show up.
  */
-export function EditableText({ value, onSave, label, className, maxLength, multiline, placeholder, autoFocus, readOnly }: EditableTextProps) {
+export function EditableText({ value, onSave, label, className, maxLength, multiline, placeholder, autoFocus, readOnly, onDone }: EditableTextProps) {
   const [draft, setDraft] = useState<string | null>(null)
   const cancelled = useRef(false)
 
@@ -48,6 +50,7 @@ export function EditableText({ value, onSave, label, className, maxLength, multi
       if (!cancelled.current && next !== value.trim()) onSave(next)
       cancelled.current = false
       setDraft(null)
+      onDone?.()
     },
   }
 

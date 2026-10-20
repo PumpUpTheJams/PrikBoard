@@ -1711,6 +1711,27 @@ input.editable {
   color: var(--subtle);
 }
 
+.block-edit {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* A text block's rendered Markdown; a click edits it. */
+.block-view {
+  cursor: text;
+}
+
+.block-view .markdown {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.block-plain {
+  white-space: pre-wrap;
+}
+
 .note-canvas .board-image {
   cursor: grab;
 }

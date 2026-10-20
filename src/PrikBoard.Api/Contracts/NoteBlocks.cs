@@ -14,7 +14,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Width">Width in note pixels.</param>
 /// <param name="Height">Height in note pixels.</param>
 /// <param name="Title">Optional heading, e.g. "Acceptance criteria".</param>
-/// <param name="Text">The text of a Text block (plain text).</param>
+/// <param name="Text">The text of a Text block, in Markdown (GitHub flavour; raw HTML is shown as text).</param>
 /// <param name="Items">The items of a Checklist block, in order.</param>
 /// <param name="Links">The links of a Links block, in order.</param>
 public record NoteBlockDetail(
@@ -42,7 +42,7 @@ public record NoteBlockDetail(
 /// </summary>
 /// <param name="Kind">Text, Checklist or Links.</param>
 /// <param name="Title">Optional heading, e.g. "Acceptance criteria".</param>
-/// <param name="Text">The text of a Text block.</param>
+/// <param name="Text">The text of a Text block, in Markdown (GitHub flavour).</param>
 /// <param name="Items">The items of a Checklist block.</param>
 /// <param name="Links">The links of a Links block.</param>
 /// <param name="X">Left edge on the note's canvas; snapped to the 20 px grid. Give it together with Y.</param>
@@ -68,7 +68,7 @@ public record NewNoteBlock(
 /// item changed. Only content that fits the block's kind is accepted.
 /// </summary>
 /// <param name="Title">New heading; an empty string clears it.</param>
-/// <param name="Text">New text of a Text block; an empty string clears it.</param>
+/// <param name="Text">New text of a Text block, in Markdown; an empty string clears it.</param>
 /// <param name="Items">Replacement items of a Checklist block.</param>
 /// <param name="Links">Replacement links of a Links block.</param>
 /// <param name="X">New left edge on the note's canvas; snapped to the 20 px grid.</param>
