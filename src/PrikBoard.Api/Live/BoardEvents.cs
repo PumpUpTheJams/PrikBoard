@@ -30,6 +30,10 @@ public sealed class BoardEvents(IHubContext<BoardHub, IBoardClient> hub, LiveVie
         return hub.Clients.GroupExcept(BoardHub.Group(boardId), skip).BoardChanged(new BoardChange(boardId, by));
     });
 
+    /// <summary>Something on the board was saved by <paramref name="by"/> outside their own request (an image upload URL), so no connection is skipped.</summary>
+    public Task ChangedAsync(Guid boardId, Guid by) => Safely(() =>
+        hub.Clients.Group(BoardHub.Group(boardId)).BoardChanged(new BoardChange(boardId, by)));
+
     /// <summary>These users' or agents' board lists changed.</summary>
     public Task BoardsChangedAsync(IEnumerable<Guid> principalIds) => Safely(() =>
         hub.Clients.Users(principalIds.Select(id => id.ToString()).ToList()).BoardsChanged());

@@ -94,7 +94,8 @@ claude mcp add --transport http prikboard http://localhost:5173/mcp --header "Au
 | `create_note` | In a bucket by name or id (default: the first bucket). `assignees` are names or principal ids from `people`. `body`, `checklist` and `links` become its first Text, Checklist and Links blocks |
 | `update_note` | Same PATCH rules as updateNote; `assignees` by name or id |
 | `add_note_block`, `update_note_block`, `delete_note_block` | A note's content. A block is named by its id, its title, or its kind when the note has one block of that kind; `delete_note_block` is marked destructive |
-| `add_image` | Like uploadImage, with the file base64-encoded in `data` (a `data:` URL works too): attached to a note (`noteId`) or on the board (`boardId`), in a free spot unless `x` and `y` are given |
+| `add_image` | Like uploadImage, with the file base64-encoded in `data` (a `data:` URL works too): attached to a note (`noteId`) or on the board (`boardId`), in a free spot unless `x` and `y` are given. Slow beyond a few KB, since the agent writes out every character |
+| `begin_image_upload` | Like createImageUpload, with the same targets as `add_image`: answers a one-time `uploadUrl` and a `curl -T` `command`, so an agent that can run commands sends the file from disk without it passing through the conversation |
 | `move_note` | To a bucket by name or id; the server finds a free spot |
 | `set_working` | Assign yourself and show (or hide) the working halo, like setNoteWorking |
 | `delete_note`, `restore_note`, `list_deleted_notes` | `delete_note` is marked destructive, so clients ask first; `restore_note` brings a deleted note back within 7 days, at its old place or at `x`/`y`; `list_deleted_notes` shows what is in the trash |
@@ -201,6 +202,8 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | deleteBoardTag | `DELETE /api/boards/{boardId}/tags/{tagId}` | Delete a tag from the board and from every note |
 | restoreBoardTag | `POST /api/boards/{boardId}/tags/{tagId}/restore` | Bring back a deleted tag and put it back (last) on the notes it was removed from (`409` when a tag has that name again) |
 | uploadImage | `POST /api/boards/{boardId}/images?fileName=&noteId=&x=&y=&width=&caption=` | Add an image or GIF: the file itself is the request body, with its content type. On the board at `x`/`y` (default: right of everything), or attached to a note with `noteId`, at `x`/`y` on its canvas (default: a free spot) |
+| createImageUpload | `POST /api/boards/{boardId}/image-uploads` | A one-time `uploadUrl` (and a `curl -T` `command`) for one image, placed as the body says (`noteId`, `x`, `y`, `width`, `caption`, `fileName`) and added by you. Expires after 15 minutes; at most 20 unused per caller (`409`) |
+| completeImageUpload | `PUT /api/image-uploads/{token}` | Send the file to an `uploadUrl`: the raw bytes as the body, no authentication (the URL is the key). `201` with the image; `404` when the URL is unknown, used or expired, or its creator lost Editor access (or revoked the token they used). After a `413` or `415` the URL still works |
 | getImageContent | `GET /api/images/{imageId}/content` | Download the image file: inline, under its own `fileName`. Cacheable for good (ETag, `304` on `If-None-Match`), with byte ranges |
 | updateImage | `PATCH /api/images/{imageId}` | Move (`x`, `y`), resize (`width`) or re-caption an image; attach it to a note (`noteId`) or put it back on the board (`detach: true`) |
 | deleteImage | `DELETE /api/images/{imageId}` | Delete an image |
@@ -280,6 +283,12 @@ Images and GIFs live on the board or are attached to a note (`noteId`), and getB
 
 ```bash
 pb -X POST "localhost:5080/api/boards/{boardId}/images?fileName=ingest-errors.png&noteId={noteId}"   -H "Content-Type: image/png" --data-binary @ingest-errors.png
+```
+
+Agents that can run commands but have no token in their shell (an MCP client) get a one-time URL instead, with createImageUpload or the `begin_image_upload` tool, and send the file there; the URL needs no authentication, so nothing secret goes into the command:
+
+```bash
+curl -sS -T ingest-errors.png "https://prikboard.example/api/image-uploads/pb_upl_..."
 ```
 
 - **Formats.** PNG, JPEG, GIF and WebP up to 10 MB and 20000 pixels on a side. The server detects the format and pixel size from the file itself; SVG is refused because it can carry script.

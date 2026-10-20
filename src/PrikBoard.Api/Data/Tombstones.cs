@@ -30,7 +30,10 @@ public static class Tombstones
     }
 }
 
-/// <summary>Runs <see cref="Tombstones.PurgeAsync"/> every hour, and then <see cref="FileStore.SweepAsync"/> for the files that freed.</summary>
+/// <summary>
+/// Runs <see cref="Tombstones.PurgeAsync"/> every hour, deletes expired image upload URLs, and then runs
+/// <see cref="FileStore.SweepAsync"/> for the files that freed.
+/// </summary>
 public sealed class TombstonePurger(IServiceScopeFactory scopes, ILogger<TombstonePurger> logger) : BackgroundService
 {
     private static readonly TimeSpan FirstRun = TimeSpan.FromMinutes(1);
@@ -63,6 +66,8 @@ public sealed class TombstonePurger(IServiceScopeFactory scopes, ILogger<Tombsto
             var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
             var purged = await Tombstones.PurgeAsync(db, DateTimeOffset.UtcNow - Tombstones.Retention, ct);
             if (purged > 0) logger.LogInformation("Purged {Count} deleted items older than {Retention}", purged, Tombstones.Retention);
+            var now = DateTimeOffset.UtcNow;
+            await db.ImageUploads.Where(u => u.ExpiresAt <= now).ExecuteDeleteAsync(ct);
             var swept = await scope.ServiceProvider.GetRequiredService<FileStore>().SweepAsync(db, DateTimeOffset.UtcNow, ct);
             if (swept > 0) logger.LogInformation("Deleted {Count} files nothing refers to any more", swept);
         }

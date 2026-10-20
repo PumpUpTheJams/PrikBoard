@@ -472,6 +472,78 @@ namespace PrikBoard.Api.Data.Migrations
                     b.ToTable("DrawingContents");
                 });
 
+            modelBuilder.Entity("PrikBoard.Api.Domain.ImageUpload", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AccessTokenId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BoardId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Cap")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("Caption")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FileName")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<Guid>("MemberId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("NoteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PrincipalId")
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("bytea");
+
+                    b.Property<int?>("Width")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("X")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("Y")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccessTokenId");
+
+                    b.HasIndex("BoardId");
+
+                    b.HasIndex("MemberId");
+
+                    b.HasIndex("NoteId");
+
+                    b.HasIndex("PrincipalId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.ToTable("ImageUploads");
+                });
+
             modelBuilder.Entity("PrikBoard.Api.Domain.Note", b =>
                 {
                     b.Property<Guid>("Id")
@@ -855,6 +927,37 @@ namespace PrikBoard.Api.Data.Migrations
                     b.HasOne("PrikBoard.Api.Domain.BoardDrawing", null)
                         .WithOne("Content")
                         .HasForeignKey("PrikBoard.Api.Domain.DrawingContent", "DrawingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.ImageUpload", b =>
+                {
+                    b.HasOne("PrikBoard.Api.Domain.AccessToken", null)
+                        .WithMany()
+                        .HasForeignKey("AccessTokenId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("PrikBoard.Api.Domain.Board", null)
+                        .WithMany()
+                        .HasForeignKey("BoardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PrikBoard.Api.Domain.Principal", null)
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PrikBoard.Api.Domain.Note", null)
+                        .WithMany()
+                        .HasForeignKey("NoteId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("PrikBoard.Api.Domain.Principal", null)
+                        .WithMany()
+                        .HasForeignKey("PrincipalId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

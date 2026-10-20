@@ -298,7 +298,8 @@ public sealed class BoardTools
     [McpServerTool(Name = "add_image", Title = "Add an image", OpenWorld = false)]
     [Description("Adds an image or GIF (PNG, JPEG, GIF or WebP, at most 10 MB; not SVG) to a board, or attaches it to a note, " +
                  "where it shows on the note's canvas when the note is opened. Send the file base64-encoded. Give note to attach " +
-                 "it to a note, or board to put it on the board. It goes in a free spot unless you give x and y. Needs the Editor role.")]
+                 "it to a note, or board to put it on the board. It goes in a free spot unless you give x and y. Needs the Editor role. " +
+                 "Writing base64 out is slow beyond a few KB: if you can run commands, use begin_image_upload instead.")]
     public static async Task<ImageDetail> AddImage(
         IHttpContextAccessor accessor,
         [Description("The file, base64-encoded; a data: URL (data:image/png;base64,...) works too.")] string data,
@@ -311,21 +312,54 @@ public sealed class BoardTools
         [Description("Top edge on the board, or on the note's canvas with note. Give it together with x.")] int? y = null,
         CancellationToken ct = default)
     {
-        if (note is null && board is null) throw new McpException("Give note to attach the image to a note, or board to put it on the board.");
         var http = McpCall.Http(accessor);
+        var (target, noteId) = await ImageTargetAsync(http, note, board, ct);
+
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var files = http.RequestServices.GetRequiredService<FileStore>();
+        using var body = new MemoryStream(DecodeImage(data));
+        var image = McpCall.Value<ImageDetail>(await ImageEndpoints.AddImage(target, body, http.User.PrincipalId(), db, files, ct, fileName, noteId, x, y, width, caption));
+        await McpCall.AnnounceAsync(http, target);
+        return image;
+    }
+
+    [McpServerTool(Name = "begin_image_upload", Title = "Get a URL to upload an image to", OpenWorld = false)]
+    [Description("The fast way to add an image file you have on disk (PNG, JPEG, GIF or WebP, at most 10 MB; not SVG): this " +
+                 "returns a one-time upload URL, and you send the file there with one command, e.g. curl -sS -T shot.png \"<uploadUrl>\" " +
+                 "(curl.exe in Windows PowerShell). The file never passes through the conversation, unlike add_image's base64. " +
+                 "The upload answers the new image as JSON. Give note to attach it to a note, or board to put it on the board; it goes " +
+                 "in a free spot unless you give x and y. The URL needs no authentication, so keep it to yourself; it adds one image " +
+                 "as you and expires after 15 minutes. Needs the Editor role.")]
+    public static async Task<ImageUploadUrl> BeginImageUpload(
+        IHttpContextAccessor accessor,
+        [Description("Attach the image to this note: " + NoteForms)] string? note = null,
+        [Description("The board to put it on, not needed with note: " + BoardForms)] string? board = null,
+        [Description("File name, e.g. \"ingest-errors.png\". Default: image.<format>.")] string? fileName = null,
+        [Description("Caption shown under the image (at most 500 characters).")] string? caption = null,
+        [Description("Display width in pixels, 80 to 4000. Default: the image's own width, at most 360.")] int? width = null,
+        [Description("Left edge on the board, or on the note's canvas with note. Give it together with y.")] int? x = null,
+        [Description("Top edge on the board, or on the note's canvas with note. Give it together with x.")] int? y = null,
+        CancellationToken ct = default)
+    {
+        var http = McpCall.Http(accessor);
+        var (target, noteId) = await ImageTargetAsync(http, note, board, ct);
+        var request = new CreateImageUploadRequest(noteId, x, y, width, caption, fileName);
+        McpCall.Validate(request);
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        return McpCall.Value<ImageUploadUrl>(await ImageEndpoints.CreateImageUpload(target, request, http, db, ct));
+    }
+
+    /// <summary>The board an image goes on and the note it is attached to, if any, checking the caller may add it there.</summary>
+    private static async Task<(Guid BoardId, Guid? NoteId)> ImageTargetAsync(HttpContext http, string? note, string? board, CancellationToken ct)
+    {
+        if (note is null && board is null) throw new McpException("Give note to attach the image to a note, or board to put it on the board.");
         Guid? noteId = note is null ? null : await ResolveNoteAsync(http, note, ct);
         Guid? boardId = board is null ? null : await ResolveBoardAsync(http, board, ct);
         var target = noteId is { } attachTo
             ? await McpCall.AuthorizeAsync(http, BoardScope.Note, attachTo, BoardRole.Editor)
             : await McpCall.AuthorizeAsync(http, BoardScope.Board, boardId!.Value, BoardRole.Editor);
         if (boardId is { } given && given != target) throw new McpException("The note is not on that board; leave out board.");
-
-        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
-        var files = http.RequestServices.GetRequiredService<FileStore>();
-        using var body = new MemoryStream(DecodeImage(data));
-        var image = McpCall.Value<ImageDetail>(await ImageEndpoints.AddImage(target, body, http.User, db, files, ct, fileName, noteId, x, y, width, caption));
-        await McpCall.AnnounceAsync(http, target);
-        return image;
+        return (target, noteId);
     }
 
     /// <summary>The bytes of a base64 string or base64 data: URL; a tool error when it is not valid or far too large.</summary>
