@@ -187,7 +187,7 @@ public sealed class BoardTools
     public static async Task<NoteDetail> UpdateNote(
         IHttpContextAccessor accessor,
         [Description("The note id.")] Guid noteId,
-        [Description("New title.")] string? title = null,
+        [Description("New title. Leave it out to keep the title; an empty string clears it.")] string? title = null,
         [Description("New fill: Butter, Mint, Sky, Coral or Lilac.")] NoteColor? color = null,
         [Description("All tags (replaces them); prefer the board's tags. New names are added to the board.")] List<string>? tags = null,
         [Description("All assignees (replaces them): names or principal ids, from people in get_board.")] List<string>? assignees = null,

@@ -12,6 +12,12 @@ export interface NoteRoute {
   noteId: string
 }
 
+/** Suggested title, shown greyed in an empty title field. Never stored: a new post-it's title is empty. */
+export const TITLE_SUGGESTION = 'Post-it title'
+
+/** How a post-it is named where its title is text in a list or label: its title, or a stand-in when it has none. */
+export const noteLabel = (note: { title: string }) => note.title || 'Untitled post-it'
+
 export const notePath = ({ boardId, noteId }: NoteRoute) => `/#/boards/${boardId}/notes/${noteId}`
 
 /** The post-it open in the address bar, if any. */

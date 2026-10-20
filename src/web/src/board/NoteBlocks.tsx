@@ -4,7 +4,7 @@ import { blockKinds } from './blockKinds'
 import { EditableText } from './EditableText'
 import { Highlight } from './Highlight'
 import { CloseIcon, LinkIcon, PostItIcon, PullRequestIcon, TrashIcon } from './icons'
-import { isNoteId, notePath, noteRoute, type NoteRoute } from './links'
+import { isNoteId, noteLabel, notePath, noteRoute, type NoteRoute } from './links'
 import { ResizeHandles } from './ResizeHandles'
 
 // Loaded on first use, so react-markdown stays out of the main bundle.
@@ -274,7 +274,7 @@ export function LinksBlock({ links, highlight, note, notes, autoFocus, onChange 
   /** Links a post-it by its path, titled by its current title unless the person typed one. */
   function addNote(target: NoteRoute) {
     const found = notes.find((n) => n.id === target.noteId)
-    return addLink({ title: title.trim() || found?.title || 'Post-it', url: notePath(target) })
+    return addLink({ title: title.trim() || (found ? noteLabel(found) : 'Post-it'), url: notePath(target) })
   }
 
   async function add(e: FormEvent) {
@@ -332,7 +332,7 @@ export function LinksBlock({ links, highlight, note, notes, autoFocus, onChange 
               <button type="button" className="link-row" onClick={() => void addNote({ boardId: n.boardId, noteId: n.id })}>
                 <span className={`link-swatch fill-${n.color.toLowerCase()}`} aria-hidden="true" />
                 <span className="link-text">
-                  <span className="link-title">{n.title}</span>
+                  <span className="link-title">{noteLabel(n)}</span>
                   <span className="link-meta">{n.id}</span>
                 </span>
               </button>
@@ -356,7 +356,7 @@ function LinkRow({ link, notes, highlight }: { link: NoteLink; notes: NoteDetail
         {target ? <span className={`link-swatch fill-${target.color.toLowerCase()}`} aria-hidden="true" /> : <PostItIcon size={16} />}
         <span className="link-text">
           <span className="link-title">
-            <Highlight text={target?.title ?? link.title} terms={highlight} />
+            <Highlight text={target ? noteLabel(target) : link.title} terms={highlight} />
           </span>
           <span className="link-meta">{target ? route.noteId : `On another board · ${route.noteId}`}</span>
         </span>

@@ -185,7 +185,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
     const items = itemsOf(note)
     const hasDetails = items.length > 0 || linksOf(note).length > 0 || note.assignees.length > 0
     const item = new vscode.TreeItem(
-      note.title,
+      note.title || 'Untitled post-it',
       hasDetails ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
     )
     item.contextValue = contextOf('note', canEdit)
@@ -198,7 +198,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
 
     // appendText escapes markdown, so a note cannot format or link its own tooltip.
     const tooltip = new vscode.MarkdownString()
-    tooltip.appendText(note.title)
+    tooltip.appendText(note.title || 'Untitled post-it')
     for (const block of note.blocks) if (block.kind === 'Text' && block.text) tooltip.appendText(`\n\n${block.text}`)
     item.tooltip = tooltip
     return item

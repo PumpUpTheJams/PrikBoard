@@ -84,7 +84,7 @@ public record NoteLink(
 /// With neither, it goes into the board's first bucket (or a free spot on the board when there are no buckets).
 /// A full bucket grows to make room.
 /// </summary>
-/// <param name="Title">Short title shown on the post-it.</param>
+/// <param name="Title">Short title shown on the post-it; trimmed. May be empty: a post-it without a title shows none.</param>
 /// <param name="Color">Post-it fill; defaults to Butter.</param>
 /// <param name="BucketId">Bucket to put the note in. Do not combine with X and Y.</param>
 /// <param name="X">Left edge in canvas pixels; snapped to the 20 px grid. Give it together with Y.</param>
@@ -94,7 +94,7 @@ public record NoteLink(
 /// <param name="Blocks">Initial content: text, checklists and lists of links. Blocks without X and Y are laid out automatically.</param>
 /// <param name="AgentWorking">Set to true when the calling agent starts working on the note right away.</param>
 public record CreateNoteRequest(
-    [property: Required, StringLength(200)] string Title,
+    [property: Required(AllowEmptyStrings = true), StringLength(200)] string Title,
     NoteColor? Color = null,
     Guid? BucketId = null,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X = null,
@@ -108,13 +108,13 @@ public record CreateNoteRequest(
 /// Partially updates a note. Omitted (null) fields stay unchanged. A list that is given replaces the whole list (send []
 /// to clear it). Use moveNote to move the note, and addNoteBlock, updateNoteBlock and deleteNoteBlock to change its content.
 /// </summary>
-/// <param name="Title">New title.</param>
+/// <param name="Title">New title; trimmed. Empty or whitespace clears it.</param>
 /// <param name="Color">New fill.</param>
 /// <param name="Tags">Replacement tag names; new names are added to the board.</param>
 /// <param name="AssigneeIds">Replacement assignees by principal id (see people in getBoard). People already on the note may stay after they lose access to the board.</param>
 /// <param name="AgentWorking">True when an agent starts working on the note, false when it stops.</param>
 public record UpdateNoteRequest(
-    [property: StringLength(200, MinimumLength = 1)] string? Title = null,
+    [property: StringLength(200)] string? Title = null,
     NoteColor? Color = null,
     [property: MaxLength(10)] List<string>? Tags = null,
     [property: MaxLength(10)] List<Guid>? AssigneeIds = null,

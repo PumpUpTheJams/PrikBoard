@@ -65,7 +65,7 @@ export function registerNoteCommands(tree: BoardTree): vscode.Disposable[] {
         description: bucket.id === node.note.bucketId ? 'current' : undefined,
         bucketId: bucket.id,
       })),
-      { title: `Move "${node.note.title}" to` },
+      { title: `Move "${node.note.title || 'Untitled post-it'}" to` },
     )
     if (!picked || picked.bucketId === node.note.bucketId) return
     await run(() => api.moveNote(node.note.id, { bucketId: picked.bucketId }))
@@ -85,7 +85,7 @@ export function registerNoteCommands(tree: BoardTree): vscode.Disposable[] {
 
   const deleteNote = async (node?: Node) => {
     if (node?.kind !== 'note') return
-    const answer = await vscode.window.showWarningMessage(`Delete "${node.note.title}"?`, { modal: true }, 'Delete')
+    const answer = await vscode.window.showWarningMessage(`Delete "${node.note.title || 'Untitled post-it'}"?`, { modal: true }, 'Delete')
     if (answer !== 'Delete') return
     await run(() => api.deleteNote(node.note.id))
   }

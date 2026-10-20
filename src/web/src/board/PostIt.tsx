@@ -3,6 +3,7 @@ import type { NoteDetail, Point } from '../api/types'
 import { AvatarStack } from '../components/Avatar'
 import { Highlight } from './Highlight'
 import { CheckIcon, ExpandIcon, LinkIcon } from './icons'
+import { noteLabel } from './links'
 import { NOTE_HEIGHT, NOTE_WIDTH } from './layout'
 import { keepPress } from './gesture'
 import { tagColorClass, type TagColors } from './tagColors'
@@ -79,11 +80,13 @@ export function PostIt(props: PostItProps) {
   /** A saved title, shown until the reload brings it (while the server still has `from`). */
   const [saved, setSaved] = useState<{ title: string; from: string } | null>(null)
   const title = saved && saved.from === note.title ? saved.title : note.title
+  /** The title in labels, with a stand-in when it is empty. */
+  const name = noteLabel({ title })
   const { copied, copy } = useCopyLink(note)
 
   function rename(next: string) {
     onTitleDone?.()
-    if (!onRenameTitle || next.length === 0 || next === note.title) return
+    if (!onRenameTitle || next === note.title) return
     setSaved({ title: next, from: note.title })
     void onRenameTitle(next).then((ok) => ok || setSaved(null))
   }
@@ -116,7 +119,7 @@ export function PostIt(props: PostItProps) {
       style={{ left: point.x, top: point.y, width: NOTE_WIDTH, height: NOTE_HEIGHT, '--title-lines': titleLines(note) } as CSSProperties}
       role="group"
       data-note={note.id}
-      aria-label={note.agentWorking ? `${title} (agent working)` : title}
+      aria-label={note.agentWorking ? `${name} (agent working)` : name}
       tabIndex={0}
       onPointerDown={onPointerDown}
       onDoubleClick={onExpand}
@@ -137,13 +140,13 @@ export function PostIt(props: PostItProps) {
             {contents}
           </span>
         )}
-        <button type="button" className="expand" aria-label={`Expand ${title}`} title="Expand" onPointerDown={keepPress} onClick={onExpand}>
+        <button type="button" className="expand" aria-label={`Expand ${name}`} title="Expand" onPointerDown={keepPress} onClick={onExpand}>
           <ExpandIcon size={13} />
         </button>
         <button
           type="button"
           className={copied ? 'copied' : undefined}
-          aria-label={`Copy a link to ${title}`}
+          aria-label={`Copy a link to ${name}`}
           title="Copy link"
           onPointerDown={keepPress}
           onDoubleClick={stop}
@@ -159,14 +162,14 @@ export function PostIt(props: PostItProps) {
       )}
       <div className="post-it-foot">
         {onEditTags ? (
-          <QuickEdit className="post-it-tags" label={`Tags of ${title}`} onOpen={onEditTags}>
+          <QuickEdit className="post-it-tags" label={`Tags of ${name}`} onOpen={onEditTags}>
             {tags.length > 0 ? tags : <span className="tag tag-add">+ tag</span>}
           </QuickEdit>
         ) : (
           <span className="post-it-tags">{tags}</span>
         )}
         {onEditAssignees ? (
-          <QuickEdit className="post-it-people" label={`People on ${title}`} onOpen={onEditAssignees}>
+          <QuickEdit className="post-it-people" label={`People on ${name}`} onOpen={onEditAssignees}>
             {people}
           </QuickEdit>
         ) : (

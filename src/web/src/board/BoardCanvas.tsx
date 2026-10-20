@@ -25,7 +25,7 @@ import { BoardSearch, type SearchResult } from './BoardSearch'
 import { ExpandedNote, type ExpandedNoteHandle } from './ExpandedNote'
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
 import { delta, isDrag } from './gesture'
-import { noteIdFromHash, notePath, noteRoute } from './links'
+import { noteIdFromHash, noteLabel, notePath, noteRoute } from './links'
 import { pop, reducedMotion } from './motion'
 import { BucketInspector, ImageInspector } from './Inspector'
 import {
@@ -649,7 +649,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
    */
   async function linkNote({ note, at }: LinkDrop, linked: NoteDetail): Promise<UndoEntry | null | false> {
     if (note.blocks.some((b) => b.links?.some((l) => noteRoute(l.url)?.noteId === linked.id))) return false
-    const link = { title: linked.title, url: linked.path }
+    const link = { title: noteLabel(linked), url: linked.path }
     const lists = note.blocks.filter((b) => b.kind === 'Links')
     const block =
       (at && lists.find((b) => at.x >= b.x && at.x < b.x + b.width && at.y >= b.y && at.y < b.y + b.height)) ?? lists[0]
@@ -850,7 +850,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   function stickPostIt(at: Point) {
     void settle(
       async () => {
-        const note = await api.createNote(board.id, { title: 'New post-it', color: fill, ...at })
+        const note = await api.createNote(board.id, { title: '', color: fill, ...at })
         setSelection({ kind: 'note', id: note.id })
         setExpanded({ id: note.id, fresh: true })
         setTool('select')
@@ -1555,7 +1555,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
           >
             <div className={`post-it lifted fill-${fill.toLowerCase()}`} style={{ width: NOTE_WIDTH, height: NOTE_HEIGHT }}>
               <div className="post-it-head">
-                <span className="post-it-title">New post-it</span>
+                <span className="post-it-title" />
               </div>
             </div>
           </div>,

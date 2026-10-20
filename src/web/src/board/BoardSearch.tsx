@@ -1,6 +1,7 @@
 import { Fragment, useLayoutEffect, useRef, type RefObject } from 'react'
 import type { NoteDetail } from '../api/types'
 import { Highlight } from './Highlight'
+import { noteLabel } from './links'
 import { ChevronDownIcon, ChevronUpIcon, CloseIcon, SearchIcon } from './icons'
 import { excerpt, type SearchField } from './search'
 
@@ -144,7 +145,7 @@ export function BoardSearch(props: BoardSearchProps) {
                   <span className={`link-swatch fill-${note.color.toLowerCase()}`} aria-hidden="true" />
                   <span className="search-result-text">
                     <span className="search-result-title">
-                      <Highlight text={note.title} terms={terms} />
+                      <Highlight text={noteLabel(note)} terms={terms} />
                     </span>
                     <span className="search-result-where">
                       <FoundIn fields={fields} terms={terms} />
