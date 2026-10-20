@@ -227,6 +227,8 @@ export interface BucketChanges extends Partial<Rect> {
   color?: BucketColor
   /** With a move only: exactly these notes move along instead of the bucket's notes (undoing a move). */
   carryNoteIds?: string[]
+  /** Likewise for images on the board, instead of the images in the bucket. */
+  carryImageIds?: string[]
 }
 
 /** A PATCH: omitted fields stay unchanged, a given list replaces the whole list. */

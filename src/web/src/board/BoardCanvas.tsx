@@ -35,6 +35,7 @@ import {
   MIN_COORDINATE,
   NOTE_HEIGHT,
   NOTE_WIDTH,
+  bucketAt,
   bucketSize,
   bucketUnderNote,
   defaultBlockSize,
@@ -577,7 +578,13 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
   function imageRect(image: ImageDetail): Rect {
     const drag = dragOf(image.id)
-    if (!drag) return image
+    if (!drag) {
+      // A moving bucket carries the images in it along, as the server does.
+      const bucket = bucketAt(board.buckets, image)
+      if (!bucket || dragOf(bucket.id)?.kind !== 'bucket') return image
+      const moved = bucketRect(bucket)
+      return { ...image, x: onBoard(image.x + moved.x - bucket.x), y: onBoard(image.y + moved.y - bucket.y) }
+    }
     const { d } = drag
     if (drag.kind === 'image') return { ...image, ...snapPoint({ x: image.x + d.x, y: image.y + d.y }) }
     if (drag.kind === 'image-resize') {
@@ -1041,19 +1048,21 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         imageStep(moving ? 'Move image' : 'Resize image', image, ['x', 'y', 'width']),
       )
     } else if (gesture.kind === 'bucket') {
-      // A moved bucket carries its post-its along; undoing the move takes exactly those back.
+      // A moved bucket carries its post-its and images along; undoing the move takes exactly those back.
       const bucket = board.buckets.find((b) => b.id === id)!
       const carried = board.notes.filter((n) => n.bucketId === id)
+      const carriedImages = board.images.filter((i) => i.noteId === null && bucketAt(board.buckets, i)?.id === id)
       const { x, y } = bucketRect(bucket)
+      const along = (item: Point, d: Point) => ({ x: onBoard(item.x + d.x), y: onBoard(item.y + d.y) })
       void settle(
         () => api.updateBucket(id, { x, y }),
         (moved) => {
           const d = { x: moved.x - bucket.x, y: moved.y - bucket.y }
+          const carry = { notes: carried.map((n) => n.id), images: carriedImages.map((i) => i.id) }
           return step('Move bucket', [
-            patched(target.bucket(id, carried.map((n) => n.id)), snap.bucket(bucket), snap.bucket(moved), ['x', 'y']),
-            ...carried.map((n) =>
-              patched(target.note(n.id), { x: n.x, y: n.y }, { x: onBoard(n.x + d.x), y: onBoard(n.y + d.y) }, ['x', 'y'], true),
-            ),
+            patched(target.bucket(id, carry), snap.bucket(bucket), snap.bucket(moved), ['x', 'y']),
+            ...carried.map((n) => patched(target.note(n.id), { x: n.x, y: n.y }, along(n, d), ['x', 'y'], true)),
+            ...carriedImages.map((i) => patched(target.image(i.id), { x: i.x, y: i.y }, along(i, d), ['x', 'y'], true)),
           ])
         },
       )

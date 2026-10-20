@@ -48,13 +48,18 @@ public static class Layout
     public static void AssignBuckets(IEnumerable<Note> notes, IEnumerable<Bucket> buckets)
     {
         var stacked = BackToFront(buckets);
-        foreach (var note in notes)
-        {
-            var centerX = note.X + NoteWidth / 2;
-            var centerY = note.Y + NoteHeight / 2;
-            note.BucketId = stacked.LastOrDefault(b => b.Contains(centerX, centerY))?.Id;
-        }
+        foreach (var note in notes) note.BucketId = TopmostAt(stacked, note.X + NoteWidth / 2, note.Y + NoteHeight / 2)?.Id;
     }
+
+    /// <summary>
+    /// The bucket an image on the board sits in, by the same rule as notes: the topmost one containing its centre. Images
+    /// don't store it; a bucket that moves takes the images in it along. Null for an image attached to a note.
+    /// </summary>
+    public static Bucket? BucketOf(BoardImage image, IReadOnlyList<Bucket> stacked) =>
+        image.NoteId is null ? TopmostAt(stacked, image.X + image.Width / 2, image.Y + image.Height / 2) : null;
+
+    /// <summary>The topmost of <paramref name="stacked"/> (back to front) containing a point.</summary>
+    private static Bucket? TopmostAt(IReadOnlyList<Bucket> stacked, int x, int y) => stacked.LastOrDefault(b => b.Contains(x, y));
 
     /// <summary>Notes bucket by bucket (in stacking order, loose notes last), then top to bottom and left to right.</summary>
     public static List<Note> ReadingOrder(IEnumerable<Note> notes, IEnumerable<Bucket> buckets)

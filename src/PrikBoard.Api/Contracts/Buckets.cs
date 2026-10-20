@@ -35,8 +35,9 @@ public record CreateBucketRequest(
 
 /// <summary>
 /// Renames, recolours, moves and/or resizes a bucket. Omitted (null) fields stay unchanged.
-/// Moving a bucket carries its notes along. Giving a new X or Y together with a new Width or Height resizes it from a
-/// top or left corner or edge instead, and its notes stay where they are. Afterwards every note belongs to whichever bucket now
+/// Moving a bucket carries its notes along, and the images on the board whose centre lies in it (the topmost bucket
+/// there, as for notes). Giving a new X or Y together with a new Width or Height resizes it from a top or left corner or
+/// edge instead, and its notes and images stay where they are. Afterwards every note belongs to whichever bucket now
 /// contains its centre.
 /// </summary>
 /// <param name="Name">New name.</param>
@@ -49,6 +50,9 @@ public record CreateBucketRequest(
 /// Only with a move (X and/or Y without Width or Height): exactly these notes move along, instead of the notes in the
 /// bucket. Used to undo a move, where the notes that came along must go back. Ids not on the board are ignored.
 /// </param>
+/// <param name="CarryImageIds">
+/// Like carryNoteIds, for images on the board: exactly these move along, instead of the images in the bucket.
+/// </param>
 public record UpdateBucketRequest(
     [property: StringLength(100, MinimumLength = 1)] string? Name = null,
     BucketColor? Color = null,
@@ -56,4 +60,5 @@ public record UpdateBucketRequest(
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null,
     [property: Range(Layout.MinBucketWidth, Layout.MaxBucketSize)] int? Width = null,
     [property: Range(Layout.MinBucketHeight, Layout.MaxBucketSize)] int? Height = null,
-    [property: MaxLength(2000)] List<Guid>? CarryNoteIds = null);
+    [property: MaxLength(2000)] List<Guid>? CarryNoteIds = null,
+    [property: MaxLength(2000)] List<Guid>? CarryImageIds = null);

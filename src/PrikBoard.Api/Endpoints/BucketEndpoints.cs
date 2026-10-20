@@ -26,7 +26,7 @@ public static class BucketEndpoints
             .WithName("updateBucket")
             .WithSummary("Rename, recolour, move or resize a bucket")
             .WithDescription("Changes any of name, colour, position and size. Omitted fields stay unchanged. " +
-                             "Moving a bucket carries its notes along (or exactly carryNoteIds).")
+                             "Moving a bucket carries its notes and the images in it along (or exactly carryNoteIds and carryImageIds).")
             .ProducesValidationProblem();
 
         buckets.MapDelete("/buckets/{bucketId:guid}", DeleteBucket)
@@ -81,18 +81,21 @@ public static class BucketEndpoints
 
         // A new place together with a new size is a resize from a top or left corner or edge: the frame's edge moves, its notes stay.
         var resizing = request.Width is not null || request.Height is not null;
-        if (request.CarryNoteIds is not null && (resizing || request is { X: null, Y: null }))
+        var moving = !resizing && request is not { X: null, Y: null };
+        if (!moving && (request.CarryNoteIds is not null || request.CarryImageIds is not null))
         {
+            var key = request.CarryNoteIds is not null ? "carryNoteIds" : "carryImageIds";
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["carryNoteIds"] = ["Only a move (X and/or Y without Width or Height) carries notes."],
+                [key] = ["Only a move (X and/or Y without Width or Height) carries notes and images."],
             });
         }
 
         var notes = await db.Notes.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);
+        var buckets = await db.Buckets.Where(b => b.BoardId == bucket.BoardId).ToListAsync(ct);
         var dx = request.X is { } x ? Layout.Snap(x) - bucket.X : 0;
         var dy = request.Y is { } y ? Layout.Snap(y) - bucket.Y : 0;
-        if ((dx != 0 || dy != 0) && !resizing)
+        if ((dx != 0 || dy != 0) && moving)
         {
             var carried = request.CarryNoteIds is { } ids
                 ? notes.Where(n => ids.Contains(n.Id))
@@ -101,6 +104,18 @@ public static class BucketEndpoints
             {
                 note.X = Math.Clamp(note.X + dx, Layout.MinCoordinate, Layout.MaxCoordinate);
                 note.Y = Math.Clamp(note.Y + dy, Layout.MinCoordinate, Layout.MaxCoordinate);
+            }
+
+            // The images in it come along too (decided before it moves), so it carries a frame's pictures with its post-its.
+            var images = await db.Images.Where(i => i.BoardId == bucket.BoardId && i.NoteId == null).ToListAsync(ct);
+            var stacked = Layout.BackToFront(buckets);
+            var carriedImages = request.CarryImageIds is { } imageIds
+                ? images.Where(i => imageIds.Contains(i.Id))
+                : images.Where(i => Layout.BucketOf(i, stacked)?.Id == bucket.Id).ToList();
+            foreach (var image in carriedImages)
+            {
+                image.X = Math.Clamp(image.X + dx, Layout.MinCoordinate, Layout.MaxCoordinate);
+                image.Y = Math.Clamp(image.Y + dy, Layout.MinCoordinate, Layout.MaxCoordinate);
             }
         }
 
@@ -111,7 +126,6 @@ public static class BucketEndpoints
         if (request.Width is { } width) bucket.Width = Layout.SnapSize(width, Layout.MinBucketWidth);
         if (request.Height is { } height) bucket.Height = Layout.SnapSize(height, Layout.MinBucketHeight);
 
-        var buckets = await db.Buckets.Where(b => b.BoardId == bucket.BoardId).ToListAsync(ct);
         Layout.AssignBuckets(notes, buckets);
 
         await db.SaveChangesAsync(ct);

@@ -76,6 +76,27 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
+    public async Task Moving_a_bucket_carries_the_images_in_it_along()
+    {
+        var board = await CreateBoard("Docked");
+        var todo = board.Buckets[0];
+        var inside = await Upload(board.Id, TestImages.Png(160, 80), "image/png", $"?x={todo.X + 20}&y={todo.Y + 100}");
+        var outside = await Upload(board.Id, TestImages.Png(160, 80), "image/png", "?x=2000&y=100");
+
+        var moved = await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { x = todo.X, y = todo.Y + 1000 });
+        moved.EnsureSuccessStatusCode();
+        // Undo moves it back with exactly the images that came along: here none.
+        var back = await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { x = todo.X, y = todo.Y, carryImageIds = Array.Empty<Guid>() });
+        back.EnsureSuccessStatusCode();
+        var resizeWithCarry = await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { x = todo.X, width = 400, carryImageIds = new[] { inside.Id } });
+
+        var images = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Images;
+        Assert.Equal((todo.X + 20, todo.Y + 1100), (images.Single(i => i.Id == inside.Id).X, images.Single(i => i.Id == inside.Id).Y));
+        Assert.Equal((2000, 100), (images.Single(i => i.Id == outside.Id).X, images.Single(i => i.Id == outside.Id).Y));
+        Assert.Equal(HttpStatusCode.BadRequest, resizeWithCarry.StatusCode);
+    }
+
+    [Fact]
     public async Task Images_attached_to_a_note_go_when_the_note_goes()
     {
         var board = await CreateBoard("Attached");
