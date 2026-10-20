@@ -4,7 +4,7 @@ namespace PrikBoard.Api.Domain;
 /// An image or GIF on a board. Without a <see cref="NoteId"/> it sits on the canvas at <see cref="X"/>, <see cref="Y"/>;
 /// with one it is attached to that note and shown when the note is expanded. The file itself is <see cref="File"/>.
 /// </summary>
-public class BoardImage
+public class BoardImage : ICanvasItem
 {
     public Guid Id { get; set; } = Guid.CreateVersion7();
     public Guid BoardId { get; set; }

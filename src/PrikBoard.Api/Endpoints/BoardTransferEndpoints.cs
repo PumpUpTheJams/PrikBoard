@@ -51,6 +51,7 @@ public static class BoardTransferEndpoints
             .Include(b => b.Buckets)
             .Include(b => b.Notes)
             .Include(b => b.Images).ThenInclude(i => i.File)
+            .Include(b => b.Drawings).ThenInclude(d => d.Content)
             .Include(b => b.Tags)
             .AsSplitQuery()
             .FirstOrDefaultAsync(b => b.Id == boardId, ct);
@@ -80,6 +81,8 @@ public static class BoardTransferEndpoints
                     Number: n.Number)).ToList(),
             images,
             board.Tags.Where(t => t.Color != TagColor.Default).ToDictionary(t => t.Name, t => t.Color),
+            board.Drawings.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id)
+                .Select(d => new ExportedDrawing(d.NoteId, d.X, d.Y, d.Color, d.StrokeWidth, [.. d.Content!.Points])).ToList(),
             board.Key);
 
         var fileName = $"{CleanName(board.Name)}.prikboard.json";
@@ -225,8 +228,29 @@ public static class BoardTransferEndpoints
             contents.Add((image.File, source.Data));
         }
 
-        Layout.PlaceAll(board.Notes, board.Images, board.Buckets);
-        // Folded up only now, so their notes and images joined them first.
+        foreach (var (source, i) in (file.Drawings ?? []).Select((d, i) => (d, i)))
+        {
+            Guid? noteId = null;
+            if (source.NoteId is { } sourceNote)
+            {
+                if (!newIds.TryGetValue(sourceNote, out var mapped)) return Invalid($"drawings[{i}].noteId", "The note is not in this file.");
+                noteId = mapped;
+            }
+            var drawing = new BoardDrawing
+            {
+                NoteId = noteId,
+                Color = source.Color,
+                StrokeWidth = source.StrokeWidth,
+                AddedById = createdBy,
+                CreatedAt = clock.AddMilliseconds(i),
+                UpdatedAt = clock.AddMilliseconds(i),
+            };
+            if (DrawingEndpoints.Build(drawing, source.Points, source.X, source.Y, $"drawings[{i}].") is { } invalidDrawing) return invalidDrawing;
+            board.Drawings.Add(drawing);
+        }
+
+        Layout.PlaceAll(board.Notes, [.. board.Images, .. board.Drawings], board.Buckets);
+        // Folded up only now, so their notes, images and drawings joined them first.
         foreach (var (bucket, i) in board.Buckets.Select((b, i) => (b, i))) bucket.Collapsed = file.Buckets[i].Collapsed;
         // Like createBoard: a personal access token imports for its owner, who owns the board; the token keeps its capped role.
         board.Members.Add(new BoardMember { PrincipalId = caller.MemberId, Role = BoardRole.Owner });
@@ -238,6 +262,7 @@ public static class BoardTransferEndpoints
         var principals = await NoteEndpoints.PrincipalsOnAsync(db, board.Notes, ct);
         var importer = await db.Principals.FindAsync([createdBy], ct);
         foreach (var image in board.Images) image.AddedBy = importer;
+        foreach (var drawing in board.Drawings) drawing.AddedBy = importer;
         var people = await BoardAccess.PeopleAsync(db, board.Id, ct);
         return TypedResults.Created($"/api/boards/{board.Id}",
             BoardDetail.From(board, caller.Apply(board.Id, BoardRole.Owner)!.Value, principals, people, createdBy));

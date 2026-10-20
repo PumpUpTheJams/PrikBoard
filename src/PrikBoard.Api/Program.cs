@@ -170,6 +170,7 @@ api.MapNoteEndpoints();
 api.MapNoteBlockEndpoints();
 api.MapTagEndpoints();
 api.MapImageEndpoints();
+api.MapDrawingEndpoints();
 api.MapMemberEndpoints();
 api.MapInviteEndpoints();
 api.MapAccessTokenEndpoints();

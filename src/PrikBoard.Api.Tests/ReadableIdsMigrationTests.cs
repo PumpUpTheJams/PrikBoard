@@ -10,7 +10,7 @@ namespace PrikBoard.Api.Tests;
 /// <summary>The ReadableIds migration, run against a throwaway database of its own (see <see cref="MigrationTests"/>).</summary>
 public class ReadableIdsMigrationTests : IAsyncLifetime
 {
-    private const string BeforeReadableIds = "20261020202702_CollapsibleBuckets";
+    private const string BeforeReadableIds = "20261020202830_AddDrawings";
 
     private readonly PrikBoardDbContext db = new(new DbContextOptionsBuilder<PrikBoardDbContext>()
         .UseNpgsql(new NpgsqlConnectionStringBuilder(

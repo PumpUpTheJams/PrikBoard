@@ -121,6 +121,7 @@ public static class BoardEndpoints
             .Include(b => b.Notes)
             .Include(b => b.Images).ThenInclude(i => i.AddedBy)
             .Include(b => b.Images).ThenInclude(i => i.File)
+            .Include(b => b.Drawings).ThenInclude(d => d.AddedBy)
             .Include(b => b.Tags)
             .AsSplitQuery()
             .FirstOrDefaultAsync(b => b.Id == boardId, ct);

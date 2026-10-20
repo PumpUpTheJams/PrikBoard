@@ -5,6 +5,7 @@ import {
   type BoardPerson,
   type BoardTag,
   type BucketDetail,
+  type DrawingDetail,
   type ImageDetail,
   type NoteChanges,
   type NoteColor,
@@ -20,7 +21,7 @@ import { Highlight } from './Highlight'
 import { BucketIcon, CheckIcon, CloseIcon, LinkIcon, PutBackIcon, SparkleIcon, TrashIcon } from './icons'
 import { noteLabel, TITLE_SUGGESTION } from './links'
 import { pop } from './motion'
-import { NoteCanvas, type IncomingImage, type NoteCanvasHandle } from './NoteCanvas'
+import { NoteCanvas, type IncomingDrawing, type IncomingImage, type NoteCanvasHandle } from './NoteCanvas'
 import { tagColorClass, type TagColorPreview, type TagColors } from './tagColors'
 import { TagPicker } from './TagPicker'
 import type { RecordingRun } from './undo'
@@ -57,6 +58,8 @@ interface ExpandedNoteProps {
   onDelete: () => void
   /** Images attached to this post-it. */
   images: ImageDetail[]
+  /** Pen strokes on this post-it (none for one in the trash). */
+  drawings?: DrawingDetail[]
   /** The post-its on the board, to link to and to show linked ones by their current title. */
   notes: NoteDetail[]
   /** Attaches images, at a point on the post-it's canvas or in a free spot. */
@@ -74,6 +77,8 @@ interface ExpandedNoteProps {
   onBusy: (busy: boolean) => void
   /** A board image being dragged over the window. */
   incoming: IncomingImage | null
+  /** A board drawing being dragged over the window. */
+  incomingDrawing?: IncomingDrawing | null
   /** A post-it is being dragged over the window, to link it here. */
   linking: boolean
   /** A screen point on the board in canvas pixels, when it is over the board; to drop images out of the post-it. */
@@ -90,6 +95,7 @@ interface ExpandedNoteProps {
 export function ExpandedNote(props: ExpandedNoteProps) {
   const { note, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onClose, readOnly, highlight } = props
   const { boardTags, tagColors, people, notes, onRenameTag, onRecolorTag, onPreviewTagColor, onDeleteTag, handle, run, onBusy, incoming, linking, boardPoint, boardZoom, deleted } = props
+  const { drawings = [], incomingDrawing = null } = props
   /** The tag or people window, opened from its button in the band. */
   const [picking, setPicking] = useState<{ kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
   const [fileOver, setFileOver] = useState(false)
@@ -156,7 +162,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
     <>
       <article
         ref={dialogRef}
-        className={`expanded fill-${note.color.toLowerCase()}${moving ? ' moving' : ''}${fileOver ? ' file-over' : ''}${readOnly ? ' read-only' : ''}${incoming || linking ? ' drop-over' : ''}`}
+        className={`expanded fill-${note.color.toLowerCase()}${moving ? ' moving' : ''}${fileOver ? ' file-over' : ''}${readOnly ? ' read-only' : ''}${incoming || incomingDrawing || linking ? ' drop-over' : ''}`}
         style={rect ? { left: rect.x, top: rect.y, width: rect.width, height: rect.height } : { visibility: 'hidden' }}
         // Images dropped on the band are attached in a free spot (the canvas takes drops where they land).
         onDragOver={(e) => {
@@ -260,6 +266,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
         <NoteCanvas
           note={note}
           images={images}
+          drawings={drawings}
           notes={notes}
           highlight={highlight}
           readOnly={readOnly}
@@ -267,6 +274,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
           run={run}
           onBusy={onBusy}
           incoming={incoming}
+          incomingDrawing={incomingDrawing}
           onAddImages={onAddImages}
           onPickImages={onPickImages}
           boardPoint={boardPoint}

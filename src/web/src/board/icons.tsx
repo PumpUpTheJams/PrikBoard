@@ -31,6 +31,13 @@ export const PostItIcon = ({ size = 18 }: IconProps) => (
   </Icon>
 )
 
+export const PenIcon = ({ size = 18 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M4 20h4L19 9l-4-4L4 16z" />
+    <path d="M13 7l4 4" />
+  </Icon>
+)
+
 /** A post-it with a frown, for pages with nothing to show. */
 export const SadPostItIcon = ({ size = 18 }: IconProps) => (
   <Icon size={size}>

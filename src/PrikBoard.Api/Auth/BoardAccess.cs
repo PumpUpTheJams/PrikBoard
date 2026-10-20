@@ -21,6 +21,9 @@ public enum BoardScope
     /// <summary>{imageId}: the image's board.</summary>
     Image,
 
+    /// <summary>{drawingId}: the drawing's board.</summary>
+    Drawing,
+
     /// <summary>{shortId}: the board with that short id (<see cref="Domain.Board.ShortId"/>).</summary>
     ShortBoard,
 }
@@ -108,7 +111,7 @@ public static class BoardAccess
     public sealed record Authorization(Guid BoardId, BoardRole Role, IResult? Failure);
 
     /// <summary>
-    /// Finds the board a board, note, bucket or image id belongs to and checks the caller's role on it in one query:
+    /// Finds the board a board, note, bucket, image or drawing id belongs to and checks the caller's role on it in one query:
     /// 404 when the caller has no access (so existence does not leak), 403 when the role is too low. On success the role
     /// is available through <see cref="BoardRole(HttpContext)"/>. Used by the endpoint filter and by MCP tools.
     /// </summary>
@@ -124,6 +127,7 @@ public static class BoardAccess
             BoardScope.Note => db.Notes.IgnoreQueryFilters(deleted).Where(n => n.Id == id).Select(n => n.BoardId),
             BoardScope.Bucket => db.Buckets.IgnoreQueryFilters(deleted).Where(b => b.Id == id).Select(b => b.BoardId),
             BoardScope.Image => db.Images.IgnoreQueryFilters(deleted).Where(i => i.Id == id).Select(i => i.BoardId),
+            BoardScope.Drawing => db.Drawings.IgnoreQueryFilters(deleted).Where(d => d.Id == id).Select(d => d.BoardId),
             _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, "This scope does not take an id."),
         };
         return AuthorizeAsync(http, boardIds, minimum);
@@ -179,7 +183,8 @@ public static class BoardAccess
                 BoardScope.Board => "boardId",
                 BoardScope.Note => "noteId",
                 BoardScope.Bucket => "bucketId",
-                _ => "imageId",
+                BoardScope.Image => "imageId",
+                _ => "drawingId",
             };
             if (!Guid.TryParse(http.Request.RouteValues[routeValue]?.ToString(), out var id)) return TypedResults.NotFound();
             access = await AuthorizeAsync(http, scope, id, minimum);
