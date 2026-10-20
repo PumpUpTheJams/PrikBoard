@@ -31,6 +31,9 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
         modelBuilder.Entity<Board>(board =>
         {
             board.Property(b => b.Name).HasMaxLength(100);
+            board.Property(b => b.ShortId).HasMaxLength(Board.ShortIdLength);
+            board.HasIndex(b => b.ShortId).IsUnique();
+            board.Property(b => b.Key).HasMaxLength(Board.KeyMaxLength);
             board.Property(b => b.Description).HasMaxLength(1000);
             board.Property(b => b.Rules).HasMaxLength(Board.RulesMaxLength);
             board.HasMany(b => b.Buckets)
@@ -79,6 +82,8 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
                 .HasForeignKey(n => n.BucketId)
                 .OnDelete(DeleteBehavior.SetNull);
             note.HasIndex(n => n.BoardId);
+            // Unfiltered, unlike the tag names: a deleted note keeps its number, and gets it back when restored.
+            note.HasIndex(n => new { n.BoardId, n.Number }).IsUnique();
             note.HasQueryFilter(SoftDelete, n => n.DeletedAt == null);
             note.HasOne(n => n.CreatedBy).WithMany().HasForeignKey(n => n.CreatedById).OnDelete(DeleteBehavior.SetNull);
         });

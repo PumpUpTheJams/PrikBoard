@@ -5,19 +5,24 @@ namespace PrikBoard.Api.Contracts;
 
 /// <summary>A board without its buckets and notes.</summary>
 /// <param name="Id">Board identifier.</param>
+/// <param name="ShortId">The board in web addresses, e.g. "k3x9m2" in /#/boards/k3x9m2/notes/415. Never changes. Tools that take a board id take this too.</param>
+/// <param name="Key">Shown before note numbers, e.g. "MPCT" in the readable id MPCT-415. Owners may change it; it is not unique.</param>
 /// <param name="Name">Board name, usually the project name.</param>
 /// <param name="Description">Optional free-text description of the project.</param>
 /// <param name="CreatedAt">When the board was created (UTC).</param>
 /// <param name="UpdatedAt">When the board name or description last changed (UTC).</param>
 /// <param name="YourRole">Your role on the board: Viewer, Editor or Owner.</param>
-public record BoardSummary(Guid Id, string Name, string? Description, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, BoardRole YourRole)
+public record BoardSummary(
+    Guid Id, string ShortId, string Key, string Name, string? Description, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, BoardRole YourRole)
 {
     public static BoardSummary From(Board board, BoardRole role) =>
-        new(board.Id, board.Name, board.Description, board.CreatedAt, board.UpdatedAt, role);
+        new(board.Id, board.ShortId, board.Key, board.Name, board.Description, board.CreatedAt, board.UpdatedAt, role);
 }
 
 /// <summary>A full board snapshot: every bucket, note and image with its position on the canvas.</summary>
 /// <param name="Id">Board identifier.</param>
+/// <param name="ShortId">The board in web addresses, e.g. "k3x9m2" in /#/boards/k3x9m2/notes/415. Never changes.</param>
+/// <param name="Key">Shown before note numbers, e.g. "MPCT" in the readable id MPCT-415. Owners may change it; it is not unique.</param>
 /// <param name="Name">Board name, usually the project name.</param>
 /// <param name="Description">Optional free-text description of the project.</param>
 /// <param name="CreatedAt">When the board was created (UTC).</param>
@@ -35,6 +40,8 @@ public record BoardSummary(Guid Id, string Name, string? Description, DateTimeOf
 /// <param name="YourRole">Your role on the board: Viewer (read only), Editor or Owner.</param>
 public record BoardDetail(
     Guid Id,
+    string ShortId,
+    string Key,
     string Name,
     string? Description,
     DateTimeOffset CreatedAt,
@@ -54,9 +61,9 @@ public record BoardDetail(
     /// </summary>
     public static BoardDetail From(
         Board board, BoardRole role, IReadOnlyDictionary<Guid, Principal> principals, IEnumerable<Principal> people, Guid caller) =>
-        new(board.Id, board.Name, board.Description, board.CreatedAt, board.UpdatedAt, board.Rules, board.RulesUpdatedAt,
+        new(board.Id, board.ShortId, board.Key, board.Name, board.Description, board.CreatedAt, board.UpdatedAt, board.Rules, board.RulesUpdatedAt,
             Layout.BackToFront(board.Buckets).Select(BucketDetail.From).ToList(),
-            Layout.ReadingOrder(board.Notes, board.Buckets).Select(n => NoteDetail.From(n, principals)).ToList(),
+            Layout.ReadingOrder(board.Notes, board.Buckets).Select(n => NoteDetail.From(n, BoardRef.Of(board), principals)).ToList(),
             board.Images.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id).Select(ImageDetail.From).ToList(),
             BoardTagDetail.List(board.Tags, board.Notes),
             BoardPerson.List(people, caller),
@@ -91,7 +98,11 @@ public record CreateBoardRequest(
 /// <param name="Name">New board name.</param>
 /// <param name="Description">New description; an empty string clears it.</param>
 /// <param name="Rules">New agent rules in Markdown (at most 20000 characters); an empty string clears them.</param>
+/// <param name="Key">New key, shown before note numbers (MPCT-415): a letter, then letters and digits, 2 to 10 in all; upper-cased. Links keep working, as they use the short id.</param>
 public record UpdateBoardRequest(
     [property: StringLength(100, MinimumLength = 1)] string? Name = null,
     [property: StringLength(1000)] string? Description = null,
-    [property: StringLength(Board.RulesMaxLength)] string? Rules = null);
+    [property: StringLength(Board.RulesMaxLength)] string? Rules = null,
+    [property: StringLength(Board.KeyMaxLength, MinimumLength = 2),
+               RegularExpression("^[A-Za-z][A-Za-z0-9]{1,9}$", ErrorMessage = "A key is a letter, then letters and digits, 2 to 10 in all, e.g. MPCT.")]
+    string? Key = null);

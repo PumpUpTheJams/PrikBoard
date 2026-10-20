@@ -7,6 +7,11 @@ public class Note
     public Guid BoardId { get; set; }
     public Board? Board { get; set; }
     /// <summary>
+    /// The note's number on its board, from <see cref="Domain.Board.NextNoteNumber"/>: 1, 2, 3 and so on, never reused. Shown with
+    /// the board's key (MPCT-415) and part of its path (<see cref="NoteLinks.NotePath(string, int)"/>).
+    /// </summary>
+    public int Number { get; set; }
+    /// <summary>
     /// The bucket the note is in, or null when it is loose: the topmost one containing its centre when it was put there,
     /// kept while buckets move around it. Maintained by <see cref="Layout"/>.
     /// </summary>

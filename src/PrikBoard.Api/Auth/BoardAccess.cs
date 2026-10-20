@@ -20,6 +20,9 @@ public enum BoardScope
 
     /// <summary>{imageId}: the image's board.</summary>
     Image,
+
+    /// <summary>{shortId}: the board with that short id (<see cref="Domain.Board.ShortId"/>).</summary>
+    ShortBoard,
 }
 
 /// <summary>Endpoint metadata: the minimum role on the board in scope.</summary>
@@ -101,7 +104,7 @@ public static class BoardAccess
         return db.Principals.AsNoTracking().Where(p => ids.Contains(p.Id)).ToListAsync(ct);
     }
 
-    /// <summary>The outcome of <see cref="AuthorizeAsync"/>: the board and role, or the response to send instead.</summary>
+    /// <summary>The outcome of <see cref="AuthorizeAsync(HttpContext, BoardScope, Guid, BoardRole)"/>: the board and role, or the response to send instead.</summary>
     public sealed record Authorization(Guid BoardId, BoardRole Role, IResult? Failure);
 
     /// <summary>
@@ -109,7 +112,7 @@ public static class BoardAccess
     /// 404 when the caller has no access (so existence does not leak), 403 when the role is too low. On success the role
     /// is available through <see cref="BoardRole(HttpContext)"/>. Used by the endpoint filter and by MCP tools.
     /// </summary>
-    public static async Task<Authorization> AuthorizeAsync(HttpContext http, BoardScope scope, Guid id, BoardRole minimum)
+    public static Task<Authorization> AuthorizeAsync(HttpContext http, BoardScope scope, Guid id, BoardRole minimum)
     {
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
         // Deleted items still belong to their board, so restoring them is authorized like any other write; the handlers
@@ -120,8 +123,22 @@ public static class BoardAccess
             BoardScope.Board => db.Boards.Where(b => b.Id == id).Select(b => b.Id),
             BoardScope.Note => db.Notes.IgnoreQueryFilters(deleted).Where(n => n.Id == id).Select(n => n.BoardId),
             BoardScope.Bucket => db.Buckets.IgnoreQueryFilters(deleted).Where(b => b.Id == id).Select(b => b.BoardId),
-            _ => db.Images.IgnoreQueryFilters(deleted).Where(i => i.Id == id).Select(i => i.BoardId),
+            BoardScope.Image => db.Images.IgnoreQueryFilters(deleted).Where(i => i.Id == id).Select(i => i.BoardId),
+            _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, "This scope does not take an id."),
         };
+        return AuthorizeAsync(http, boardIds, minimum);
+    }
+
+    /// <summary>Like the overload with an id, for the board with this short id.</summary>
+    public static Task<Authorization> AuthorizeAsync(HttpContext http, string shortId, BoardRole minimum)
+    {
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        return AuthorizeAsync(http, db.Boards.Where(b => b.ShortId == shortId).Select(b => b.Id), minimum);
+    }
+
+    private static async Task<Authorization> AuthorizeAsync(HttpContext http, IQueryable<Guid> boardIds, BoardRole minimum)
+    {
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
         var caller = BoardCaller.Of(http.User);
         var membership = await db.BoardMembers
             .Where(m => m.PrincipalId == caller.MemberId && boardIds.Contains(m.BoardId))
@@ -149,16 +166,24 @@ public static class BoardAccess
         EndpointFilterInvocationContext context, EndpointFilterDelegate next, BoardRole minimum, BoardScope scope)
     {
         var http = context.HttpContext;
-        var routeValue = scope switch
+        Authorization access;
+        if (scope == BoardScope.ShortBoard)
         {
-            BoardScope.Board => "boardId",
-            BoardScope.Note => "noteId",
-            BoardScope.Bucket => "bucketId",
-            _ => "imageId",
-        };
-        if (!Guid.TryParse(http.Request.RouteValues[routeValue]?.ToString(), out var id)) return TypedResults.NotFound();
-
-        var access = await AuthorizeAsync(http, scope, id, minimum);
+            if (http.Request.RouteValues["shortId"]?.ToString() is not { } shortId) return TypedResults.NotFound();
+            access = await AuthorizeAsync(http, shortId, minimum);
+        }
+        else
+        {
+            var routeValue = scope switch
+            {
+                BoardScope.Board => "boardId",
+                BoardScope.Note => "noteId",
+                BoardScope.Bucket => "bucketId",
+                _ => "imageId",
+            };
+            if (!Guid.TryParse(http.Request.RouteValues[routeValue]?.ToString(), out var id)) return TypedResults.NotFound();
+            access = await AuthorizeAsync(http, scope, id, minimum);
+        }
         if (access.Failure is not null) return access.Failure;
 
         var result = await next(context);

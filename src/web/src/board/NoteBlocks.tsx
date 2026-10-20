@@ -4,7 +4,7 @@ import { blockKinds } from './blockKinds'
 import { EditableText } from './EditableText'
 import { Highlight } from './Highlight'
 import { CloseIcon, LinkIcon, PostItIcon, PullRequestIcon, TrashIcon } from './icons'
-import { isNoteId, noteLabel, notePath, noteRoute, type NoteRoute } from './links'
+import { isNoteId, linkedNote, noteLabel, notePath, noteRoute, type NoteRoute } from './links'
 import { ResizeHandles } from './ResizeHandles'
 
 // Loaded on first use, so react-markdown stays out of the main bundle.
@@ -248,7 +248,10 @@ interface LinksBlockProps {
   onChange: (links: NoteLink[]) => Promise<boolean>
 }
 
-/** Links to web pages and to other post-its. The address field takes a URL or a post-it's link or ID, or finds post-its by title. */
+/**
+ * Links to web pages and to other post-its. The address field takes a URL or a post-it's link or ID, or finds post-its by
+ * title or readable id (MPCT-415, or just 415).
+ */
 export function LinksBlock({ links, highlight, note, notes, autoFocus, onChange }: LinksBlockProps) {
   const [url, setUrl] = useState('')
   const [title, setTitle] = useState('')
@@ -256,11 +259,12 @@ export function LinksBlock({ links, highlight, note, notes, autoFocus, onChange 
   const query = url.trim()
   // Typing words (not an address) looks for post-its on this board to link.
   const searching = query.length >= 2 && !/^(https?:|\/#)/i.test(query)
-  const linked = new Set(links.map((l) => noteRoute(l.url)?.noteId))
+  const linked = new Set(links.map((l) => linkedNote(notes, l.url)?.id))
+  const lower = query.toLowerCase()
   const matches = searching
     ? notes
         .filter((n) => n.id !== note.id && !linked.has(n.id))
-        .filter((n) => n.title.toLowerCase().includes(query.toLowerCase()) || n.id.startsWith(query.toLowerCase()))
+        .filter((n) => n.title.toLowerCase().includes(lower) || n.readableId.toLowerCase().includes(lower) || n.id.startsWith(lower))
         .slice(0, 5)
     : []
 
@@ -273,15 +277,15 @@ export function LinksBlock({ links, highlight, note, notes, autoFocus, onChange 
 
   /** Links a post-it by its path, titled by its current title unless the person typed one. */
   function addNote(target: NoteRoute) {
-    const found = notes.find((n) => n.id === target.noteId)
-    return addLink({ title: title.trim() || (found ? noteLabel(found) : 'Post-it'), url: notePath(target) })
+    const found = linkedNote(notes, notePath(target))
+    return addLink({ title: title.trim() || (found ? noteLabel(found) : 'Post-it'), url: found?.path ?? notePath(target) })
   }
 
   async function add(e: FormEvent) {
     e.preventDefault()
-    const route = noteRoute(query) ?? (isNoteId(query) ? { boardId: note.boardId, noteId: query.toLowerCase() } : null)
+    const route = noteRoute(query) ?? (isNoteId(query) ? { board: note.boardId, note: lower } : null)
     if (route) return addNote(route)
-    if (matches.length > 0) return addNote({ boardId: matches[0].boardId, noteId: matches[0].id })
+    if (matches.length > 0) return addNote({ board: matches[0].boardId, note: matches[0].id })
     const parsed = webUrl(query)
     if (!parsed) {
       setInvalid(true)
@@ -329,11 +333,11 @@ export function LinksBlock({ links, highlight, note, notes, autoFocus, onChange 
         <ul className="links link-suggestions" aria-label="Post-its to link">
           {matches.map((n) => (
             <li key={n.id}>
-              <button type="button" className="link-row" onClick={() => void addNote({ boardId: n.boardId, noteId: n.id })}>
+              <button type="button" className="link-row" onClick={() => void addNote({ board: n.boardId, note: n.id })}>
                 <span className={`link-swatch fill-${n.color.toLowerCase()}`} aria-hidden="true" />
                 <span className="link-text">
                   <span className="link-title">{noteLabel(n)}</span>
-                  <span className="link-meta">{n.id}</span>
+                  <span className="link-meta">{n.readableId}</span>
                 </span>
               </button>
             </li>
@@ -349,16 +353,16 @@ export function LinksBlock({ links, highlight, note, notes, autoFocus, onChange 
 function LinkRow({ link, notes, highlight }: { link: NoteLink; notes: NoteDetail[]; highlight?: string[] }) {
   const route = noteRoute(link.url)
   if (route) {
-    const target = notes.find((n) => n.id === route.noteId)
+    const target = linkedNote(notes, link.url)
     return (
       // Only the hash changes: the board opens the post-it, or App switches to its board.
-      <a className="link-row" href={notePath(route).slice(1)}>
+      <a className="link-row" href={(target?.path ?? notePath(route)).slice(1)}>
         {target ? <span className={`link-swatch fill-${target.color.toLowerCase()}`} aria-hidden="true" /> : <PostItIcon size={16} />}
         <span className="link-text">
           <span className="link-title">
             <Highlight text={target ? noteLabel(target) : link.title} terms={highlight} />
           </span>
-          <span className="link-meta">{target ? route.noteId : `On another board · ${route.noteId}`}</span>
+          <span className="link-meta">{target ? target.readableId : `On another board · ${route.board}/${route.note}`}</span>
         </span>
       </a>
     )

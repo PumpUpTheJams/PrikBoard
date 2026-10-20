@@ -160,6 +160,9 @@ export function PostIt(props: PostItProps) {
           {copied ? <CheckIcon size={13} /> : <LinkIcon size={13} />}
         </button>
       </div>
+      <span className="post-it-id" aria-hidden="true">
+        <Highlight text={note.readableId} terms={highlight} />
+      </span>
       {copied !== null && (
         <span className="post-it-copied" role="status">
           {copied ? 'Link copied' : "Couldn't copy the link"}

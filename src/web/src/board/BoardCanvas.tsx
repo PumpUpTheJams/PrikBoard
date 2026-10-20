@@ -26,7 +26,7 @@ import { ExpandedNote, type ExpandedNoteHandle } from './ExpandedNote'
 import { TrashWindow, type OutgoingNote, type TrashWindowHandle } from './TrashWindow'
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
 import { delta, isDrag } from './gesture'
-import { noteIdFromHash, noteLabel, notePath, noteRoute, trashInHash, trashPath } from './links'
+import { boardRefFromHash, isBoard, linksTo, noteInHash, noteLabel, trashInHash, trashPath } from './links'
 import { ChevronDownIcon, ChevronUpIcon } from './icons'
 import { pop, reducedMotion } from './motion'
 import { BucketInspector, ImageInspector } from './Inspector'
@@ -174,9 +174,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [tool, setTool] = useState<Tool>('select')
   const [fill, setFill] = useState<NoteColor>('Butter')
   const [selection, setSelection] = useState<Selection | null>(null)
-  /** The opened post-it. A link to a post-it (/#/boards/{id}/notes/{id}) opens it when the board loads. */
+  /** The opened post-it. A link to a post-it (/#/boards/{shortId}/notes/{number}) opens it when the board loads. */
   const [expanded, setExpanded] = useState<{ id: string; fresh: boolean } | null>(() => {
-    const id = noteIdFromHash()
+    const id = noteInHash(board)
     return id ? { id, fresh: false } : null
   })
   /** The tag or people window opened from a post-it on the board, next to the part that was clicked (screen pixels). */
@@ -301,21 +301,18 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
   // The address bar follows the opened post-it, so it can be bookmarked or shared. Replacing the entry doesn't fire
   // hashchange; a post-it that isn't (or no longer is) on the board drops out of the address.
-  const openNoteId = expanded && board.notes.some((n) => n.id === expanded.id) ? expanded.id : null
+  // An address in the older form (ids) is rewritten to the short one the same way.
+  const openPath = (expanded && board.notes.find((n) => n.id === expanded.id)?.path) ?? null
   useEffect(() => {
-    const hash = openNoteId
-      ? notePath({ boardId: board.id, noteId: openNoteId }).slice(1)
-      : deletedOpen
-        ? trashPath(board.id).slice(1)
-        : `#/boards/${board.id}`
+    const hash = openPath ? openPath.slice(1) : deletedOpen ? trashPath(board.shortId).slice(1) : `#/boards/${board.shortId}`
     if (window.location.hash !== hash) history.replaceState(history.state, '', hash)
-  }, [openNoteId, deletedOpen, board.id])
+  }, [openPath, deletedOpen, board.shortId])
 
   // Following a link to another post-it on this board opens it (one on another board loads that board: App).
   useEffect(() => {
     function onHashChange() {
-      if (!window.location.hash.startsWith(`#/boards/${board.id}`)) return
-      const id = noteIdFromHash()
+      if (!isBoard(board, boardRefFromHash())) return
+      const id = noteInHash(board)
       setTitleEdit(null)
       setQuickEdit(null)
       setExpanded(id ? { id, fresh: false } : null)
@@ -324,7 +321,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
-  }, [board.id])
+  }, [board])
 
   // The margin follows the viewport's size. When it changes (the first measurement, a resized window), the scroll
   // position moves by as much, so what is on screen stays where it is; a board opens with its top-left corner in view.
@@ -724,7 +721,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
    * links there; otherwise the undo step.
    */
   async function linkNote({ note, at }: LinkDrop, linked: NoteDetail): Promise<UndoEntry | null | false> {
-    if (note.blocks.some((b) => b.links?.some((l) => noteRoute(l.url)?.noteId === linked.id))) return false
+    if (note.blocks.some((b) => b.links?.some((l) => linksTo(l.url, linked)))) return false
     const link = { title: noteLabel(linked), url: linked.path }
     const lists = note.blocks.filter((b) => b.kind === 'Links')
     const block =

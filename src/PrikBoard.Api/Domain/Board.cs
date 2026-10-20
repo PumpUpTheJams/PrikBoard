@@ -1,10 +1,25 @@
+using System.Security.Cryptography;
+using System.Text.RegularExpressions;
+
 namespace PrikBoard.Api.Domain;
 
 /// <summary>A project board: a freeform canvas holding buckets, post-it notes and images.</summary>
-public class Board
+public partial class Board
 {
     public Guid Id { get; set; } = Guid.CreateVersion7();
+    /// <summary>
+    /// The board in web addresses (/#/boards/{ShortId}/notes/{number}): random, unique and never changed, so links keep
+    /// working however the board is renamed. See <see cref="NewShortId"/>.
+    /// </summary>
+    public string ShortId { get; set; } = NewShortId();
     public required string Name { get; set; }
+    /// <summary>
+    /// Shown before note numbers, e.g. "MPCT" in MPCT-415. Owners may change it at any time: it is not unique and not part of
+    /// any address. New boards take it from their name (<see cref="KeyFrom"/>).
+    /// </summary>
+    public required string Key { get; set; }
+    /// <summary>The number the next note on the board gets. Numbers are never reused, not even those of deleted notes.</summary>
+    public int NextNoteNumber { get; set; } = 1;
     public string? Description { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
@@ -27,4 +42,43 @@ public class Board
 
     public static readonly (string Name, BucketColor Color)[] DefaultBuckets =
         [("To do", BucketColor.Blue), ("Doing", BucketColor.Amber), ("Done", BucketColor.Teal)];
+
+    /// <summary>The characters of a short id: digits and lower-case letters without i, l, o and u (Crockford's base32).</summary>
+    public const string ShortIdAlphabet = "0123456789abcdefghjkmnpqrstvwxyz";
+    public const int ShortIdLength = 6;
+
+    /// <summary>A board key: a letter, then letters and digits, 2 to 10 in all, upper case.</summary>
+    public const string KeyPattern = "^[A-Z][A-Z0-9]{1,9}$";
+    public const int KeyMaxLength = 10;
+
+    /// <summary>A random short id. About a billion of them, so a clash is rare; the unique index catches one anyway.</summary>
+    public static string NewShortId() =>
+        string.Create(ShortIdLength, 0, (chars, _) =>
+        {
+            for (var i = 0; i < chars.Length; i++) chars[i] = ShortIdAlphabet[RandomNumberGenerator.GetInt32(ShortIdAlphabet.Length)];
+        });
+
+    public static bool IsShortId(string value) => value.Length == ShortIdLength && value.All(ShortIdAlphabet.Contains);
+
+    /// <summary>
+    /// A key from a board name: the initials of its words (letters and digits only), or the start of the name when that
+    /// gives fewer than two, at most four, never starting with a digit; "PB" when nothing usable is left.
+    /// "MCP me some tickets" becomes MMST, "PrikBoard" PRIK. The ReadableIds migration does the same in SQL.
+    /// </summary>
+    public static string KeyFrom(string name)
+    {
+        var words = NonKeyCharacters().Split(name.ToUpperInvariant()).Where(w => w.Length > 0).ToList();
+        var initials = string.Concat(words.Select(w => w[0])).TrimStart(Digits);
+        var key = initials.Length >= 2 ? initials : string.Concat(words).TrimStart(Digits);
+        key = key[..Math.Min(4, key.Length)];
+        return key.Length >= 2 ? key : "PB";
+    }
+
+    /// <summary>A key as typed, trimmed and upper-cased; check it against <see cref="KeyPattern"/>.</summary>
+    public static string NormalizeKey(string key) => key.Trim().ToUpperInvariant();
+
+    private static readonly char[] Digits = [.. "0123456789"];
+
+    [GeneratedRegex("[^A-Z0-9]+")]
+    private static partial Regex NonKeyCharacters();
 }

@@ -17,7 +17,7 @@ import {
   UserIcon,
 } from './board/icons'
 import { pickBoardFile, saveFile } from './board/files'
-import { trashPath } from './board/links'
+import { boardRefFromHash, isBoard, trashPath } from './board/links'
 import { useBoard } from './board/useBoard'
 import { UndoHistory } from './board/useUndo'
 import { useLive } from './live/useLive'
@@ -36,7 +36,6 @@ import { SignIn } from './components/SignIn'
 
 const BoardRulesDialog = lazy(() => import('./components/BoardRulesDialog').then((m) => ({ default: m.BoardRulesDialog })))
 
-const boardIdFromHash = () => window.location.hash.match(/^#\/boards\/([\w-]+)/)?.[1] ?? null
 /**
  * Invite links look like /#/invite/{token}. Signed out, the token goes along in the sign-in's return URL, so the
  * server can let a newcomer with an open invite in; otherwise only the request body of preview and accept carries it.
@@ -113,7 +112,7 @@ interface WorkspaceProps {
 
 function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   const [boards, setBoards] = useState<BoardSummary[] | null>(null)
-  const [selectedId, setSelectedId] = useState(boardIdFromHash)
+  const [selectedId, setSelectedId] = useState(boardRefFromHash)
   const [adminView, setAdminView] = useState(adminFromHash)
   // A board in the hash that isn't in your list is looked up once more (you may just have joined) before the sad page.
   const [recheckedId, setRecheckedId] = useState<string | null>(null)
@@ -132,28 +131,28 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
     void loadBoards()
 
     const onHashChange = () => {
-      setSelectedId(boardIdFromHash())
+      setSelectedId(boardRefFromHash())
       setAdminView(adminFromHash())
     }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [loadBoards])
 
-  const selectedMissing = boards !== null && selectedId !== null && !boards.some((b) => b.id === selectedId)
+  const selectedMissing = boards !== null && selectedId !== null && !boards.some((b) => isBoard(b, selectedId))
   useEffect(() => {
     if (!selectedMissing || recheckedId === selectedId) return
     void loadBoards().finally(() => setRecheckedId(selectedId))
   }, [selectedMissing, selectedId, recheckedId, loadBoards])
 
   // Fall back to the newest board when nothing is selected; a board you can't open gets the sad page instead.
-  const activeBoard = adminView || selectedMissing ? null : (boards?.find((b) => b.id === selectedId) ?? boards?.[0] ?? null)
+  const activeBoard = adminView || selectedMissing ? null : (boards?.find((b) => isBoard(b, selectedId)) ?? boards?.[0] ?? null)
   const isOwner = activeBoard?.yourRole === 'Owner'
 
   // The board was deleted or you were removed from it (by an owner or admin, possibly in another tab): the board's
   // link stays and shows the sad page. The canvas keeps the open board in the hash, so read it from there.
   const onLost = useCallback(() => {
     setDialog(null)
-    setSelectedId(boardIdFromHash())
+    setSelectedId(boardRefFromHash())
     void loadBoards()
   }, [loadBoards])
   // Live updates tell the open board to reload when others save; until connected, the board polls.
@@ -178,16 +177,17 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   const othersHere = live.viewers.filter((v) => v.principalId !== user.id)
   const provider = user.identities.find((i) => i.provider === user.provider)?.providerName ?? user.provider
 
-  function selectBoard(id: string | null) {
-    window.location.hash = id ? `/boards/${id}` : ''
-    setSelectedId(id)
+  /** Opens a board by its short id (what its address shows), or none. */
+  function selectBoard(shortId: string | null) {
+    window.location.hash = shortId ? `/boards/${shortId}` : ''
+    setSelectedId(shortId)
   }
 
   async function createBoard(name: string) {
     try {
       const created = await api.createBoard(name)
       setBoards((current) => [created, ...(current ?? [])])
-      selectBoard(created.id)
+      selectBoard(created.shortId)
       return true
     } catch (e) {
       setError(errorMessage(e))
@@ -195,10 +195,12 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
     }
   }
 
-  async function renameBoard(target: BoardSummary, name: string) {
+  async function updateBoard(target: BoardSummary, changes: { name?: string; key?: string }) {
     try {
-      const renamed = await api.updateBoard(target.id, { name })
-      setBoards((current) => current?.map((b) => (b.id === renamed.id ? renamed : b)) ?? null)
+      const updated = await api.updateBoard(target.id, changes)
+      setBoards((current) => current?.map((b) => (b.id === updated.id ? updated : b)) ?? null)
+      // Post-its show the key in their readable ids (MPCT-415).
+      if (changes.key !== undefined) refresh()
       return true
     } catch (e) {
       setError(errorMessage(e))
@@ -222,7 +224,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
     try {
       const created = await api.importBoard(file)
       setBoards((current) => [created, ...(current ?? [])])
-      selectBoard(created.id)
+      selectBoard(created.shortId)
     } catch (e) {
       setError(errorMessage(e))
     }
@@ -275,6 +277,11 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
                 <span className="board-name" title={activeBoard?.description ?? undefined}>
                   {activeBoard?.name ?? 'PrikBoard'}
                 </span>
+                {activeBoard && (
+                  <span className="board-key" title={`Post-its on this board are numbered ${activeBoard.key}-1, ${activeBoard.key}-2, …`}>
+                    {activeBoard.key}
+                  </span>
+                )}
                 <ChevronDownIcon />
               </>
             }
@@ -290,7 +297,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
                     aria-checked={b.id === activeBoard?.id}
                     className="menu-item"
                     onClick={() => {
-                      selectBoard(b.id)
+                      selectBoard(b.shortId)
                       close()
                     }}
                   >
@@ -309,7 +316,15 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
                   }}
                 />
                 {activeBoard && isOwner && (
-                  <QuickAdd label="Rename board" placeholder={activeBoard.name} onAdd={(name) => renameBoard(activeBoard, name)} />
+                  <QuickAdd label="Rename board" placeholder={activeBoard.name} onAdd={(name) => updateBoard(activeBoard, { name })} />
+                )}
+                {activeBoard && isOwner && (
+                  // The key goes before post-it numbers (MPCT-415); addresses use the short id, so links keep working.
+                  <QuickAdd
+                    label="Change key"
+                    placeholder={`${activeBoard.key}, as in ${activeBoard.key}-1`}
+                    onAdd={(key) => updateBoard(activeBoard, { key })}
+                  />
                 )}
                 {board && (
                   <button
@@ -335,7 +350,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
                     onClick={() => {
                       close()
                       // The board opens its trash window from the address.
-                      window.location.hash = trashPath(board.id).slice(1)
+                      window.location.hash = trashPath(board.shortId).slice(1)
                     }}
                   >
                     <TrashIcon />
