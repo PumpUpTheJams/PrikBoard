@@ -812,11 +812,11 @@ main {
   }
 }
 
+/* Room on the right for the corner stack. */
 .post-it-head {
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
   min-height: 0;
+  padding-right: 30px;
 }
 
 .post-it-title {
@@ -832,48 +832,89 @@ main {
   text-wrap: pretty;
 }
 
-.post-it-expand {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  margin: -3px -5px 0 0;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--ink);
-  opacity: 0;
-  transition: opacity 0.12s;
-}
-
-.post-it:hover .post-it-expand,
-.post-it:focus-within .post-it-expand,
-.post-it.selected .post-it-expand {
-  opacity: 1;
-}
-
-.post-it-expand:hover {
-  background: rgba(23, 24, 27, 0.12);
-}
-
-/* How many blocks and images it holds: a small badge on the right, between the expand button and the people. */
-.post-it-contents {
+/*
+ * The corner stack: how many blocks and images the post-it holds, in a circle the size of an assignee and in line with
+ * them. On hover (or focus, or when selected) the count becomes the expand button, with copy link below it in one
+ * pill. An empty post-it shows the expand button in the circle instead. No transitions: it changes at once.
+ */
+.post-it-corner {
   position: absolute;
-  top: calc(50% - 3px);
-  right: 7px;
+  top: 9px;
+  right: 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  width: 22px;
-  padding: 5px 0 4px;
-  border-radius: 6px;
-  background: rgba(23, 24, 27, 0.1);
+  width: 24px;
+  border-radius: 12px;
+  background: rgba(23, 24, 27, 0.08);
   color: #2a2b30;
+}
+
+.post-it:hover .post-it-corner,
+.post-it:focus-within .post-it-corner,
+.post-it.selected .post-it-corner,
+.post-it.link-copied .post-it-corner {
+  background: rgba(23, 24, 27, 0.13);
+}
+
+.post-it-count {
+  display: grid;
+  place-items: center;
+  height: 24px;
   font: 11px/1 var(--mono);
-  transform: translateY(-50%);
+}
+
+.post-it-corner button {
+  display: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.post-it:hover .post-it-count,
+.post-it:focus-within .post-it-count,
+.post-it.selected .post-it-count,
+.post-it.link-copied .post-it-count {
+  display: none;
+}
+
+.post-it-corner.no-count .expand,
+.post-it:hover .post-it-corner button,
+.post-it:focus-within .post-it-corner button,
+.post-it.selected .post-it-corner button,
+.post-it.link-copied .post-it-corner button {
+  display: grid;
+}
+
+.post-it-corner button:hover,
+.post-it-corner button:focus-visible,
+.post-it-corner button.copied {
+  background: rgba(23, 24, 27, 0.12);
+}
+
+/* "Link copied" for a moment, above the post-it's corner. */
+.post-it.link-copied {
+  z-index: 2;
+}
+
+.post-it-copied {
+  position: absolute;
+  right: -4px;
+  bottom: calc(100% + 8px);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #f4f5f7;
+  color: var(--ink);
+  font-size: 12px;
+  white-space: nowrap;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
 }
 
 .post-it-foot {

@@ -18,13 +18,13 @@ import { EditableText } from './EditableText'
 import { draggingFiles, imageFiles } from './files'
 import { Highlight } from './Highlight'
 import { BucketIcon, CheckIcon, CloseIcon, LinkIcon, SparkleIcon } from './icons'
-import { copyText } from './links'
 import { pop } from './motion'
 import { NoteCanvas, type IncomingImage, type NoteCanvasHandle } from './NoteCanvas'
 import { tagColorClass, type TagColorPreview, type TagColors } from './tagColors'
 import { TagPicker } from './TagPicker'
 import type { RecordingRun } from './undo'
 import { MAX_ASSIGNEES, MAX_TAGS } from './tags'
+import { useCopyLink } from './useCopyLink'
 import { useFloatingWindow } from './useFloatingWindow'
 
 /** What the board needs from the open post-it: its canvas, and whether a paste is meant for it. */
@@ -355,21 +355,10 @@ function AssigneeChips({ assignees, highlight, onRemove, onAdd }: AssigneeChipsP
 /** The post-it's ID. Clicking it copies a link that opens this post-it. */
 function NoteIdButton({ note }: { note: NoteDetail }) {
   /** Whether the last copy worked; null shows the ID again. */
-  const [copied, setCopied] = useState<boolean | null>(null)
-
-  useEffect(() => {
-    if (copied === null) return
-    const timer = setTimeout(() => setCopied(null), 1600)
-    return () => clearTimeout(timer)
-  }, [copied])
+  const { copied, copy } = useCopyLink(note)
 
   return (
-    <button
-      type="button"
-      className="note-id"
-      title="Copy a link to this post-it"
-      onClick={async () => setCopied(await copyText(`${window.location.origin}${note.path}`))}
-    >
+    <button type="button" className="note-id" title="Copy a link to this post-it" onClick={copy}>
       {copied ? <CheckIcon size={12} /> : <LinkIcon size={12} />}
       <span aria-live="polite">{copied === null ? note.id : copied ? 'Link copied' : "Couldn't copy the link"}</span>
     </button>
