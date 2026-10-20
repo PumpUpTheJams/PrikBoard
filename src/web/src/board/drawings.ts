@@ -27,27 +27,36 @@ export const strokeSizes = [
   { width: 8, name: 'Bold', dot: 12 },
 ] as const
 
-const PEN_KEY = 'prikboard.pen'
+/** Where the board's pen and the post-its' pen keep their ink and size in this browser. */
+export const BOARD_PEN = { key: 'prikboard.pen', ink: 'Chalk' } as const
+/** The post-its' pen keeps its own ink and size. The inside of an open post-it is dark like the board, so it starts light too. */
+export const NOTE_PEN = { key: 'prikboard.notePen', ink: 'Chalk' } as const
 
-/** The pen's ink and size, as last picked in this browser (default Chalk, medium). */
-export function storedPen(): { ink: InkColor; width: number } {
+function storedPen({ key, ink }: { key: string; ink: InkColor }): { ink: InkColor; width: number } {
   try {
-    const value = JSON.parse(localStorage.getItem(PEN_KEY) ?? 'null') as { ink?: unknown; width?: unknown } | null
+    const value = JSON.parse(localStorage.getItem(key) ?? 'null') as { ink?: unknown; width?: unknown } | null
     return {
-      ink: inkColors.find((c) => c === value?.ink) ?? 'Chalk',
+      ink: inkColors.find((c) => c === value?.ink) ?? ink,
       width: strokeSizes.find((s) => s.width === value?.width)?.width ?? 4,
     }
   } catch {
-    return { ink: 'Chalk', width: 4 }
+    return { ink, width: 4 }
   }
 }
 
-export function storePen(pen: { ink: InkColor; width: number }) {
-  try {
-    localStorage.setItem(PEN_KEY, JSON.stringify(pen))
-  } catch {
-    // Storage can be unavailable (private windows, blocked site data); the pen then starts at the default.
-  }
+/** A pen's ink and size, as last picked in this browser (default: its own ink, medium), kept as they change. */
+export function usePen(pen: { key: string; ink: InkColor }) {
+  const [initial] = useState(() => storedPen(pen))
+  const [ink, setInk] = useState<InkColor>(initial.ink)
+  const [width, setWidth] = useState(initial.width)
+  useEffect(() => {
+    try {
+      localStorage.setItem(pen.key, JSON.stringify({ ink, width }))
+    } catch {
+      // Storage can be unavailable (private windows, blocked site data); the pen then starts at the default.
+    }
+  }, [pen.key, ink, width])
+  return { ink, setInk, width, setWidth }
 }
 
 /** The most points a stroke can have (BoardDrawing.MaxPoints), and how far apart (canvas px) points need to be to count. */
@@ -82,11 +91,12 @@ export function addPoint(points: StrokePoint[], p: Point, pressure: number): Str
 
 /**
  * A finished stroke as the API takes it: its top-left on the grid, at least half a (thickest) line clear of every point,
- * and the points measured from there. The server snaps x/y, so they are on the grid already and the line stays put.
+ * and the points measured from there. `min` is where the canvas starts: 0 on a post-it, where a line drawn right at
+ * the edge is pushed in a little. The server snaps x/y, so they are on the grid already and the line stays put.
  */
-export function strokeToDrawing(points: StrokePoint[], strokeWidth: number) {
+export function strokeToDrawing(points: StrokePoint[], strokeWidth: number, min = MIN_COORDINATE) {
   const margin = maxWidth(strokeWidth) / 2
-  const floor = (v: number) => Math.min(MAX_COORDINATE, Math.max(MIN_COORDINATE, Math.floor(v / GRID) * GRID))
+  const floor = (v: number) => Math.min(MAX_COORDINATE, Math.max(min, Math.floor(v / GRID) * GRID))
   const x = floor(Math.min(...points.map((p) => p[0])) - margin)
   const y = floor(Math.min(...points.map((p) => p[1])) - margin)
   const clamp = (v: number) => Math.min(MAX_OFFSET, Math.max(0, Math.round(v * 10) / 10))
@@ -183,4 +193,18 @@ export function useDrawingPoints(drawing: DrawingDetail): StrokePoint[] | null {
     }
   }, [drawing.id])
   return cached ?? (loaded?.id === drawing.id ? loaded.points : null)
+}
+
+/**
+ * Puts a pen ring (PenRing) at a point on its canvas, or hides it: off the canvas, or for a finger, which covers it
+ * anyway. It is moved directly rather than through state, so it keeps up with the pointer.
+ */
+export function movePenRing(ring: HTMLElement | null, at: Point | null, pointerType?: string) {
+  if (!ring) return
+  if (!at || pointerType === 'touch') {
+    ring.style.display = 'none'
+    return
+  }
+  ring.style.display = ''
+  ring.style.transform = `translate(${at.x}px, ${at.y}px)`
 }

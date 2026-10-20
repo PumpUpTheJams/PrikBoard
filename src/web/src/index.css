@@ -1884,8 +1884,24 @@ input.editable {
   cursor: grab;
 }
 
-.leaving .board-image {
+.leaving .board-image,
+.leaving .drawing {
   opacity: 0.3;
+}
+
+.incoming-drawing {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* A stroke dragged outside its canvas: just the line, at the zoom of where it would land. */
+.drag-ghost.drawing-ghost {
+  border-radius: 0;
+  box-shadow: none;
+  transform-origin: 0 0;
 }
 
 .incoming-image {
@@ -1949,6 +1965,58 @@ input.editable {
   width: 1px;
   height: auto;
   margin: 6px 4px;
+}
+
+/* The post-it's pen: its ink shows as a dot on the button (a dark ink wouldn't show as the icon's colour), and its inks
+   and sizes open above the bar. */
+.note-pen {
+  position: relative;
+  display: flex;
+}
+
+.note-pen-button {
+  position: relative;
+}
+
+.note-pen-button::after {
+  content: '';
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--pen-ink);
+  box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 2.5px var(--scrollbar-thumb-hover);
+}
+
+.note-pen-flyout {
+  position: absolute;
+  bottom: calc(100% + 14px);
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--float-shadow);
+  transform: translateX(-50%);
+}
+
+.note-canvas.pen {
+  cursor: none;
+}
+
+.note-canvas.pen.panning {
+  cursor: grabbing;
+}
+
+/* With the pen on, presses on strokes and blocks draw instead. */
+.note-canvas.pen .stroke-hit,
+.note-canvas.pen .drawing-box {
+  cursor: inherit;
 }
 
 .checklist,

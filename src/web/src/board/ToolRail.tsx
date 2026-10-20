@@ -1,7 +1,7 @@
 import type { ComponentType, PointerEvent, Ref } from 'react'
 import { noteColors, type InkColor, type NoteColor } from '../api/types'
-import { inkHex, strokeSizes } from './drawings'
-import { InkSwatches } from './DrawingView'
+import { inkHex } from './drawings'
+import { PenOptions } from './DrawingView'
 import { FrameIcon, ImageIcon, PenIcon, PostItIcon, SearchIcon, SelectIcon, TrashIcon } from './icons'
 import type { Tool } from './tools'
 
@@ -115,21 +115,7 @@ export function ToolRail(props: ToolRailProps) {
             {button({ tool: 'pen', label: 'Pen', shortcut: 'P', Icon: PenIcon }, '', undefined, undefined, inkHex[ink])}
             {tool === 'pen' && (
               <div className="fill-flyout pen-flyout" role="group" aria-label="Pen colour and size">
-                <InkSwatches value={ink} onChange={onInkChange} />
-                <span className="toolbar-divider" aria-hidden="true" />
-                {strokeSizes.map((s) => (
-                  <button
-                    key={s.width}
-                    type="button"
-                    className="pen-size"
-                    title={`${s.name} (${s.width} px)`}
-                    aria-label={`${s.name} (${s.width} px)`}
-                    aria-pressed={s.width === strokeWidth}
-                    onClick={() => onStrokeWidthChange(s.width)}
-                  >
-                    <span style={{ width: s.dot, height: s.dot }} />
-                  </button>
-                ))}
+                <PenOptions ink={ink} onInkChange={onInkChange} width={strokeWidth} onWidthChange={onStrokeWidthChange} />
               </div>
             )}
           </div>

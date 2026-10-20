@@ -16,7 +16,6 @@ import type {
   Point,
   Rect,
   ResizeHandle,
-  StrokePoint,
   TagColor,
 } from '../api/types'
 import { presenceColor } from '../live/presence'
@@ -26,8 +25,8 @@ import { AssigneePicker } from './AssigneePicker'
 import { BoardImageView } from './BoardImageView'
 import { BoardSearch, type SearchResult } from './BoardSearch'
 import { ExpandedNote, type ExpandedNoteHandle } from './ExpandedNote'
-import { addPoint, inkHex, pressureOf, rememberPoints, storePen, storedPen, strokeToDrawing } from './drawings'
-import { DrawingToolbar, DrawingView, StrokeSvg } from './DrawingView'
+import { BOARD_PEN, inkHex, movePenRing, usePen } from './drawings'
+import { DrawingToolbar, DrawingView, PenRing, StrokeSvg } from './DrawingView'
 import { TrashWindow, type OutgoingNote, type TrashWindowHandle } from './TrashWindow'
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
 import { delta, isDrag } from './gesture'
@@ -62,9 +61,10 @@ import { TagFilter } from './TagFilter'
 import { TagPicker } from './TagPicker'
 import { ToolRail } from './ToolRail'
 import { toolKeys, type Tool } from './tools'
-import type { IncomingImage } from './NoteCanvas'
+import type { IncomingDrawing, IncomingImage } from './NoteCanvas'
 import type { BoardState } from './useBoard'
 import { created, deleted, noteEdit, patched, snap, step, target, type RecordingRun, type UndoEntry } from './undo'
+import { useStroke } from './useStroke'
 import { useUndo, type UndoHistory } from './useUndo'
 import { useZoom } from './useZoom'
 import { ViewControls } from './ViewControls'
@@ -121,14 +121,6 @@ const hints: Partial<Record<Tool, string>> = {
   note: 'Click anywhere to stick a post-it',
   bucket: 'Drag across the board to draw a bucket',
   pen: 'Draw anywhere on the board. Esc or V to stop',
-}
-
-/** A pen stroke being drawn: its points in canvas pixels. A finished one (`done`) shows until the board has it. */
-interface Stroke {
-  points: StrokePoint[]
-  color: InkColor
-  width: number
-  done?: boolean
 }
 
 /** A drag applied on top of the server's layout: your own gesture, or someone else's relayed by live updates. */
@@ -189,21 +181,12 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [tool, setTool] = useState<Tool>('select')
   const [fill, setFill] = useState<NoteColor>('Butter')
   /** The pen's ink and size, kept for the next visit. */
-  const [ink, setInk] = useState<InkColor>(() => storedPen().ink)
-  const [strokeWidth, setStrokeWidth] = useState(() => storedPen().width)
-  useEffect(() => storePen({ ink, width: strokeWidth }), [ink, strokeWidth])
-  /** The ring under the pointer that shows the pen's size; moved directly, not through state, so it keeps up. */
+  const { ink, setInk, width: strokeWidth, setWidth: setStrokeWidth } = usePen(BOARD_PEN)
+  /** The ring under the pointer that shows the pen's size. */
   const penRing = useRef<HTMLDivElement>(null)
-  const [stroke, setStrokeState] = useState<Stroke | null>(null)
-  /**
-   * The stroke as it is right now. Pen events can come faster than renders, so the handlers read and write this rather
-   * than the state, which only draws it.
-   */
-  const liveStroke = useRef<Stroke | null>(null)
-  const setStroke = (next: Stroke | null | ((s: Stroke | null) => Stroke | null)) => {
-    liveStroke.current = typeof next === 'function' ? next(liveStroke.current) : next
-    setStrokeState(liveStroke.current)
-  }
+  /** The stroke being drawn with the pen. */
+  const pen = useStroke((e) => toCanvas(e))
+  const stroke = pen.stroke
   const [selection, setSelection] = useState<Selection | null>(null)
   /** The opened post-it. A link to a post-it (/#/boards/{id}/notes/{id}) opens it when the board loads. */
   const [expanded, setExpanded] = useState<{ id: string; fresh: boolean } | null>(() => {
@@ -248,6 +231,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [noteBusy, setNoteBusy] = useState(false)
   /** A board image being dragged over the open post-it, to attach it there. */
   const [incoming, setIncoming] = useState<IncomingImage | null>(null)
+  /** Likewise a board drawing, to put it on the post-it's canvas. */
+  const [incomingDrawing, setIncomingDrawing] = useState<IncomingDrawing | null>(null)
   /** Where a post-it being dragged would be linked, instead of moved. */
   const [linkDrop, setLinkDrop] = useState<LinkDrop | null>(null)
   /** A new post-it being dragged from the tool rail: the pointer, in screen pixels. */
@@ -626,20 +611,6 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     )
   }
 
-  /** Saves a finished pen stroke as a drawing; the stroke shows until the reloaded board has it. */
-  function finishStroke(done: Stroke) {
-    setStroke(done)
-    const { x, y, points } = strokeToDrawing(done.points, done.width)
-    void runRec(
-      async () => {
-        const drawing = await api.createDrawing(board.id, { x, y, points, color: done.color, strokeWidth: done.width })
-        rememberPoints(drawing.id, points)
-        return drawing
-      },
-      (drawing) => step('Draw', [created(target.drawing(drawing.id), snap.drawing(drawing))]),
-    ).then(() => setStroke((s) => (s === done ? null : s)))
-  }
-
   /** The middle of what is on screen, in canvas pixels. */
   function viewportCenter(): Point {
     return { x: (view.x - origin.x + view.width / 2) / zoom, y: (view.y - origin.y + view.height / 2) / zoom }
@@ -852,6 +823,16 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     return { image, at: { x: at.x - (g.start.x - image.x), y: at.y - (g.start.y - image.y) } }
   }
 
+  /** Where a board drawing being dragged would land on the open post-it's canvas, keeping its grab point under the pointer. */
+  function drawingOnNote(g: Gesture, client: Point): IncomingDrawing | null {
+    const note = expandedRef.current
+    if (g.kind !== 'drawing' || !note?.hits(client)) return null
+    const drawing = board.drawings.find((d) => d.id === g.id)
+    if (!drawing) return null
+    const at = note.toNote(client)
+    return { drawing, at: { x: at.x - (g.start.x - drawing.x), y: at.y - (g.start.y - drawing.y) } }
+  }
+
   function expand(id: string) {
     setTitleEdit(null)
     setQuickEdit(null)
@@ -993,7 +974,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       setQuickEdit(null)
       setSelection(null)
       canvasRef.current!.setPointerCapture(e.pointerId)
-      setStroke({ points: addPoint([], toCanvas(e), pressureOf(e)), color: ink, width: strokeWidth })
+      pen.start(e, ink, strokeWidth)
     } else if (tool === 'bucket') {
       e.preventDefault()
       beginGesture(e, { kind: 'draw' })
@@ -1081,33 +1062,15 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     window.addEventListener('keydown', onKey, true)
   }
 
-  /** Puts the pen's ring under the pointer, or hides it (off the board, or for a finger, which covers it anyway). */
-  function movePenRing(e: PointerEvent | null) {
-    const ring = penRing.current
-    if (!ring) return
-    if (!e || e.pointerType === 'touch') {
-      ring.style.display = 'none'
-      return
-    }
-    const p = toCanvas(e)
-    ring.style.display = ''
-    ring.style.transform = `translate(${p.x}px, ${p.y}px)`
-  }
-
   function onCanvasPointerMove(e: PointerEvent) {
     lastPointer.current = toCanvas(e)
-    if (tool === 'pen') movePenRing(e)
+    if (tool === 'pen') movePenRing(penRing.current, toCanvas(e), e.pointerType)
     if (pan) {
       const el = scrollRef.current!
       el.scrollLeft = pan.left - (e.clientX - pan.x)
       el.scrollTop = pan.top - (e.clientY - pan.y)
-    } else if (liveStroke.current && !liveStroke.current.done) {
-      // Every point the pointer went through since the last event, for a smooth line.
-      const current = liveStroke.current
-      const events = e.nativeEvent.getCoalescedEvents?.() ?? []
-      let points = current.points
-      for (const ev of events.length > 0 ? events : [e.nativeEvent]) points = addPoint(points, toCanvas(ev), pressureOf(ev))
-      if (points !== current.points) setStroke({ ...current, points })
+    } else if (pen.drawing()) {
+      pen.extend(e)
     } else if (gesture && !gesture.done) {
       const next = { ...gesture, current: toCanvas(e) }
       const client = { x: e.clientX, y: e.clientY }
@@ -1121,6 +1084,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       setDeletedDrop(intoDeleted ? client : null)
       setFoldDrop(fold?.id ?? null)
       setIncoming(isDrag(next) && !trash && !intoDeleted ? dropOnNote(next, client) : null)
+      setIncomingDrawing(isDrag(next) ? drawingOnNote(next, client) : null)
       setLinkDrop(isDrag(next) && !trash && !intoDeleted && !fold ? linkDropFor(next, client) : null)
     }
   }
@@ -1130,9 +1094,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       setPan(null)
       return
     }
-    if (liveStroke.current && !liveStroke.current.done) {
-      // The last move has the end of the line already (a pen lifting off reports no pressure).
-      finishStroke({ ...liveStroke.current, done: true })
+    if (pen.drawing()) {
+      pen.finish(runRec, board.id)
       return
     }
     if (!gesture || gesture.done) return
@@ -1174,6 +1137,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       if (intoDeleted) deletedRef.current?.pop()
       setLinkDrop(null)
       setIncoming(null)
+      setIncomingDrawing(null)
       setGesture({ ...gesture, done: true })
       setBinned(gesture.id)
       void deleteNote(gesture.id).then(() => setBinned(null))
@@ -1218,13 +1182,23 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     setGesture({ ...gesture, done: true })
     const { id } = gesture
     const onNote = expanded && dropOnNote(gesture, client)
+    const drawingInto = expanded && drawingOnNote(gesture, client)
     setIncoming(null)
+    setIncomingDrawing(null)
     const overWindow = !!expandedRef.current?.contains(client)
     const intoNote = gesture.kind === 'image' && !onNote && !overWindow ? noteAt(toCanvas(e)) : undefined
     /** The undo step for an image that moved, was resized or went into a post-it. */
     const imageStep = (label: string, before: ImageDetail | undefined, keys: string[]) => (after: ImageDetail) =>
       before ? step(label, [patched(target.image(id), snap.image(before), snap.image(after), keys)]) : null
-    if (expanded && onNote) {
+    if (expanded && drawingInto) {
+      // Dropped on the open post-it: the drawing moves onto its canvas (over post-its on the board it just moves).
+      setSelection(null)
+      const { drawing, at } = drawingInto
+      void settle(
+        () => api.updateDrawing(id, { noteId: expanded.id, ...onNoteCanvas(at, drawing) }),
+        (after) => step('Put drawing on post-it', [patched(target.drawing(id), snap.drawing(drawing), snap.drawing(after), ['noteId', 'x', 'y'])]),
+      )
+    } else if (expanded && onNote) {
       // Dropped on the open post-it: the image moves onto its canvas.
       setSelection(null)
       void settle(
@@ -1460,13 +1434,14 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               if (second && first === second) expand(second)
             }}
             onPointerMove={onCanvasPointerMove}
-            onPointerLeave={() => movePenRing(null)}
+            onPointerLeave={() => movePenRing(penRing.current, null)}
             onPointerUp={onCanvasPointerUp}
             onPointerCancel={() => {
               setGesture(null)
-              setStroke((s) => (s && !s.done ? null : s))
+              pen.cancel()
               setPan(null)
               setIncoming(null)
+              setIncomingDrawing(null)
               setLinkDrop(null)
               setOverTrash(false)
             }}
@@ -1474,8 +1449,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             onLostPointerCapture={() => {
               setPan(null)
               setGesture((g) => (g && !g.done ? null : g))
-              setStroke((s) => (s && !s.done ? null : s))
+              pen.cancel()
               setIncoming(null)
+              setIncomingDrawing(null)
               setLinkDrop(null)
               setOverTrash(false)
             }}
@@ -1644,15 +1620,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
             {stroke && <StrokeSvg points={stroke.points} color={inkHex[stroke.color]} strokeWidth={stroke.width} at={{ x: 0, y: 0 }} />}
 
-            {tool === 'pen' && !readOnly && (
-              // As wide as the line at medium pressure, plus a little room, at the board's zoom like the line itself.
-              <div
-                ref={penRing}
-                className="pen-ring"
-                aria-hidden="true"
-                style={{ display: 'none', '--ring': `${strokeWidth + 8}px`, borderWidth: 1.5 / zoom } as CSSProperties}
-              />
-            )}
+            {tool === 'pen' && !readOnly && <PenRing ringRef={penRing} width={strokeWidth} zoom={zoom} />}
 
             {selectedDrawing && !readOnly && !(dragging?.id === selectedDrawing.drawing.id && !dragging.done) && (
               <DrawingToolbar
@@ -1826,6 +1794,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
           run={runRec}
           onBusy={setNoteBusy}
           incoming={incoming}
+          drawings={board.drawings.filter((d) => d.noteId === expandedNote.id)}
+          incomingDrawing={incomingDrawing}
           linking={!!linkDrop?.window}
           boardPoint={boardPoint}
           boardZoom={zoom}

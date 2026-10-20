@@ -1,7 +1,7 @@
-import type { PointerEvent } from 'react'
+import type { CSSProperties, PointerEvent, Ref } from 'react'
 import { inkColors, type DrawingDetail, type InkColor, type Point, type Rect, type StrokePoint } from '../api/types'
 import { keepPress } from './gesture'
-import { inkHex, strokePaths, useDrawingPoints } from './drawings'
+import { inkHex, strokePaths, strokeSizes, useDrawingPoints } from './drawings'
 import { TrashIcon } from './icons'
 
 /** A stroke's line, at its place: the parts of the path, plus a wider invisible one that takes presses near the line. */
@@ -93,4 +93,62 @@ export function InkSwatches({ value, onChange }: { value: InkColor; onChange: (c
       ))}
     </div>
   )
+}
+
+/** The pen's flyout: its inks, then its three sizes. */
+export function PenOptions({ ink, onInkChange, width, onWidthChange }: { ink: InkColor; onInkChange: (ink: InkColor) => void; width: number; onWidthChange: (width: number) => void }) {
+  return (
+    <>
+      <InkSwatches value={ink} onChange={onInkChange} />
+      <span className="toolbar-divider" aria-hidden="true" />
+      {strokeSizes.map((s) => (
+        <button
+          key={s.width}
+          type="button"
+          className="pen-size"
+          title={`${s.name} (${s.width} px)`}
+          aria-label={`${s.name} (${s.width} px)`}
+          aria-pressed={s.width === width}
+          onClick={() => onWidthChange(s.width)}
+        >
+          <span style={{ width: s.dot, height: s.dot }} />
+        </button>
+      ))}
+    </>
+  )
+}
+
+/**
+ * The ring under the pointer that shows the pen's size, in place of the cursor: as wide as the line at medium pressure,
+ * plus a little room, at the canvas's zoom like the line itself. Hidden until `movePenRing` puts it somewhere.
+ */
+export function PenRing({ ringRef, width, zoom }: { ringRef: Ref<HTMLDivElement>; width: number; zoom: number }) {
+  return (
+    <div
+      ref={ringRef}
+      className="pen-ring"
+      aria-hidden="true"
+      style={{ display: 'none', '--ring': `${width + 8}px`, borderWidth: 1.5 / zoom } as CSSProperties}
+    />
+  )
+}
+
+/** A stroke being dragged outside its canvas, at the pointer: `at` is its top-left on screen, `zoom` the scale to show it at. */
+export function DrawingGhost({ drawing, at, zoom }: { drawing: DrawingDetail; at: Point; zoom: number }) {
+  const points = useDrawingPoints(drawing)
+  return (
+    <div className="drag-ghost drawing-ghost" aria-hidden="true" style={{ left: at.x, top: at.y, transform: `scale(${zoom})` }}>
+      {points && <StrokeSvg points={points} color={inkHex[drawing.color]} strokeWidth={drawing.strokeWidth} at={{ x: 0, y: 0 }} />}
+    </div>
+  )
+}
+
+/** A board stroke dragged over a post-it's canvas, where it would land. */
+export function IncomingDrawingView({ drawing, at }: { drawing: DrawingDetail; at: Point }) {
+  const points = useDrawingPoints(drawing)
+  return points ? (
+    <div className="incoming-drawing" aria-hidden="true">
+      <StrokeSvg points={points} color={inkHex[drawing.color]} strokeWidth={drawing.strokeWidth} at={at} />
+    </div>
+  ) : null
 }
