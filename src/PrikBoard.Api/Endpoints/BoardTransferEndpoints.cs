@@ -185,7 +185,7 @@ public static class BoardTransferEndpoints
                 PixelHeight = info.Height,
                 Caption = PatchText.Apply(null, source.Caption),
                 AddedById = createdBy,
-                File = StoredFile.For(ImageEndpoints.CleanFileName(source.FileName, info.ContentType), info.ContentType, source.Data),
+                File = StoredFile.For(board.Id, ImageEndpoints.CleanFileName(source.FileName, info.ContentType), info.ContentType, source.Data),
                 CreatedAt = clock.AddMilliseconds(i),
                 UpdatedAt = clock.AddMilliseconds(i),
             };

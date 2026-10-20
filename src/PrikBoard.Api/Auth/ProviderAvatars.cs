@@ -32,7 +32,7 @@ public class ProviderAvatars(HttpClient http, FileStore files)
     {
         if (await DownloadAsync(url, ct) is not { } picture) return false;
 
-        var file = StoredFile.For($"avatar.{ImageFormats.ExtensionOf(picture.ContentType)}", picture.ContentType, picture.Data);
+        var file = StoredFile.For(null, $"avatar.{ImageFormats.ExtensionOf(picture.ContentType)}", picture.ContentType, picture.Data);
         var current = user.AvatarFileId is { } currentId ? await db.StoredFiles.FindAsync([currentId], ct) : null;
         if (current is null || !current.Sha256.AsSpan().SequenceEqual(file.Sha256))
         {

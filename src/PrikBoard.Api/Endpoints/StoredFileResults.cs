@@ -27,7 +27,7 @@ internal static class StoredFileResults
         var entityTag = new EntityTagHeaderValue($"\"{file.Id:N}\"");
         return data is not null
             ? TypedResults.File(data, file.ContentType, lastModified: file.CreatedAt, entityTag: entityTag, enableRangeProcessing: true)
-            : TypedResults.PhysicalFile(files.PathOf(file.Id), file.ContentType, lastModified: file.CreatedAt, entityTag: entityTag,
+            : TypedResults.PhysicalFile(files.PathOf(file), file.ContentType, lastModified: file.CreatedAt, entityTag: entityTag,
                 enableRangeProcessing: true);
     }
 }

@@ -62,18 +62,18 @@ public class StoredFilesMigrationTests : IAsyncLifetime
 
         await StartupMigration.RunAsync(db, files, NullLogger.Instance, CancellationToken.None);
 
-        Assert.Equal(DropDatabaseBlobs, (await db.Database.GetAppliedMigrationsAsync()).Last());
+        Assert.Empty(await db.Database.GetPendingMigrationsAsync());
         Assert.Null(await Scalar<string?>("""SELECT to_regclass('"ImageContents"')::text AS "Value" """));
         Assert.Null(await Scalar<string?>("""SELECT to_regclass('"UserAvatars"')::text AS "Value" """));
         Assert.Equal(0, await Scalar<int>(
             """SELECT count(*)::int AS "Value" FROM information_schema.columns WHERE table_name = 'Images' AND column_name = 'FileName'"""));
 
         var images = await db.Images.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete]).Include(i => i.File).ToDictionaryAsync(i => i.Id);
-        AssertMoved(images[live].File!, "ingest-errors.png", "image/png", png, addedAt);
+        AssertMoved(images[live].File!, "ingest-errors.png", "image/png", png, addedAt, Path.Combine("boards", board.ToString()));
         // A deleted image can still be restored, so it needs its file too.
-        AssertMoved(images[deleted].File!, "throttle.gif", "image/gif", gif, addedAt);
+        AssertMoved(images[deleted].File!, "throttle.gif", "image/gif", gif, addedAt, Path.Combine("boards", board.ToString()));
         var avatar = await db.Users.Where(u => u.Id == user).Select(u => u.AvatarFile).SingleAsync();
-        AssertMoved(avatar!, "avatar.png", "image/png", PrikBoardApiFactory.TestAvatar, avatarAt);
+        AssertMoved(avatar!, "avatar.png", "image/png", PrikBoardApiFactory.TestAvatar, avatarAt, "avatars");
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public class StoredFilesMigrationTests : IAsyncLifetime
         Assert.Equal(2, await db.StoredFiles.CountAsync());
         Assert.Equal(done, await db.Images.Where(i => i.Id == first).Select(i => i.FileId).SingleAsync());
         var moved = await db.Images.Where(i => i.Id == second).Select(i => i.File).SingleAsync();
-        Assert.Equal(TestImages.Png(20, 20), await File.ReadAllBytesAsync(files.PathOf(moved!.Id)));
+        Assert.Equal(TestImages.Png(20, 20), await File.ReadAllBytesAsync(files.PathOf(moved!)));
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public class StoredFilesMigrationTests : IAsyncLifetime
         // Starting the API moves them and finishes the job.
         await StartupMigration.RunAsync(db, files, NullLogger.Instance, CancellationToken.None);
         var file = await db.Images.Where(i => i.Id == image).Select(i => i.File).SingleAsync();
-        Assert.True(File.Exists(files.PathOf(file!.Id)));
+        Assert.True(File.Exists(files.PathOf(file!)));
     }
 
     [Fact]
@@ -129,14 +129,14 @@ public class StoredFilesMigrationTests : IAsyncLifetime
         Assert.Null(await db.Users.Where(u => u.Id == user).Select(u => u.AvatarUpdatedAt).SingleAsync());
     }
 
-    private void AssertMoved(Domain.StoredFile file, string fileName, string contentType, byte[] data, DateTimeOffset createdAt)
+    private void AssertMoved(Domain.StoredFile file, string fileName, string contentType, byte[] data, DateTimeOffset createdAt, string folder)
     {
         Assert.Equal((fileName, contentType, data.Length, createdAt), (file.FileName, file.ContentType, file.Size, file.CreatedAt));
         Assert.Equal(SHA256.HashData(data), file.Sha256);
-        var path = files.PathOf(file.Id);
+        // In its board's folder (or the avatars'), named after the row, not after what is in it.
+        var path = Path.Combine(files.Root, folder, file.Id.ToString());
+        Assert.Equal(path, files.PathOf(file));
         Assert.Equal(data, File.ReadAllBytes(path));
-        // Named after the row, not after what is in it.
-        Assert.Equal(file.Id.ToString("N"), Path.GetFileName(path));
     }
 
     private async Task AddImageAsync(Guid id, string fileName, string contentType, byte[]? data, DateTimeOffset createdAt,

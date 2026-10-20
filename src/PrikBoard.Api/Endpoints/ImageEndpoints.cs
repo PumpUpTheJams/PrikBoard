@@ -106,7 +106,7 @@ public static class ImageEndpoints
             PixelHeight = info.Height,
             Caption = PatchText.Apply(null, caption),
             AddedBy = await db.Principals.FindAsync([principal.PrincipalId()], ct),
-            File = StoredFile.For(CleanFileName(fileName, info.ContentType), info.ContentType, data),
+            File = StoredFile.For(boardId, CleanFileName(fileName, info.ContentType), info.ContentType, data),
         };
         image.Resize(width ?? Math.Min(info.Width, Layout.DefaultImageWidth));
         await PlaceAsync(db, image, note, x, y, ct);
