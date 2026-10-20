@@ -78,6 +78,8 @@ export interface ImageDetail {
   id: string
   boardId: string
   noteId: string | null
+  /** The bucket it sits in on the board (it moves with it); null when loose or attached to a note. */
+  bucketId: string | null
   fileName: string
   contentType: string
   size: number
@@ -227,6 +229,8 @@ export interface BucketChanges extends Partial<Rect> {
   color?: BucketColor
   /** With a move only: exactly these notes move along instead of the bucket's notes (undoing a move). */
   carryNoteIds?: string[]
+  /** Likewise for images on the board, instead of the images in the bucket. */
+  carryImageIds?: string[]
 }
 
 /** A PATCH: omitted fields stay unchanged, a given list replaces the whole list. */

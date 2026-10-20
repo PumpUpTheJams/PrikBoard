@@ -21,7 +21,7 @@ public static class Tombstones
         // Images first; a note's images would also go with it through the cascade. Their files go at the next sweep.
         var count = await db.Images.IgnoreQueryFilters(deleted).Where(i => i.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         count += await db.Notes.IgnoreQueryFilters(deleted).Where(n => n.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
-        // Notes still pointing at a purged bucket lose the reference (SetNull); live notes never do, see Layout.AssignBuckets.
+        // Notes and images still pointing at a purged bucket lose the reference (SetNull); live notes and images never do, see Layout.Release.
         count += await db.Buckets.IgnoreQueryFilters(deleted).Where(b => b.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         count += await db.BoardTags.IgnoreQueryFilters(deleted).Where(t => t.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         return count;

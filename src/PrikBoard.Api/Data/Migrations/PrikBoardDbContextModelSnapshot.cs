@@ -168,6 +168,9 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Property<Guid>("BoardId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("BucketId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Caption")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -210,6 +213,8 @@ namespace PrikBoard.Api.Data.Migrations
                     b.HasIndex("AddedById");
 
                     b.HasIndex("BoardId");
+
+                    b.HasIndex("BucketId");
 
                     b.HasIndex("FileId")
                         .IsUnique();
@@ -629,6 +634,11 @@ namespace PrikBoard.Api.Data.Migrations
                         .HasForeignKey("BoardId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("PrikBoard.Api.Domain.Bucket", null)
+                        .WithMany()
+                        .HasForeignKey("BucketId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("PrikBoard.Api.Domain.StoredFile", "File")
                         .WithOne()

@@ -94,6 +94,7 @@ claude mcp add --transport http prikboard http://localhost:5173/mcp --header "Au
 | `create_note` | In a bucket by name or id (default: the first bucket). `assignees` are names or principal ids from `people`. `body`, `checklist` and `links` become its first Text, Checklist and Links blocks |
 | `update_note` | Same PATCH rules as updateNote; `assignees` by name or id |
 | `add_note_block`, `update_note_block`, `delete_note_block` | A note's content. A block is named by its id, its title, or its kind when the note has one block of that kind; `delete_note_block` is marked destructive |
+| `add_image` | Like uploadImage, with the file base64-encoded in `data` (a `data:` URL works too): attached to a note (`noteId`) or on the board (`boardId`), in a free spot unless `x` and `y` are given |
 | `move_note` | To a bucket by name or id; the server finds a free spot |
 | `set_working` | Assign yourself and show (or hide) the working halo, like setNoteWorking |
 | `delete_note`, `restore_note` | `delete_note` is marked destructive, so clients ask first; `restore_note` brings a deleted note back within 7 days |
@@ -108,9 +109,9 @@ The tools use the same access checks, validation and layout rules as the REST en
 
 ## The board model
 
-A board is a freeform canvas. It holds **buckets**, named rectangles such as *To do*, *Doing* and *Done*, and **notes**, which are 200×120 px post-its. A note belongs to the topmost bucket that contains its centre, and its `bucketId` says which one. A note outside every bucket is loose (`bucketId: null`). Buckets stack in creation order, with the newest on top.
+A board is a freeform canvas. It holds **buckets**, named rectangles such as *To do*, *Doing* and *Done*, and **notes**, which are 200×120 px post-its. A note (or an image on the board) put somewhere joins the topmost bucket that contains its centre, and its `bucketId` says which one. It stays in that bucket while buckets move: a moved bucket carries exactly its own notes and images, also over or under another bucket, and takes nobody else's. A resized bucket lets go of its items now outside it and takes only loose ones it now covers; a new bucket takes what it is drawn around. A note outside every bucket is loose (`bucketId: null`). Buckets stack in creation order, with the newest on top.
 
-Coordinates are canvas pixels from the top-left corner. The server snaps them to a 20 px grid, and it works out each note's bucket again whenever a note or bucket moves.
+Coordinates are canvas pixels. The board has no edge at the origin: x and y run from -100000 to 100000, so things can go left of and above 0,0 too. The server snaps them to a 20 px grid, and it works out each note's bucket again whenever a note or bucket moves.
 
 Besides a title, a note has a `color` (fill), `tags`, `assignees` (people and agents), an `agentWorking` flag, who created it (`createdBy`, `createdById`; null for notes from before this was recorded) and its content as `blocks`. The board shows the title, tags and assignees on the post-it. Everything else appears when the post-it is expanded.
 
@@ -175,7 +176,7 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | exportBoard | `GET /api/boards/{boardId}/export` | The board as one downloadable JSON file (`format: "prikboard-board"`, `version: 2`): name, description, agent rules, buckets, tags (and `tagColors` for tags with a colour), notes with their blocks, and images (bytes as base64; attached ones keep their place on the note's canvas). No members, roles, user ids or assignees. Ids in the file are local to it |
 | importBoard | `POST /api/boards/import` | Send an export file as the body. Always makes a new board that you own (`201`), with new ids; positions snap to the grid and each note's bucket follows from where it sits. Notes are created by you. Version 1 files still import: a note's `body`, `checklist` and `links` become a Text, a Checklist and a Links block, and attached images go in a row under them. `400` for a file that is not valid or newer than the server reads; `403` for tokens limited to chosen boards. Body at most 64 MB |
 | createBucket | `POST /api/boards/{boardId}/buckets` | Draw a bucket at a rectangle, or to the right of the others. Loose notes it covers join it |
-| updateBucket | `PATCH /api/buckets/{bucketId}` | Rename, recolour, move or resize. Moving carries the bucket's notes along (or exactly the notes in `carryNoteIds`, which undo uses); a new `x`/`y` together with a new size is a resize from a top or left corner or edge, and the notes stay put |
+| updateBucket | `PATCH /api/buckets/{bucketId}` | Rename, recolour, move or resize. Moving carries the bucket's own notes and images along (or exactly the ones in `carryNoteIds` and `carryImageIds`, which undo uses) and changes no item's bucket, also over another bucket; a new `x`/`y` together with a new size is a resize from a top or left corner or edge: the notes and images stay put, ones now outside leave it, loose ones now inside join it |
 | deleteBucket | `DELETE /api/buckets/{bucketId}` | Delete a bucket. Its notes stay where they are and become loose |
 | restoreBucket | `POST /api/buckets/{bucketId}/restore` | Bring back a deleted bucket with the same id and place in the stack; the notes it covers join it again |
 | listNotes | `GET /api/boards/{boardId}/notes?bucketId=&tag=&assignee=&search=` | Filter by bucket, tags (repeat `tag`; any of them matches), assignee (principal id or current name), or search the title and content: text, checklist items and links (all case-insensitive) |

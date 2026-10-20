@@ -1,4 +1,4 @@
-import { useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
+import { useRef, useState, type FocusEvent, type KeyboardEvent, type Ref } from 'react'
 
 interface EditableTextProps {
   value: string
@@ -10,6 +10,8 @@ interface EditableTextProps {
   placeholder?: string
   autoFocus?: boolean
   readOnly?: boolean
+  /** The field itself, for focusing it from outside (a field in a window that is still hidden can't autofocus). */
+  fieldRef?: Ref<HTMLInputElement & HTMLTextAreaElement>
   /** Called when the field loses focus, after any save. */
   onDone?: () => void
 }
@@ -19,11 +21,13 @@ interface EditableTextProps {
  * line, scrolling sideways with the text cursor; multiline text fills its box and scrolls vertically inside it.
  * While it isn't focused it follows the server's value, so edits made by agents show up.
  */
-export function EditableText({ value, onSave, label, className, maxLength, multiline, placeholder, autoFocus, readOnly, onDone }: EditableTextProps) {
+export function EditableText(props: EditableTextProps) {
+  const { value, onSave, label, className, maxLength, multiline, placeholder, autoFocus, readOnly, fieldRef, onDone } = props
   const [draft, setDraft] = useState<string | null>(null)
   const cancelled = useRef(false)
 
   const field = {
+    ref: fieldRef,
     className: `editable ${className}`,
     'aria-label': label,
     value: draft ?? value,

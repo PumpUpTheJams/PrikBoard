@@ -191,6 +191,48 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
+    public async Task Moving_a_bucket_carries_the_images_in_it_along()
+    {
+        var board = await CreateBoard("Docked");
+        var todo = board.Buckets[0];
+        var inside = await Upload(board.Id, TestImages.Png(160, 80), "image/png", $"?x={todo.X + 20}&y={todo.Y + 100}");
+        var outside = await Upload(board.Id, TestImages.Png(160, 80), "image/png", "?x=2000&y=100");
+
+        var moved = await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { x = todo.X, y = todo.Y + 1000 });
+        moved.EnsureSuccessStatusCode();
+        // Undo moves it back with exactly the images that came along: here none.
+        var back = await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { x = todo.X, y = todo.Y, carryImageIds = Array.Empty<Guid>() });
+        back.EnsureSuccessStatusCode();
+        var resizeWithCarry = await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { x = todo.X, width = 400, carryImageIds = new[] { inside.Id } });
+
+        var images = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Images;
+        Assert.Equal((todo.X + 20, todo.Y + 1100), (images.Single(i => i.Id == inside.Id).X, images.Single(i => i.Id == inside.Id).Y));
+        Assert.Equal((2000, 100), (images.Single(i => i.Id == outside.Id).X, images.Single(i => i.Id == outside.Id).Y));
+        // Left behind outside the bucket by the empty carryImageIds, it is loose now.
+        Assert.Null(images.Single(i => i.Id == inside.Id).BucketId);
+        Assert.Null(images.Single(i => i.Id == outside.Id).BucketId);
+        Assert.Equal(HttpStatusCode.BadRequest, resizeWithCarry.StatusCode);
+    }
+
+    [Fact]
+    public async Task Moving_a_bucket_onto_another_keeps_both_their_images()
+    {
+        var board = await CreateBoard("Overlapping images");
+        var (todo, doing) = (board.Buckets[0], board.Buckets[1]);
+        var todos = await Upload(board.Id, TestImages.Png(160, 80), "image/png", $"?x={todo.X + 20}&y={todo.Y + 20}");
+        var doings = await Upload(board.Id, TestImages.Png(160, 80), "image/png", $"?x={doing.X + 20}&y={doing.Y + 20}");
+
+        // Doing (on top) lands on To do, then To do moves away from under it: each takes only its own image.
+        (await _client.PatchAsJsonAsync($"/api/buckets/{doing.Id}", new { x = todo.X, y = todo.Y })).EnsureSuccessStatusCode();
+        (await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { x = 1200, y = todo.Y })).EnsureSuccessStatusCode();
+
+        var images = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Images;
+        var (a, b) = (images.Single(i => i.Id == todos.Id), images.Single(i => i.Id == doings.Id));
+        Assert.Equal((todo.Id, 1220), (a.BucketId, a.X));
+        Assert.Equal((doing.Id, todo.X + 20), (b.BucketId, b.X));
+    }
+
+    [Fact]
     public async Task Images_attached_to_a_note_go_when_the_note_goes()
     {
         var board = await CreateBoard("Attached");

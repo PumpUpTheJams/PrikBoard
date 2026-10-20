@@ -1,6 +1,7 @@
 import type { PointerEvent } from 'react'
 import type { ImageDetail, Rect, ResizeHandle } from '../api/types'
 import { initials } from '../components/initials'
+import { keepPress } from './gesture'
 import { TrashIcon } from './icons'
 import { ResizeHandles } from './ResizeHandles'
 
@@ -45,7 +46,7 @@ export function BoardImageView({ image, rect, selected, lifted, onPointerDown, o
             aria-label={`Delete ${label}`}
             title="Delete"
             // Not a drag: the canvas would otherwise take the pointer and the click with it.
-            onPointerDown={(e) => e.stopPropagation()}
+            onPointerDown={keepPress}
             onClick={onDelete}
           >
             <TrashIcon size={13} />

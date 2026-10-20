@@ -108,13 +108,12 @@ interface TextBlockProps {
  */
 export function TextBlock({ text, autoFocus, readOnly, onChange }: TextBlockProps) {
   const [editing, setEditing] = useState(false)
-  const box = useRef<HTMLDivElement>(null)
+  const field = useRef<HTMLInputElement & HTMLTextAreaElement>(null)
 
   // Entering edit mode by clicking puts the text cursor at the end, rather than selecting everything like a new block.
   useEffect(() => {
-    if (!editing) return
-    const area = box.current?.querySelector('textarea')
-    if (!area) return
+    const area = field.current
+    if (!editing || !area) return
     area.focus({ preventScroll: true })
     area.setSelectionRange(area.value.length, area.value.length)
   }, [editing])
@@ -127,20 +126,19 @@ export function TextBlock({ text, autoFocus, readOnly, onChange }: TextBlockProp
 
   if (editing || (!text.trim() && !readOnly)) {
     return (
-      <div className="block-edit" ref={box}>
-        <EditableText
-          className="block-text"
-          label="Note"
-          value={text}
-          maxLength={4000}
-          multiline
-          autoFocus={autoFocus && !editing}
-          readOnly={readOnly}
-          placeholder="Add details in Markdown: context, decisions, anything that doesn't fit on the post-it."
-          onSave={onChange}
-          onDone={() => setEditing(false)}
-        />
-      </div>
+      <EditableText
+        className="block-text"
+        label="Note"
+        value={text}
+        maxLength={4000}
+        multiline
+        autoFocus={autoFocus && !editing}
+        readOnly={readOnly}
+        fieldRef={field}
+        placeholder="Add details in Markdown: context, decisions, anything that doesn't fit on the post-it."
+        onSave={onChange}
+        onDone={() => setEditing(false)}
+      />
     )
   }
 

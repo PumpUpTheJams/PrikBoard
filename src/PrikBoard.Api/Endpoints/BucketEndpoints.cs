@@ -17,8 +17,8 @@ public static class BucketEndpoints
             .RequireBoardRole(BoardRole.Editor)
             .WithName("createBucket")
             .WithSummary("Draw a bucket on a board")
-            .WithDescription("Creates a bucket at the given rectangle (or to the right of the existing buckets). " +
-                             "Loose notes inside it join it. Coordinates snap to the 20 px grid.")
+            .WithDescription("Creates a bucket at the given rectangle (or to the right of the existing buckets), on top of " +
+                             "the others. The notes and images whose centre it covers join it. Coordinates snap to the 20 px grid.")
             .ProducesValidationProblem();
 
         buckets.MapPatch("/buckets/{bucketId:guid}", UpdateBucket)
@@ -26,14 +26,16 @@ public static class BucketEndpoints
             .WithName("updateBucket")
             .WithSummary("Rename, recolour, move or resize a bucket")
             .WithDescription("Changes any of name, colour, position and size. Omitted fields stay unchanged. " +
-                             "Moving a bucket carries its notes along (or exactly carryNoteIds).")
+                             "Moving a bucket carries its notes and images along (or exactly carryNoteIds and carryImageIds) " +
+                             "and changes no item's bucket, also where it overlaps another bucket. A resize lets go of " +
+                             "items now outside it and takes loose ones it now covers.")
             .ProducesValidationProblem();
 
         buckets.MapDelete("/buckets/{bucketId:guid}", DeleteBucket)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Bucket)
             .WithName("deleteBucket")
             .WithSummary("Delete a bucket")
-            .WithDescription("Deletes the bucket. Its notes stay where they are and become loose " +
+            .WithDescription("Deletes the bucket. Its notes and images stay where they are and become loose " +
                              $"(or join a bucket underneath). restoreBucket brings it back within {Tombstones.RetentionText}.");
 
         buckets.MapPost("/buckets/{bucketId:guid}/restore", RestoreBucket)
@@ -41,7 +43,7 @@ public static class BucketEndpoints
             .WithName("restoreBucket")
             .WithSummary("Restore a deleted bucket")
             .WithDescription($"Brings back a bucket deleted in the last {Tombstones.RetentionText} with the same id, place and size, " +
-                             "and the notes whose centre it covers join it again. 409 when it is not deleted.")
+                             "and the notes and images whose centre it covers join it again. 409 when it is not deleted.")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         return api;
@@ -66,8 +68,10 @@ public static class BucketEndpoints
         };
         db.Buckets.Add(bucket);
 
+        // Drawn around notes and images, it takes them (it is on top of the others).
         var notes = await db.Notes.Where(n => n.BoardId == boardId).ToListAsync(ct);
-        Layout.AssignBuckets(notes, [.. siblings, bucket]);
+        var images = await db.Images.Where(i => i.BoardId == boardId).ToListAsync(ct);
+        Layout.Adopt(bucket, [.. Layout.BackToFront(siblings), bucket], notes, images, looseOnly: false);
 
         await db.SaveChangesAsync(ct);
         return TypedResults.Created($"/api/buckets/{bucket.Id}", BucketDetail.From(bucket));
@@ -81,26 +85,38 @@ public static class BucketEndpoints
 
         // A new place together with a new size is a resize from a top or left corner or edge: the frame's edge moves, its notes stay.
         var resizing = request.Width is not null || request.Height is not null;
-        if (request.CarryNoteIds is not null && (resizing || request is { X: null, Y: null }))
+        var moving = !resizing && request is not { X: null, Y: null };
+        if (!moving && (request.CarryNoteIds is not null || request.CarryImageIds is not null))
         {
+            var key = request.CarryNoteIds is not null ? "carryNoteIds" : "carryImageIds";
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["carryNoteIds"] = ["Only a move (X and/or Y without Width or Height) carries notes."],
+                [key] = ["Only a move (X and/or Y without Width or Height) carries notes and images."],
             });
         }
 
         var notes = await db.Notes.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);
+        var images = await db.Images.Where(i => i.BoardId == bucket.BoardId && i.NoteId == null).ToListAsync(ct);
         var dx = request.X is { } x ? Layout.Snap(x) - bucket.X : 0;
         var dy = request.Y is { } y ? Layout.Snap(y) - bucket.Y : 0;
-        if ((dx != 0 || dy != 0) && !resizing)
+        if ((dx != 0 || dy != 0) && moving)
         {
+            // It carries its own notes and images, and nothing changes bucket: not its items, nor those it passes over.
             var carried = request.CarryNoteIds is { } ids
                 ? notes.Where(n => ids.Contains(n.Id))
                 : notes.Where(n => n.BucketId == bucket.Id);
             foreach (var note in carried)
             {
-                note.X = Math.Max(0, note.X + dx);
-                note.Y = Math.Max(0, note.Y + dy);
+                note.X = Math.Clamp(note.X + dx, Layout.MinCoordinate, Layout.MaxCoordinate);
+                note.Y = Math.Clamp(note.Y + dy, Layout.MinCoordinate, Layout.MaxCoordinate);
+            }
+            var carriedImages = request.CarryImageIds is { } imageIds
+                ? images.Where(i => imageIds.Contains(i.Id))
+                : images.Where(i => i.BucketId == bucket.Id);
+            foreach (var image in carriedImages)
+            {
+                image.X = Math.Clamp(image.X + dx, Layout.MinCoordinate, Layout.MaxCoordinate);
+                image.Y = Math.Clamp(image.Y + dy, Layout.MinCoordinate, Layout.MaxCoordinate);
             }
         }
 
@@ -111,8 +127,14 @@ public static class BucketEndpoints
         if (request.Width is { } width) bucket.Width = Layout.SnapSize(width, Layout.MinBucketWidth);
         if (request.Height is { } height) bucket.Height = Layout.SnapSize(height, Layout.MinBucketHeight);
 
-        var buckets = await db.Buckets.Where(b => b.BoardId == bucket.BoardId).ToListAsync(ct);
-        Layout.AssignBuckets(notes, buckets);
+        if (resizing || moving)
+        {
+            // A new outline lets go of what is now outside it (after a move, only items left behind by carryNoteIds or
+            // carryImageIds) and a resize takes loose items it now covers, never another bucket's.
+            var stacked = Layout.BackToFront(await db.Buckets.Where(b => b.BoardId == bucket.BoardId).ToListAsync(ct));
+            Layout.Release(bucket, stacked, notes, images);
+            if (resizing) Layout.Adopt(bucket, stacked, notes, images, looseOnly: true);
+        }
 
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok(BucketDetail.From(bucket));
@@ -127,7 +149,8 @@ public static class BucketEndpoints
         bucket.DeletedAt = DateTimeOffset.UtcNow;
         var remaining = await db.Buckets.Where(b => b.BoardId == bucket.BoardId && b.Id != bucketId).ToListAsync(ct);
         var notes = await db.Notes.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);
-        Layout.AssignBuckets(notes, remaining);
+        var images = await db.Images.Where(i => i.BoardId == bucket.BoardId).ToListAsync(ct);
+        Layout.Release(bucket, Layout.BackToFront(remaining), notes, images);
 
         await db.SaveChangesAsync(ct);
         return TypedResults.NoContent();
@@ -140,11 +163,12 @@ public static class BucketEndpoints
         if (bucket is null) return TypedResults.NotFound();
         if (bucket.DeletedAt is null) return TagEndpoints.NotDeleted("bucket");
 
-        // CreatedAt stays, so it goes back to its place in the stack and takes back the notes it covers.
+        // CreatedAt stays, so it goes back to its place in the stack and takes back the notes and images it covers.
         bucket.DeletedAt = null;
         var others = await db.Buckets.Where(b => b.BoardId == bucket.BoardId && b.Id != bucketId).ToListAsync(ct);
         var notes = await db.Notes.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);
-        Layout.AssignBuckets(notes, [.. others, bucket]);
+        var images = await db.Images.Where(i => i.BoardId == bucket.BoardId).ToListAsync(ct);
+        Layout.Adopt(bucket, Layout.BackToFront([.. others, bucket]), notes, images, looseOnly: false);
 
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok(BucketDetail.From(bucket));
