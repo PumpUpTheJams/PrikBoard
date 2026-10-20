@@ -35,7 +35,6 @@ import {
   MIN_COORDINATE,
   NOTE_HEIGHT,
   NOTE_WIDTH,
-  bucketAt,
   bucketSize,
   bucketUnderNote,
   defaultBlockSize,
@@ -579,9 +578,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   function imageRect(image: ImageDetail): Rect {
     const drag = dragOf(image.id)
     if (!drag) {
-      // A moving bucket carries the images in it along, as the server does.
-      const bucket = bucketAt(board.buckets, image)
-      if (!bucket || dragOf(bucket.id)?.kind !== 'bucket') return image
+      // A moving bucket carries its images along, as the server does.
+      const bucket = dragOf(image.bucketId)?.kind === 'bucket' && board.buckets.find((b) => b.id === image.bucketId)
+      if (!bucket) return image
       const moved = bucketRect(bucket)
       return { ...image, x: onBoard(image.x + moved.x - bucket.x), y: onBoard(image.y + moved.y - bucket.y) }
     }
@@ -1051,7 +1050,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       // A moved bucket carries its post-its and images along; undoing the move takes exactly those back.
       const bucket = board.buckets.find((b) => b.id === id)!
       const carried = board.notes.filter((n) => n.bucketId === id)
-      const carriedImages = board.images.filter((i) => i.noteId === null && bucketAt(board.buckets, i)?.id === id)
+      const carriedImages = board.images.filter((i) => i.bucketId === id)
       const { x, y } = bucketRect(bucket)
       const along = (item: Point, d: Point) => ({ x: onBoard(item.x + d.x), y: onBoard(item.y + d.y) })
       void settle(

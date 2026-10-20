@@ -78,6 +78,8 @@ export interface ImageDetail {
   id: string
   boardId: string
   noteId: string | null
+  /** The bucket it sits in on the board (it moves with it); null when loose or attached to a note. */
+  bucketId: string | null
   fileName: string
   contentType: string
   size: number

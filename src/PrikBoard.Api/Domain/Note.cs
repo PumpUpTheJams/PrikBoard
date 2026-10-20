@@ -6,7 +6,10 @@ public class Note
     public Guid Id { get; set; } = Guid.CreateVersion7();
     public Guid BoardId { get; set; }
     public Board? Board { get; set; }
-    /// <summary>The bucket containing the note's centre, or null when it is loose. Maintained by <see cref="Layout"/>.</summary>
+    /// <summary>
+    /// The bucket the note is in, or null when it is loose: the topmost one containing its centre when it was put there,
+    /// kept while buckets move around it. Maintained by <see cref="Layout"/>.
+    /// </summary>
     public Guid? BucketId { get; set; }
     public required string Title { get; set; }
     public NoteColor Color { get; set; } = NoteColor.Butter;

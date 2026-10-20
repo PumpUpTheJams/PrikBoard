@@ -35,16 +35,13 @@ export function imageSize(image: { pixelWidth: number; pixelHeight: number }, wi
 /** Snaps a top-left corner on the board to the grid, keeping it within the coordinate range. */
 export const snapPoint = ({ x, y }: Point): Point => ({ x: onBoard(snap(x)), y: onBoard(snap(y)) })
 
-/** The topmost bucket containing a note's centre. `buckets` is back to front, as the API returns them. */
-export const bucketUnderNote = (buckets: BucketDetail[], note: Point) => bucketAt(buckets, { ...note, width: NOTE_WIDTH, height: NOTE_HEIGHT })
-
 /**
- * The topmost bucket containing a rectangle's centre: the bucket a note belongs to, or an image on the board sits in
- * (and moves with, as on the server: Layout.BucketOf). `buckets` is back to front.
+ * The topmost bucket containing a note's centre: the bucket a note dropped there joins (Layout.Place on the server). It
+ * stays in that bucket while buckets move around it. `buckets` is back to front, as the API returns them.
  */
-export function bucketAt(buckets: BucketDetail[], rect: Rect): BucketDetail | undefined {
-  const cx = rect.x + Math.floor(rect.width / 2)
-  const cy = rect.y + Math.floor(rect.height / 2)
+export function bucketUnderNote(buckets: BucketDetail[], note: Point): BucketDetail | undefined {
+  const cx = note.x + NOTE_WIDTH / 2
+  const cy = note.y + NOTE_HEIGHT / 2
   return buckets.findLast((b) => cx >= b.x && cx < b.x + b.width && cy >= b.y && cy < b.y + b.height)
 }
 

@@ -201,7 +201,7 @@ public static class BoardTransferEndpoints
             board.Images.Add(image);
         }
 
-        Layout.AssignBuckets(board.Notes, board.Buckets);
+        Layout.PlaceAll(board.Notes, board.Images, board.Buckets);
         // Like createBoard: a personal access token imports for its owner, who owns the board; the token keeps its capped role.
         board.Members.Add(new BoardMember { PrincipalId = caller.MemberId, Role = BoardRole.Owner });
 
