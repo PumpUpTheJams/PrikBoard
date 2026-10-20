@@ -224,15 +224,21 @@ export function NoteCanvas(props: NoteCanvasProps) {
     setGesture({ kind, id, handle, start: point, current: point, client: { x: e.clientX, y: e.clientY }, outside: false })
   }
 
-  /** A press on empty canvas pans (presses inside blocks and images are theirs). */
+  /**
+   * A press on empty canvas pans, and so does the middle button over a block or image, like on the board (without
+   * touching the selection or the field being typed in). Other presses inside blocks and images are theirs.
+   */
   function onCanvasPointerDown(e: PointerEvent) {
-    if (e.target !== e.currentTarget) return
-    imagePresses.current = [imagePresses.current[1], null]
+    const empty = e.target === e.currentTarget
+    if (!empty && e.button !== 1) return
+    if (empty) imagePresses.current = [imagePresses.current[1], null]
     if (e.button !== 0 && e.button !== 1) return
     e.preventDefault()
-    setSelection(null)
-    if (document.activeElement instanceof HTMLElement && document.activeElement.closest('.note-scroll')) document.activeElement.blur()
-    scrollRef.current!.focus({ preventScroll: true })
+    if (empty) {
+      setSelection(null)
+      if (document.activeElement instanceof HTMLElement && document.activeElement.closest('.note-scroll')) document.activeElement.blur()
+      scrollRef.current!.focus({ preventScroll: true })
+    }
     const el = scrollRef.current!
     canvasRef.current!.setPointerCapture(e.pointerId)
     setPan({ x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop })

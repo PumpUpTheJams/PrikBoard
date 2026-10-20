@@ -44,7 +44,8 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var notesUrl = $"/api/boards/{board.Id}/notes";
 
         var tooLong = await _client.PostAsJsonAsync(notesUrl, new { title = new string('x', 201) });
-        var negative = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", x = -20, y = 0 });
+        // The board has no edge at the origin, but it does end somewhere.
+        var negative = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", x = -100_020, y = 0 });
         var onlyX = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", x = 100 });
         var both = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", bucketId = board.Buckets[0].Id, x = 0, y = 0 });
 
@@ -150,6 +151,90 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         Assert.Equal((60, 820, todo.Id), (movedInside.X, movedInside.Y, movedInside.BucketId));
         Assert.Equal((40, 700), (stillLoose.X, stillLoose.Y));
         Assert.Null(stillLoose.BucketId);
+    }
+
+    [Fact]
+    public async Task Moving_a_bucket_onto_another_keeps_both_their_notes()
+    {
+        var board = await CreateBoard("Overlap");
+        var (todo, doing) = (board.Buckets[0], board.Buckets[1]);
+        var inTodo = await CreateNote(board.Id, new { title = "To do's", bucketId = todo.Id });
+        var inDoing = await CreateNote(board.Id, new { title = "Doing's", bucketId = doing.Id });
+
+        // Doing (on top) lands on To do, then To do (underneath) moves away from under it: each takes only its own note.
+        (await _client.PatchAsJsonAsync($"/api/buckets/{doing.Id}", new { x = todo.X, y = todo.Y })).EnsureSuccessStatusCode();
+        var stacked = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
+        (await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { x = 1200, y = todo.Y })).EnsureSuccessStatusCode();
+        var apart = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
+
+        Assert.Equal(todo.Id, stacked!.Notes.Single(n => n.Id == inTodo.Id).BucketId);
+        Assert.Equal(doing.Id, stacked.Notes.Single(n => n.Id == inDoing.Id).BucketId);
+        var (todoNote, doingNote) = (apart!.Notes.Single(n => n.Id == inTodo.Id), apart.Notes.Single(n => n.Id == inDoing.Id));
+        Assert.Equal((inTodo.X + 1200 - todo.X, inTodo.Y, todo.Id), (todoNote.X, todoNote.Y, todoNote.BucketId));
+        Assert.Equal((inDoing.X + todo.X - doing.X, inDoing.Y, doing.Id), (doingNote.X, doingNote.Y, doingNote.BucketId));
+    }
+
+    [Fact]
+    public async Task A_resized_bucket_lets_go_of_its_notes_outside_it_and_takes_only_loose_ones()
+    {
+        var board = await CreateBoard("Resize members");
+        var (doing, done) = (board.Buckets[1], board.Buckets[2]);
+        var first = await CreateNote(board.Id, new { title = "First", bucketId = done.Id });
+        var second = await CreateNote(board.Id, new { title = "Second", bucketId = done.Id });
+        var inDoing = await CreateNote(board.Id, new { title = "Doing's", bucketId = doing.Id });
+        var loose = await CreateNote(board.Id, new { title = "Loose", x = done.X + 20, y = done.Y + done.Height + 100 });
+
+        // Done (on top) stretches left over Doing's note and gets so short that its second note falls out.
+        var resized = await _client.PatchAsJsonAsync($"/api/buckets/{done.Id}", new { x = doing.X - 20, width = done.X + done.Width - doing.X + 20, height = 160 });
+        resized.EnsureSuccessStatusCode();
+        var shrunk = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Notes;
+        // Then tall again: the loose notes it now covers join it.
+        (await _client.PatchAsJsonAsync($"/api/buckets/{done.Id}", new { height = done.Height + 300 })).EnsureSuccessStatusCode();
+        var grown = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Notes;
+
+        Assert.Equal(done.Id, shrunk.Single(n => n.Id == first.Id).BucketId);
+        Assert.Null(shrunk.Single(n => n.Id == second.Id).BucketId);
+        Assert.Equal(doing.Id, shrunk.Single(n => n.Id == inDoing.Id).BucketId);
+        Assert.Equal(done.Id, grown.Single(n => n.Id == second.Id).BucketId);
+        Assert.Equal(done.Id, grown.Single(n => n.Id == loose.Id).BucketId);
+        Assert.Equal(doing.Id, grown.Single(n => n.Id == inDoing.Id).BucketId);
+    }
+
+    [Fact]
+    public async Task A_full_bucket_grows_past_a_bucket_stacked_above_it()
+    {
+        var board = await CreateBoard("Stacked");
+        var todo = board.Buckets[0];
+        // Drawn later, so on top of To do's growth below it.
+        var below = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/buckets",
+            new { name = "Parking", x = todo.X, y = todo.Y + todo.Height, width = todo.Width, height = 300 });
+        below.EnsureSuccessStatusCode();
+
+        NoteDetail last = null!;
+        for (var i = 0; i < 5; i++) last = await CreateNote(board.Id, new { title = $"Note {i}", bucketId = todo.Id });
+
+        // To do holds four; the fifth goes below the parking bucket instead of under it, and stays in To do.
+        Assert.Equal(todo.Id, last.BucketId);
+        Assert.True(last.Y >= todo.Y + todo.Height + 300, $"Expected the note below the parking bucket, got y {last.Y}.");
+    }
+
+    [Fact]
+    public async Task The_board_goes_on_left_of_and_above_the_origin()
+    {
+        var board = await CreateBoard("No edge");
+        var todo = board.Buckets[0];
+        var inside = await CreateNote(board.Id, new { title = "Inside" });
+        var far = await CreateNote(board.Id, new { title = "Far out", x = -600, y = -400 });
+
+        var response = await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { x = -1000, y = -800 });
+        response.EnsureSuccessStatusCode();
+        var moved = await MoveNote(far.Id, new { x = -1960, y = -1500 });
+
+        var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
+        var carried = snapshot!.Notes.Single(n => n.Id == inside.Id);
+        Assert.Equal((-600, -400), (far.X, far.Y));
+        Assert.Equal((-1960, -1500), (moved.X, moved.Y));
+        Assert.Equal((-980, -780, todo.Id), (carried.X, carried.Y, carried.BucketId));
     }
 
     [Fact]

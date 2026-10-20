@@ -43,17 +43,22 @@ public static class BoardTransferEndpoints
     }
 
     private static async Task<Results<Ok<BoardExport>, NotFound>> ExportBoard(
-        Guid boardId, HttpResponse response, PrikBoardDbContext db, CancellationToken ct)
+        Guid boardId, HttpResponse response, PrikBoardDbContext db, FileStore files, CancellationToken ct)
     {
         var board = await db.Boards.AsNoTracking()
             .Include(b => b.Buckets)
             .Include(b => b.Notes)
-            .Include(b => b.Images).ThenInclude(i => i.Content)
+            .Include(b => b.Images).ThenInclude(i => i.File)
             .Include(b => b.Tags)
             .AsSplitQuery()
             .FirstOrDefaultAsync(b => b.Id == boardId, ct);
         if (board is null) return TypedResults.NotFound();
 
+        var images = new List<ExportedImage>();
+        foreach (var i in board.Images.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id))
+        {
+            images.Add(new ExportedImage(i.NoteId, i.File!.FileName, i.Caption, i.X, i.Y, i.Width, await files.ReadAllBytesAsync(i.File, ct)));
+        }
         var export = new BoardExport(
             BoardExport.FormatName, BoardExport.CurrentVersion, DateTimeOffset.UtcNow,
             board.Name, board.Description, board.Rules,
@@ -63,8 +68,7 @@ public static class BoardTransferEndpoints
             // Oldest edit first: the importer gives them rising timestamps, so the most recently edited note stays on top.
             board.Notes.OrderBy(n => n.UpdatedAt).ThenBy(n => n.Id)
                 .Select(n => new ExportedNote(n.Id, n.Title, n.Color, n.Tags, n.X, n.Y, n.Blocks.Select(Exported).ToList())).ToList(),
-            board.Images.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id)
-                .Select(i => new ExportedImage(i.NoteId, i.FileName, i.Caption, i.X, i.Y, i.Width, i.Content!.Data)).ToList(),
+            images,
             board.Tags.Where(t => t.Color != TagColor.Default).ToDictionary(t => t.Name, t => t.Color));
 
         var fileName = $"{CleanName(board.Name)}.prikboard.json";
@@ -73,7 +77,7 @@ public static class BoardTransferEndpoints
     }
 
     private static async Task<Results<Created<BoardDetail>, ValidationProblem, ProblemHttpResult>> ImportBoard(
-        BoardExport file, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
+        BoardExport file, ClaimsPrincipal principal, PrikBoardDbContext db, FileStore files, CancellationToken ct)
     {
         var caller = BoardCaller.Of(principal);
         if (caller.Boards is not null)
@@ -155,6 +159,8 @@ public static class BoardTransferEndpoints
         }
         if (board.Tags.Count > BoardTag.MaxPerBoard) return Invalid("tags", $"A board has at most {BoardTag.MaxPerBoard} tags.");
 
+        // Files are written once the whole file has proved valid, so a rejected import leaves none behind.
+        var contents = new List<(StoredFile File, byte[] Data)>();
         foreach (var (source, i) in file.Images.Select((m, i) => (m, i)))
         {
             if (source.Data.Length > ImageFormats.MaxBytes)
@@ -175,14 +181,11 @@ public static class BoardTransferEndpoints
             var image = new BoardImage
             {
                 NoteId = noteId,
-                FileName = ImageEndpoints.CleanFileName(source.FileName, info.ContentType),
-                ContentType = info.ContentType,
-                Size = source.Data.Length,
                 PixelWidth = info.Width,
                 PixelHeight = info.Height,
                 Caption = PatchText.Apply(null, source.Caption),
                 AddedById = createdBy,
-                Content = new ImageContent { Data = source.Data },
+                File = StoredFile.For(board.Id, ImageEndpoints.CleanFileName(source.FileName, info.ContentType), info.ContentType, source.Data),
                 CreatedAt = clock.AddMilliseconds(i),
                 UpdatedAt = clock.AddMilliseconds(i),
             };
@@ -199,12 +202,14 @@ public static class BoardTransferEndpoints
                 (image.X, image.Y) = Layout.OnNoteCanvas(x, y, image.Width, image.Height);
             }
             board.Images.Add(image);
+            contents.Add((image.File, source.Data));
         }
 
-        Layout.AssignBuckets(board.Notes, board.Buckets);
+        Layout.PlaceAll(board.Notes, board.Images, board.Buckets);
         // Like createBoard: a personal access token imports for its owner, who owns the board; the token keeps its capped role.
         board.Members.Add(new BoardMember { PrincipalId = caller.MemberId, Role = BoardRole.Owner });
 
+        foreach (var (stored, data) in contents) await files.WriteAsync(stored, data, ct);
         db.Boards.Add(board);
         await db.SaveChangesAsync(ct);
 

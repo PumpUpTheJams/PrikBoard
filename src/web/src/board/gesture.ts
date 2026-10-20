@@ -9,3 +9,11 @@ export function isDrag(g: { start: Point; current: Point }) {
   const d = delta(g)
   return Math.abs(d.x) >= DRAG_THRESHOLD || Math.abs(d.y) >= DRAG_THRESHOLD
 }
+
+/**
+ * Keeps a press on a control inside an item (a button, a field) from reaching the canvas, so it doesn't start a drag and
+ * the click stays the control's. The middle button still goes through, so it pans there like anywhere else.
+ */
+export function keepPress(e: { button: number; stopPropagation: () => void }) {
+  if (e.button !== 1) e.stopPropagation()
+}

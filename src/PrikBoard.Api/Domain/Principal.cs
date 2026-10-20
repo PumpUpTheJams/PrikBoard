@@ -37,7 +37,7 @@ public class User : Principal
     public bool IsAdmin { get; set; }
 
     /// <summary>
-    /// When the copy of their sign-in provider's picture (see <see cref="UserAvatar"/>) last changed; null without one.
+    /// When the copy of their sign-in provider's picture (<see cref="AvatarFile"/>) last changed; null without one.
     /// Only the copy is kept, never the picture's URL, which holds the provider's account id.
     /// </summary>
     public DateTimeOffset? AvatarUpdatedAt { get; set; }
@@ -46,6 +46,10 @@ public class User : Principal
     /// The person removed their avatar, so sign-ins no longer take the provider's picture. Cleared when they take it again.
     /// </summary>
     public bool AvatarOptedOut { get; set; }
+
+    /// <summary>The copy of the picture they chose as avatar; null without one.</summary>
+    public Guid? AvatarFileId { get; set; }
+    public StoredFile? AvatarFile { get; set; }
 
     // GUID v7 starts with a timestamp, so the random tail tells people apart better than the head.
     public override string FallbackName => $"User {Id.ToString("N")[^4..]}";
@@ -70,16 +74,6 @@ public class Agent : Principal
     public Guid? OwnerId { get; set; }
 
     public override string FallbackName => $"Agent {(ClientId.Length <= 60 ? ClientId : ClientId[..60])}";
-}
-
-/// <summary>A copy of the picture a person chose as avatar, kept apart so it never loads with the user.</summary>
-public class UserAvatar
-{
-    public const int MaxBytes = 1024 * 1024;
-
-    public Guid UserId { get; set; }
-    public required string ContentType { get; set; }
-    public required byte[] Data { get; set; }
 }
 
 /// <summary>One sign-in a user linked: the provider and keyed hashes of its subject id and (verified) email.</summary>

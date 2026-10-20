@@ -1,6 +1,6 @@
-import type { ComponentType, PointerEvent } from 'react'
+import type { ComponentType, PointerEvent, Ref } from 'react'
 import { noteColors, type NoteColor } from '../api/types'
-import { FrameIcon, ImageIcon, PostItIcon, SearchIcon, SelectIcon } from './icons'
+import { FrameIcon, ImageIcon, PostItIcon, SearchIcon, SelectIcon, TrashIcon } from './icons'
 import type { Tool } from './tools'
 
 interface ToolDef {
@@ -21,6 +21,12 @@ interface ToolRailProps {
   fill: NoteColor
   /** A press on the post-it button: dragging from there sticks a new post-it where it is released. */
   onPostItPointerDown?: (e: PointerEvent<HTMLButtonElement>) => void
+  /**
+   * While a post-it is dragged (or a new one carried), the post-it button is a trash can to drop it on; `over` while the
+   * pointer is on it. The board hit-tests it through `trashRef`, since it holds the pointer during the drag.
+   */
+  trash?: 'shown' | 'over'
+  trashRef?: Ref<HTMLButtonElement>
   onFillChange: (fill: NoteColor) => void
   /** Opens the file picker to add images (an action, not a tool you stay in). */
   onAddImage: () => void
@@ -33,10 +39,16 @@ interface ToolRailProps {
 
 /** The floating tool rail on the left of the board. */
 export function ToolRail(props: ToolRailProps) {
-  const { tool, onToolChange, fill, onFillChange, onPostItPointerDown, onAddImage, readOnly, searching, onSearch } = props
-  const button = ({ tool: t, label, shortcut, Icon, title }: ToolDef, className = '', onPointerDown?: (e: PointerEvent<HTMLButtonElement>) => void) => (
+  const { tool, onToolChange, fill, onFillChange, onPostItPointerDown, trash, trashRef, onAddImage, readOnly, searching, onSearch } = props
+  const button = (
+    { tool: t, label, shortcut, Icon, title }: ToolDef,
+    className = '',
+    onPointerDown?: (e: PointerEvent<HTMLButtonElement>) => void,
+    ref?: Ref<HTMLButtonElement>,
+  ) => (
     <button
       key={t}
+      ref={ref}
       type="button"
       className={`rail-button ${className}`}
       aria-label={label}
@@ -56,12 +68,20 @@ export function ToolRail(props: ToolRailProps) {
         <>
           <span className="rail-divider" aria-hidden="true" />
           <div className="rail-note">
-            {button(
-              { tool: 'note', label: 'Post-it', shortcut: 'N', Icon: PostItIcon, title: 'Post-it (N): drag it onto the board, or click here and then on the board' },
-              `tone-${fill.toLowerCase()}`,
-              onPostItPointerDown,
-            )}
-            {tool === 'note' && (
+            {trash
+              ? button(
+                  { tool: 'note', label: 'Trash', shortcut: 'N', Icon: TrashIcon, title: 'Drop a post-it here to delete it' },
+                  `trash${trash === 'over' ? ' over' : ''}`,
+                  onPostItPointerDown,
+                  trashRef,
+                )
+              : button(
+                  { tool: 'note', label: 'Post-it', shortcut: 'N', Icon: PostItIcon, title: 'Post-it (N): drag it onto the board, or click here and then on the board' },
+                  `tone-${fill.toLowerCase()}`,
+                  onPostItPointerDown,
+                  trashRef,
+                )}
+            {tool === 'note' && !trash && (
               <div className="fill-flyout" role="group" aria-label="Fill for new post-its">
                 {noteColors.map((c) => (
                   <button

@@ -1,8 +1,10 @@
 namespace PrikBoard.Api.Domain;
 
 /// <summary>
-/// The geometry rules of a board. Coordinates are canvas pixels from the top-left, snapped to a grid.
-/// A note belongs to the topmost bucket containing its centre; buckets stack in creation order, newest on top.
+/// The geometry rules of a board. Coordinates are canvas pixels, snapped to a grid. The board has no edge: things can go
+/// left of and above the origin (negative coordinates) as well as right of and below it.
+/// A note or image put somewhere joins the topmost bucket containing its centre, and stays in it while buckets move (see
+/// the membership rules below); buckets stack in creation order, newest on top.
 /// </summary>
 public static class Layout
 {
@@ -14,6 +16,7 @@ public static class Layout
     public const int MinBucketHeight = NoteHeight + 2 * Gap;
     public const int DefaultBucketWidth = MinBucketWidth;
     public const int DefaultBucketHeight = 600;
+    public const int MinCoordinate = -MaxCoordinate;
     public const int MaxCoordinate = 100_000;
     public const int MaxBucketSize = 10_000;
     public const int MinImageWidth = 80;
@@ -42,17 +45,82 @@ public static class Layout
     public static List<Bucket> BackToFront(IEnumerable<Bucket> buckets) =>
         buckets.OrderBy(b => b.CreatedAt).ThenBy(b => b.Id).ToList();
 
-    /// <summary>Sets <see cref="Note.BucketId"/> from where each note's centre lies.</summary>
-    public static void AssignBuckets(IEnumerable<Note> notes, IEnumerable<Bucket> buckets)
+    // Bucket membership. A note or an image on the board keeps the bucket it is in (BucketId) until it moves itself: then
+    // it joins the topmost bucket containing its centre (Place). Changes to buckets only touch the items they concern, so
+    // moving a bucket onto another never moves items from one to the other: a moved bucket carries exactly its own items
+    // and takes nothing; a resized one lets go of its items now outside it (Release) and takes loose ones it now covers
+    // (Adopt, looseOnly); a drawn or restored one takes what it covers (Adopt); a deleted one lets all its items go.
+
+    /// <summary>Puts a note in the topmost bucket containing its centre (none: loose). For a note that moved.</summary>
+    public static void Place(Note note, IReadOnlyList<Bucket> stacked) => note.BucketId = TopmostAt(stacked, Centre(note))?.Id;
+
+    /// <summary>Likewise for an image; an image attached to a note is in no bucket.</summary>
+    public static void Place(BoardImage image, IReadOnlyList<Bucket> stacked) =>
+        image.BucketId = image.NoteId is null ? TopmostAt(stacked, Centre(image))?.Id : null;
+
+    /// <summary>Places every note and image by position, for a board built from scratch (an import).</summary>
+    public static void PlaceAll(IEnumerable<Note> notes, IEnumerable<BoardImage> images, IEnumerable<Bucket> buckets)
     {
         var stacked = BackToFront(buckets);
+        foreach (var note in notes) Place(note, stacked);
+        foreach (var image in images) Place(image, stacked);
+    }
+
+    /// <summary>
+    /// Keeps a note in its bucket while that bucket is still in <paramref name="stacked"/> and contains its centre;
+    /// otherwise places it by position. For a note coming back (restored) or let go by its bucket.
+    /// </summary>
+    public static void Recheck(Note note, IReadOnlyList<Bucket> stacked)
+    {
+        if (!StillIn(note.BucketId, Centre(note), stacked)) Place(note, stacked);
+    }
+
+    /// <summary>Likewise for an image.</summary>
+    public static void Recheck(BoardImage image, IReadOnlyList<Bucket> stacked)
+    {
+        if (image.NoteId is not null || !StillIn(image.BucketId, Centre(image), stacked)) Place(image, stacked);
+    }
+
+    /// <summary>
+    /// The items whose centre <paramref name="bucket"/> covers, where it is the topmost bucket, join it: all of them (a
+    /// bucket drawn or restored around them) or, with <paramref name="looseOnly"/>, only loose ones (a bucket that grew).
+    /// </summary>
+    public static void Adopt(
+        Bucket bucket, IReadOnlyList<Bucket> stacked, IEnumerable<Note> notes, IEnumerable<BoardImage> images, bool looseOnly)
+    {
         foreach (var note in notes)
         {
-            var centerX = note.X + NoteWidth / 2;
-            var centerY = note.Y + NoteHeight / 2;
-            note.BucketId = stacked.LastOrDefault(b => b.Contains(centerX, centerY))?.Id;
+            if ((!looseOnly || note.BucketId is null) && TopmostAt(stacked, Centre(note)) == bucket) note.BucketId = bucket.Id;
+        }
+        foreach (var image in images)
+        {
+            if (image.NoteId is null && (!looseOnly || image.BucketId is null) && TopmostAt(stacked, Centre(image)) == bucket)
+            {
+                image.BucketId = bucket.Id;
+            }
         }
     }
+
+    /// <summary>
+    /// The items of <paramref name="bucket"/> that are no longer inside it go to whatever is under them (another bucket,
+    /// or loose). Leave the bucket out of <paramref name="stacked"/> when it is deleted, and all its items go.
+    /// </summary>
+    public static void Release(Bucket bucket, IReadOnlyList<Bucket> stacked, IEnumerable<Note> notes, IEnumerable<BoardImage> images)
+    {
+        foreach (var note in notes.Where(n => n.BucketId == bucket.Id)) Recheck(note, stacked);
+        foreach (var image in images.Where(i => i.BucketId == bucket.Id)) Recheck(image, stacked);
+    }
+
+    private static (int X, int Y) Centre(Note note) => (note.X + NoteWidth / 2, note.Y + NoteHeight / 2);
+
+    private static (int X, int Y) Centre(BoardImage image) => (image.X + image.Width / 2, image.Y + image.Height / 2);
+
+    private static bool StillIn(Guid? bucketId, (int X, int Y) centre, IReadOnlyList<Bucket> stacked) =>
+        bucketId is { } id && stacked.Any(b => b.Id == id && b.Contains(centre.X, centre.Y));
+
+    /// <summary>The topmost of <paramref name="stacked"/> (back to front) containing a point.</summary>
+    private static Bucket? TopmostAt(IReadOnlyList<Bucket> stacked, (int X, int Y) point) =>
+        stacked.LastOrDefault(b => b.Contains(point.X, point.Y));
 
     /// <summary>Notes bucket by bucket (in stacking order, loose notes last), then top to bottom and left to right.</summary>
     public static List<Note> ReadingOrder(IEnumerable<Note> notes, IEnumerable<Bucket> buckets)
@@ -66,18 +134,22 @@ public static class Layout
 
     /// <summary>
     /// The first grid slot inside <paramref name="bucket"/>, row by row, not covered by another note. When the bucket is
-    /// full it grows downwards by a row to make room, so buckets fit their notes the way frames on a board do.
+    /// full it grows downwards by a row to make room, so buckets fit their notes the way frames on a board do. Slots
+    /// under a bucket stacked above it are skipped (the note would belong to that one), so a bucket growing towards
+    /// another one continues below it.
     /// </summary>
-    public static (int X, int Y) MakeRoomIn(Bucket bucket, IReadOnlyCollection<Note> notes)
+    public static (int X, int Y) MakeRoomIn(Bucket bucket, IReadOnlyCollection<Note> notes, IEnumerable<Bucket> buckets)
     {
+        var above = BackToFront(buckets).SkipWhile(b => b.Id != bucket.Id).Skip(1).ToList();
         var left = bucket.X + Gap;
         var right = bucket.X + Math.Max(bucket.Width, MinBucketWidth) - Gap;
-        for (var y = bucket.Y + Gap; y + NoteHeight <= MaxCoordinate; y += NoteHeight + Gap)
+        for (var y = bucket.Y + Gap; y + NoteHeight + Gap - bucket.Y <= MaxBucketSize; y += NoteHeight + Gap)
         {
             for (var x = left; x + NoteWidth <= right; x += NoteWidth + Gap)
             {
                 if (notes.Any(n => Overlaps(n.X, n.Y, NoteWidth, NoteHeight, x, y))) continue;
-                bucket.Height = Math.Min(MaxBucketSize, Math.Max(bucket.Height, y + NoteHeight + Gap - bucket.Y));
+                if (above.Any(b => Overlaps(b.X, b.Y, b.Width, b.Height, x, y))) continue;
+                bucket.Height = Math.Max(bucket.Height, y + NoteHeight + Gap - bucket.Y);
                 return (x, y);
             }
         }

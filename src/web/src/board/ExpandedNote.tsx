@@ -18,13 +18,14 @@ import { EditableText } from './EditableText'
 import { draggingFiles, imageFiles } from './files'
 import { Highlight } from './Highlight'
 import { BucketIcon, CheckIcon, CloseIcon, LinkIcon, SparkleIcon } from './icons'
-import { copyText, noteLabel, TITLE_SUGGESTION } from './links'
+import { noteLabel, TITLE_SUGGESTION } from './links'
 import { pop } from './motion'
 import { NoteCanvas, type IncomingImage, type NoteCanvasHandle } from './NoteCanvas'
 import { tagColorClass, type TagColorPreview, type TagColors } from './tagColors'
 import { TagPicker } from './TagPicker'
 import type { RecordingRun } from './undo'
 import { MAX_ASSIGNEES, MAX_TAGS } from './tags'
+import { useCopyLink } from './useCopyLink'
 import { useFloatingWindow } from './useFloatingWindow'
 
 /** What the board needs from the open post-it: its canvas, and whether a paste is meant for it. */
@@ -94,11 +95,22 @@ export function ExpandedNote(props: ExpandedNoteProps) {
   const [hover, setHover] = useState(true)
   const dialogRef = useRef<HTMLElement>(null)
   const canvas = useRef<NoteCanvasHandle>(null)
+  const titleRef = useRef<HTMLInputElement & HTMLTextAreaElement>(null)
   const { rect, moving, startMove, startResize } = useFloatingWindow(dialogRef)
 
+  // Focus goes to the window, or for a post-it just stuck on the board to its title with the text selected, so typing
+  // replaces it. Only once the window shows: it is hidden until it has measured the board, and hidden things can't
+  // take focus.
+  const shown = rect !== null
   useEffect(() => {
-    if (!focusTitle) dialogRef.current?.focus({ preventScroll: true })
-  }, [focusTitle])
+    if (!shown) return
+    if (focusTitle && !readOnly && titleRef.current) {
+      titleRef.current.focus({ preventScroll: true })
+      titleRef.current.select()
+    } else {
+      dialogRef.current?.focus({ preventScroll: true })
+    }
+  }, [shown, focusTitle, readOnly])
 
   // Escape closes the post-it wherever focus is (it can end up on the page after saving the title). Fields and the
   // pickers handle their own Escape first and stop it from getting here.
@@ -199,7 +211,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
             value={note.title}
             maxLength={200}
             placeholder={TITLE_SUGGESTION}
-            autoFocus={focusTitle && !readOnly}
+            fieldRef={titleRef}
             readOnly={readOnly}
             onSave={(title) => void onChange({ title })}
           />
@@ -356,21 +368,10 @@ function AssigneeChips({ assignees, highlight, onRemove, onAdd }: AssigneeChipsP
 /** The post-it's ID. Clicking it copies a link that opens this post-it. */
 function NoteIdButton({ note }: { note: NoteDetail }) {
   /** Whether the last copy worked; null shows the ID again. */
-  const [copied, setCopied] = useState<boolean | null>(null)
-
-  useEffect(() => {
-    if (copied === null) return
-    const timer = setTimeout(() => setCopied(null), 1600)
-    return () => clearTimeout(timer)
-  }, [copied])
+  const { copied, copy } = useCopyLink(note)
 
   return (
-    <button
-      type="button"
-      className="note-id"
-      title="Copy a link to this post-it"
-      onClick={async () => setCopied(await copyText(`${window.location.origin}${note.path}`))}
-    >
+    <button type="button" className="note-id" title="Copy a link to this post-it" onClick={copy}>
       {copied ? <CheckIcon size={12} /> : <LinkIcon size={12} />}
       <span aria-live="polite">{copied === null ? note.id : copied ? 'Link copied' : "Couldn't copy the link"}</span>
     </button>

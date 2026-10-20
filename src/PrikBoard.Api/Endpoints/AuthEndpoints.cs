@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using Microsoft.Net.Http.Headers;
 using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
@@ -221,7 +220,8 @@ public static class AuthEndpoints
         if (user is null) return TypedResults.Unauthorized();
 
         var had = user.AvatarUpdatedAt is not null;
-        await db.UserAvatars.Where(a => a.UserId == user.Id).ExecuteDeleteAsync(ct);
+        // The file goes at the next sweep, once nothing refers to it.
+        user.AvatarFileId = null;
         user.AvatarUpdatedAt = null;
         user.AvatarOptedOut = true;
         await db.SaveChangesAsync(ct);
@@ -236,16 +236,13 @@ public static class AuthEndpoints
         await events.ProfileShownOnBoardsAsync(db, http, ct);
     }
 
-    private static async Task<Results<FileContentHttpResult, NotFound>> GetAvatar(
-        Guid principalId, HttpResponse response, PrikBoardDbContext db, CancellationToken ct)
+    private static async Task<Results<FileContentHttpResult, PhysicalFileHttpResult, NotFound>> GetAvatar(
+        Guid principalId, HttpResponse response, PrikBoardDbContext db, FileStore files, CancellationToken ct)
     {
-        var avatar = await db.UserAvatars.AsNoTracking().FirstOrDefaultAsync(a => a.UserId == principalId, ct);
-        if (avatar is null) return TypedResults.NotFound();
-
-        response.Headers[HeaderNames.XContentTypeOptions] = "nosniff";
-        // The URL is versioned (avatarUrl's v), and every request is authenticated, so private caching is safe.
-        response.Headers[HeaderNames.CacheControl] = "private, max-age=31536000, immutable";
-        return TypedResults.File(avatar.Data, avatar.ContentType);
+        var file = await db.Users.AsNoTracking().Where(u => u.Id == principalId).Select(u => u.AvatarFile).FirstOrDefaultAsync(ct);
+        if (file is null) return TypedResults.NotFound();
+        // The URL is versioned (avatarUrl's v), so caching it for good is safe.
+        return await StoredFileResults.ServeAsync(file, files, response, ct);
     }
 
     private static async Task<Results<NoContent, NotFound, ForbidHttpResult, ProblemHttpResult>> UnlinkIdentity(

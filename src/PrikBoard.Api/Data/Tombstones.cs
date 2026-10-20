@@ -18,17 +18,17 @@ public static class Tombstones
     public static async Task<int> PurgeAsync(PrikBoardDbContext db, DateTimeOffset cutoff, CancellationToken ct)
     {
         string[] deleted = [PrikBoardDbContext.SoftDelete];
-        // Images first; a note's images and their bytes would also go with it through the cascades.
+        // Images first; a note's images would also go with it through the cascade. Their files go at the next sweep.
         var count = await db.Images.IgnoreQueryFilters(deleted).Where(i => i.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         count += await db.Notes.IgnoreQueryFilters(deleted).Where(n => n.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
-        // Notes still pointing at a purged bucket lose the reference (SetNull); live notes never do, see Layout.AssignBuckets.
+        // Notes and images still pointing at a purged bucket lose the reference (SetNull); live notes and images never do, see Layout.Release.
         count += await db.Buckets.IgnoreQueryFilters(deleted).Where(b => b.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         count += await db.BoardTags.IgnoreQueryFilters(deleted).Where(t => t.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         return count;
     }
 }
 
-/// <summary>Runs <see cref="Tombstones.PurgeAsync"/> every hour.</summary>
+/// <summary>Runs <see cref="Tombstones.PurgeAsync"/> every hour, and then <see cref="FileStore.SweepAsync"/> for the files that freed.</summary>
 public sealed class TombstonePurger(IServiceScopeFactory scopes, ILogger<TombstonePurger> logger) : BackgroundService
 {
     private static readonly TimeSpan FirstRun = TimeSpan.FromMinutes(1);
@@ -61,6 +61,8 @@ public sealed class TombstonePurger(IServiceScopeFactory scopes, ILogger<Tombsto
             var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
             var purged = await Tombstones.PurgeAsync(db, DateTimeOffset.UtcNow - Tombstones.Retention, ct);
             if (purged > 0) logger.LogInformation("Purged {Count} deleted items older than {Retention}", purged, Tombstones.Retention);
+            var swept = await scope.ServiceProvider.GetRequiredService<FileStore>().SweepAsync(db, DateTimeOffset.UtcNow, ct);
+            if (swept > 0) logger.LogInformation("Deleted {Count} files nothing refers to any more", swept);
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {

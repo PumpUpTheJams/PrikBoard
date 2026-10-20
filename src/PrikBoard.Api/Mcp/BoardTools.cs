@@ -187,7 +187,7 @@ public sealed class BoardTools
     public static async Task<NoteDetail> UpdateNote(
         IHttpContextAccessor accessor,
         [Description("The note id.")] Guid noteId,
-        [Description("New title.")] string? title = null,
+        [Description("New title. Leave it out to keep the title; an empty string clears it.")] string? title = null,
         [Description("New fill: Butter, Mint, Sky, Coral or Lilac.")] NoteColor? color = null,
         [Description("All tags (replaces them); prefer the board's tags. New names are added to the board.")] List<string>? tags = null,
         [Description("All assignees (replaces them): names or principal ids, from people in get_board.")] List<string>? assignees = null,
@@ -272,6 +272,65 @@ public sealed class BoardTools
         McpCall.Succeeded(await NoteBlockEndpoints.DeleteNoteBlock(noteId, blockId, db, ct));
         await McpCall.AnnounceAsync(http, boardId);
         return "Deleted.";
+    }
+
+    [McpServerTool(Name = "add_image", Title = "Add an image", OpenWorld = false)]
+    [Description("Adds an image or GIF (PNG, JPEG, GIF or WebP, at most 10 MB; not SVG) to a board, or attaches it to a note, " +
+                 "where it shows on the note's canvas when the note is opened. Send the file base64-encoded. Give noteId to attach " +
+                 "it to a note, or boardId to put it on the board. It goes in a free spot unless you give x and y. Needs the Editor role.")]
+    public static async Task<ImageDetail> AddImage(
+        IHttpContextAccessor accessor,
+        [Description("The file, base64-encoded; a data: URL (data:image/png;base64,...) works too.")] string data,
+        [Description("Attach the image to this note.")] Guid? noteId = null,
+        [Description("The board to put it on; not needed with noteId.")] Guid? boardId = null,
+        [Description("File name, e.g. \"ingest-errors.png\". Default: image.<format>.")] string? fileName = null,
+        [Description("Caption shown under the image (at most 500 characters).")] string? caption = null,
+        [Description("Display width in pixels, 80 to 4000. Default: the image's own width, at most 360.")] int? width = null,
+        [Description("Left edge on the board, or on the note's canvas with noteId. Give it together with y.")] int? x = null,
+        [Description("Top edge on the board, or on the note's canvas with noteId. Give it together with x.")] int? y = null,
+        CancellationToken ct = default)
+    {
+        if (noteId is null && boardId is null) throw new McpException("Give noteId to attach the image to a note, or boardId to put it on the board.");
+        var http = McpCall.Http(accessor);
+        var board = noteId is { } note
+            ? await McpCall.AuthorizeAsync(http, BoardScope.Note, note, BoardRole.Editor)
+            : await McpCall.AuthorizeAsync(http, BoardScope.Board, boardId!.Value, BoardRole.Editor);
+        if (boardId is { } given && given != board) throw new McpException("The note is not on that board; leave out boardId.");
+
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var files = http.RequestServices.GetRequiredService<FileStore>();
+        using var body = new MemoryStream(DecodeImage(data));
+        var image = McpCall.Value<ImageDetail>(await ImageEndpoints.AddImage(board, body, http.User, db, files, ct, fileName, noteId, x, y, width, caption));
+        await McpCall.AnnounceAsync(http, board);
+        return image;
+    }
+
+    /// <summary>The bytes of a base64 string or base64 data: URL; a tool error when it is not valid or far too large.</summary>
+    private static byte[] DecodeImage(string data)
+    {
+        var value = data.Trim();
+        if (value.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            var comma = value.IndexOf(',');
+            if (comma < 0 || !value[..comma].EndsWith(";base64", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new McpException("A data: URL must be base64, like data:image/png;base64,iVBORw0...");
+            }
+            value = value[(comma + 1)..];
+        }
+        // Base64 is 4 characters per 3 bytes; anything longer than that (plus some whitespace) is over the limit anyway.
+        if (value.Length > ImageFormats.MaxBytes / 3 * 4 + 1024)
+        {
+            throw new McpException($"Images can be at most {ImageFormats.MaxBytes / 1024 / 1024} MB.");
+        }
+        try
+        {
+            return Convert.FromBase64String(value);
+        }
+        catch (FormatException)
+        {
+            throw new McpException("data is not valid base64. Send the image file base64-encoded.");
+        }
     }
 
     [McpServerTool(Name = "move_note", Title = "Move a note", Idempotent = true, OpenWorld = false)]

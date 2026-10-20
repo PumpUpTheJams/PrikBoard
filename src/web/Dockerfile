@@ -1,7 +1,9 @@
 # PrikBoard web app: the built SPA served by nginx, which also proxies the API routes so the browser sees one origin.
 # Build from this folder: docker build -t prikboard-web src/web
 # Set API_URL to where the API container is reachable (default http://api:8080).
-FROM node:22 AS build
+# The build output is plain static files, so the Node stage always runs on the build machine's own platform; the
+# final stage only copies files, so every target platform (linux/amd64, linux/arm64) builds without emulation.
+FROM --platform=$BUILDPLATFORM node:22 AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci

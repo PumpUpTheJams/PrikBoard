@@ -429,3 +429,6 @@ FodyWeavers.xsd
 
 # JetBrains Rider / IntelliJ project settings
 .idea/
+
+# Images and avatars of a local API (Storage:Path in Development)
+src/PrikBoard.Api/files/

@@ -49,8 +49,8 @@ public record BoardExport(
 public record ExportedBucket(
     [property: Required, StringLength(100, MinimumLength = 1)] string Name,
     BucketColor Color,
-    [property: Range(0, Layout.MaxCoordinate)] int X,
-    [property: Range(0, Layout.MaxCoordinate)] int Y,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int X,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int Y,
     [property: Range(Layout.MinBucketWidth, Layout.MaxBucketSize)] int Width,
     [property: Range(Layout.MinBucketHeight, Layout.MaxBucketSize)] int Height);
 
@@ -74,8 +74,8 @@ public record ExportedNote(
     [property: Required(AllowEmptyStrings = true), StringLength(200)] string Title,
     NoteColor Color,
     [property: Required, MaxLength(10)] List<string> Tags,
-    [property: Range(0, Layout.MaxCoordinate)] int X,
-    [property: Range(0, Layout.MaxCoordinate)] int Y,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int X,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int Y,
     [property: MaxLength(NoteBlock.MaxBlocks)] List<NewNoteBlock>? Blocks = null,
     [property: StringLength(NoteBlock.MaxTextLength)] string? Body = null,
     [property: MaxLength(NoteBlock.MaxItems)] List<ChecklistItem>? Checklist = null,
@@ -93,7 +93,7 @@ public record ExportedImage(
     Guid? NoteId,
     [property: Required, StringLength(255)] string FileName,
     [property: StringLength(500)] string? Caption,
-    [property: Range(0, Layout.MaxCoordinate)] int X,
-    [property: Range(0, Layout.MaxCoordinate)] int Y,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int X,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int Y,
     [property: Range(Layout.MinImageWidth, Layout.MaxImageWidth)] int Width,
     [property: Required] byte[] Data);

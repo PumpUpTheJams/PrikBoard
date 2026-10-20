@@ -97,8 +97,8 @@ public record CreateNoteRequest(
     [property: Required(AllowEmptyStrings = true), StringLength(200)] string Title,
     NoteColor? Color = null,
     Guid? BucketId = null,
-    [property: Range(0, Layout.MaxCoordinate)] int? X = null,
-    [property: Range(0, Layout.MaxCoordinate)] int? Y = null,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X = null,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null,
     [property: MaxLength(10)] List<string>? Tags = null,
     [property: MaxLength(10)] List<Guid>? AssigneeIds = null,
     [property: MaxLength(NoteBlock.MaxBlocks)] List<NewNoteBlock>? Blocks = null,
@@ -133,5 +133,5 @@ public record SetWorkingRequest(bool Working);
 /// <param name="Y">New top edge in canvas pixels; snapped to the 20 px grid.</param>
 public record MoveNoteRequest(
     Guid? BucketId = null,
-    [property: Range(0, Layout.MaxCoordinate)] int? X = null,
-    [property: Range(0, Layout.MaxCoordinate)] int? Y = null);
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X = null,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null);

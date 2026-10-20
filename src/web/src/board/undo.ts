@@ -11,6 +11,7 @@ import type {
   NoteDetail,
   TagChanges,
 } from '../api/types'
+import { onBoard } from './layout'
 
 /**
  * Undo and redo for changes made in this tab. Each change is recorded as what it touched before and after (the fields
@@ -25,10 +26,16 @@ export type Snapshot = Record<string, unknown>
 export type UndoTarget =
   | { kind: 'note'; id: string }
   | { kind: 'block'; noteId: string; id: string }
-  /** `carry`: for a move, the post-its it took along. */
-  | { kind: 'bucket'; id: string; carry?: string[] }
+  /** `carry`: for a move, the post-its and images it took along. */
+  | { kind: 'bucket'; id: string; carry?: BucketCarry }
   | { kind: 'image'; id: string }
   | { kind: 'tag'; id: string }
+
+/** What a moved bucket took along: post-its, and images on the board. */
+export interface BucketCarry {
+  notes: string[]
+  images: string[]
+}
 
 /** One item's part of a step: null `before` means it was created, null `after` that it was deleted. */
 export interface UndoChange {
@@ -65,7 +72,7 @@ export function undoEntry(label: string, changes: UndoChange[], options: { coale
 export const target = {
   note: (id: string): UndoTarget => ({ kind: 'note', id }),
   block: (noteId: string, id: string): UndoTarget => ({ kind: 'block', noteId, id }),
-  bucket: (id: string, carry?: string[]): UndoTarget => ({ kind: 'bucket', id, carry }),
+  bucket: (id: string, carry?: BucketCarry): UndoTarget => ({ kind: 'bucket', id, carry }),
   image: (id: string): UndoTarget => ({ kind: 'image', id }),
   tag: (id: string): UndoTarget => ({ kind: 'tag', id }),
 }
@@ -259,7 +266,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
         // A new place with a new size is a resize: the post-its stay.
         await api.updateBucket(t.id, { x: at('x'), y: at('y'), width: at('width'), height: at('height') })
       } else if ('x' in to) {
-        await api.updateBucket(t.id, { x: at('x'), y: at('y'), carryNoteIds: t.carry ?? [] })
+        await api.updateBucket(t.id, { x: at('x'), y: at('y'), carryNoteIds: t.carry?.notes ?? [], carryImageIds: t.carry?.images ?? [] })
       }
       if ('name' in to) await api.updateBucket(t.id, { name: to.name as string })
       return
@@ -282,19 +289,23 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
 }
 
 /**
- * A moved bucket carries its post-its by the same distance, but never past the board's edge. A post-it that was stopped
- * at the edge on the way there doesn't come back exactly, so it is put where it belongs.
+ * A moved bucket carries its post-its and images by the same distance, but never past the end of the coordinate range.
+ * One that was stopped there on the way doesn't come back exactly, so it is put where it belongs.
  */
 async function fixCarried(entry: UndoEntry, direction: UndoDirection, from: Snapshot, to: Snapshot) {
   if (!('x' in to) || 'width' in to || 'height' in to) return
   const dx = (to.x as number) - (from.x as number)
   const dy = (to.y as number) - (from.y as number)
   for (const change of entry.changes) {
-    if (!change.implied || change.target.kind !== 'note') continue
+    const kind = change.target.kind
+    if (!change.implied || (kind !== 'note' && kind !== 'image')) continue
     const was = direction === 'undo' ? change.after : change.before
     const goal = direction === 'undo' ? change.before : change.after
     if (!was || !goal) continue
-    const landed = { x: Math.max(0, (was.x as number) + dx), y: Math.max(0, (was.y as number) + dy) }
-    if (landed.x !== goal.x || landed.y !== goal.y) await api.moveNote(change.target.id, { x: goal.x as number, y: goal.y as number })
+    const landed = { x: onBoard((was.x as number) + dx), y: onBoard((was.y as number) + dy) }
+    if (landed.x === goal.x && landed.y === goal.y) continue
+    const place = { x: goal.x as number, y: goal.y as number }
+    if (kind === 'note') await api.moveNote(change.target.id, place)
+    else await api.updateImage(change.target.id, place)
   }
 }

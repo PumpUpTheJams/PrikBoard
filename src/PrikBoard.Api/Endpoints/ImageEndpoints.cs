@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Net.Http.Headers;
 using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
@@ -33,7 +32,8 @@ public static class ImageEndpoints
             .RequireBoardRole(BoardRole.Viewer, BoardScope.Image)
             .WithName("getImageContent")
             .WithSummary("Download an image")
-            .WithDescription("Returns the image file with its content type. An image's content never changes, so it can be cached.");
+            .WithDescription("Returns the image file with its content type, inline but with its own name for saving. An image's content " +
+                             "never changes, so it can be cached for good; revalidating with its ETag answers 304, and byte ranges are served.");
 
         images.MapPatch("/images/{imageId:guid}", UpdateImage)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Image)
@@ -62,20 +62,31 @@ public static class ImageEndpoints
     }
 
     private static async Task<Results<Created<ImageDetail>, NotFound, ValidationProblem, ProblemHttpResult>> UploadImage(
-        Guid boardId, Stream body, HttpRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct,
+        Guid boardId, Stream body, HttpRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, FileStore files, CancellationToken ct,
         string? fileName = null, Guid? noteId = null, int? x = null, int? y = null, int? width = null, string? caption = null)
     {
-        if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
-
         // Only image types (or octet-stream): form encodings would let another site post here with someone's session cookie.
         var declared = request.ContentType?.Split(';')[0].Trim().ToLowerInvariant();
         if (declared is null || !(declared.StartsWith("image/") || declared == "application/octet-stream"))
         {
+            if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
             return Unsupported("Send the image file itself as the request body, with Content-Type image/png, image/jpeg, image/gif or image/webp.");
         }
+        return await AddImage(boardId, body, principal, db, files, ct, fileName, noteId, x, y, width, caption);
+    }
+
+    /// <summary>
+    /// uploadImage after its content type check: reads the file from <paramref name="body"/>, detects its format and places it.
+    /// The add_image MCP tool calls this with the decoded file.
+    /// </summary>
+    internal static async Task<Results<Created<ImageDetail>, NotFound, ValidationProblem, ProblemHttpResult>> AddImage(
+        Guid boardId, Stream body, ClaimsPrincipal principal, PrikBoardDbContext db, FileStore files, CancellationToken ct,
+        string? fileName = null, Guid? noteId = null, int? x = null, int? y = null, int? width = null, string? caption = null)
+    {
+        if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
 
         if ((Invalid(x is null != y is null, x is null ? "x" : "y", "Give x and y together.")
-            ?? Invalid(x is < 0 or > Layout.MaxCoordinate || y is < 0 or > Layout.MaxCoordinate, "x", $"Coordinates run from 0 to {Layout.MaxCoordinate}.")
+            ?? Invalid(x is < Layout.MinCoordinate or > Layout.MaxCoordinate || y is < Layout.MinCoordinate or > Layout.MaxCoordinate, "x", $"Coordinates run from {Layout.MinCoordinate} to {Layout.MaxCoordinate}.")
             ?? Invalid(width is < Layout.MinImageWidth or > Layout.MaxImageWidth, "width", $"Width runs from {Layout.MinImageWidth} to {Layout.MaxImageWidth}.")
             ?? Invalid(caption?.Length > 500, "caption", "A caption is at most 500 characters.")) is { } invalid)
         {
@@ -102,43 +113,34 @@ public static class ImageEndpoints
         {
             BoardId = boardId,
             NoteId = noteId,
-            FileName = CleanFileName(fileName, info.ContentType),
-            ContentType = info.ContentType,
-            Size = data.Length,
             PixelWidth = info.Width,
             PixelHeight = info.Height,
             Caption = PatchText.Apply(null, caption),
             AddedBy = await db.Principals.FindAsync([principal.PrincipalId()], ct),
-            Content = new ImageContent { Data = data },
+            File = StoredFile.For(boardId, CleanFileName(fileName, info.ContentType), info.ContentType, data),
         };
         image.Resize(width ?? Math.Min(info.Width, Layout.DefaultImageWidth));
         await PlaceAsync(db, image, note, x, y, ct);
+        Layout.Place(image, await StackAsync(db, boardId, ct));
 
+        await files.WriteAsync(image.File, data, ct);
         db.Images.Add(image);
         await db.SaveChangesAsync(ct);
         return TypedResults.Created($"/api/images/{image.Id}", ImageDetail.From(image));
     }
 
-    private static async Task<Results<FileContentHttpResult, NotFound>> GetImageContent(
-        Guid imageId, HttpResponse response, PrikBoardDbContext db, CancellationToken ct)
+    private static async Task<Results<FileContentHttpResult, PhysicalFileHttpResult, NotFound>> GetImageContent(
+        Guid imageId, HttpResponse response, PrikBoardDbContext db, FileStore files, CancellationToken ct)
     {
-        var image = await db.Images.AsNoTracking()
-            .Where(i => i.Id == imageId)
-            .Select(i => new { i.ContentType, i.FileName, i.Content!.Data })
-            .FirstOrDefaultAsync(ct);
-        if (image is null) return TypedResults.NotFound();
-
-        response.Headers[HeaderNames.XContentTypeOptions] = "nosniff";
-        response.Headers[HeaderNames.ContentDisposition] = new ContentDispositionHeaderValue("inline") { FileNameStar = image.FileName }.ToString();
-        // Content never changes for an id, and every request is authenticated, so private caching is safe.
-        response.Headers[HeaderNames.CacheControl] = "private, max-age=31536000, immutable";
-        return TypedResults.File(image.Data, image.ContentType, entityTag: new EntityTagHeaderValue($"\"{imageId:N}\""));
+        var file = await db.Images.AsNoTracking().Where(i => i.Id == imageId).Select(i => i.File).FirstOrDefaultAsync(ct);
+        if (file is null) return TypedResults.NotFound();
+        return await StoredFileResults.ServeAsync(file, files, response, ct);
     }
 
     private static async Task<Results<Ok<ImageDetail>, NotFound, ValidationProblem>> UpdateImage(
         Guid imageId, UpdateImageRequest request, PrikBoardDbContext db, CancellationToken ct)
     {
-        var image = await db.Images.Include(i => i.AddedBy).FirstOrDefaultAsync(i => i.Id == imageId, ct);
+        var image = await db.Images.Include(i => i.AddedBy).Include(i => i.File).FirstOrDefaultAsync(i => i.Id == imageId, ct);
         if (image is null) return TypedResults.NotFound();
 
         var detach = request.Detach == true;
@@ -166,6 +168,11 @@ public static class ImageEndpoints
         else
         {
             (image.X, image.Y) = Layout.OnNoteCanvas(request.X ?? image.X, request.Y ?? image.Y, image.Width, image.Height);
+        }
+        // An image that moved (or changed size) joins the bucket it now sits in; only a new caption leaves it where it is.
+        if (moving || request.X is not null || request.Y is not null || request.Width is not null)
+        {
+            Layout.Place(image, await StackAsync(db, image.BoardId, ct));
         }
         image.Caption = PatchText.Apply(image.Caption, request.Caption);
         image.UpdatedAt = DateTimeOffset.UtcNow;
@@ -208,6 +215,7 @@ public static class ImageEndpoints
     {
         var image = await db.Images.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
             .Include(i => i.AddedBy)
+            .Include(i => i.File)
             .FirstOrDefaultAsync(i => i.Id == imageId, ct);
         if (image is null) return TypedResults.NotFound();
         if (image.DeletedAt is null) return TagEndpoints.NotDeleted("image");
@@ -218,9 +226,14 @@ public static class ImageEndpoints
         }
 
         image.DeletedAt = null;
+        Layout.Recheck(image, await StackAsync(db, image.BoardId, ct));
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok(ImageDetail.From(image));
     }
+
+    /// <summary>The board's buckets, back to front: what decides which bucket an image joins.</summary>
+    private static async Task<List<Bucket>> StackAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
+        Layout.BackToFront(await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct));
 
     /// <summary>The whole body, or null when it is longer than <paramref name="limit"/> bytes.</summary>
     private static async Task<byte[]?> ReadUpTo(Stream body, int limit, CancellationToken ct)
@@ -240,7 +253,7 @@ public static class ImageEndpoints
     internal static string CleanFileName(string? fileName, string contentType)
     {
         var name = new string(Path.GetFileName(fileName ?? "").Where(c => !char.IsControl(c)).ToArray()).Trim();
-        return name.Length > 0 ? Truncate(name, 255) : $"image.{contentType["image/".Length..].Replace("jpeg", "jpg")}";
+        return name.Length > 0 ? Truncate(name, 255) : $"image.{ImageFormats.ExtensionOf(contentType)}";
     }
 
     private static string Truncate(string value, int length) => value.Length <= length ? value : value[..length];

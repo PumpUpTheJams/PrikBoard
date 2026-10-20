@@ -2,7 +2,7 @@ namespace PrikBoard.Api.Domain;
 
 /// <summary>
 /// An image or GIF on a board. Without a <see cref="NoteId"/> it sits on the canvas at <see cref="X"/>, <see cref="Y"/>;
-/// with one it is attached to that note and shown when the note is expanded. The bytes live in <see cref="ImageContent"/>.
+/// with one it is attached to that note and shown when the note is expanded. The file itself is <see cref="File"/>.
 /// </summary>
 public class BoardImage
 {
@@ -10,10 +10,11 @@ public class BoardImage
     public Guid BoardId { get; set; }
     public Board? Board { get; set; }
     public Guid? NoteId { get; set; }
-    public required string FileName { get; set; }
-    /// <summary>Detected from the file itself, see <see cref="ImageFormats"/>.</summary>
-    public required string ContentType { get; set; }
-    public long Size { get; set; }
+    /// <summary>
+    /// The bucket the image sits in on the board (it moves along with it), or null when it is loose or attached to a
+    /// note. Maintained by <see cref="Layout"/>, like <see cref="Note.BucketId"/>.
+    /// </summary>
+    public Guid? BucketId { get; set; }
     /// <summary>Intrinsic size of the image in pixels.</summary>
     public int PixelWidth { get; set; }
     public int PixelHeight { get; set; }
@@ -31,7 +32,9 @@ public class BoardImage
     /// <summary>When it was deleted; it can be restored until <see cref="Data.Tombstones.Retention"/> has passed. Deleted with its note, it shares the note's stamp. Hidden by the query filter while set.</summary>
     public DateTimeOffset? DeletedAt { get; set; }
 
-    public ImageContent? Content { get; set; }
+    /// <summary>The image file: its name, content type and size, and where the bytes are on disk.</summary>
+    public Guid FileId { get; set; }
+    public StoredFile? File { get; set; }
 
     /// <summary>Sets the display width (snapped to the grid and kept within limits) and the matching height.</summary>
     public void Resize(int width)
@@ -39,11 +42,4 @@ public class BoardImage
         Width = Math.Clamp(Layout.Snap(width), Layout.MinImageWidth, Layout.MaxImageWidth);
         Height = Math.Max(1, (int)Math.Round(Width * (double)PixelHeight / PixelWidth));
     }
-}
-
-/// <summary>The bytes of a <see cref="BoardImage"/>, in their own table so board snapshots never load them.</summary>
-public class ImageContent
-{
-    public Guid ImageId { get; set; }
-    public required byte[] Data { get; set; }
 }
