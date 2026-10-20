@@ -55,8 +55,8 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
 
         var (file, path) = await factory.ImageFileAsync(image.Id);
         Assert.Equal((name, "image/png", png.Length), (file.FileName, file.ContentType, file.Size));
+        Assert.Equal(Path.Combine(factory.FilesPath, "boards", board.Id.ToString(), file.Id.ToString()), path);
         Assert.Equal(png, await File.ReadAllBytesAsync(path));
-        Assert.Equal(file.Id.ToString("N"), Path.GetFileName(path));
 
         var response = await _client.GetAsync(image.ContentUrl);
         var disposition = response.Content.Headers.ContentDisposition!;
@@ -104,7 +104,7 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
-    public async Task A_deleted_image_keeps_its_file_through_the_sweep_but_a_deleted_board_takes_its_files_along()
+    public async Task A_deleted_image_keeps_its_file_through_the_sweep_but_a_deleted_board_takes_its_files_and_folder_along()
     {
         var board = await CreateBoard("Sweep");
         var doomed = await CreateBoard("Doomed");
@@ -117,6 +117,7 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         await factory.SweepFilesAsync();
 
         Assert.False(File.Exists(doomedPath));
+        Assert.False(Directory.Exists(Path.GetDirectoryName(doomedPath)));
         Assert.True(File.Exists(deletedPath));
         Assert.Equal(HttpStatusCode.OK, (await _client.PostAsync($"/api/images/{deleted.Id}/restore", null)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync(deleted.ContentUrl)).StatusCode);
@@ -128,23 +129,32 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var board = await CreateBoard("Strays");
         var kept = await Upload(board.Id, TestImages.Png(40, 30), "image/png");
         var store = factory.Services.GetRequiredService<FileStore>();
-        var (old, recent) = (store.PathOf(Guid.CreateVersion7()), store.PathOf(Guid.CreateVersion7()));
-        var lostAndFound = Path.Combine(store.Root, "lost+found", Guid.NewGuid().ToString("N"));
+        string Stray(Guid? boardId) => store.PathOf(StoredFile.For(boardId, "stray.png", "image/png", [1]));
+        var (old, recent, oldAvatar) = (Stray(board.Id), Stray(board.Id), Stray(null));
+        var lostAndFound = Path.Combine(store.Root, "lost+found", Guid.NewGuid().ToString());
         var notOurs = Path.Combine(Path.GetDirectoryName(old)!, "notes.txt");
-        foreach (var path in new[] { old, recent, lostAndFound, notOurs })
+        foreach (var path in new[] { old, recent, oldAvatar, lostAndFound, notOurs })
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             await File.WriteAllBytesAsync(path, [1]);
             if (path != recent) File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-2));
         }
+        // A board folder left empty for a day goes; one just made may be about to get its first file.
+        var (emptyForDays, emptyJustNow) = (Path.Combine(store.Root, "boards", Guid.NewGuid().ToString()), Path.Combine(store.Root, "boards", Guid.NewGuid().ToString()));
+        Directory.CreateDirectory(emptyForDays);
+        Directory.CreateDirectory(emptyJustNow);
+        Directory.SetLastWriteTimeUtc(emptyForDays, DateTime.UtcNow.AddDays(-2));
 
         await factory.SweepFilesAsync(DateTimeOffset.UtcNow);
 
         Assert.False(File.Exists(old));
+        Assert.False(File.Exists(oldAvatar));
         Assert.True(File.Exists(recent)); // may be an upload that is still saving
         Assert.True(File.Exists(lostAndFound));
         Assert.True(File.Exists(notOurs));
         Assert.True(File.Exists((await factory.ImageFileAsync(kept.Id)).Path));
+        Assert.False(Directory.Exists(emptyForDays));
+        Assert.True(Directory.Exists(emptyJustNow));
     }
 
     [Fact]

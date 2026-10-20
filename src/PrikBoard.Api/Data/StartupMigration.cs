@@ -41,7 +41,7 @@ public static class StartupMigration
         while (true)
         {
             var batch = await db.Database.SqlQuery<LegacyImage>($"""
-                SELECT i."Id", i."FileName", i."ContentType", i."CreatedAt", c."Data"
+                SELECT i."Id", i."BoardId", i."FileName", i."ContentType", i."CreatedAt", c."Data"
                 FROM "Images" i JOIN "ImageContents" c ON c."ImageId" = i."Id"
                 WHERE i."FileId" IS NULL
                 ORDER BY i."Id"
@@ -50,7 +50,7 @@ public static class StartupMigration
             if (batch.Count == 0) break;
             foreach (var image in batch)
             {
-                var file = StoredFile.For(image.FileName, image.ContentType, image.Data, image.CreatedAt);
+                var file = StoredFile.For(image.BoardId, image.FileName, image.ContentType, image.Data, image.CreatedAt);
                 await SaveAsync(db, files, file, image.Data, $"""UPDATE "Images" SET "FileId" = {file.Id} WHERE "Id" = {image.Id}""", ct);
             }
             images += batch.Count;
@@ -70,7 +70,7 @@ public static class StartupMigration
             if (batch.Count == 0) break;
             foreach (var avatar in batch)
             {
-                var file = StoredFile.For($"avatar.{ImageFormats.ExtensionOf(avatar.ContentType)}", avatar.ContentType, avatar.Data,
+                var file = StoredFile.For(null, $"avatar.{ImageFormats.ExtensionOf(avatar.ContentType)}", avatar.ContentType, avatar.Data,
                     avatar.AvatarUpdatedAt);
                 await SaveAsync(db, files, file, avatar.Data,
                     $"""UPDATE "Principals" SET "AvatarFileId" = {file.Id} WHERE "Id" = {avatar.UserId}""", ct);
@@ -87,7 +87,11 @@ public static class StartupMigration
             $"""UPDATE "Principals" SET "AvatarUpdatedAt" = NULL WHERE "AvatarUpdatedAt" IS NOT NULL AND "AvatarFileId" IS NULL""", ct);
     }
 
-    /// <summary>Writes the file, then adds its row and runs <paramref name="refer"/>, which points its owner at it.</summary>
+    /// <summary>
+    /// Writes the file, then adds its row and runs <paramref name="refer"/>, which points its owner at it. The row has no
+    /// BoardId yet: that column comes with <see cref="StoredFileBoards"/>, which fills it in from the image, so the file is
+    /// already in its board's folder.
+    /// </summary>
     private static async Task SaveAsync(
         PrikBoardDbContext db, FileStore files, StoredFile file, byte[] data, FormattableString refer, CancellationToken ct)
     {
@@ -101,7 +105,7 @@ public static class StartupMigration
         await transaction.CommitAsync(ct);
     }
 
-    private record LegacyImage(Guid Id, string FileName, string ContentType, DateTimeOffset CreatedAt, byte[] Data);
+    private record LegacyImage(Guid Id, Guid BoardId, string FileName, string ContentType, DateTimeOffset CreatedAt, byte[] Data);
 
     private record LegacyAvatar(Guid UserId, string ContentType, DateTimeOffset? AvatarUpdatedAt, byte[] Data);
 }

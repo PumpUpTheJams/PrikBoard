@@ -101,16 +101,16 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
         var file = await scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>().Images
             .IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
             .Where(i => i.Id == imageId).Select(i => i.File!).SingleAsync();
-        return (file, Services.GetRequiredService<FileStore>().PathOf(file.Id));
+        return (file, Services.GetRequiredService<FileStore>().PathOf(file));
     }
 
     /// <summary>Where a person's avatar file is on disk, or null without one.</summary>
     public async Task<string?> AvatarPathAsync(Guid userId)
     {
         await using var scope = Services.CreateAsyncScope();
-        var fileId = await scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>().Users
-            .Where(u => u.Id == userId).Select(u => u.AvatarFileId).SingleAsync();
-        return fileId is { } id ? Services.GetRequiredService<FileStore>().PathOf(id) : null;
+        var file = await scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>().Users
+            .Where(u => u.Id == userId).Select(u => u.AvatarFile).SingleAsync();
+        return file is null ? null : Services.GetRequiredService<FileStore>().PathOf(file);
     }
 
     /// <summary>Every file in <see cref="FilesPath"/>.</summary>

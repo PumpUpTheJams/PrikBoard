@@ -473,6 +473,9 @@ namespace PrikBoard.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("BoardId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("ContentType")
                         .IsRequired()
                         .HasMaxLength(50)
