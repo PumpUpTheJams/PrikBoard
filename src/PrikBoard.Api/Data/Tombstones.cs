@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 namespace PrikBoard.Api.Data;
 
 /// <summary>
-/// Deleted notes, buckets, images and tags stay in their tables (with <c>DeletedAt</c> set, hidden by the
+/// Deleted notes, buckets, images, drawings and tags stay in their tables (with <c>DeletedAt</c> set, hidden by the
 /// <see cref="PrikBoardDbContext.SoftDelete"/> filter) so they can be restored, which is what undo in the web app does.
 /// After <see cref="Retention"/> they are deleted for good.
 /// </summary>
@@ -18,10 +18,12 @@ public static class Tombstones
     public static async Task<int> PurgeAsync(PrikBoardDbContext db, DateTimeOffset cutoff, CancellationToken ct)
     {
         string[] deleted = [PrikBoardDbContext.SoftDelete];
-        // Images first; a note's images would also go with it through the cascade. Their files go at the next sweep.
+        // Images and drawings first; a note's images and drawings (and their content) would also go with it through the
+        // cascades. Image files go at the next sweep.
         var count = await db.Images.IgnoreQueryFilters(deleted).Where(i => i.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
+        count += await db.Drawings.IgnoreQueryFilters(deleted).Where(d => d.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         count += await db.Notes.IgnoreQueryFilters(deleted).Where(n => n.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
-        // Notes and images still pointing at a purged bucket lose the reference (SetNull); live notes and images never do, see Layout.Release.
+        // Notes, images and drawings still pointing at a purged bucket lose the reference (SetNull); live ones never do, see Layout.Release.
         count += await db.Buckets.IgnoreQueryFilters(deleted).Where(b => b.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         count += await db.BoardTags.IgnoreQueryFilters(deleted).Where(t => t.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         return count;

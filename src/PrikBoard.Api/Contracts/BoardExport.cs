@@ -5,7 +5,7 @@ namespace PrikBoard.Api.Contracts;
 
 /// <summary>
 /// A board as a single self-contained file, from exportBoard and for importBoard. It holds the content of the board (name,
-/// agent rules, buckets, tags, notes and images) and nothing about people: no members, roles or user ids. Ids in the file are
+/// agent rules, buckets, tags, notes, images and drawings) and nothing about people: no members, roles or user ids. Ids in the file are
 /// local to it; importing makes new ones.
 /// </summary>
 /// <param name="Format">Always "prikboard-board". Marks the file as a PrikBoard export.</param>
@@ -19,6 +19,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Notes">Notes, the most recently edited last (they are drawn on top). A note's bucket follows from where it sits.</param>
 /// <param name="Images">Images on the canvas and attached to notes, with their bytes.</param>
 /// <param name="TagColors">Colours of the tags that have one (not Default), by tag name. Optional; files without it import with default colours.</param>
+/// <param name="Drawings">Freehand pen strokes on the canvas and on notes, with their points, oldest first. Optional; files without it import without drawings.</param>
 public record BoardExport(
     [property: Required] string Format,
     [property: Range(1, int.MaxValue)] int Version,
@@ -30,7 +31,8 @@ public record BoardExport(
     [property: Required, MaxLength(BoardTag.MaxPerBoard)] List<string> Tags,
     [property: Required, MaxLength(BoardExport.MaxNotes)] List<ExportedNote> Notes,
     [property: Required, MaxLength(BoardExport.MaxImages)] List<ExportedImage> Images,
-    Dictionary<string, TagColor>? TagColors = null)
+    Dictionary<string, TagColor>? TagColors = null,
+    [property: MaxLength(BoardDrawing.MaxPerBoard)] List<ExportedDrawing>? Drawings = null)
 {
     public const string FormatName = "prikboard-board";
     public const int CurrentVersion = 2;
@@ -99,3 +101,18 @@ public record ExportedImage(
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int Y,
     [property: Range(Layout.MinImageWidth, Layout.MaxImageWidth)] int Width,
     [property: Required] byte[] Data);
+
+/// <summary>A drawing in an export.</summary>
+/// <param name="NoteId">Id of the note (in this file) the drawing is on, or null for a drawing on the canvas.</param>
+/// <param name="X">Left edge on the board's canvas, or on the note's canvas; the points are relative to it.</param>
+/// <param name="Y">Top edge on the board's canvas, or on the note's canvas; the points are relative to it.</param>
+/// <param name="Color">Ink colour.</param>
+/// <param name="StrokeWidth">Base line width: 2, 4 or 8.</param>
+/// <param name="Points">The stroke, each point [x, y, pressure] as in createDrawing.</param>
+public record ExportedDrawing(
+    Guid? NoteId,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int X,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int Y,
+    InkColor Color,
+    int StrokeWidth,
+    [property: Required, MaxLength(BoardDrawing.MaxPoints)] List<double[]> Points);

@@ -55,6 +55,9 @@ public record CreateBucketRequest(
 /// <param name="CarryImageIds">
 /// Like carryNoteIds, for images on the board: exactly these move along, instead of the images in the bucket.
 /// </param>
+/// <param name="CarryDrawingIds">
+/// Like carryNoteIds, for drawings on the board: exactly these move along, instead of the drawings in the bucket.
+/// </param>
 public record UpdateBucketRequest(
     [property: StringLength(100, MinimumLength = 1)] string? Name = null,
     BucketColor? Color = null,
@@ -64,4 +67,5 @@ public record UpdateBucketRequest(
     [property: Range(Layout.MinBucketHeight, Layout.MaxBucketSize)] int? Height = null,
     [property: MaxLength(2000)] List<Guid>? CarryNoteIds = null,
     [property: MaxLength(2000)] List<Guid>? CarryImageIds = null,
+    [property: MaxLength(2000)] List<Guid>? CarryDrawingIds = null,
     bool? Collapsed = null);

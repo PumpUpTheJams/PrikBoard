@@ -1,6 +1,6 @@
 namespace PrikBoard.Api.Domain;
 
-/// <summary>A project board: a freeform canvas holding buckets, post-it notes and images.</summary>
+/// <summary>A project board: a freeform canvas holding buckets, post-it notes, images and drawings.</summary>
 public class Board
 {
     public Guid Id { get; set; } = Guid.CreateVersion7();
@@ -17,6 +17,8 @@ public class Board
     public List<Note> Notes { get; set; } = [];
     /// <summary>Images on the canvas and images attached to notes.</summary>
     public List<BoardImage> Images { get; set; } = [];
+    /// <summary>Freehand pen strokes on the canvas and on notes.</summary>
+    public List<BoardDrawing> Drawings { get; set; } = [];
     /// <summary>The tags notes on this board can have.</summary>
     public List<BoardTag> Tags { get; set; } = [];
     /// <summary>Who may see and change the board; there is always at least one owner.</summary>

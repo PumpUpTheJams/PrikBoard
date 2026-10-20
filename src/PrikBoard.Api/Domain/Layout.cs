@@ -3,7 +3,7 @@ namespace PrikBoard.Api.Domain;
 /// <summary>
 /// The geometry rules of a board. Coordinates are canvas pixels, snapped to a grid. The board has no edge: things can go
 /// left of and above the origin (negative coordinates) as well as right of and below it.
-/// A note or image put somewhere joins the topmost bucket containing its centre, and stays in it while buckets move (see
+/// A note, image or drawing put somewhere joins the topmost bucket containing its centre, and stays in it while buckets move (see
 /// the membership rules below); buckets stack in creation order, newest on top.
 /// </summary>
 public static class Layout
@@ -47,7 +47,7 @@ public static class Layout
     public static List<Bucket> BackToFront(IEnumerable<Bucket> buckets) =>
         buckets.OrderBy(b => b.CreatedAt).ThenBy(b => b.Id).ToList();
 
-    // Bucket membership. A note or an image on the board keeps the bucket it is in (BucketId) until it moves itself: then
+    // Bucket membership. A note, image or drawing on the board keeps the bucket it is in (BucketId) until it moves itself: then
     // it joins the topmost bucket containing its centre (Place). Changes to buckets only touch the items they concern, so
     // moving a bucket onto another never moves items from one to the other: a moved bucket carries exactly its own items
     // and takes nothing; a resized one lets go of its items now outside it (Release) and takes loose ones it now covers
@@ -58,16 +58,16 @@ public static class Layout
     /// <summary>Puts a note in the topmost bucket containing its centre (none: loose). For a note that moved.</summary>
     public static void Place(Note note, IReadOnlyList<Bucket> stacked) => note.BucketId = TopmostAt(stacked, Centre(note))?.Id;
 
-    /// <summary>Likewise for an image; an image attached to a note is in no bucket.</summary>
-    public static void Place(BoardImage image, IReadOnlyList<Bucket> stacked) =>
-        image.BucketId = image.NoteId is null ? TopmostAt(stacked, Centre(image))?.Id : null;
+    /// <summary>Likewise for an image or drawing; one on a note is in no bucket.</summary>
+    public static void Place(ICanvasItem item, IReadOnlyList<Bucket> stacked) =>
+        item.BucketId = item.NoteId is null ? TopmostAt(stacked, Centre(item))?.Id : null;
 
-    /// <summary>Places every note and image by position, for a board built from scratch (an import).</summary>
-    public static void PlaceAll(IEnumerable<Note> notes, IEnumerable<BoardImage> images, IEnumerable<Bucket> buckets)
+    /// <summary>Places every note, image and drawing by position, for a board built from scratch (an import).</summary>
+    public static void PlaceAll(IEnumerable<Note> notes, IEnumerable<ICanvasItem> items, IEnumerable<Bucket> buckets)
     {
         var stacked = BackToFront(buckets);
         foreach (var note in notes) Place(note, stacked);
-        foreach (var image in images) Place(image, stacked);
+        foreach (var item in items) Place(item, stacked);
     }
 
     /// <summary>
@@ -79,10 +79,10 @@ public static class Layout
         if (!StillIn(note.BucketId, Centre(note), stacked)) Place(note, stacked);
     }
 
-    /// <summary>Likewise for an image.</summary>
-    public static void Recheck(BoardImage image, IReadOnlyList<Bucket> stacked)
+    /// <summary>Likewise for an image or drawing.</summary>
+    public static void Recheck(ICanvasItem item, IReadOnlyList<Bucket> stacked)
     {
-        if (image.NoteId is not null || !StillIn(image.BucketId, Centre(image), stacked)) Place(image, stacked);
+        if (item.NoteId is not null || !StillIn(item.BucketId, Centre(item), stacked)) Place(item, stacked);
     }
 
     /// <summary>
@@ -90,18 +90,18 @@ public static class Layout
     /// bucket drawn or restored around them) or, with <paramref name="looseOnly"/>, only loose ones (a bucket that grew).
     /// </summary>
     public static void Adopt(
-        Bucket bucket, IReadOnlyList<Bucket> stacked, IEnumerable<Note> notes, IEnumerable<BoardImage> images, bool looseOnly)
+        Bucket bucket, IReadOnlyList<Bucket> stacked, IEnumerable<Note> notes, IEnumerable<ICanvasItem> items, bool looseOnly)
     {
         if (bucket.Collapsed) return;
         foreach (var note in notes)
         {
             if ((!looseOnly || note.BucketId is null) && TopmostAt(stacked, Centre(note)) == bucket) note.BucketId = bucket.Id;
         }
-        foreach (var image in images)
+        foreach (var item in items)
         {
-            if (image.NoteId is null && (!looseOnly || image.BucketId is null) && TopmostAt(stacked, Centre(image)) == bucket)
+            if (item.NoteId is null && (!looseOnly || item.BucketId is null) && TopmostAt(stacked, Centre(item)) == bucket)
             {
-                image.BucketId = bucket.Id;
+                item.BucketId = bucket.Id;
             }
         }
     }
@@ -110,15 +110,15 @@ public static class Layout
     /// The items of <paramref name="bucket"/> that are no longer inside it go to whatever is under them (another bucket,
     /// or loose). Leave the bucket out of <paramref name="stacked"/> when it is deleted, and all its items go.
     /// </summary>
-    public static void Release(Bucket bucket, IReadOnlyList<Bucket> stacked, IEnumerable<Note> notes, IEnumerable<BoardImage> images)
+    public static void Release(Bucket bucket, IReadOnlyList<Bucket> stacked, IEnumerable<Note> notes, IEnumerable<ICanvasItem> items)
     {
         foreach (var note in notes.Where(n => n.BucketId == bucket.Id)) Recheck(note, stacked);
-        foreach (var image in images.Where(i => i.BucketId == bucket.Id)) Recheck(image, stacked);
+        foreach (var item in items.Where(i => i.BucketId == bucket.Id)) Recheck(item, stacked);
     }
 
     private static (int X, int Y) Centre(Note note) => (note.X + NoteWidth / 2, note.Y + NoteHeight / 2);
 
-    private static (int X, int Y) Centre(BoardImage image) => (image.X + image.Width / 2, image.Y + image.Height / 2);
+    private static (int X, int Y) Centre(ICanvasItem item) => (item.X + item.Width / 2, item.Y + item.Height / 2);
 
     private static bool StillIn(Guid? bucketId, (int X, int Y) centre, IReadOnlyList<Bucket> stacked) =>
         bucketId is { } id && stacked.Any(b => b.Id == id && b.Contains(centre.X, centre.Y));
