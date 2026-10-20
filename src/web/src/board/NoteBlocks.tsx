@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type PointerEvent, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 import type { ChecklistItem, NoteBlock, NoteDetail, NoteLink, Rect, ResizeHandle } from '../api/types'
 import { blockKinds } from './blockKinds'
 import { EditableText } from './EditableText'
@@ -6,6 +6,9 @@ import { Highlight } from './Highlight'
 import { CloseIcon, LinkIcon, PostItIcon, PullRequestIcon, TrashIcon } from './icons'
 import { isNoteId, notePath, noteRoute, type NoteRoute } from './links'
 import { ResizeHandles } from './ResizeHandles'
+
+// Loaded on first use, so react-markdown stays out of the main bundle.
+const MarkdownView = lazy(() => import('../components/MarkdownView'))
 
 interface BlockFrameProps {
   block: NoteBlock
@@ -99,19 +102,63 @@ interface TextBlockProps {
   onChange: (text: string) => void
 }
 
+/**
+ * Text in Markdown: rendered while it isn't being edited, and a plain text area while it is. A click on the rendered
+ * text edits it (unless it lands on a link or ends a text selection); an empty block is always the text area.
+ */
 export function TextBlock({ text, autoFocus, readOnly, onChange }: TextBlockProps) {
+  const [editing, setEditing] = useState(false)
+  const field = useRef<HTMLInputElement & HTMLTextAreaElement>(null)
+
+  // Entering edit mode by clicking puts the text cursor at the end, rather than selecting everything like a new block.
+  useEffect(() => {
+    const area = field.current
+    if (!editing || !area) return
+    area.focus({ preventScroll: true })
+    area.setSelectionRange(area.value.length, area.value.length)
+  }, [editing])
+
+  function edit(e: MouseEvent<HTMLElement>) {
+    if (readOnly || (e.target as HTMLElement).closest('a')) return
+    if (!window.getSelection()?.isCollapsed) return
+    setEditing(true)
+  }
+
+  if (editing || (!text.trim() && !readOnly)) {
+    return (
+      <EditableText
+        className="block-text"
+        label="Note"
+        value={text}
+        maxLength={4000}
+        multiline
+        autoFocus={autoFocus && !editing}
+        readOnly={readOnly}
+        fieldRef={field}
+        placeholder="Add details in Markdown: context, decisions, anything that doesn't fit on the post-it."
+        onSave={onChange}
+        onDone={() => setEditing(false)}
+      />
+    )
+  }
+
   return (
-    <EditableText
-      className="block-text"
-      label="Note"
-      value={text}
-      maxLength={4000}
-      multiline
-      autoFocus={autoFocus}
-      readOnly={readOnly}
-      placeholder="Add details: context, decisions, anything that doesn't fit on the post-it."
-      onSave={onChange}
-    />
+    <div
+      className="block-text block-view"
+      title={readOnly ? undefined : 'Click to edit'}
+      tabIndex={readOnly ? undefined : 0}
+      onClick={edit}
+      onKeyDown={(e) => {
+        if (!readOnly && e.target === e.currentTarget && e.key === 'Enter') {
+          e.preventDefault()
+          setEditing(true)
+        }
+      }}
+    >
+      <Suspense fallback={<div className="block-plain">{text}</div>}>
+        <MarkdownView text={text} />
+      </Suspense>
+    </div>
   )
 }
 

@@ -1,9 +1,8 @@
 import { useState } from 'react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { rulesMaxLength, type BoardDetail } from '../api/types'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Dialog } from './Dialog'
+import { MarkdownView } from './MarkdownView'
 
 /** Where an owner starts when the board has no rules yet. */
 const starterRules = `## About this board
@@ -151,17 +150,8 @@ export function BoardRulesDialog({ board, onSave, onClose }: BoardRulesDialogPro
   )
 }
 
-/** Rendered Markdown (GitHub flavour). Raw HTML in the text is shown as text, never rendered. */
+/** The rules rendered as Markdown, or a hint when there is nothing yet. */
 function RulesView({ text, empty }: { text: string; empty?: string }) {
   if (!text.trim()) return <p className="dialog-hint">{empty}</p>
-  return (
-    <div className="markdown">
-      <Markdown
-        remarkPlugins={[remarkGfm]}
-        components={{ a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer noopener" /> }}
-      >
-        {text}
-      </Markdown>
-    </div>
-  )
+  return <MarkdownView text={text} />
 }

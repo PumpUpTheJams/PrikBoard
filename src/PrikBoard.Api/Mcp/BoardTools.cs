@@ -155,7 +155,7 @@ public sealed class BoardTools
         IHttpContextAccessor accessor,
         [Description("The board id.")] Guid boardId,
         [Description("Short title shown on the post-it (at most 200 characters).")] string title,
-        [Description("Longer text, as a Text block (at most 4000 characters).")] string? body = null,
+        [Description("Longer text, as a Text block in Markdown (at most 4000 characters).")] string? body = null,
         [Description("The bucket to put it in: its name or id. Default: the first bucket.")] string? bucket = null,
         [Description("Fill: Butter, Mint, Sky, Coral or Lilac. Default Butter.")] NoteColor? color = null,
         [Description("Tags; prefer the board's tags (get_board). New names are added to the board, lower-cased and hyphenated.")] List<string>? tags = null,
@@ -218,7 +218,7 @@ public sealed class BoardTools
         [Description("The note id.")] Guid noteId,
         [Description("Text, Checklist or Links.")] NoteBlockKind kind,
         [Description("Optional heading, e.g. \"Acceptance criteria\" (at most 100 characters).")] string? title = null,
-        [Description("The text of a Text block (at most 4000 characters).")] string? text = null,
+        [Description("The text of a Text block, in Markdown (at most 4000 characters).")] string? text = null,
         [Description("The items of a Checklist block.")] List<ChecklistItem>? items = null,
         [Description("The links of a Links block, each with a title and a url: an absolute http(s) URL, or another note's path (path in get_note).")] List<NoteLink>? links = null,
         CancellationToken ct = default)
@@ -241,7 +241,7 @@ public sealed class BoardTools
         [Description("The note id.")] Guid noteId,
         [Description("The block: its id, its title, or its kind (Text, Checklist or Links) when the note has one block of that kind.")] string block,
         [Description("New heading; an empty string clears it.")] string? title = null,
-        [Description("New text of a Text block; an empty string clears it.")] string? text = null,
+        [Description("New text of a Text block, in Markdown; an empty string clears it.")] string? text = null,
         [Description("All items of a Checklist block (replaces them).")] List<ChecklistItem>? items = null,
         [Description("All links of a Links block (replaces them).")] List<NoteLink>? links = null,
         CancellationToken ct = default)
