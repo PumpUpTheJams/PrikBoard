@@ -7,7 +7,9 @@ WORKDIR /src
 COPY PrikBoard.Api.csproj ./
 RUN dotnet restore -a $TARGETARCH
 COPY . ./
-RUN dotnet publish --no-restore -a $TARGETARCH -c Release -o /app
+# The release version (the git tag), reported by GET /api/auth/version. Without it the assembly says 1.0.0.
+ARG VERSION=1.0.0
+RUN dotnet publish --no-restore -a $TARGETARCH -c Release -o /app -p:Version=$VERSION
 # Created up front so volumes mounted here (to keep sign-in sessions across restarts, and for images and avatars) are
 # owned by "app". Made in this stage and copied with --chown, because a RUN in the final stage would need emulation for
 # other platforms.
