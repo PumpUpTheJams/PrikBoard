@@ -1,7 +1,8 @@
 name: Containers
 
 # Pushing a semver tag (1.2.3) builds the API and web images and publishes them to the GitHub Container Registry as
-# ghcr.io/<owner>/prikboard-api:1.2.3 and prikboard-web:1.2.3. Pull requests don't build images.
+# ghcr.io/<owner>/prikboard-api:1.2.3 and prikboard-web:1.2.3, for linux/amd64 and linux/arm64 (Raspberry Pi).
+# Pull requests don't build images.
 on:
   push:
     tags: ['[0-9]+.[0-9]+.[0-9]+']
@@ -36,6 +37,8 @@ jobs:
       - uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
+          # The Dockerfiles cross-compile on the runner's own platform, so arm64 needs no QEMU.
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
