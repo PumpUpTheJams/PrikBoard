@@ -25,7 +25,7 @@ import { BoardSearch, type SearchResult } from './BoardSearch'
 import { ExpandedNote, type ExpandedNoteHandle } from './ExpandedNote'
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
 import { delta, isDrag } from './gesture'
-import { noteIdFromHash, notePath, noteRoute } from './links'
+import { noteIdFromHash, noteLabel, notePath, noteRoute } from './links'
 import { pop, reducedMotion } from './motion'
 import { BucketInspector, ImageInspector } from './Inspector'
 import {
@@ -630,7 +630,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
    */
   async function linkNote({ note, at }: LinkDrop, linked: NoteDetail): Promise<UndoEntry | null | false> {
     if (note.blocks.some((b) => b.links?.some((l) => noteRoute(l.url)?.noteId === linked.id))) return false
-    const link = { title: linked.title, url: linked.path }
+    const link = { title: noteLabel(linked), url: linked.path }
     const lists = note.blocks.filter((b) => b.kind === 'Links')
     const block =
       (at && lists.find((b) => at.x >= b.x && at.x < b.x + b.width && at.y >= b.y && at.y < b.y + b.height)) ?? lists[0]
@@ -831,7 +831,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   function stickPostIt(p: Point) {
     void settle(
       async () => {
-        const note = await api.createNote(board.id, { title: 'New post-it', color: fill, ...postItSpot(p) })
+        const note = await api.createNote(board.id, { title: '', color: fill, ...postItSpot(p) })
         setSelection({ kind: 'note', id: note.id })
         setExpanded({ id: note.id, fresh: true })
         setTool('select')

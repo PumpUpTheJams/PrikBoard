@@ -236,6 +236,21 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         Assert.Equal(before, await BoardCount(client));
     }
 
+    [Fact]
+    public async Task An_untitled_note_survives_export_and_import()
+    {
+        var client = await factory.CreateSignedInClientAsync("export-untitled@example.com");
+        var board = await client.CreateBoardAsync("Untitled");
+        await client.CreateNoteAsync(board.Id, "");
+        var file = await (await client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync();
+
+        var response = await Import(client, file);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var copy = (await response.Content.ReadFromJsonAsync<BoardDetail>())!;
+        Assert.Equal("", Assert.Single(copy.Notes).Title);
+    }
+
     private static async Task<int> BoardCount(HttpClient client) =>
         (await client.GetFromJsonAsync<List<BoardSummary>>("/api/boards"))!.Count;
 

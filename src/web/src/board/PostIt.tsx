@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent,
 import type { NoteDetail, Point } from '../api/types'
 import { AvatarStack } from '../components/Avatar'
 import { Highlight } from './Highlight'
+import { noteLabel } from './links'
 import { ExpandIcon, LayersIcon } from './icons'
 import { NOTE_HEIGHT, NOTE_WIDTH } from './layout'
 import { tagColorClass, type TagColors } from './tagColors'
@@ -79,7 +80,7 @@ export function PostIt(props: PostItProps) {
 
   function rename(next: string) {
     onTitleDone?.()
-    if (!onRenameTitle || next.length === 0 || next === note.title) return
+    if (!onRenameTitle || next === note.title) return
     setSaved({ title: next, from: note.title })
     void onRenameTitle(next).then((ok) => ok || setSaved(null))
   }
@@ -108,7 +109,7 @@ export function PostIt(props: PostItProps) {
       style={{ left: point.x, top: point.y, width: NOTE_WIDTH, height: NOTE_HEIGHT, '--title-lines': titleLines(note) } as CSSProperties}
       role="group"
       data-note={note.id}
-      aria-label={note.agentWorking ? `${title} (agent working)` : title}
+      aria-label={note.agentWorking ? `${noteLabel({ title })} (agent working)` : noteLabel({ title })}
       tabIndex={0}
       onPointerDown={onPointerDown}
       onDoubleClick={onExpand}
@@ -125,7 +126,7 @@ export function PostIt(props: PostItProps) {
         <button
           type="button"
           className="post-it-expand"
-          aria-label={`Expand ${title}`}
+          aria-label={`Expand ${noteLabel({ title })}`}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={onExpand}
         >

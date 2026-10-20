@@ -55,6 +55,24 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
+    public async Task A_note_title_may_be_empty_and_is_trimmed()
+    {
+        var board = await CreateBoard("Untitled");
+
+        var untitled = await CreateNote(board.Id, new { title = "" });
+        var padded = await CreateNote(board.Id, new { title = "  Padded  " });
+        Assert.Equal("", untitled.Title);
+        Assert.Equal("Padded", padded.Title);
+
+        var named = await UpdateNote(untitled.Id, new { title = " Named " });
+        var unchanged = await UpdateNote(untitled.Id, new { color = "Sky" });
+        var cleared = await UpdateNote(untitled.Id, new { title = "   " });
+        Assert.Equal("Named", named.Title);
+        Assert.Equal("Named", unchanged.Title);
+        Assert.Equal("", cleared.Title);
+    }
+
+    [Fact]
     public async Task Notes_default_to_free_spots_in_the_first_bucket()
     {
         var board = await CreateBoard("Defaults");
@@ -409,6 +427,13 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     {
         var response = await _client.PostAsJsonAsync($"/api/boards/{boardId}/notes", request);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<NoteDetail>())!;
+    }
+
+    private async Task<NoteDetail> UpdateNote(Guid noteId, object request)
+    {
+        var response = await _client.PatchAsJsonAsync($"/api/notes/{noteId}", request);
+        response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<NoteDetail>())!;
     }
 

@@ -112,7 +112,7 @@ A board is a freeform canvas. It holds **buckets**, named rectangles such as *To
 
 Coordinates are canvas pixels from the top-left corner. The server snaps them to a 20 px grid, and it works out each note's bucket again whenever a note or bucket moves.
 
-Besides a title, a note has a `color` (fill), `tags`, `assignees` (people and agents), an `agentWorking` flag, who created it (`createdBy`, `createdById`; null for notes from before this was recorded) and its content as `blocks`. The board shows the title, tags and assignees on the post-it. Everything else appears when the post-it is expanded.
+A note's title may be empty: the web app then shows no title on the post-it, and a greyed suggestion in the expanded post-it's title field. Besides a title, a note has a `color` (fill), `tags`, `assignees` (people and agents), an `agentWorking` flag, who created it (`createdBy`, `createdById`; null for notes from before this was recorded) and its content as `blocks`. The board shows the title, tags and assignees on the post-it. Everything else appears when the post-it is expanded.
 
 A note's content lives on its own small canvas, shown when the post-it is expanded. It holds any number of blocks: `Text` (free text), `Checklist` (`items`) and `Links` (titled `links`), each with an optional `title` and a place (`x`, `y`, `width`, `height` in note pixels, snapped to the 20 px grid). Images attached to the note sit on the same canvas. Change blocks one at a time with addNoteBlock, updateNoteBlock and deleteNoteBlock, so people editing different blocks of a note never overwrite each other. A note's `path` is its address in the web app: opening `/#/boards/{boardId}/notes/{noteId}` shows the board with that post-it expanded.
 

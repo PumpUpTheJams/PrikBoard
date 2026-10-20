@@ -18,7 +18,7 @@ import { EditableText } from './EditableText'
 import { draggingFiles, imageFiles } from './files'
 import { Highlight } from './Highlight'
 import { BucketIcon, CheckIcon, CloseIcon, LinkIcon, SparkleIcon } from './icons'
-import { copyText } from './links'
+import { copyText, noteLabel, TITLE_SUGGESTION } from './links'
 import { pop } from './motion'
 import { NoteCanvas, type IncomingImage, type NoteCanvasHandle } from './NoteCanvas'
 import { tagColorClass, type TagColorPreview, type TagColors } from './tagColors'
@@ -164,7 +164,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
         }}
         role="dialog"
         aria-modal="false"
-        aria-label={note.title}
+        aria-label={noteLabel(note)}
         tabIndex={-1}
       >
         <header className="band" onPointerDown={startMove}>
@@ -198,9 +198,10 @@ export function ExpandedNote(props: ExpandedNoteProps) {
             label="Title"
             value={note.title}
             maxLength={200}
+            placeholder={TITLE_SUGGESTION}
             autoFocus={focusTitle && !readOnly}
             readOnly={readOnly}
-            onSave={(title) => title.length > 0 && void onChange({ title })}
+            onSave={(title) => void onChange({ title })}
           />
           <div className="band-row">
             <TagChips

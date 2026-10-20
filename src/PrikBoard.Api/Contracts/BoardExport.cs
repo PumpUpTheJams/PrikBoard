@@ -60,7 +60,7 @@ public record ExportedBucket(
 /// Links block on import. The fields of the other version are ignored.
 /// </summary>
 /// <param name="Id">An id that is only meaningful inside this file: images refer to their note by it, and links to other notes in the file are kept pointing at the right note.</param>
-/// <param name="Title">Short title.</param>
+/// <param name="Title">Short title; may be empty.</param>
 /// <param name="Color">Post-it fill.</param>
 /// <param name="Tags">Tag names.</param>
 /// <param name="X">Left edge in canvas pixels.</param>
@@ -71,7 +71,7 @@ public record ExportedBucket(
 /// <param name="Links">Version 1 only: links. Web addresses are kept; a link to a note outside the file is dropped on import.</param>
 public record ExportedNote(
     Guid Id,
-    [property: Required, StringLength(200, MinimumLength = 1)] string Title,
+    [property: Required(AllowEmptyStrings = true), StringLength(200)] string Title,
     NoteColor Color,
     [property: Required, MaxLength(10)] List<string> Tags,
     [property: Range(0, Layout.MaxCoordinate)] int X,

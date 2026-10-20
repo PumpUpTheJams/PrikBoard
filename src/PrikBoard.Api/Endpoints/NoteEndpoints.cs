@@ -124,7 +124,7 @@ public static class NoteEndpoints
         var note = new Note
         {
             BoardId = boardId,
-            Title = request.Title,
+            Title = request.Title.Trim(),
             Color = request.Color ?? NoteColor.Butter,
             AgentWorking = request.AgentWorking ?? false,
             CreatedById = principal.PrincipalId(),
@@ -170,7 +170,7 @@ public static class NoteEndpoints
         {
             return tooManyTags;
         }
-        note.Title = request.Title ?? note.Title;
+        note.Title = request.Title?.Trim() ?? note.Title;
         note.Color = request.Color ?? note.Color;
         note.AgentWorking = request.AgentWorking ?? note.AgentWorking;
         note.UpdatedAt = DateTimeOffset.UtcNow;
