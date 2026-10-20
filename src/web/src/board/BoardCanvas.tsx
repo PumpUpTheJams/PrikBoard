@@ -837,20 +837,21 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       e.preventDefault()
       beginGesture(e, { kind: 'draw' })
     } else if (tool === 'note') {
-      stickPostIt(toCanvas(e))
+      // A click with the post-it tool puts the new post-it's top-left corner where you clicked, so you can tell where it goes.
+      stickPostIt(snapPoint(toCanvas(e)))
     } else {
       setSelection(null)
     }
   }
 
-  /** Where a new post-it centred on a canvas point goes: snapped to the grid. */
+  /** Where a new post-it carried from the rail goes: centred on a canvas point (the pointer holds it there), snapped. */
   const postItSpot = (p: Point) => snapPoint({ x: p.x - NOTE_WIDTH / 2, y: p.y - NOTE_HEIGHT / 2 })
 
-  /** Sticks a new post-it centred on a canvas point, selects it and opens it with its title ready to type. */
-  function stickPostIt(p: Point) {
+  /** Sticks a new post-it with its top-left corner at a (snapped) canvas point, selects it and opens it with its title ready to type. */
+  function stickPostIt(at: Point) {
     void settle(
       async () => {
-        const note = await api.createNote(board.id, { title: 'New post-it', color: fill, ...postItSpot(p) })
+        const note = await api.createNote(board.id, { title: 'New post-it', color: fill, ...at })
         setSelection({ kind: 'note', id: note.id })
         setExpanded({ id: note.id, fresh: true })
         setTool('select')
@@ -906,7 +907,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       window.addEventListener('click', swallow, { capture: true, once: true })
       setTimeout(() => window.removeEventListener('click', swallow, true))
       const at = newPostItPoint({ x: ev.clientX, y: ev.clientY })
-      if (at) stickPostIt(at)
+      if (at) stickPostIt(postItSpot(at))
     }
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key !== 'Escape') return
