@@ -63,7 +63,7 @@ public static class BoardTransferEndpoints
             BoardExport.FormatName, BoardExport.CurrentVersion, DateTimeOffset.UtcNow,
             board.Name, board.Description, board.Rules,
             Layout.BackToFront(board.Buckets)
-                .Select(b => new ExportedBucket(b.Name, b.Color, b.X, b.Y, b.Width, b.Height)).ToList(),
+                .Select(b => new ExportedBucket(b.Name, b.Color, b.X, b.Y, b.Width, b.Height, b.Collapsed)).ToList(),
             board.Tags.OrderBy(t => t.CreatedAt).ThenBy(t => t.Id).Select(t => t.Name).ToList(),
             // Oldest edit first: the importer gives them rising timestamps, so the most recently edited note stays on top.
             board.Notes.OrderBy(n => n.UpdatedAt).ThenBy(n => n.Id)
@@ -206,6 +206,8 @@ public static class BoardTransferEndpoints
         }
 
         Layout.PlaceAll(board.Notes, board.Images, board.Buckets);
+        // Folded up only now, so their notes and images joined them first.
+        foreach (var (bucket, i) in board.Buckets.Select((b, i) => (b, i))) bucket.Collapsed = file.Buckets[i].Collapsed;
         // Like createBoard: a personal access token imports for its owner, who owns the board; the token keeps its capped role.
         board.Members.Add(new BoardMember { PrincipalId = caller.MemberId, Role = BoardRole.Owner });
 

@@ -23,8 +23,8 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
 
         var tools = (await mcp.ListToolsAsync()).ToDictionary(t => t.Name, t => t.ProtocolTool);
         Assert.Equal(
-            ["add_image", "add_note_block", "create_bucket", "create_note", "create_tag", "delete_note", "delete_note_block", "delete_tag", "get_board",
-             "get_board_rules", "get_note", "list_boards", "move_note", "rename_bucket", "restore_note", "restore_tag",
+            ["add_image", "add_note_block", "collapse_bucket", "create_bucket", "create_note", "create_tag", "delete_note", "delete_note_block", "delete_tag", "get_board",
+             "get_board_rules", "get_note", "list_boards", "list_deleted_notes", "move_note", "rename_bucket", "restore_note", "restore_tag",
              "search_notes", "set_working", "update_note", "update_note_block", "update_tag"],
             tools.Keys.Order());
         Assert.True(tools["get_board"].Annotations!.ReadOnlyHint);
@@ -201,6 +201,26 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         var missing = await CallRawAsync(mcp, "delete_tag", new() { ["boardId"] = board.Id, ["tag"] = "nope" });
         Assert.True(missing.IsError);
         Assert.Contains("\"front-end\"", Text(missing));
+    }
+
+    [Fact]
+    public async Task Agents_list_deleted_notes_put_one_back_elsewhere_and_collapse_buckets()
+    {
+        var owner = await factory.CreateSignedInClientAsync("mcp-trash@example.com");
+        var board = await owner.CreateBoardAsync("MCP trash");
+        var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor));
+        var note = await owner.CreateNoteAsync(board.Id, "An idea we dropped");
+        await CallRawAsync(mcp, "delete_note", new() { ["noteId"] = note.Id });
+
+        var found = await CallAsync(mcp, "list_deleted_notes", new() { ["boardId"] = board.Id, ["text"] = "IDEA" });
+        var back = await CallAsync(mcp, "restore_note", new() { ["noteId"] = note.Id, ["x"] = 2000, ["y"] = 2000 });
+        var collapsed = await CallAsync(mcp, "collapse_bucket", new() { ["bucketId"] = board.Buckets[0].Id, ["collapsed"] = true });
+        var overview = await CallAsync(mcp, "get_board", new() { ["boardId"] = board.Id });
+
+        Assert.Equal(note.Id, Assert.Single(found.EnumerateArray()).GetProperty("id").GetGuid());
+        Assert.Equal((2000, 2000), (back.GetProperty("x").GetInt32(), back.GetProperty("y").GetInt32()));
+        Assert.True(collapsed.GetProperty("collapsed").GetBoolean());
+        Assert.True(overview.GetProperty("buckets")[0].GetProperty("collapsed").GetBoolean());
     }
 
     [Fact]

@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent,
 import type { NoteDetail, Point } from '../api/types'
 import { AvatarStack } from '../components/Avatar'
 import { Highlight } from './Highlight'
-import { CheckIcon, ExpandIcon, LinkIcon } from './icons'
+import { CheckIcon, ExpandIcon, LinkIcon, PutBackIcon } from './icons'
 import { noteLabel } from './links'
 import { NOTE_HEIGHT, NOTE_WIDTH } from './layout'
 import { keepPress } from './gesture'
@@ -67,6 +67,11 @@ interface PostItProps {
   onRenameTitle?: (title: string) => Promise<boolean>
   /** Editing the title ended (saved or cancelled). */
   onTitleDone?: () => void
+  /**
+   * For a post-it in the trash: puts it back where it was on the board. Its button takes the place of the people button
+   * (the people still show, but can't be changed there).
+   */
+  onPutBack?: () => void
 }
 
 /**
@@ -76,7 +81,7 @@ interface PostItProps {
  */
 export function PostIt(props: PostItProps) {
   const { note, point, images = 0, tagColors, selected, lifted, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
-  const { editingTitle, titleCaret, onRenameTitle, onTitleDone } = props
+  const { editingTitle, titleCaret, onRenameTitle, onTitleDone, onPutBack } = props
   /** A saved title, shown until the reload brings it (while the server still has `from`). */
   const [saved, setSaved] = useState<{ title: string; from: string } | null>(null)
   const title = saved && saved.from === note.title ? saved.title : note.title
@@ -168,8 +173,24 @@ export function PostIt(props: PostItProps) {
         ) : (
           <span className="post-it-tags">{tags}</span>
         )}
-        {onEditAssignees ? (
+        {onPutBack ? (
+          <span className="post-it-people put-back-slot">
+            {note.assignees.length > 0 && <AvatarStack assignees={note.assignees} />}
+            <button
+              type="button"
+              className="post-it-put-back"
+              aria-label={`Put ${name} back on the board`}
+              title="Put back on the board"
+              onPointerDown={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onClick={onPutBack}
+            >
+              <PutBackIcon />
+            </button>
+          </span>
+        ) : onEditAssignees ? (
           <QuickEdit className="post-it-people" label={`People on ${name}`} onOpen={onEditAssignees}>
+
             {people}
           </QuickEdit>
         ) : (

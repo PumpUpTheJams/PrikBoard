@@ -100,7 +100,7 @@ export const snap = {
     width: b.width,
     height: b.height,
   }),
-  bucket: (b: BucketDetail): Snapshot => ({ name: b.name, x: b.x, y: b.y, width: b.width, height: b.height }),
+  bucket: (b: BucketDetail): Snapshot => ({ name: b.name, x: b.x, y: b.y, width: b.width, height: b.height, collapsed: b.collapsed }),
   image: (i: ImageDetail): Snapshot => ({ noteId: i.noteId, x: i.x, y: i.y, width: i.width, caption: i.caption }),
   tag: (t: BoardTag): Snapshot => ({ name: t.name, color: t.color }),
 }
@@ -269,6 +269,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
         await api.updateBucket(t.id, { x: at('x'), y: at('y'), carryNoteIds: t.carry?.notes ?? [], carryImageIds: t.carry?.images ?? [] })
       }
       if ('name' in to) await api.updateBucket(t.id, { name: to.name as string })
+      if ('collapsed' in to) await api.updateBucket(t.id, { collapsed: to.collapsed as boolean })
       return
     }
     case 'image': {

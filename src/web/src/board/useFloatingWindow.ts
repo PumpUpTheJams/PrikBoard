@@ -1,7 +1,7 @@
 import { useLayoutEffect, useState, type PointerEvent, type RefObject } from 'react'
 import type { Rect } from '../api/types'
 
-/** Where the window's size and place are kept, per browser (not per post-it). */
+/** Where the expanded post-it's size and place are kept, per browser (not per post-it). Other windows pass their own key. */
 const STORAGE_KEY = 'prikboard.expandedNote.window'
 const MIN_WIDTH = 560
 const MIN_HEIGHT = 420
@@ -12,18 +12,18 @@ const EDGE = 20
 
 export type WindowEdge = 'e' | 's' | 'se'
 
-function stored(): Rect | null {
+function stored(key: string): Rect | null {
   try {
-    const value = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as Partial<Rect> | null
+    const value = JSON.parse(localStorage.getItem(key) ?? 'null') as Partial<Rect> | null
     return value && [value.x, value.y, value.width, value.height].every((n) => typeof n === 'number') ? (value as Rect) : null
   } catch {
     return null
   }
 }
 
-function store(rect: Rect) {
+function store(key: string, rect: Rect) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rect))
+    localStorage.setItem(key, JSON.stringify(rect))
   } catch {
     // Storage can be unavailable (private windows, blocked site data); the window then just opens at the default.
   }
@@ -42,7 +42,7 @@ function clamp(r: Rect, containerWidth: number, containerHeight: number): Rect {
  * A window floating over its offset parent (the board), moved by dragging `startMove` and resized from its right and
  * bottom edges. Its last size and place are remembered in localStorage. Null until the board has been measured.
  */
-export function useFloatingWindow(windowRef: RefObject<HTMLElement | null>) {
+export function useFloatingWindow(windowRef: RefObject<HTMLElement | null>, storageKey = STORAGE_KEY) {
   const [rect, setRect] = useState<Rect | null>(null)
   /** Whether the window is being moved or resized right now. */
   const [moving, setMoving] = useState(false)
@@ -55,14 +55,14 @@ export function useFloatingWindow(windowRef: RefObject<HTMLElement | null>) {
       setRect((current) => {
         const fallback = { width: Math.min(1200, width - 2 * MARGIN), height: height - 2 * MARGIN, x: 0, y: MARGIN }
         fallback.x = (width - fallback.width) / 2
-        return clamp(current ?? stored() ?? fallback, width, height)
+        return clamp(current ?? stored(storageKey) ?? fallback, width, height)
       })
     }
     fit()
     const observer = new ResizeObserver(fit)
     observer.observe(container)
     return () => observer.disconnect()
-  }, [windowRef])
+  }, [windowRef, storageKey])
 
   /** Follows the pointer from a press until it is released, then remembers the result. */
   function track(e: PointerEvent, change: (start: Rect, dx: number, dy: number) => Rect) {
@@ -82,7 +82,7 @@ export function useFloatingWindow(windowRef: RefObject<HTMLElement | null>) {
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
       setMoving(false)
-      store(last)
+      store(storageKey, last)
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)

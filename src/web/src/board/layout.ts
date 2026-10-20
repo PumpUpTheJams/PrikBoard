@@ -8,6 +8,9 @@ export const NOTE_HEIGHT = 120
 export const MIN_BUCKET_WIDTH = NOTE_WIDTH + 2 * GRID
 export const MIN_BUCKET_HEIGHT = NOTE_HEIGHT + 2 * GRID
 
+/** A collapsed bucket is a square this size in its top-right corner. */
+export const COLLAPSED_SIZE = NOTE_HEIGHT
+
 export const MIN_IMAGE_WIDTH = 80
 export const MAX_IMAGE_WIDTH = 4000
 
@@ -37,12 +40,30 @@ export const snapPoint = ({ x, y }: Point): Point => ({ x: onBoard(snap(x)), y: 
 
 /**
  * The topmost bucket containing a note's centre: the bucket a note dropped there joins (Layout.Place on the server). It
- * stays in that bucket while buckets move around it. `buckets` is back to front, as the API returns them.
+ * stays in that bucket while buckets move around it. `buckets` is back to front, as the API returns them. A collapsed
+ * bucket only keeps the notes it has (`own`): others don't join it, as on the server.
  */
-export function bucketUnderNote(buckets: BucketDetail[], note: Point): BucketDetail | undefined {
+export function bucketUnderNote(buckets: BucketDetail[], note: Point, own?: string | null): BucketDetail | undefined {
   const cx = note.x + NOTE_WIDTH / 2
   const cy = note.y + NOTE_HEIGHT / 2
-  return buckets.findLast((b) => cx >= b.x && cx < b.x + b.width && cy >= b.y && cy < b.y + b.height)
+  return buckets.findLast((b) => cx >= b.x && cx < b.x + b.width && cy >= b.y && cy < b.y + b.height && (!b.collapsed || b.id === own))
+}
+
+/** The square a collapsed bucket folds up into: in its top-right corner (of `rect`, where the bucket is now, mid-drag too). */
+export function collapsedRect(rect: Rect): Rect {
+  return { x: Math.max(0, rect.x + rect.width - COLLAPSED_SIZE), y: rect.y, width: COLLAPSED_SIZE, height: COLLAPSED_SIZE }
+}
+
+/**
+ * Where the post-its in the trash window go: a grid filling `width` (the visible width of its canvas), row by row, a grid
+ * step around each. At least one column, however narrow.
+ */
+export function fitGrid(count: number, width: number): Point[] {
+  const columns = Math.max(1, Math.floor((width - GRID) / (NOTE_WIDTH + GRID)))
+  return Array.from({ length: count }, (_, i) => ({
+    x: GRID + (i % columns) * (NOTE_WIDTH + GRID),
+    y: GRID + Math.floor(i / columns) * (NOTE_HEIGHT + GRID),
+  }))
 }
 
 /** The rectangle spanned by two corners. */

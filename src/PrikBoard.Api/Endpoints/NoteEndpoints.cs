@@ -73,10 +73,19 @@ public static class NoteEndpoints
             .WithName("restoreNote")
             .WithSummary("Restore a deleted note")
             .WithDescription($"Brings back a note deleted in the last {Tombstones.RetentionText}: same id, content, creator and " +
-                             "place, with the images that were deleted along with it. It joins whichever bucket is at its place now. " +
-                             "409 when the note is not deleted; 404 when it never existed or is gone for good.")
+                             "images, at the place it had, or at X and Y when both are given (a note dragged out of the trash). " +
+                             "It joins whichever bucket is there now. 409 when the note is not deleted; 404 when it never existed " +
+                             "or is gone for good.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
+
+        notes.MapGet("/boards/{boardId:guid}/trash", ListDeletedNotes)
+            .RequireBoardRole(BoardRole.Viewer)
+            .WithName("listDeletedNotes")
+            .WithSummary("List the notes in the trash")
+            .WithDescription($"Returns the notes deleted in the last {Tombstones.RetentionText} (deletedAt set), most recently " +
+                             "deleted first, with the images deleted along with them. Optionally only notes whose title or content " +
+                             "contains search (case-insensitive). restoreNote brings one back.");
 
         return api;
     }
@@ -97,9 +106,7 @@ public static class NoteEndpoints
         // Boards are small, so text, tags and assignees are filtered in memory.
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var text = search.Trim();
-            notes = notes.Where(n => n.Title.Contains(text, StringComparison.OrdinalIgnoreCase)
-                || n.Blocks.Any(b => b.SearchText().Any(t => t.Contains(text, StringComparison.OrdinalIgnoreCase)))).ToList();
+            notes = notes.Where(n => ContainsText(n, search.Trim())).ToList();
         }
         if (tag is not null && NoteTags.Normalize(tag) is { Count: > 0 } wanted)
         {
@@ -239,12 +246,52 @@ public static class NoteEndpoints
         return TypedResults.NoContent();
     }
 
+    /// <summary>Whether the title or any of the note's content contains <paramref name="text"/>, ignoring case.</summary>
+    internal static bool ContainsText(Note note, string text) =>
+        note.Title.Contains(text, StringComparison.OrdinalIgnoreCase)
+        || note.Blocks.Any(b => b.SearchText().Any(t => t.Contains(text, StringComparison.OrdinalIgnoreCase)));
+
+    internal static async Task<Results<Ok<TrashContents>, NotFound>> ListDeletedNotes(
+        Guid boardId, string? search, PrikBoardDbContext db, CancellationToken ct)
+    {
+        if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
+
+        string[] deleted = [PrikBoardDbContext.SoftDelete];
+        var notes = await db.Notes.AsNoTracking().IgnoreQueryFilters(deleted)
+            .Where(n => n.BoardId == boardId && n.DeletedAt != null)
+            .ToListAsync(ct);
+        // Boards are small, so the search runs in memory, like listNotes.
+        if (!string.IsNullOrWhiteSpace(search)) notes = notes.Where(n => ContainsText(n, search.Trim())).ToList();
+        notes = notes.OrderByDescending(n => n.DeletedAt).ThenByDescending(n => n.Id).ToList();
+
+        // The images that come back with them: deleted at the same moment.
+        var stamps = notes.ToDictionary(n => n.Id, n => n.DeletedAt);
+        var ids = stamps.Keys.ToList();
+        var images = (await db.Images.AsNoTracking().IgnoreQueryFilters(deleted).Include(i => i.AddedBy).Include(i => i.File)
+                .Where(i => i.NoteId != null && ids.Contains(i.NoteId.Value))
+                .OrderBy(i => i.CreatedAt).ThenBy(i => i.Id)
+                .ToListAsync(ct))
+            .Where(i => i.DeletedAt == stamps[i.NoteId!.Value])
+            .ToList();
+        var principals = await PrincipalsOnAsync(db, notes, ct);
+        return TypedResults.Ok(new TrashContents(
+            notes.Select(n => NoteDetail.From(n, principals)).ToList(),
+            images.Select(ImageDetail.From).ToList()));
+    }
+
     internal static async Task<Results<Ok<NoteDetail>, NotFound, ValidationProblem, ProblemHttpResult>> RestoreNote(
-        Guid noteId, PrikBoardDbContext db, CancellationToken ct)
+        Guid noteId, RestoreNoteRequest? request, PrikBoardDbContext db, CancellationToken ct)
     {
         var note = await db.Notes.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete]).FirstOrDefaultAsync(n => n.Id == noteId, ct);
         if (note is null) return TypedResults.NotFound();
         if (note.DeletedAt is not { } stamp) return TagEndpoints.NotDeleted("note");
+        if (request?.X is null != request?.Y is null)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                [request?.X is null ? "x" : "y"] = ["Give X and Y together."],
+            });
+        }
 
         // Tags deleted meanwhile were taken off the note as well, so this only fills a gap.
         if (await TagEndpoints.EnsureBoardTagsAsync(db, note.BoardId, note.Tags, ct) is { } tooManyTags) return tooManyTags;
@@ -254,10 +301,20 @@ public static class NoteEndpoints
         await db.Images.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
             .Where(i => i.NoteId == noteId && i.DeletedAt == stamp)
             .ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, (DateTimeOffset?)null), ct);
-        // UpdatedAt stays, so the post-it goes back to its place in the stacking order too.
-        // Back in its bucket if that is still around it, or wherever it now lands.
-        var buckets = await db.Buckets.Where(b => b.BoardId == note.BoardId).ToListAsync(ct);
-        Layout.Recheck(note, Layout.BackToFront(buckets));
+        var stacked = Layout.BackToFront(await db.Buckets.Where(b => b.BoardId == note.BoardId).ToListAsync(ct));
+        if (request is { X: { } x, Y: { } y })
+        {
+            // Dropped somewhere else (out of the trash): like a move, so it comes out on top, in whatever bucket it lands in.
+            (note.X, note.Y) = (Layout.Snap(x), Layout.Snap(y));
+            note.UpdatedAt = DateTimeOffset.UtcNow;
+            Layout.Place(note, stacked);
+        }
+        else
+        {
+            // UpdatedAt stays, so the post-it goes back to its place in the stacking order too.
+            // Back in its bucket if that is still around it, or wherever it now lands.
+            Layout.Recheck(note, stacked);
+        }
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         return TypedResults.Ok(await DetailAsync(db, note, ct));
@@ -317,6 +374,7 @@ public static class NoteEndpoints
                 });
             }
             (note.X, note.Y) = Layout.MakeRoomIn(bucket, others, buckets);
+            // Asked for by name, so it joins even a collapsed bucket (which other notes don't).
             note.BucketId = bucket.Id;
             // A bucket that grew to make room can now cover loose notes too.
             Layout.Adopt(bucket, stacked, others, [], looseOnly: true);

@@ -23,9 +23,11 @@ import { AssigneePicker } from './AssigneePicker'
 import { BoardImageView } from './BoardImageView'
 import { BoardSearch, type SearchResult } from './BoardSearch'
 import { ExpandedNote, type ExpandedNoteHandle } from './ExpandedNote'
+import { TrashWindow, type OutgoingNote, type TrashWindowHandle } from './TrashWindow'
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
 import { delta, isDrag } from './gesture'
-import { noteIdFromHash, noteLabel, notePath, noteRoute } from './links'
+import { noteIdFromHash, noteLabel, notePath, noteRoute, trashInHash, trashPath } from './links'
+import { ChevronDownIcon, ChevronUpIcon } from './icons'
 import { pop, reducedMotion } from './motion'
 import { BucketInspector, ImageInspector } from './Inspector'
 import {
@@ -37,6 +39,7 @@ import {
   NOTE_WIDTH,
   bucketSize,
   bucketUnderNote,
+  collapsedRect,
   defaultBlockSize,
   onBoard,
   onNoteCanvas,
@@ -193,6 +196,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const focusSearch = useRef<'select' | 'end' | null>(null)
   /** Scroll the result being looked at into view after the next render, once the list of results has its new size. */
   const revealPending = useRef(false)
+  /** The post-it to scroll to instead of the search result: one put back from the trash. */
+  const revealId = useRef<string | null>(null)
   /** Where a smooth scroll to a result is heading: quick key repeats are measured from there, not from a frame halfway. */
   const revealTarget = useRef<{ left: number; top: number; until: number } | null>(null)
   /** The search, hints and view-only badge at the top of the board. */
@@ -225,6 +230,22 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [overTrash, setOverTrash] = useState(false)
   const [binned, setBinned] = useState<string | null>(null)
   const expandedRef = useRef<ExpandedNoteHandle>(null)
+  /** The trash window: post-its deleted in the last 7 days (opened from the board menu, through the address). */
+  const [deletedOpen, setDeletedOpen] = useState(() => trashInHash())
+  const deletedRef = useRef<TrashWindowHandle>(null)
+  /** A post-it in the trash shown as it is inside, read only. */
+  const [deletedPreview, setDeletedPreview] = useState<{ note: NoteDetail; images: ImageDetail[] } | null>(null)
+  /** A post-it being dragged out of the trash window. */
+  const [outgoing, setOutgoing] = useState<OutgoingNote | null>(null)
+  /** A post-it dragged on the board is over the open trash (released there, it is deleted): the pointer, in screen pixels. */
+  const [deletedDrop, setDeletedDrop] = useState<Point | null>(null)
+  /** A drag in progress in the trash window. */
+  const [deletedBusy, setDeletedBusy] = useState(false)
+  /** The collapsed bucket a post-it being dragged would go into on release. */
+  const [foldDrop, setFoldDrop] = useState<string | null>(null)
+  /** Post-its in a collapsed bucket are folded away with it: not on the board until it opens again. */
+  const collapsedIds = new Set(board.buckets.filter((b) => b.collapsed).map((b) => b.id))
+  const visibleNotes = board.notes.filter((n) => !n.bucketId || !collapsedIds.has(n.bucketId))
   /** Image uploads in flight, and whether files are being dragged over the board. */
   const [uploads, setUploads] = useState(0)
   const [fileOver, setFileOver] = useState(false)
@@ -282,9 +303,13 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   // hashchange; a post-it that isn't (or no longer is) on the board drops out of the address.
   const openNoteId = expanded && board.notes.some((n) => n.id === expanded.id) ? expanded.id : null
   useEffect(() => {
-    const hash = openNoteId ? notePath({ boardId: board.id, noteId: openNoteId }).slice(1) : `#/boards/${board.id}`
+    const hash = openNoteId
+      ? notePath({ boardId: board.id, noteId: openNoteId }).slice(1)
+      : deletedOpen
+        ? trashPath(board.id).slice(1)
+        : `#/boards/${board.id}`
     if (window.location.hash !== hash) history.replaceState(history.state, '', hash)
-  }, [openNoteId, board.id])
+  }, [openNoteId, deletedOpen, board.id])
 
   // Following a link to another post-it on this board opens it (one on another board loads that board: App).
   useEffect(() => {
@@ -295,6 +320,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       setQuickEdit(null)
       setExpanded(id ? { id, fresh: false } : null)
       if (id) setSelection({ kind: 'note', id })
+      if (trashInHash()) setDeletedOpen(true)
     }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
@@ -311,7 +337,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }, [margin.x, margin.y])
 
   // Background refreshes would fight with a drag in progress.
-  useEffect(() => setPaused(gesture !== null || noteBusy), [gesture, noteBusy, setPaused])
+  useEffect(() => setPaused(gesture !== null || noteBusy || deletedBusy), [gesture, noteBusy, deletedBusy, setPaused])
 
   useLayoutEffect(() => {
     const el = scrollRef.current!
@@ -445,6 +471,55 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       () => api.deleteNote(id),
       () => step('Delete post-it', [deleted(target.note(id), snap.note(note))], { toast: 'Post-it deleted' }),
     )
+  }
+
+  /** Puts a post-it from the trash back on the board: where it was, or at `at` (dragged out of the trash window). */
+  function putBack(note: NoteDetail, at?: Point) {
+    if (deletedPreview?.note.id === note.id) setDeletedPreview(null)
+    void settle(
+      () => api.restoreNote(note.id, at),
+      (after) => step('Put back post-it', [created(target.note(after.id), snap.note(after))]),
+    ).then((ok) => {
+      if (!ok) return
+      notify('Put back on the board')
+      setSelection({ kind: 'note', id: note.id })
+      // The board scrolls to where it went (out of the window's way) once it has reloaded.
+      revealId.current = note.id
+      revealPending.current = true
+    })
+  }
+
+  /** Where a post-it dragged out of the trash window would land on the board, or null when it isn't over the board. */
+  function outgoingSpot(drag: OutgoingNote): Point | null {
+    if (!drag.outside || expandedRef.current?.contains(drag.client)) return null
+    const at = boardPoint(drag.client)
+    return at ? snapPoint({ x: at.x - drag.grab.x, y: at.y - drag.grab.y }) : null
+  }
+
+  /** Releases a post-it dragged out of the trash window; false when it went nowhere. */
+  function dropOut(drag: OutgoingNote): boolean {
+    const at = outgoingSpot(drag)
+    if (at) putBack(drag.note, at)
+    return at !== null
+  }
+
+  /** Folds a bucket up into a square in its top-right corner, hiding its post-its, or opens it again with them where they were. */
+  function toggleCollapsed(bucket: BucketDetail) {
+    const collapsed = !bucket.collapsed
+    if (collapsed && selection?.kind === 'note' && board.notes.find((n) => n.id === selection.id)?.bucketId === bucket.id) setSelection(null)
+    void settle(
+      () => api.updateBucket(bucket.id, { collapsed }),
+      (after) => step(collapsed ? 'Collapse bucket' : 'Open bucket', [patched(target.bucket(bucket.id), snap.bucket(bucket), snap.bucket(after), ['collapsed'])]),
+    )
+  }
+
+  /** The collapsed bucket whose square is under a canvas point. */
+  function foldAt(p: Point): BucketDetail | undefined {
+    return board.buckets.findLast((b) => {
+      if (!b.collapsed) return false
+      const r = collapsedRect(bucketRect(b))
+      return p.x >= r.x && p.x < r.x + r.width && p.y >= r.y && p.y < r.y + r.height
+    })
   }
 
   /** Copies a post-it's content one grid step down and right of it, and selects the copy. Attached images stay behind. */
@@ -602,7 +677,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     }
     if (kind === 'bucket' || kind === 'resize') {
       const bucket = board.buckets.find((b) => b.id === drag.id)
-      return bucket ? bucketRect(bucket) : null
+      if (!bucket) return null
+      return bucket.collapsed ? collapsedRect(bucketRect(bucket)) : bucketRect(bucket)
     }
     const image = board.images.find((i) => i.id === drag.id && i.noteId === null)
     return image ? imageRect(image) : null
@@ -622,7 +698,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
   /** The topmost post-it on the board under a canvas point, other than `except`. */
   function noteAt(p: Point, except?: string): NoteDetail | undefined {
-    return board.notes
+    return visibleNotes
       .toSorted((a, b) => a.updatedAt.localeCompare(b.updatedAt))
       .findLast((n) => n.id !== except && p.x >= n.x && p.x < n.x + NOTE_WIDTH && p.y >= n.y && p.y < n.y + NOTE_HEIGHT)
   }
@@ -704,6 +780,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   function expand(id: string) {
     setTitleEdit(null)
     setQuickEdit(null)
+    setDeletedPreview(null)
     setExpanded({ id, fresh: false })
   }
 
@@ -930,9 +1007,15 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       const client = { x: e.clientX, y: e.clientY }
       const trash = next.kind === 'note' && isDrag(next) && onTrash(client)
       setGesture(next)
+      // Over the open deleted items a post-it is deleted too, and over a collapsed bucket it goes in, rather than being linked.
+      const intoDeleted = !trash && next.kind === 'note' && isDrag(next) && deletedOpen && !!deletedRef.current?.contains(client)
+      const fold =
+        next.kind === 'note' && isDrag(next) && !trash && !intoDeleted && !expandedRef.current?.contains(client) ? foldAt(next.current) : undefined
       setOverTrash(trash)
-      setIncoming(isDrag(next) && !trash ? dropOnNote(next, client) : null)
-      setLinkDrop(isDrag(next) && !trash ? linkDropFor(next, client) : null)
+      setDeletedDrop(intoDeleted ? client : null)
+      setFoldDrop(fold?.id ?? null)
+      setIncoming(isDrag(next) && !trash && !intoDeleted ? dropOnNote(next, client) : null)
+      setLinkDrop(isDrag(next) && !trash && !intoDeleted && !fold ? linkDropFor(next, client) : null)
     }
   }
 
@@ -969,14 +1052,31 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     }
 
     const client = { x: e.clientX, y: e.clientY }
+    const intoDeleted = deletedDrop !== null
+    const fold = gesture.kind === 'note' && foldDrop ? board.buckets.find((b) => b.id === foldDrop) : undefined
     setOverTrash(false)
-    if (gesture.kind === 'note' && onTrash(client)) {
-      // Dropped on the trash can: deleted (the toast and Ctrl/Cmd+Z undo it), and gone at once rather than back in its place.
+    setDeletedDrop(null)
+    setFoldDrop(null)
+    if (gesture.kind === 'note' && (onTrash(client) || intoDeleted)) {
+      // Dropped on the trash can, or on the open deleted items: deleted (the toast and Ctrl/Cmd+Z undo it), and gone at
+      // once rather than back in its place.
+      if (intoDeleted) deletedRef.current?.pop()
       setLinkDrop(null)
       setIncoming(null)
       setGesture({ ...gesture, done: true })
       setBinned(gesture.id)
       void deleteNote(gesture.id).then(() => setBinned(null))
+      return
+    }
+    if (fold) {
+      // Dropped on a collapsed bucket: it goes in, out of sight with the others, in a free spot as the server finds one.
+      setGesture({ ...gesture, done: true })
+      setLinkDrop(null)
+      const note = board.notes.find((n) => n.id === gesture.id)!
+      void settle(
+        () => api.moveNote(note.id, { bucketId: fold.id }),
+        (moved) => step('Move post-it', [patched(target.note(note.id), snap.note(note), snap.note(moved), ['x', 'y'])]),
+      ).then((ok) => ok && pop(canvasRef.current?.querySelector(`[data-fold="${fold.id}"]`), 1.08))
       return
     }
     const link = linkDropFor(gesture, client)
@@ -1077,17 +1177,22 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }
 
   const buckets = board.buckets.map((bucket) => ({ bucket, rect: bucketRect(bucket) }))
-  const images = board.images.filter((i) => i.noteId === null).map((image) => ({ image, rect: imageRect(image) }))
+  // Images in a collapsed bucket fold away with its post-its.
+  const images = board.images
+    .filter((i) => i.noteId === null && !(i.bucketId && collapsedIds.has(i.bucketId)))
+    .map((image) => ({ image, rect: imageRect(image) }))
   /** How each tag shows: its saved colour, or one being saved or previewed. */
   const tagColors = tagColorsOf(board.tags, tagSaving, tagPreview)
   /** How many images are attached to each post-it. */
   const attached = new Map<string, number>()
   for (const image of board.images) if (image.noteId) attached.set(image.noteId, (attached.get(image.noteId) ?? 0) + 1)
   // Most recently updated on top, the note being dragged above everything.
-  const notes = board.notes
+  const notes = visibleNotes
     .filter((n) => n.id !== binned)
     .toSorted((a, b) => a.updatedAt.localeCompare(b.updatedAt))
     .map((note) => ({ note, point: notePoint(note) }))
+  /** Where a post-it dragged out of the trash window would land. */
+  const outgoingPlace = outgoing ? outgoingSpot(outgoing) : null
   const resizing = gesture && (gesture.kind === 'resize' || gesture.kind === 'image-resize') && !gesture.done ? gesture : null
   const draggedNote = dragging?.kind === 'note' ? notes.find((n) => n.note.id === dragging.id) : undefined
   /** The post-it a dragged image would be attached to (not while it is over the open post-it's window). */
@@ -1096,8 +1201,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const newPostItAt = newPostIt && newPostItPoint(newPostIt)
   const newPostItSpot = newPostItAt ? postItSpot(newPostItAt) : null
   const dropTarget =
-    draggedNote && !linkDrop && !overTrash
-      ? bucketUnderNote(board.buckets, draggedNote.point)
+    draggedNote && !linkDrop && !overTrash && !deletedDrop && !foldDrop
+      ? bucketUnderNote(board.buckets, draggedNote.point, draggedNote.note.bucketId)
       : newPostItSpot
         ? bucketUnderNote(board.buckets, newPostItSpot)
         : undefined
@@ -1154,12 +1259,12 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const matches = useMemo(() => {
     const found = new Map<string, SearchField[]>()
     if (terms.length === 0) return found
-    for (const note of board.notes) {
+    for (const note of visibleNotes) {
       const fields = matchNote(note, terms)
       if (fields) found.set(note.id, fields)
     }
     return found
-  }, [board.notes, terms])
+  }, [visibleNotes, terms])
   const dimmed = (note: NoteDetail) => tagFaded(note) || (terms.length > 0 && !matches.has(note.id))
   const results: SearchResult[] = board.notes
     .filter((n) => matches.has(n.id) && !tagFaded(n))
@@ -1170,7 +1275,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   useLayoutEffect(() => {
     if (!revealPending.current) return
     revealPending.current = false
-    if (current) reveal(current)
+    const id = revealId.current ?? current
+    revealId.current = null
+    if (id) reveal(id)
   })
   const quickNote = quickEdit && board.notes.find((n) => n.id === quickEdit.noteId)
   const hint = uploads > 0 ? 'Uploading…' : fileOver ? 'Drop to add the image here' : readOnly ? undefined : hints[tool]
@@ -1245,6 +1352,39 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
           >
             {buckets.map(({ bucket, rect }) => {
               const count = countIn(bucket.id)
+              const countLabel = count === 1 ? '1 post-it' : `${count} post-its`
+              if (bucket.collapsed) {
+                // Folded up: a square in its middle with its name and how many post-its are inside.
+                const square = collapsedRect(rect)
+                return (
+                  <section
+                    key={bucket.id}
+                    aria-label={`${bucket.name} (collapsed, ${countLabel})`}
+                    data-fold={bucket.id}
+                    className={['bucket-collapsed', foldDrop === bucket.id && 'drop-target', selectedBucket?.id === bucket.id && 'selected']
+                      .filter(Boolean)
+                      .join(' ')}
+                    style={{ left: square.x, top: square.y, width: square.width, height: square.height }}
+                    title="Drag to move the bucket"
+                    onPointerDown={(e) => onItemPointerDown(e, 'bucket', bucket.id)}
+                  >
+                    <span className="bucket-collapsed-count">{count}</span>
+                    <span className="bucket-collapsed-name">{bucket.name}</span>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        className="bucket-fold"
+                        aria-label={`Open ${bucket.name}`}
+                        title="Open the bucket"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={() => toggleCollapsed(bucket)}
+                      >
+                        <ChevronDownIcon size={13} />
+                      </button>
+                    )}
+                  </section>
+                )
+              }
               return (
                 <section
                   key={bucket.id}
@@ -1270,10 +1410,22 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                     onClick={() => setSelection({ kind: 'bucket', id: bucket.id })}
                   >
                     <span className="bucket-name">{bucket.name}</span>
-                    <span className="count" aria-label={count === 1 ? '1 post-it' : `${count} post-its`}>
+                    <span className="count" aria-label={countLabel}>
                       {count}
                     </span>
                   </button>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      className="bucket-fold"
+                      aria-label={`Collapse ${bucket.name}`}
+                      title="Collapse the bucket: its post-its fold away with it"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => toggleCollapsed(bucket)}
+                    >
+                      <ChevronUpIcon size={13} />
+                    </button>
+                  )}
                   {!readOnly && selectedBucket?.id === bucket.id && (
                     <ResizeHandles onPointerDown={(e, handle) => onItemPointerDown(e, 'resize', bucket.id, { handle })} />
                   )}
@@ -1306,6 +1458,14 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                 className="post-it-slot"
                 aria-hidden="true"
                 style={{ left: newPostItSpot.x, top: newPostItSpot.y, width: NOTE_WIDTH, height: NOTE_HEIGHT }}
+              />
+            )}
+
+            {outgoingPlace && (
+              <div
+                className="post-it-slot"
+                aria-hidden="true"
+                style={{ left: outgoingPlace.x, top: outgoingPlace.y, width: NOTE_WIDTH, height: NOTE_HEIGHT }}
               />
             )}
 
@@ -1412,7 +1572,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         extent={{ x: low.x, y: low.y, width: extent.width - low.x, height: extent.height - low.y }}
         viewport={{ x: (view.x - origin.x) / zoom, y: (view.y - origin.y) / zoom, width: view.width / zoom, height: view.height / zoom }}
         buckets={board.buckets}
-        notes={board.notes}
+        notes={visibleNotes}
         dimmed={dimmed}
         current={current}
         images={images.map((i) => i.image)}
@@ -1520,17 +1680,75 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         />
       )}
 
-      {/* The board draws below the open post-it, so a post-it dragged over its window is shown on top, at the pointer. */}
+      {deletedOpen && (
+        <TrashWindow
+          boardId={board.id}
+          reload={board}
+          readOnly={readOnly}
+          tagColors={tagColors}
+          handle={deletedRef}
+          dropOver={deletedDrop !== null}
+          boardZoom={zoom}
+          onClose={() => {
+            setDeletedOpen(false)
+            setDeletedPreview(null)
+          }}
+          onOpenNote={(note, images) => {
+            // One post-it window at a time.
+            setExpanded(null)
+            setDeletedPreview({ note, images })
+          }}
+          onPutBack={(note) => putBack(note)}
+          onOutgoing={setOutgoing}
+          onDropOut={dropOut}
+          onBusy={setDeletedBusy}
+        />
+      )}
+
+      {/* A post-it in the trash, as it is inside: read only, with its images. */}
+      {deletedPreview && !expandedNote && (
+        <ExpandedNote
+          key={`trash:${deletedPreview.note.id}`}
+          note={deletedPreview.note}
+          bucket={undefined}
+          images={deletedPreview.images}
+          notes={board.notes}
+          handle={expandedRef}
+          run={runRec}
+          onBusy={setNoteBusy}
+          incoming={null}
+          linking={false}
+          boardPoint={boardPoint}
+          boardZoom={zoom}
+          focusTitle={false}
+          onChange={async () => false}
+          boardTags={board.tags}
+          tagColors={tagColors}
+          people={board.people}
+          onRenameTag={async () => false}
+          onRecolorTag={async () => false}
+          onPreviewTagColor={() => {}}
+          onDeleteTag={async () => false}
+          onDelete={() => {}}
+          onAddImages={() => {}}
+          onPickImages={() => {}}
+          onClose={() => setDeletedPreview(null)}
+          readOnly
+          deleted={{ onPutBack: readOnly ? undefined : () => putBack(deletedPreview.note) }}
+        />
+      )}
+
+      {/* The board draws below the open post-it and the trash, so a post-it dragged over their windows is shown on top, at the pointer. */}
       {draggedNote &&
         dragging &&
-        linkDrop?.window &&
+        (linkDrop?.window || deletedDrop) &&
         createPortal(
           <div
             className="drag-ghost post-it-ghost"
             aria-hidden="true"
             style={{
-              left: linkDrop.client.x - (dragging.start.x - draggedNote.note.x) * zoom,
-              top: linkDrop.client.y - (dragging.start.y - draggedNote.note.y) * zoom,
+              left: (deletedDrop ?? linkDrop!.client).x - (dragging.start.x - draggedNote.note.x) * zoom,
+              top: (deletedDrop ?? linkDrop!.client).y - (dragging.start.y - draggedNote.note.y) * zoom,
               transform: `scale(${zoom})`,
             }}
           >

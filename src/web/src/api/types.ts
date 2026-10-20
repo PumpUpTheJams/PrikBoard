@@ -126,6 +126,8 @@ export interface BucketDetail {
   y: number
   width: number
   height: number
+  /** Folded up into a square in its top-right corner: its post-its are hidden (keeping their places) until it opens again. */
+  collapsed: boolean
 }
 
 export type AssigneeKind = 'Person' | 'Agent'
@@ -212,6 +214,14 @@ export interface NoteDetail {
   updatedAt: string
   /** Where the web app shows it: "/#/boards/{boardId}/notes/{id}". Links to it store this path. */
   path: string
+  /** When it was deleted, for post-its in the trash; null (or missing) otherwise. */
+  deletedAt?: string | null
+}
+
+/** The trash: post-its deleted in the last 7 days, most recently deleted first, and the images deleted with them. */
+export interface TrashContents {
+  notes: NoteDetail[]
+  images: ImageDetail[]
 }
 
 export interface Point {
@@ -231,6 +241,7 @@ export interface BucketChanges extends Partial<Rect> {
   carryNoteIds?: string[]
   /** Likewise for images on the board, instead of the images in the bucket. */
   carryImageIds?: string[]
+  collapsed?: boolean
 }
 
 /** A PATCH: omitted fields stay unchanged, a given list replaces the whole list. */

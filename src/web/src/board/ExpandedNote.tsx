@@ -17,7 +17,7 @@ import { AssigneePicker } from './AssigneePicker'
 import { EditableText } from './EditableText'
 import { draggingFiles, imageFiles } from './files'
 import { Highlight } from './Highlight'
-import { BucketIcon, CheckIcon, CloseIcon, LinkIcon, SparkleIcon } from './icons'
+import { BucketIcon, CheckIcon, CloseIcon, LinkIcon, PutBackIcon, SparkleIcon, TrashIcon } from './icons'
 import { noteLabel, TITLE_SUGGESTION } from './links'
 import { pop } from './motion'
 import { NoteCanvas, type IncomingImage, type NoteCanvasHandle } from './NoteCanvas'
@@ -79,6 +79,8 @@ interface ExpandedNoteProps {
   /** A screen point on the board in canvas pixels, when it is over the board; to drop images out of the post-it. */
   boardPoint: (client: Point) => Point | null
   boardZoom: number
+  /** For a post-it in the trash (shown read only): putting it back on the board (not for viewers). */
+  deleted?: { onPutBack?: () => void }
 }
 
 /**
@@ -87,7 +89,7 @@ interface ExpandedNoteProps {
  */
 export function ExpandedNote(props: ExpandedNoteProps) {
   const { note, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onClose, readOnly, highlight } = props
-  const { boardTags, tagColors, people, notes, onRenameTag, onRecolorTag, onPreviewTagColor, onDeleteTag, handle, run, onBusy, incoming, linking, boardPoint, boardZoom } = props
+  const { boardTags, tagColors, people, notes, onRenameTag, onRecolorTag, onPreviewTagColor, onDeleteTag, handle, run, onBusy, incoming, linking, boardPoint, boardZoom, deleted } = props
   /** The tag or people window, opened from its button in the band. */
   const [picking, setPicking] = useState<{ kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
   const [fileOver, setFileOver] = useState(false)
@@ -181,12 +183,25 @@ export function ExpandedNote(props: ExpandedNoteProps) {
       >
         <header className="band" onPointerDown={startMove}>
           <div className="band-row">
-            <span className="band-bucket">
-              <BucketIcon />
-              {bucket ? bucket.name : 'Loose on the board'}
-            </span>
+            {deleted ? (
+              <span className="band-bucket">
+                <TrashIcon size={14} />
+                Deleted
+              </span>
+            ) : (
+              <span className="band-bucket">
+                <BucketIcon />
+                {bucket ? bucket.name : 'Loose on the board'}
+              </span>
+            )}
             <div className="band-actions">
-              <FillPicker value={note.color} onChange={(color) => void onChange({ color })} />
+              {deleted?.onPutBack && (
+                <button type="button" className="band-button" title="Put back where it was on the board" onClick={deleted.onPutBack}>
+                  <PutBackIcon />
+                  Put back
+                </button>
+              )}
+              {!deleted && <FillPicker value={note.color} onChange={(color) => void onChange({ color })} />}
               {note.agentWorking && (
                 <button
                   type="button"

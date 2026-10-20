@@ -46,13 +46,15 @@ public record BoardExport(
 /// <param name="Y">Top edge in canvas pixels.</param>
 /// <param name="Width">Width in pixels.</param>
 /// <param name="Height">Height in pixels.</param>
+/// <param name="Collapsed">Folded up on the board, hiding its notes. Optional.</param>
 public record ExportedBucket(
     [property: Required, StringLength(100, MinimumLength = 1)] string Name,
     BucketColor Color,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int X,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int Y,
     [property: Range(Layout.MinBucketWidth, Layout.MaxBucketSize)] int Width,
-    [property: Range(Layout.MinBucketHeight, Layout.MaxBucketSize)] int Height);
+    [property: Range(Layout.MinBucketHeight, Layout.MaxBucketSize)] int Height,
+    bool Collapsed = false);
 
 /// <summary>
 /// A note in an export. Who created it and who is assigned are not part of the file. Version 2 files hold the note's

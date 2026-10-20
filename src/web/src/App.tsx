@@ -17,6 +17,7 @@ import {
   UserIcon,
 } from './board/icons'
 import { pickBoardFile, saveFile } from './board/files'
+import { trashPath } from './board/links'
 import { useBoard } from './board/useBoard'
 import { UndoHistory } from './board/useUndo'
 import { useLive } from './live/useLive'
@@ -323,6 +324,22 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
                   >
                     <RulesIcon />
                     Agent rules
+                  </button>
+                )}
+                {board && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="menu-item"
+                    title="Post-its deleted in the last 7 days"
+                    onClick={() => {
+                      close()
+                      // The board opens its trash window from the address.
+                      window.location.hash = trashPath(board.id).slice(1)
+                    }}
+                  >
+                    <TrashIcon />
+                    Deleted items
                   </button>
                 )}
                 {activeBoard && (

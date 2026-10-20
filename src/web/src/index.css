@@ -4203,3 +4203,183 @@ button.picker-color:hover,
   font-size: 13px;
   opacity: 0.95;
 }
+
+/* Collapsible buckets: a fold button next to the name, and the square a collapsed bucket becomes */
+
+.bucket-fold {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+
+/* Inside the top-right corner, in the same spot for the bucket and its collapsed square (they share that corner), so it can be clicked again and again. Clear of the post-its, which sit a grid step in. */
+.bucket > .bucket-fold,
+.bucket-collapsed > .bucket-fold {
+  top: 1px;
+  right: 1px;
+}
+
+.bucket-fold:hover {
+  background: var(--tool-hover);
+  color: var(--text);
+}
+
+.bucket-collapsed {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--frame-bg);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
+  color: var(--muted);
+  cursor: grab;
+  user-select: none;
+}
+
+.bucket-collapsed:hover {
+  border-color: var(--subtle);
+  color: var(--text-2);
+}
+
+.bucket-collapsed.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.bucket-collapsed.drop-target {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--frame-bg));
+  color: var(--accent);
+}
+
+.bucket-collapsed-count {
+  color: var(--text);
+  font: 600 26px/1 var(--mono);
+}
+
+.bucket-collapsed-name {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The trash window: an expanded post-it's frame with a dark band and a search that is always there */
+
+.trash-window .band.trash-band {
+  --fill: var(--panel-2);
+  gap: 12px;
+  padding: 14px 18px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+}
+
+.trash-band .band-button {
+  color: var(--text-2);
+}
+
+.trash-band .band-button:hover {
+  background: var(--tool-hover);
+}
+
+.trash-band :focus-visible {
+  outline-color: var(--accent);
+}
+
+.trash-band-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.trash-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg);
+  color: var(--subtle);
+  cursor: text;
+}
+
+.trash-search:focus-within {
+  border-color: var(--accent);
+}
+
+.trash-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.trash-search-count {
+  flex: none;
+  color: var(--subtle);
+  font: 11px var(--mono);
+}
+
+/* Only the grid scrolls, downwards: it is as wide as the window shows. */
+.trash-scroll {
+  overflow-x: hidden;
+}
+
+.trash-canvas {
+  cursor: default;
+}
+
+.trash-canvas .post-it {
+  cursor: grab;
+}
+
+.trash-canvas .leaving .post-it {
+  opacity: 0.3;
+}
+
+/* Put back takes the place of the people button on a post-it in the trash. */
+.put-back-slot {
+  align-items: center;
+  gap: 4px;
+}
+
+.post-it-put-back {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(23, 24, 27, 0.12);
+  color: var(--ink);
+}
+
+.post-it-put-back:hover {
+  background: rgba(23, 24, 27, 0.24);
+}

@@ -12,6 +12,11 @@ public class Bucket
     public int Y { get; set; }
     public int Width { get; set; }
     public int Height { get; set; }
+    /// <summary>
+    /// Folded up into a square (<see cref="Layout.CollapsedBucketSize"/>) in its top-right corner: its notes are hidden,
+    /// keeping their places for when it opens again. Notes elsewhere don't join it while it is collapsed.
+    /// </summary>
+    public bool Collapsed { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     /// <summary>When it was deleted; it can be restored until <see cref="Data.Tombstones.Retention"/> has passed. Hidden by the query filter while set.</summary>
     public DateTimeOffset? DeletedAt { get; set; }
