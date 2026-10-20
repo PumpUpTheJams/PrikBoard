@@ -94,11 +94,22 @@ export function ExpandedNote(props: ExpandedNoteProps) {
   const [hover, setHover] = useState(true)
   const dialogRef = useRef<HTMLElement>(null)
   const canvas = useRef<NoteCanvasHandle>(null)
+  const titleRef = useRef<HTMLInputElement & HTMLTextAreaElement>(null)
   const { rect, moving, startMove, startResize } = useFloatingWindow(dialogRef)
 
+  // Focus goes to the window, or for a post-it just stuck on the board to its title with the text selected, so typing
+  // replaces it. Only once the window shows: it is hidden until it has measured the board, and hidden things can't
+  // take focus.
+  const shown = rect !== null
   useEffect(() => {
-    if (!focusTitle) dialogRef.current?.focus({ preventScroll: true })
-  }, [focusTitle])
+    if (!shown) return
+    if (focusTitle && !readOnly && titleRef.current) {
+      titleRef.current.focus({ preventScroll: true })
+      titleRef.current.select()
+    } else {
+      dialogRef.current?.focus({ preventScroll: true })
+    }
+  }, [shown, focusTitle, readOnly])
 
   // Escape closes the post-it wherever focus is (it can end up on the page after saving the title). Fields and the
   // pickers handle their own Escape first and stop it from getting here.
@@ -198,7 +209,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
             label="Title"
             value={note.title}
             maxLength={200}
-            autoFocus={focusTitle && !readOnly}
+            fieldRef={titleRef}
             readOnly={readOnly}
             onSave={(title) => title.length > 0 && void onChange({ title })}
           />

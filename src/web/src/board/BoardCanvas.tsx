@@ -743,9 +743,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
   /** Opens a result as a post-it opens anywhere. The search keeps its words, so Escape comes back to the same results. */
   function openResult(id: string) {
+    // The opened post-it takes focus from the search field, so Escape and typing go to it.
     setSearch((s) => s && { ...s, current: id, listOpen: false })
-    // Out of the field, so Escape and typing go to the post-it, not to the search behind it.
-    searchInput.current?.blur()
     expand(id)
   }
 
