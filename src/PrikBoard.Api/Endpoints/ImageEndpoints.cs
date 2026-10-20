@@ -75,7 +75,7 @@ public static class ImageEndpoints
         }
 
         if ((Invalid(x is null != y is null, x is null ? "x" : "y", "Give x and y together.")
-            ?? Invalid(x is < 0 or > Layout.MaxCoordinate || y is < 0 or > Layout.MaxCoordinate, "x", $"Coordinates run from 0 to {Layout.MaxCoordinate}.")
+            ?? Invalid(x is < Layout.MinCoordinate or > Layout.MaxCoordinate || y is < Layout.MinCoordinate or > Layout.MaxCoordinate, "x", $"Coordinates run from {Layout.MinCoordinate} to {Layout.MaxCoordinate}.")
             ?? Invalid(width is < Layout.MinImageWidth or > Layout.MaxImageWidth, "width", $"Width runs from {Layout.MinImageWidth} to {Layout.MaxImageWidth}.")
             ?? Invalid(caption?.Length > 500, "caption", "A caption is at most 500 characters.")) is { } invalid)
         {
@@ -110,6 +110,7 @@ public static class ImageEndpoints
         };
         image.Resize(width ?? Math.Min(info.Width, Layout.DefaultImageWidth));
         await PlaceAsync(db, image, note, x, y, ct);
+        Layout.Place(image, await StackAsync(db, boardId, ct));
 
         await files.WriteAsync(image.File, data, ct);
         db.Images.Add(image);
@@ -156,6 +157,11 @@ public static class ImageEndpoints
         else
         {
             (image.X, image.Y) = Layout.OnNoteCanvas(request.X ?? image.X, request.Y ?? image.Y, image.Width, image.Height);
+        }
+        // An image that moved (or changed size) joins the bucket it now sits in; only a new caption leaves it where it is.
+        if (moving || request.X is not null || request.Y is not null || request.Width is not null)
+        {
+            Layout.Place(image, await StackAsync(db, image.BoardId, ct));
         }
         image.Caption = PatchText.Apply(image.Caption, request.Caption);
         image.UpdatedAt = DateTimeOffset.UtcNow;
@@ -209,9 +215,14 @@ public static class ImageEndpoints
         }
 
         image.DeletedAt = null;
+        Layout.Recheck(image, await StackAsync(db, image.BoardId, ct));
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok(ImageDetail.From(image));
     }
+
+    /// <summary>The board's buckets, back to front: what decides which bucket an image joins.</summary>
+    private static async Task<List<Bucket>> StackAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
+        Layout.BackToFront(await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct));
 
     /// <summary>The whole body, or null when it is longer than <paramref name="limit"/> bytes.</summary>
     private static async Task<byte[]?> ReadUpTo(Stream body, int limit, CancellationToken ct)

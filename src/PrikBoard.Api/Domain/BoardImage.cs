@@ -10,6 +10,11 @@ public class BoardImage
     public Guid BoardId { get; set; }
     public Board? Board { get; set; }
     public Guid? NoteId { get; set; }
+    /// <summary>
+    /// The bucket the image sits in on the board (it moves along with it), or null when it is loose or attached to a
+    /// note. Maintained by <see cref="Layout"/>, like <see cref="Note.BucketId"/>.
+    /// </summary>
+    public Guid? BucketId { get; set; }
     /// <summary>Intrinsic size of the image in pixels.</summary>
     public int PixelWidth { get; set; }
     public int PixelHeight { get; set; }

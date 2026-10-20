@@ -255,9 +255,9 @@ public static class NoteEndpoints
             .Where(i => i.NoteId == noteId && i.DeletedAt == stamp)
             .ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, (DateTimeOffset?)null), ct);
         // UpdatedAt stays, so the post-it goes back to its place in the stacking order too.
+        // Back in its bucket if that is still around it, or wherever it now lands.
         var buckets = await db.Buckets.Where(b => b.BoardId == note.BoardId).ToListAsync(ct);
-        var others = await db.Notes.Where(n => n.BoardId == note.BoardId && n.Id != noteId).ToListAsync(ct);
-        Layout.AssignBuckets([note, .. others], buckets);
+        Layout.Recheck(note, Layout.BackToFront(buckets));
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         return TypedResults.Ok(await DetailAsync(db, note, ct));
@@ -278,8 +278,9 @@ public static class NoteEndpoints
         NoteDetail.From(note, await PrincipalsOnAsync(db, [note], ct));
 
     /// <summary>
-    /// Positions <paramref name="note"/> exactly at X and Y, or in a free spot inside the bucket, or (with neither)
-    /// in a free spot on the board, then sets its bucket from where it landed. Returns a problem for an invalid combination.
+    /// Positions <paramref name="note"/> exactly at X and Y, or in a free spot inside the bucket (and in it), or (with
+    /// neither) in a free spot on the board, then sets its bucket from where it landed. Other notes keep theirs. Returns a
+    /// problem for an invalid combination.
     /// </summary>
     private static ValidationProblem? Place(
         Note note, Guid? bucketId, int? x, int? y, List<Bucket> buckets, List<Note> others)
@@ -299,9 +300,11 @@ public static class NoteEndpoints
             });
         }
 
+        var stacked = Layout.BackToFront(buckets);
         if (x is { } exactX && y is { } exactY)
         {
             (note.X, note.Y) = (Layout.Snap(exactX), Layout.Snap(exactY));
+            Layout.Place(note, stacked);
         }
         else if (bucketId is { } id)
         {
@@ -313,15 +316,16 @@ public static class NoteEndpoints
                     ["bucketId"] = ["The bucket does not exist on this board."],
                 });
             }
-            (note.X, note.Y) = Layout.MakeRoomIn(bucket, others);
+            (note.X, note.Y) = Layout.MakeRoomIn(bucket, others, buckets);
+            note.BucketId = bucket.Id;
+            // A bucket that grew to make room can now cover loose notes too.
+            Layout.Adopt(bucket, stacked, others, [], looseOnly: true);
         }
         else
         {
             (note.X, note.Y) = Layout.FreeSpotOutside(buckets, others);
+            Layout.Place(note, stacked);
         }
-
-        // A bucket that grew to make room can now cover loose notes too.
-        Layout.AssignBuckets([note, .. others], buckets);
         return null;
     }
 

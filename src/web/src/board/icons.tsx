@@ -78,14 +78,6 @@ export const ExpandIcon = ({ size = 14 }: IconProps) => (
   </Icon>
 )
 
-/** Stacked sheets: what a post-it holds inside. */
-export const LayersIcon = ({ size = 12 }: IconProps) => (
-  <Icon size={size} width={2.2}>
-    <path d="M12 3 3 8l9 5 9-5z" />
-    <path d="m3 13 9 5 9-5" />
-  </Icon>
-)
-
 export const CloseIcon = ({ size = 16 }: IconProps) => (
   <Icon size={size} width={2.2}>
     <path d="M6 6l12 12M18 6L6 18" />

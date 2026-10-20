@@ -2,9 +2,11 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent,
 import type { NoteDetail, Point } from '../api/types'
 import { AvatarStack } from '../components/Avatar'
 import { Highlight } from './Highlight'
-import { ExpandIcon, LayersIcon } from './icons'
+import { CheckIcon, ExpandIcon, LinkIcon } from './icons'
 import { NOTE_HEIGHT, NOTE_WIDTH } from './layout'
+import { keepPress } from './gesture'
 import { tagColorClass, type TagColors } from './tagColors'
+import { useCopyLink } from './useCopyLink'
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
 
@@ -68,7 +70,8 @@ interface PostItProps {
 
 /**
  * On the board a post-it shows its title, tags, assignees and how many things it holds. Everything else lives inside
- * (see ExpandedNote).
+ * (see ExpandedNote). The count sits in the top-right corner (the expand button when there's nothing inside); on hover
+ * it becomes the expand button, with copy link below it.
  */
 export function PostIt(props: PostItProps) {
   const { note, point, images = 0, tagColors, selected, lifted, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
@@ -76,6 +79,7 @@ export function PostIt(props: PostItProps) {
   /** A saved title, shown until the reload brings it (while the server still has `from`). */
   const [saved, setSaved] = useState<{ title: string; from: string } | null>(null)
   const title = saved && saved.from === note.title ? saved.title : note.title
+  const { copied, copy } = useCopyLink(note)
 
   function rename(next: string) {
     onTitleDone?.()
@@ -91,6 +95,7 @@ export function PostIt(props: PostItProps) {
   if (dimmed) classes.push('dimmed')
   if (current) classes.push('search-current')
   if (dropTarget) classes.push('drop-target')
+  if (copied !== null) classes.push('link-copied')
 
   const tags = note.tags.map((tag) => (
     <span key={tag} className={`tag${tagColorClass(tagColors, tag)}`}>
@@ -101,6 +106,9 @@ export function PostIt(props: PostItProps) {
     note.assignees.length > 0 ? <AvatarStack assignees={note.assignees} /> : <span className="avatar-slot" aria-hidden="true" />
   const contents = note.blocks.length + images
   const summary = contentSummary(note, images)
+  // The corner's buttons work on a click of their own: no drag (keepPress, which lets the middle button pan), and a
+  // double-click doesn't expand the post-it twice.
+  const stop = (e: PointerEvent | MouseEvent) => e.stopPropagation()
 
   return (
     <div
@@ -122,20 +130,31 @@ export function PostIt(props: PostItProps) {
             <Highlight text={title} terms={highlight} />
           </span>
         )}
+      </div>
+      <div className={`post-it-corner${contents > 0 ? '' : ' no-count'}`}>
+        {contents > 0 && (
+          <span className="post-it-count" role="img" title={summary} aria-label={summary}>
+            {contents}
+          </span>
+        )}
+        <button type="button" className="expand" aria-label={`Expand ${title}`} title="Expand" onPointerDown={keepPress} onClick={onExpand}>
+          <ExpandIcon size={13} />
+        </button>
         <button
           type="button"
-          className="post-it-expand"
-          aria-label={`Expand ${title}`}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={onExpand}
+          className={copied ? 'copied' : undefined}
+          aria-label={`Copy a link to ${title}`}
+          title="Copy link"
+          onPointerDown={keepPress}
+          onDoubleClick={stop}
+          onClick={copy}
         >
-          <ExpandIcon />
+          {copied ? <CheckIcon size={13} /> : <LinkIcon size={13} />}
         </button>
       </div>
-      {contents > 0 && (
-        <span className="post-it-contents" role="img" title={summary} aria-label={summary}>
-          <LayersIcon />
-          {contents}
+      {copied !== null && (
+        <span className="post-it-copied" role="status">
+          {copied ? 'Link copied' : "Couldn't copy the link"}
         </span>
       )}
       <div className="post-it-foot">
@@ -159,8 +178,9 @@ export function PostIt(props: PostItProps) {
 }
 
 /**
- * The title edited in place: Enter (or clicking elsewhere) saves, Escape cancels. Pointer and double-click events stay
- * inside, so selecting text doesn't drag the post-it and a double-click selects a word instead of expanding it.
+ * The title edited in place: Enter (or clicking elsewhere) saves, Escape cancels. Presses (but the middle button's, which
+ * pans) and double-clicks stay inside, so selecting text doesn't drag the post-it and a double-click selects a word
+ * instead of expanding it.
  */
 function TitleInput(props: { value: string; caret?: number; onSave: (title: string) => void; onCancel: () => void }) {
   const { value, caret, onSave, onCancel } = props
@@ -200,7 +220,7 @@ function TitleInput(props: { value: string; caret?: number; onSave: (title: stri
       value={draft}
       maxLength={200}
       onChange={(e) => setDraft(e.target.value)}
-      onPointerDown={stop}
+      onPointerDown={keepPress}
       onDoubleClick={stop}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
@@ -226,7 +246,7 @@ function QuickEdit({ className, label, onOpen, children }: { className: string; 
       className={`${className} quick-edit`}
       aria-label={label}
       aria-haspopup="dialog"
-      onPointerDown={stop}
+      onPointerDown={keepPress}
       onDoubleClick={stop}
       onClick={(e) => onOpen(e.currentTarget.getBoundingClientRect())}
     >

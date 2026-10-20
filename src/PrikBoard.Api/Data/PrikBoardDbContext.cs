@@ -90,6 +90,8 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             image.HasOne(i => i.Board).WithMany(b => b.Images).HasForeignKey(i => i.BoardId).OnDelete(DeleteBehavior.Cascade);
             // An attached image goes when its note goes.
             image.HasOne<Note>().WithMany().HasForeignKey(i => i.NoteId).OnDelete(DeleteBehavior.Cascade);
+            // Like a note, an image in a purged bucket stays on the board, loose.
+            image.HasOne<Bucket>().WithMany().HasForeignKey(i => i.BucketId).OnDelete(DeleteBehavior.SetNull);
             // Files are deleted by the sweep once nothing refers to them (FileStore.SweepAsync), never by a cascade.
             image.HasOne(i => i.File).WithOne().HasForeignKey<BoardImage>(i => i.FileId).OnDelete(DeleteBehavior.Restrict);
             image.HasIndex(i => i.BoardId);
