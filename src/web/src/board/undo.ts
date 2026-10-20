@@ -237,7 +237,7 @@ export async function apply(entry: UndoEntry, direction: UndoDirection, boardId:
     const from = direction === 'undo' ? change.after : change.before
     const to = direction === 'undo' ? change.before : change.after
     await write(change.target, from, to, boardId)
-    if (change.target.kind === 'bucket' && from && to) await fixCarried(entry, direction, from, to)
+    if (change.target.kind === 'bucket' && from && to) await fixCarried(entry, direction, change.target.carry, from, to)
   }
 }
 
@@ -327,15 +327,17 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
 
 /**
  * A moved bucket carries its post-its, images and drawings by the same distance, but never past the end of the coordinate range.
- * One that was stopped there on the way doesn't come back exactly, so it is put where it belongs.
+ * One that was stopped there on the way doesn't come back exactly, so it is put where it belongs. Only what this bucket
+ * carried: a step that moved several buckets has the others' too.
  */
-async function fixCarried(entry: UndoEntry, direction: UndoDirection, from: Snapshot, to: Snapshot) {
+async function fixCarried(entry: UndoEntry, direction: UndoDirection, carry: BucketCarry | undefined, from: Snapshot, to: Snapshot) {
   if (!('x' in to) || 'width' in to || 'height' in to) return
   const dx = (to.x as number) - (from.x as number)
   const dy = (to.y as number) - (from.y as number)
+  const carried = new Set([...(carry?.notes ?? []), ...(carry?.images ?? []), ...(carry?.drawings ?? [])])
   for (const change of entry.changes) {
     const kind = change.target.kind
-    if (!change.implied || (kind !== 'note' && kind !== 'image' && kind !== 'drawing')) continue
+    if (!change.implied || (kind !== 'note' && kind !== 'image' && kind !== 'drawing') || !carried.has(change.target.id)) continue
     const was = direction === 'undo' ? change.after : change.before
     const goal = direction === 'undo' ? change.before : change.after
     if (!was || !goal) continue

@@ -104,12 +104,17 @@ public sealed class BoardHub(LiveViewers viewers, PrikBoardDbContext db) : Hub<I
             throw new HubException("That is not a drag on the board.");
         }
 
+        if (update.Kind == DragKind.Group ? update.Items is not { Count: > 0 and <= DragUpdate.MaxItems } : update.Items is not null)
+        {
+            throw new HubException($"A Group drag lists between 1 and {DragUpdate.MaxItems} items; other drags list none.");
+        }
+
         var now = Stopwatch.GetTimestamp();
         if (now - entry.LastDragAt < DragInterval) return;
         viewers.Update(Context.ConnectionId, e => e with { LastDragAt = now });
 
         await Clients.OthersInGroup(Group(boardId)).Dragging(
-            new RemoteDrag(entry.Key, entry.PrincipalId, entry.DisplayName, update.Kind, update.Id, update.Dx, update.Dy, update.Handle));
+            new RemoteDrag(entry.Key, entry.PrincipalId, entry.DisplayName, update.Kind, update.Id, update.Dx, update.Dy, update.Handle, update.Items));
     }
 
     /// <summary>The drag is over (dropped or cancelled).</summary>

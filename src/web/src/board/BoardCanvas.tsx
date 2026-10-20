@@ -56,6 +56,8 @@ import { PostIt } from './PostIt'
 import { resizeCursor } from './resizeCursor'
 import { ResizeHandles } from './ResizeHandles'
 import { matchNote, searchTerms, type SearchField } from './search'
+import { adds, isPicked, mergePicked, togglePicked, touches, useSpaceHeld } from './selection'
+import { shakeDetector } from './shake'
 import { tagColorsOf, type TagColorPreview } from './tagColors'
 import { TagFilter } from './TagFilter'
 import { TagPicker } from './TagPicker'
@@ -63,7 +65,7 @@ import { ToolRail } from './ToolRail'
 import { toolKeys, type Tool } from './tools'
 import type { IncomingDrawing, IncomingImage } from './NoteCanvas'
 import type { BoardState } from './useBoard'
-import { created, deleted, noteEdit, patched, snap, step, target, type RecordingRun, type UndoEntry } from './undo'
+import { created, deleted, noteEdit, patched, snap, step, target, type RecordingRun, type UndoChange, type UndoEntry } from './undo'
 import { useStroke } from './useStroke'
 import { useUndo, type UndoHistory } from './useUndo'
 import { useZoom } from './useZoom'
@@ -72,8 +74,10 @@ import { stepZoom } from './zoom'
 
 // Loaded on first open: the Markdown renderer is the biggest part of it.
 
+type SelectionKind = 'note' | 'bucket' | 'image' | 'drawing'
+
 interface Selection {
-  kind: 'note' | 'bucket' | 'image' | 'drawing'
+  kind: SelectionKind
   id: string
   /** Just created: its name or title is focused so it can be typed straight away. */
   fresh?: boolean
@@ -85,8 +89,17 @@ interface Selection {
  */
 type Gesture = GestureTarget & { start: Point; current: Point; done?: boolean }
 type ItemGesture = 'note' | 'bucket' | 'resize' | 'image' | 'image-resize' | 'drawing'
-/** `handle`: for resizes, the corner or edge being dragged. */
-type GestureTarget = { kind: ItemGesture; id: string; handle?: ResizeHandle } | { kind: 'draw' }
+/**
+ * `handle`: for resizes, the corner or edge being dragged. `group`: moving several selected items at once, `held` the
+ * one pressed and `members` the ones that move themselves (not those in a bucket that moves too: it carries them);
+ * post-its only, shaken, they line up in a grid (`grid`: where each goes, before the drag's distance is added).
+ * `select`: the selection rectangle, over the board or inside one bucket (`bucketId`), adding to `base`.
+ */
+type GestureTarget =
+  | { kind: ItemGesture; id: string; handle?: ResizeHandle }
+  | { kind: 'draw' }
+  | { kind: 'group'; id: string; held: SelectionKind; members: Selection[]; grid?: Record<string, Point> }
+  | { kind: 'select'; bucketId: string | null; base: Selection[] }
 
 /**
  * Where a dragged post-it would be linked on release: the open post-it's window (`window`; `at` is the point on its
@@ -131,7 +144,7 @@ interface ActiveDrag {
   handle: ResizeHandle
 }
 
-const fromDragKind: Record<DragKind, ItemGesture> = {
+const fromDragKind: Record<Exclude<DragKind, 'Group'>, ItemGesture> = {
   Note: 'note',
   Bucket: 'bucket',
   Resize: 'resize',
@@ -187,7 +200,18 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   /** The stroke being drawn with the pen. */
   const pen = useStroke((e) => toCanvas(e))
   const stroke = pen.stroke
-  const [selection, setSelection] = useState<Selection | null>(null)
+  /** The selected items: one, or several (Shift or Ctrl/Cmd + click, or the selection rectangle). */
+  const [selected, setSelected] = useState<Selection[]>([])
+  /** The one item selected, for what works on a single item (its panel, its resize handles); null with none or several. */
+  const selection = selected.length === 1 ? selected[0] : null
+  const setSelection = useCallback((item: Selection | null) => setSelected(item ? [item] : []), [])
+  const isSelected = (kind: SelectionKind, id: string) => isPicked(selected, kind, id)
+  /** Takes an item out of the selection (it was deleted). */
+  const unselect = (id: string) => setSelected((list) => (list.some((s) => s.id === id) ? list.filter((s) => s.id !== id) : list))
+  /** Whether someone else is dragging an item right now, by itself or with others. */
+  const remoteMoving = (id: string) => remoteDrags.some((r) => !r.endedAt && (r.id === id || r.items?.includes(id)))
+  /** Space is held: a left press pans, as the middle button does. */
+  const spaceHeld = useSpaceHeld()
   /** The opened post-it. A link to a post-it (/#/boards/{shortId}/notes/{number}) opens it when the board loads. */
   const [expanded, setExpanded] = useState<{ id: string; fresh: boolean } | null>(() => {
     const id = noteInHash(board)
@@ -226,6 +250,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
    */
   const notePresses = useRef<[string | null, string | null]>([null, null])
   const [gesture, setGesture] = useState<Gesture | null>(null)
+  /** Whether the drag in progress has become a shake (post-its shaken together line up in a grid). */
+  const shaken = useRef(shakeDetector())
   const [pan, setPan] = useState<Pan | null>(null)
   /** A drag in progress on the open post-it's canvas. */
   const [noteBusy, setNoteBusy] = useState(false)
@@ -293,13 +319,13 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     history: undoHistory,
     run,
     notify,
-    moving: (id) => remoteDrags.some((r) => r.id === id && !r.endedAt),
+    moving: (id) => remoteMoving(id),
     onApplied: (entry, direction) => {
       // A post-it or item that is gone now closes and is no longer selected.
       for (const { target: t, before, after } of entry.changes) {
         if ((direction === 'undo' ? before : after) !== null) continue
         if (t.kind === 'note' && expanded?.id === t.id) setExpanded(null)
-        if (selection?.id === t.id) setSelection(null)
+        unselect(t.id)
       }
     },
   })
@@ -337,7 +363,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
-  }, [board])
+  }, [board, setSelection])
 
   // The margin follows the viewport's size. When it changes (the first measurement, a resized window), the scroll
   // position moves by as much, so what is on screen stays where it is; a board opens with its top-left corner in view.
@@ -378,6 +404,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         setSelection(null)
       } else if (readOnly) {
         if (e.key.toLowerCase() === 'v') setTool('select')
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selected.length > 1) {
+        // Several at once: buckets too (what is in them stays). The toast's Undo puts them all back.
+        e.preventDefault()
+        if (!e.repeat && !gesture) deleteSelected()
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && selection && selection.kind !== 'bucket') {
         // No question first: the toast that follows has an Undo button, and Ctrl/Cmd+Z works too.
         e.preventDefault()
@@ -522,7 +552,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   /** Folds a bucket up into a square in its top-right corner, hiding its post-its, or opens it again with them where they were. */
   function toggleCollapsed(bucket: BucketDetail) {
     const collapsed = !bucket.collapsed
-    if (collapsed && selection?.kind === 'note' && board.notes.find((n) => n.id === selection.id)?.bucketId === bucket.id) setSelection(null)
+    // What folds away with it is no longer selected.
+    if (collapsed) setSelected((list) => list.filter((s) => s.kind === 'bucket' || bucketOf(s) !== bucket.id))
     void settle(
       () => api.updateBucket(bucket.id, { collapsed }),
       (after) => step(collapsed ? 'Collapse bucket' : 'Open bucket', [patched(target.bucket(bucket.id), snap.bucket(bucket), snap.bucket(after), ['collapsed'])]),
@@ -584,7 +615,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   function deleteImage(id: string) {
     const image = board.images.find((i) => i.id === id)
     if (!image) return
-    if (selection?.id === id) setSelection(null)
+    unselect(id)
     void settle(
       () => api.deleteImage(id),
       () => step('Delete image', [deleted(target.image(id), snap.image(image))], { toast: 'Image deleted' }),
@@ -594,7 +625,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   function deleteDrawing(id: string) {
     const drawing = board.drawings.find((d) => d.id === id)
     if (!drawing) return
-    if (selection?.id === id) setSelection(null)
+    unselect(id)
     void settle(
       () => api.deleteDrawing(id),
       () => step('Delete drawing', [deleted(target.drawing(id), snap.drawing(drawing))], { toast: 'Drawing deleted' }),
@@ -606,6 +637,176 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       () => api.updateDrawing(drawing.id, { color }),
       (after) => step('Change ink', [patched(target.drawing(drawing.id), snap.drawing(drawing), snap.drawing(after), ['color'])]),
     )
+  }
+
+  /** What kind of item an id is on this board, if it is on it. */
+  function kindOf(id: string): SelectionKind | undefined {
+    if (board.notes.some((n) => n.id === id)) return 'note'
+    if (board.buckets.some((b) => b.id === id)) return 'bucket'
+    if (board.images.some((i) => i.id === id)) return 'image'
+    if (board.drawings.some((d) => d.id === id)) return 'drawing'
+    return undefined
+  }
+
+  /** The bucket a selected post-it, image or drawing is in (null: loose). */
+  function bucketOf(item: Selection): string | null {
+    const list: { id: string; bucketId: string | null }[] =
+      item.kind === 'note' ? board.notes : item.kind === 'image' ? board.images : item.kind === 'drawing' ? board.drawings : []
+    return list.find((i) => i.id === item.id)?.bucketId ?? null
+  }
+
+  /** Everything a request in several changes did, as one step: what made it, when one of them fails. */
+  async function runAll(label: string, toast: string | undefined, work: (changes: (UndoChange | null)[]) => Promise<unknown>) {
+    const ok = await undo.track(
+      run(async () => {
+        const changes: (UndoChange | null)[] = []
+        try {
+          await work(changes)
+        } finally {
+          const entry = step(label, changes, { toast })
+          if (entry) undo.record(entry)
+        }
+      }),
+    )
+    setGesture(null)
+    return ok
+  }
+
+  /** Waits for all of them, then fails with the first failure, if any (the ones that worked still count). */
+  async function allOf(requests: Promise<unknown>[]) {
+    const failed = (await Promise.allSettled(requests)).find((r) => r.status === 'rejected')
+    if (failed) throw failed.reason
+  }
+
+  const count = (n: number, one: string, many: string) => (n === 1 ? `1 ${one}` : `${n} ${many}`)
+
+  /** Deletes the selected items at once, as one step; buckets go but what is in them stays. */
+  function deleteSelected() {
+    const items = selected
+    if (items.some((s) => s.kind === 'note' && s.id === expanded?.id)) setExpanded(null)
+    setSelected([])
+    void runAll(`Delete ${count(items.length, 'item', 'items')}`, `${count(items.length, 'item', 'items')} deleted`, (changes) =>
+      allOf(
+        items.map(async ({ kind, id }) => {
+          if (kind === 'note') {
+            const note = board.notes.find((n) => n.id === id)
+            if (!note) return
+            await api.deleteNote(id)
+            changes.push(deleted(target.note(id), snap.note(note)))
+          } else if (kind === 'bucket') {
+            const bucket = board.buckets.find((b) => b.id === id)
+            if (!bucket) return
+            await api.deleteBucket(id)
+            changes.push(deleted(target.bucket(id), snap.bucket(bucket)))
+          } else if (kind === 'image') {
+            const image = board.images.find((i) => i.id === id)
+            if (!image) return
+            await api.deleteImage(id)
+            changes.push(deleted(target.image(id), snap.image(image)))
+          } else {
+            const drawing = board.drawings.find((d) => d.id === id)
+            if (!drawing) return
+            await api.deleteDrawing(id)
+            changes.push(deleted(target.drawing(id), snap.drawing(drawing)))
+          }
+        }),
+      ),
+    )
+  }
+
+  /**
+   * The step's changes for a bucket that moved: the bucket, and the post-its, images and drawings it carried along by
+   * the same distance (undoing the move takes exactly those back).
+   */
+  function bucketMove(bucket: BucketDetail, moved: BucketDetail): (UndoChange | null)[] {
+    const carried = board.notes.filter((n) => n.bucketId === bucket.id)
+    const carriedImages = board.images.filter((i) => i.bucketId === bucket.id)
+    const carriedDrawings = board.drawings.filter((d) => d.bucketId === bucket.id)
+    const d = { x: moved.x - bucket.x, y: moved.y - bucket.y }
+    const along = (item: Point) => ({ x: onBoard(item.x + d.x), y: onBoard(item.y + d.y) })
+    const carry = { notes: carried.map((n) => n.id), images: carriedImages.map((i) => i.id), drawings: carriedDrawings.map((d) => d.id) }
+    return [
+      patched(target.bucket(bucket.id, carry), snap.bucket(bucket), snap.bucket(moved), ['x', 'y']),
+      ...carried.map((n) => patched(target.note(n.id), { x: n.x, y: n.y }, along(n), ['x', 'y'], true)),
+      ...carriedImages.map((i) => patched(target.image(i.id), { x: i.x, y: i.y }, along(i), ['x', 'y'], true)),
+      ...carriedDrawings.map((dr) => patched(target.drawing(dr.id), { x: dr.x, y: dr.y }, along(dr), ['x', 'y'], true)),
+    ]
+  }
+
+  /**
+   * Where shaken post-its go: a grid as square as it can be, one grid step apart, in the order they were read in (top
+   * to bottom, then left to right), placed so the post-it held stays where it is. Undefined unless they are all
+   * post-its (two or more).
+   */
+  function gridFor(heldId: string, members: Selection[]): Record<string, Point> | undefined {
+    if (members.length < 2 || members.some((m) => m.kind !== 'note')) return undefined
+    const notes = members
+      .flatMap((m) => board.notes.filter((n) => n.id === m.id))
+      .toSorted((a, b) => a.y - b.y || a.x - b.x)
+    const held = notes.find((n) => n.id === heldId)
+    if (!held || notes.length < 2) return undefined
+    const columns = Math.ceil(Math.sqrt(notes.length))
+    const cell = (i: number) => ({ x: (i % columns) * (NOTE_WIDTH + GRID), y: Math.floor(i / columns) * (NOTE_HEIGHT + GRID) })
+    const own = cell(notes.indexOf(held))
+    return Object.fromEntries(notes.map((n, i) => [n.id, { x: held.x - own.x + cell(i).x, y: held.y - own.y + cell(i).y }]))
+  }
+
+  /**
+   * Drops several items moved together, where the drag shows them. Buckets go first, carrying what is in them, so the
+   * loose items that follow land among them as they are shown.
+   */
+  function moveGroup(members: Selection[], label = `Move ${count(members.length, 'item', 'items')}`) {
+    const groupBuckets = members.flatMap((m) => (m.kind === 'bucket' ? board.buckets.filter((b) => b.id === m.id) : []))
+    const groupNotes = members.flatMap((m) => (m.kind === 'note' ? board.notes.filter((n) => n.id === m.id) : []))
+    const groupImages = members.flatMap((m) => (m.kind === 'image' ? board.images.filter((i) => i.id === m.id) : []))
+    const groupDrawings = members.flatMap((m) => (m.kind === 'drawing' ? board.drawings.filter((d) => d.id === m.id) : []))
+    // Where they go, worked out now: the drag ends with the first reply.
+    const spots = new Map<string, Point>([
+      ...groupBuckets.map((b) => [b.id, bucketRect(b)] as const),
+      ...groupNotes.map((n) => [n.id, notePoint(n)] as const),
+      ...groupImages.map((i) => [i.id, imageRect(i)] as const),
+      ...groupDrawings.map((d) => [d.id, drawingRect(d)] as const),
+    ])
+    const to = (id: string) => ({ x: spots.get(id)!.x, y: spots.get(id)!.y })
+    void runAll(label, undefined, async (changes) => {
+      await allOf(groupBuckets.map(async (b) => changes.push(...bucketMove(b, await api.updateBucket(b.id, to(b.id))))))
+      await allOf([
+        ...groupNotes.map(async (n) => {
+          const moved = await api.moveNote(n.id, to(n.id))
+          changes.push(patched(target.note(n.id), snap.note(n), snap.note(moved), ['x', 'y']))
+        }),
+        ...groupImages.map(async (i) => {
+          const moved = await api.updateImage(i.id, to(i.id))
+          changes.push(patched(target.image(i.id), snap.image(i), snap.image(moved), ['x', 'y']))
+        }),
+        ...groupDrawings.map(async (d) => {
+          const moved = await api.updateDrawing(d.id, to(d.id))
+          changes.push(patched(target.drawing(d.id), snap.drawing(d), snap.drawing(moved), ['x', 'y']))
+        }),
+      ])
+    })
+  }
+
+  /**
+   * What the selection rectangle takes: over the board, the buckets and loose items it touches; inside a bucket, that
+   * bucket's own items it touches. Folded-away items aren't on the board to take.
+   */
+  function inRectangle(rect: Rect, bucketId: string | null): Selection[] {
+    const loose = (item: { bucketId: string | null }) => item.bucketId === bucketId
+    return [
+      ...(bucketId
+        ? []
+        : board.buckets
+            .filter((b) => touches(rect, b.collapsed ? collapsedRect(b) : b))
+            .map((b) => ({ kind: 'bucket' as const, id: b.id }))),
+      ...visibleNotes
+        .filter((n) => loose(n) && touches(rect, { x: n.x, y: n.y, width: NOTE_WIDTH, height: NOTE_HEIGHT }))
+        .map((n) => ({ kind: 'note' as const, id: n.id })),
+      ...images.filter(({ image, rect: r }) => loose(image) && touches(rect, r)).map(({ image }) => ({ kind: 'image' as const, id: image.id })),
+      ...drawings
+        .filter(({ drawing, rect: r }) => loose(drawing) && touches(rect, r))
+        .map(({ drawing }) => ({ kind: 'drawing' as const, id: drawing.id })),
+    ]
   }
 
   /** The middle of what is on screen, in canvas pixels. */
@@ -648,18 +849,39 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }
 
   // Live geometry: the server's layout, with the drags in progress applied on top (yours wins over someone else's).
-  const dragging = gesture && gesture.kind !== 'draw' && isDrag(gesture) ? gesture : null
+  const dragging = gesture && gesture.kind !== 'draw' && gesture.kind !== 'select' && isDrag(gesture) ? gesture : null
+  /** Several items moving together each move by the same distance; post-its lined up in a grid go to their place in it. */
+  const groupDrags = (members: Selection[], d: Point, grid?: Record<string, Point>): ActiveDrag[] =>
+    members.map(({ kind, id }) => {
+      const cell = grid?.[id]
+      const note = cell && board.notes.find((n) => n.id === id)
+      return { kind, id, d: note ? { x: cell.x - note.x + d.x, y: cell.y - note.y + d.y } : d, handle: 'BottomRight' }
+    })
   const drags: ActiveDrag[] = [
-    ...(dragging ? [{ kind: dragging.kind, id: dragging.id, d: delta(dragging), handle: dragging.handle ?? 'BottomRight' }] : []),
-    ...remoteDrags.map((r) => ({ kind: fromDragKind[r.kind], id: r.id, d: { x: r.dx, y: r.dy }, handle: r.handle ?? 'BottomRight' })),
+    ...(!dragging
+      ? []
+      : dragging.kind === 'group'
+        ? groupDrags(dragging.members, delta(dragging), dragging.grid)
+        : [{ kind: dragging.kind, id: dragging.id, d: delta(dragging), handle: dragging.handle ?? 'BottomRight' }]),
+    ...remoteDrags.flatMap((r): ActiveDrag[] => {
+      const d = { x: r.dx, y: r.dy }
+      if (r.kind !== 'Group') return [{ kind: fromDragKind[r.kind], id: r.id, d, handle: r.handle ?? 'BottomRight' }]
+      return groupDrags((r.items ?? []).flatMap((id) => (kindOf(id) ? [{ kind: kindOf(id)!, id }] : [])), d)
+    }),
   ]
   const dragOf = (id: string | null) => (id === null ? undefined : drags.find((g) => g.id === id))
+  /** Whether an item is lifted by your own drag in progress: by itself, or with the others selected. */
+  const lifting = (id: string) =>
+    !!dragging && !dragging.done && (dragging.kind === 'group' ? dragging.members.some((m) => m.id === id) : dragging.id === id)
 
   // Tell the others about your drag while it is in progress (as a string, so an unchanged drag sends nothing).
-  const sentDrag =
-    dragging && !dragging.done && toDragKind[dragging.kind]
-      ? JSON.stringify({ kind: toDragKind[dragging.kind], id: dragging.id, dx: delta(dragging).x, dy: delta(dragging).y, handle: dragging.handle })
-      : null
+  const sentDrag = !dragging || dragging.done
+    ? null
+    : dragging.kind === 'group'
+      ? JSON.stringify({ kind: 'Group', id: dragging.id, dx: delta(dragging).x, dy: delta(dragging).y, items: dragging.members.map((m) => m.id) })
+      : toDragKind[dragging.kind]
+        ? JSON.stringify({ kind: toDragKind[dragging.kind], id: dragging.id, dx: delta(dragging).x, dy: delta(dragging).y, handle: dragging.handle })
+        : null
   useEffect(() => onDrag?.(sentDrag ? (JSON.parse(sentDrag) as DragUpdate) : null), [sentDrag, onDrag])
 
   function bucketRect(bucket: BucketDetail): Rect {
@@ -711,20 +933,37 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     return { ...drawing, x: onBoard(drawing.x + moved.x - bucket.x), y: onBoard(drawing.y + moved.y - bucket.y) }
   }
 
-  /** Where someone else's drag is right now, to outline it with their name. */
-  function remoteRect(drag: LiveDrag): Rect | null {
-    const kind = fromDragKind[drag.kind]
+  /** Where an item on the board is shown right now (moving or not); null when it isn't on the board. */
+  function liveRect(kind: SelectionKind, id: string): Rect | null {
     if (kind === 'note') {
-      const note = board.notes.find((n) => n.id === drag.id)
+      const note = board.notes.find((n) => n.id === id)
       return note ? { ...notePoint(note), width: NOTE_WIDTH, height: NOTE_HEIGHT } : null
     }
-    if (kind === 'bucket' || kind === 'resize') {
-      const bucket = board.buckets.find((b) => b.id === drag.id)
+    if (kind === 'bucket') {
+      const bucket = board.buckets.find((b) => b.id === id)
       if (!bucket) return null
       return bucket.collapsed ? collapsedRect(bucketRect(bucket)) : bucketRect(bucket)
     }
-    const image = board.images.find((i) => i.id === drag.id && i.noteId === null)
+    if (kind === 'drawing') {
+      const drawing = board.drawings.find((d) => d.id === id && d.noteId === null)
+      return drawing ? drawingRect(drawing) : null
+    }
+    const image = board.images.find((i) => i.id === id && i.noteId === null)
     return image ? imageRect(image) : null
+  }
+
+  /** Where someone else's drag is right now, to outline it with their name: one item, or each of several moving together. */
+  function remoteRects(drag: LiveDrag): Rect[] {
+    if (drag.kind !== 'Group') {
+      const kind = fromDragKind[drag.kind]
+      const rect = liveRect(kind === 'resize' ? 'bucket' : kind === 'image-resize' ? 'image' : (kind as SelectionKind), drag.id)
+      return rect ? [rect] : []
+    }
+    return (drag.items ?? []).flatMap((id) => {
+      const kind = kindOf(id)
+      const rect = kind && liveRect(kind, id)
+      return rect ? [rect] : []
+    })
   }
 
   function toCanvas(e: { clientX: number; clientY: number }): Point {
@@ -920,15 +1159,17 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     setQuickEdit(null)
     const point = toCanvas(e)
     canvasRef.current!.setPointerCapture(e.pointerId)
+    shaken.current = shakeDetector()
     setGesture({ ...target, start: point, current: point })
   }
 
   /**
-   * A press on an item: selects it and starts dragging it (`handle`: resizing from that corner or edge). With `move` false it
-   * only selects, as a press inside a bucket that isn't selected yet does.
+   * A press on an item: selects it and starts dragging it (`handle`: resizing from that corner or edge). One of several
+   * selected drags them all; with Shift or Ctrl/Cmd it joins or leaves the selection instead. With Space held, the
+   * press goes on to the canvas, which pans.
    */
-  function onItemPointerDown(e: PointerEvent<HTMLElement>, kind: ItemGesture, id: string, { handle, move = true }: { handle?: ResizeHandle; move?: boolean } = {}) {
-    if (e.button !== 0 || tool !== 'select') return
+  function onItemPointerDown(e: PointerEvent<HTMLElement>, kind: ItemGesture, id: string, { handle }: { handle?: ResizeHandle } = {}) {
+    if (e.button !== 0 || tool !== 'select' || spaceHeld) return
     notePresses.current = [notePresses.current[1], kind === 'note' ? id : null]
     e.stopPropagation()
     e.preventDefault()
@@ -949,15 +1190,38 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     if (kind === 'drawing' && document.activeElement instanceof HTMLElement) document.activeElement.blur()
     const onTitle = e.target instanceof Element && e.target.closest('.post-it-title') !== null
     titlePress.current = kind === 'note' && onTitle ? id : null
-    const selected = kind === 'note' || kind === 'drawing' ? kind : kind === 'image' || kind === 'image-resize' ? 'image' : 'bucket'
-    setSelection({ kind: selected, id })
-    if (move) beginGesture(e, { kind, id, handle })
+    const item: Selection = { kind: kind === 'note' || kind === 'drawing' ? kind : kind === 'image' || kind === 'image-resize' ? 'image' : 'bucket', id }
+    const resize = kind === 'resize' || kind === 'image-resize'
+    if (!resize && adds(e)) {
+      titlePress.current = null
+      setSelected(togglePicked(selected, item))
+      return
+    }
+    if (!resize && selected.length > 1 && isSelected(item.kind, id)) {
+      // What is in a bucket that moves along goes with it, so it doesn't move itself.
+      const moving = new Set(selected.filter((s) => s.kind === 'bucket').map((s) => s.id))
+      const members = selected.filter((s) => s.kind === 'bucket' || !moving.has(bucketOf(s) ?? ''))
+      beginGesture(e, { kind: 'group', id, held: item.kind, members })
+      return
+    }
+    setSelection(item)
+    beginGesture(e, { kind, id, handle })
+  }
+
+  /** A press inside a bucket, away from its rim: a selection rectangle for the bucket's own items. */
+  function onBucketPointerDown(e: PointerEvent<HTMLElement>, bucket: BucketDetail) {
+    if (e.target !== e.currentTarget || e.button !== 0 || tool !== 'select' || spaceHeld || readOnly) return
+    e.stopPropagation()
+    e.preventDefault()
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    notePresses.current = [notePresses.current[1], null]
+    beginGesture(e, { kind: 'select', bucketId: bucket.id, base: adds(e) ? selected : [] })
   }
 
   function onCanvasPointerDown(e: PointerEvent) {
     notePresses.current = [notePresses.current[1], null]
-    // The middle button pans (the wheel zooms, Shift + wheel scrolls).
-    if (e.button === 1) {
+    // The middle button pans, and so does the left one with Space held (the wheel zooms, Shift + wheel scrolls).
+    if (e.button === 1 || (e.button === 0 && spaceHeld)) {
       e.preventDefault()
       const el = scrollRef.current!
       canvasRef.current!.setPointerCapture(e.pointerId)
@@ -978,8 +1242,14 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     } else if (tool === 'note') {
       // A click with the post-it tool puts the new post-it's top-left corner where you clicked, so you can tell where it goes.
       stickPostIt(snapPoint(toCanvas(e)))
-    } else {
+    } else if (readOnly) {
       setSelection(null)
+    } else {
+      // A selection rectangle: buckets and loose items. A click without dragging lets go of the selection. No text gets
+      // selected on the way, and focus leaves whatever had it, as a press on empty space does.
+      e.preventDefault()
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+      beginGesture(e, { kind: 'select', bucketId: null, base: adds(e) ? selected : [] })
     }
   }
 
@@ -1070,6 +1340,17 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       pen.extend(e)
     } else if (gesture && !gesture.done) {
       const next = { ...gesture, current: toCanvas(e) }
+      if (next.kind === 'select') {
+        setGesture(next)
+        if (isDrag(next)) setSelected(mergePicked(next.base, inRectangle(spanRect(next.start, next.current), next.bucketId)))
+        return
+      }
+      if (next.kind === 'group') {
+        // Post-its shaken together line up in a grid around the one held, which then moves with the pointer.
+        const shake = !next.grid && shaken.current(e.clientX, e.clientY, e.timeStamp)
+        setGesture(shake ? { ...next, grid: gridFor(next.id, next.members) } : next)
+        return
+      }
       const client = { x: e.clientX, y: e.clientY }
       const trash = next.kind === 'note' && isDrag(next) && onTrash(client)
       setGesture(next)
@@ -1096,6 +1377,25 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       return
     }
     if (!gesture || gesture.done) return
+    if (gesture.kind === 'select') {
+      setGesture(null)
+      // A click without dragging: inside a bucket it selects the bucket (or, adding, it joins or leaves the selection);
+      // on the board it leaves only what was added to.
+      if (!isDrag(gesture)) setSelected(gesture.bucketId ? togglePicked(gesture.base, { kind: 'bucket', id: gesture.bucketId }) : gesture.base)
+      return
+    }
+    if (gesture.kind === 'group') {
+      if (!isDrag(gesture)) {
+        // A click on one of several selected selects just that one (a click on a post-it's title edits it, as ever).
+        setGesture(null)
+        setSelection({ kind: gesture.held, id: gesture.id })
+        if (gesture.held === 'note' && titlePress.current === gesture.id) setTitleEdit({ id: gesture.id, caret: caretAt(e.clientX, e.clientY) })
+        return
+      }
+      setGesture({ ...gesture, done: true })
+      moveGroup(gesture.members, gesture.grid ? 'Line up post-its' : undefined)
+      return
+    }
     if (gesture.kind === 'draw') {
       const rect = spanRect(snapPoint(gesture.start), snapPoint(gesture.current))
       if (rect.width < MIN_BUCKET_WIDTH || rect.height < MIN_BUCKET_HEIGHT) {
@@ -1238,23 +1538,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     } else if (gesture.kind === 'bucket') {
       // A moved bucket carries its post-its, images and drawings along; undoing the move takes exactly those back.
       const bucket = board.buckets.find((b) => b.id === id)!
-      const carried = board.notes.filter((n) => n.bucketId === id)
-      const carriedImages = board.images.filter((i) => i.bucketId === id)
-      const carriedDrawings = board.drawings.filter((d) => d.bucketId === id)
       const { x, y } = bucketRect(bucket)
-      const along = (item: Point, d: Point) => ({ x: onBoard(item.x + d.x), y: onBoard(item.y + d.y) })
       void settle(
         () => api.updateBucket(id, { x, y }),
-        (moved) => {
-          const d = { x: moved.x - bucket.x, y: moved.y - bucket.y }
-          const carry = { notes: carried.map((n) => n.id), images: carriedImages.map((i) => i.id), drawings: carriedDrawings.map((d) => d.id) }
-          return step('Move bucket', [
-            patched(target.bucket(id, carry), snap.bucket(bucket), snap.bucket(moved), ['x', 'y']),
-            ...carried.map((n) => patched(target.note(n.id), { x: n.x, y: n.y }, along(n, d), ['x', 'y'], true)),
-            ...carriedImages.map((i) => patched(target.image(i.id), { x: i.x, y: i.y }, along(i, d), ['x', 'y'], true)),
-            ...carriedDrawings.map((dr) => patched(target.drawing(dr.id), { x: dr.x, y: dr.y }, along(dr, d), ['x', 'y'], true)),
-          ])
-        },
+        (moved) => step('Move bucket', bucketMove(bucket, moved)),
       )
     } else {
       // With a new size, a new place is a resize from a top or left corner or edge: the server leaves the post-its where they are.
@@ -1303,6 +1590,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         : undefined
   const draft =
     gesture?.kind === 'draw' && !gesture.done ? spanRect(snapPoint(gesture.start), snapPoint(gesture.current)) : null
+  /** The selection rectangle being dragged out. */
+  const marquee = gesture?.kind === 'select' && isDrag(gesture) ? spanRect(gesture.start, gesture.current) : null
 
   // The canvas reaches from the leftmost and topmost item (or 0,0) to past the furthest one; the margin around it fills
   // the rest of the viewport. Items left of or above 0,0 grow it that way, while they are dragged there too.
@@ -1408,7 +1697,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         >
           <div
             ref={canvasRef}
-            className={`canvas tool-${tool}${pan ? ' panning' : ''}`}
+            className={`canvas tool-${tool}${pan ? ' panning' : spaceHeld ? ' space-pan' : ''}`}
             style={{
               left: origin.x,
               top: origin.y,
@@ -1464,7 +1753,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                     key={bucket.id}
                     aria-label={`${bucket.name} (collapsed, ${countLabel})`}
                     data-fold={bucket.id}
-                    className={['bucket-collapsed', foldDrop === bucket.id && 'drop-target', selectedBucket?.id === bucket.id && 'selected']
+                    className={['bucket-collapsed', foldDrop === bucket.id && 'drop-target', isSelected('bucket', bucket.id) && 'selected']
                       .filter(Boolean)
                       .join(' ')}
                     style={{ left: square.x, top: square.y, width: square.width, height: square.height }}
@@ -1495,22 +1784,29 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                   className={[
                     'bucket',
                     dropTarget?.id === bucket.id && 'drop-target',
-                    selectedBucket?.id === bucket.id && 'selected',
+                    isSelected('bucket', bucket.id) && 'selected',
                   ]
                     .filter(Boolean)
                     .join(' ')}
                   style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
-                  // A press inside the frame selects it; once it is selected, dragging there moves it too.
-                  onPointerDown={(e) =>
-                    e.target === e.currentTarget && onItemPointerDown(e, 'bucket', bucket.id, { move: selectedBucket?.id === bucket.id })
-                  }
+                  // A drag inside the frame selects what is in it; a click there selects the frame. Its name and its rim move it.
+                  onPointerDown={(e) => onBucketPointerDown(e, bucket)}
                 >
+                  {(['n', 'e', 's', 'w'] as const).map((side) => (
+                    <span
+                      key={side}
+                      className={`bucket-rim ${side}`}
+                      aria-hidden="true"
+                      onPointerDown={(e) => onItemPointerDown(e, 'bucket', bucket.id)}
+                    />
+                  ))}
                   <button
                     type="button"
                     className="bucket-head"
                     title="Drag to move the bucket and its post-its"
                     onPointerDown={(e) => onItemPointerDown(e, 'bucket', bucket.id)}
-                    onClick={() => setSelection({ kind: 'bucket', id: bucket.id })}
+                    // Enter or Space on the name. A press that added to the selection is a click here too: leave it be.
+                    onClick={(e) => !adds(e) && setSelection({ kind: 'bucket', id: bucket.id })}
                   >
                     <span className="bucket-name">{bucket.name}</span>
                     <span className="count" aria-label={countLabel}>
@@ -1548,10 +1844,13 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                 key={image.id}
                 image={image}
                 rect={rect}
-                selected={selectedImage?.id === image.id}
-                lifted={dragging?.id === image.id && !dragging.done}
+                selected={isSelected('image', image.id)}
+                lifted={lifting(image.id)}
                 onPointerDown={(e) => onItemPointerDown(e, 'image', image.id)}
-                onResizePointerDown={readOnly ? undefined : (e, handle) => onItemPointerDown(e, 'image-resize', image.id, { handle })}
+                // One of several selected has no handles: they move together, but resize one at a time.
+                onResizePointerDown={
+                  readOnly || selectedImage?.id !== image.id ? undefined : (e, handle) => onItemPointerDown(e, 'image-resize', image.id, { handle })
+                }
                 onDelete={readOnly ? undefined : () => deleteImage(image.id)}
               />
             ))}
@@ -1587,8 +1886,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                 point={point}
                 images={attached.get(note.id)}
                 tagColors={tagColors}
-                selected={selection?.kind === 'note' && selection.id === note.id}
-                lifted={(draggedNote?.note.id === note.id && !dragging?.done) || remoteDrags.some((r) => r.id === note.id && !r.endedAt)}
+                selected={isSelected('note', note.id)}
+                lifted={lifting(note.id) || remoteMoving(note.id)}
                 dimmed={dimmed(note)}
                 highlight={matches.has(note.id) ? terms : undefined}
                 current={note.id === current}
@@ -1609,8 +1908,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                 key={drawing.id}
                 drawing={drawing}
                 rect={rect}
-                selected={selectedDrawing?.drawing.id === drawing.id}
-                lifted={dragging?.id === drawing.id && !dragging.done}
+                selected={isSelected('drawing', drawing.id)}
+                lifted={lifting(drawing.id)}
                 onPointerDown={(e) => onItemPointerDown(e as PointerEvent<HTMLElement>, 'drawing', drawing.id)}
               />
             ))}
@@ -1631,16 +1930,21 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
             {remoteDrags
               .filter((r) => !r.endedAt && r.id !== dragging?.id)
-              .map((r) => {
-                const rect = remoteRect(r)
-                if (!rect) return null
-                const style = { left: rect.x, top: rect.y, width: rect.width, height: rect.height, '--who': presenceColor(r.principalId) }
-                return (
-                  <div key={r.key} className="remote-drag" aria-hidden="true" style={style as CSSProperties}>
-                    <span className="remote-drag-name">{r.displayName}</span>
-                  </div>
-                )
-              })}
+              .flatMap((r) =>
+                // Several items moving together are outlined each; the name goes on the first.
+                remoteRects(r).map((rect, i) => {
+                  const style = { left: rect.x, top: rect.y, width: rect.width, height: rect.height, '--who': presenceColor(r.principalId) }
+                  return (
+                    <div key={`${r.key}:${i}`} className="remote-drag" aria-hidden="true" style={style as CSSProperties}>
+                      {i === 0 && <span className="remote-drag-name">{r.displayName}</span>}
+                    </div>
+                  )
+                }),
+              )}
+
+            {marquee && (
+              <div className="marquee" aria-hidden="true" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />
+            )}
           </div>
         </div>
       </div>

@@ -21,9 +21,12 @@ interface BlockFrameProps {
   readOnly?: boolean
   /** A press on the header (outside the title) starts moving the block. */
   onHeadPointerDown: (e: PointerEvent<HTMLElement>) => void
-  /** A press on a corner or edge handle (shown while selected) starts resizing from there. */
-  onResizePointerDown: (e: PointerEvent<HTMLElement>, handle: ResizeHandle) => void
-  /** Any press inside the block selects it. */
+  /**
+   * A press on a corner or edge handle (shown while selected) starts resizing from there. Without it there are no
+   * handles (one of several selected).
+   */
+  onResizePointerDown?: (e: PointerEvent<HTMLElement>, handle: ResizeHandle) => void
+  /** A press in the block's content selects it (the header and handles select it as they start a gesture). */
   onSelect: () => void
   onTitle: (title: string) => void
   /** Asks to remove the block (the canvas confirms first). */
@@ -46,7 +49,6 @@ export function BlockFrame(props: BlockFrameProps) {
       style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
       aria-label={block.title ?? label}
       data-block={block.id}
-      onPointerDownCapture={onSelect}
     >
       <header className="block-head" title={readOnly ? undefined : 'Drag to move'} onPointerDown={onHeadPointerDown}>
         <Icon size={14} />
@@ -57,8 +59,10 @@ export function BlockFrame(props: BlockFrameProps) {
           </button>
         )}
       </header>
-      <div className="block-body">{children}</div>
-      {selected && !readOnly && <ResizeHandles onPointerDown={onResizePointerDown} />}
+      <div className="block-body" onPointerDownCapture={onSelect}>
+        {children}
+      </div>
+      {selected && !readOnly && onResizePointerDown && <ResizeHandles onPointerDown={onResizePointerDown} />}
     </section>
   )
 }
