@@ -669,14 +669,32 @@ main {
 }
 
 .canvas.tool-note,
-.canvas.tool-bucket,
-.canvas.tool-pen {
+.canvas.tool-bucket {
   cursor: crosshair;
 }
 
-/* A pen or a finger draws instead of scrolling the board. */
+/* A pen or a finger draws instead of scrolling the board; the ring under the pointer (.pen-ring) is the cursor. */
 .canvas.tool-pen {
   touch-action: none;
+  cursor: none;
+}
+
+.canvas.tool-pen.panning {
+  cursor: grabbing;
+}
+
+.pen-ring {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 6;
+  width: var(--ring);
+  height: var(--ring);
+  margin: calc(-0.5 * var(--ring)) 0 0 calc(-0.5 * var(--ring));
+  border: 1.5px solid var(--text);
+  border-radius: 50%;
+  opacity: 0.9;
+  pointer-events: none;
 }
 
 .canvas.panning {

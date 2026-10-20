@@ -26,7 +26,7 @@ import { AssigneePicker } from './AssigneePicker'
 import { BoardImageView } from './BoardImageView'
 import { BoardSearch, type SearchResult } from './BoardSearch'
 import { ExpandedNote, type ExpandedNoteHandle } from './ExpandedNote'
-import { addPoint, inkHex, pressureOf, rememberPoints, strokeToDrawing } from './drawings'
+import { addPoint, inkHex, pressureOf, rememberPoints, storePen, storedPen, strokeToDrawing } from './drawings'
 import { DrawingToolbar, DrawingView, StrokeSvg } from './DrawingView'
 import { TrashWindow, type OutgoingNote, type TrashWindowHandle } from './TrashWindow'
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
@@ -188,9 +188,22 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const readOnly = board.yourRole === 'Viewer'
   const [tool, setTool] = useState<Tool>('select')
   const [fill, setFill] = useState<NoteColor>('Butter')
-  const [ink, setInk] = useState<InkColor>('Chalk')
-  const [strokeWidth, setStrokeWidth] = useState(4)
-  const [stroke, setStroke] = useState<Stroke | null>(null)
+  /** The pen's ink and size, kept for the next visit. */
+  const [ink, setInk] = useState<InkColor>(() => storedPen().ink)
+  const [strokeWidth, setStrokeWidth] = useState(() => storedPen().width)
+  useEffect(() => storePen({ ink, width: strokeWidth }), [ink, strokeWidth])
+  /** The ring under the pointer that shows the pen's size; moved directly, not through state, so it keeps up. */
+  const penRing = useRef<HTMLDivElement>(null)
+  const [stroke, setStrokeState] = useState<Stroke | null>(null)
+  /**
+   * The stroke as it is right now. Pen events can come faster than renders, so the handlers read and write this rather
+   * than the state, which only draws it.
+   */
+  const liveStroke = useRef<Stroke | null>(null)
+  const setStroke = (next: Stroke | null | ((s: Stroke | null) => Stroke | null)) => {
+    liveStroke.current = typeof next === 'function' ? next(liveStroke.current) : next
+    setStrokeState(liveStroke.current)
+  }
   const [selection, setSelection] = useState<Selection | null>(null)
   /** The opened post-it. A link to a post-it (/#/boards/{id}/notes/{id}) opens it when the board loads. */
   const [expanded, setExpanded] = useState<{ id: string; fresh: boolean } | null>(() => {
@@ -1068,18 +1081,33 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     window.addEventListener('keydown', onKey, true)
   }
 
+  /** Puts the pen's ring under the pointer, or hides it (off the board, or for a finger, which covers it anyway). */
+  function movePenRing(e: PointerEvent | null) {
+    const ring = penRing.current
+    if (!ring) return
+    if (!e || e.pointerType === 'touch') {
+      ring.style.display = 'none'
+      return
+    }
+    const p = toCanvas(e)
+    ring.style.display = ''
+    ring.style.transform = `translate(${p.x}px, ${p.y}px)`
+  }
+
   function onCanvasPointerMove(e: PointerEvent) {
     lastPointer.current = toCanvas(e)
+    if (tool === 'pen') movePenRing(e)
     if (pan) {
       const el = scrollRef.current!
       el.scrollLeft = pan.left - (e.clientX - pan.x)
       el.scrollTop = pan.top - (e.clientY - pan.y)
-    } else if (stroke && !stroke.done) {
+    } else if (liveStroke.current && !liveStroke.current.done) {
       // Every point the pointer went through since the last event, for a smooth line.
+      const current = liveStroke.current
       const events = e.nativeEvent.getCoalescedEvents?.() ?? []
-      let points = stroke.points
+      let points = current.points
       for (const ev of events.length > 0 ? events : [e.nativeEvent]) points = addPoint(points, toCanvas(ev), pressureOf(ev))
-      if (points !== stroke.points) setStroke({ ...stroke, points })
+      if (points !== current.points) setStroke({ ...current, points })
     } else if (gesture && !gesture.done) {
       const next = { ...gesture, current: toCanvas(e) }
       const client = { x: e.clientX, y: e.clientY }
@@ -1102,9 +1130,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       setPan(null)
       return
     }
-    if (stroke && !stroke.done) {
+    if (liveStroke.current && !liveStroke.current.done) {
       // The last move has the end of the line already (a pen lifting off reports no pressure).
-      finishStroke({ ...stroke, done: true })
+      finishStroke({ ...liveStroke.current, done: true })
       return
     }
     if (!gesture || gesture.done) return
@@ -1432,6 +1460,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               if (second && first === second) expand(second)
             }}
             onPointerMove={onCanvasPointerMove}
+            onPointerLeave={() => movePenRing(null)}
             onPointerUp={onCanvasPointerUp}
             onPointerCancel={() => {
               setGesture(null)
@@ -1614,6 +1643,16 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             ))}
 
             {stroke && <StrokeSvg points={stroke.points} color={inkHex[stroke.color]} strokeWidth={stroke.width} at={{ x: 0, y: 0 }} />}
+
+            {tool === 'pen' && !readOnly && (
+              // As wide as the line at medium pressure, plus a little room, at the board's zoom like the line itself.
+              <div
+                ref={penRing}
+                className="pen-ring"
+                aria-hidden="true"
+                style={{ display: 'none', '--ring': `${strokeWidth + 8}px`, borderWidth: 1.5 / zoom } as CSSProperties}
+              />
+            )}
 
             {selectedDrawing && !readOnly && !(dragging?.id === selectedDrawing.drawing.id && !dragging.done) && (
               <DrawingToolbar
