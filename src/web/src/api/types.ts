@@ -22,6 +22,10 @@ export const hasRole = (role: BoardRole, minimum: BoardRole) => boardRoles.index
 
 export interface BoardSummary {
   id: string
+  /** The board in web addresses (#/boards/{shortId}/notes/{number}): random and never changed. */
+  shortId: string
+  /** Shown before note numbers, e.g. "MPCT" in MPCT-415. Owners may change it; it is not unique. */
+  key: string
   name: string
   description: string | null
   createdAt: string
@@ -257,6 +261,10 @@ export interface NoteBlockChanges {
 
 export interface NoteDetail {
   id: string
+  /** Its number on the board: 1 for the first note, never reused. */
+  number: number
+  /** The board's key and the note's number, e.g. "MPCT-415". */
+  readableId: string
   boardId: string
   bucketId: string | null
   title: string
@@ -273,7 +281,7 @@ export interface NoteDetail {
   createdById: string | null
   createdAt: string
   updatedAt: string
-  /** Where the web app shows it: "/#/boards/{boardId}/notes/{id}". Links to it store this path. */
+  /** Where the web app shows it: "/#/boards/{shortId}/notes/{number}". Links to it store this path. */
   path: string
   /** When it was deleted, for post-its in the trash; null (or missing) otherwise. */
   deletedAt?: string | null

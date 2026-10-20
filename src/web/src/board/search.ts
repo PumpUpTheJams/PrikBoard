@@ -3,7 +3,7 @@ import { blockKinds } from './blockKinds'
 
 /*
  * Searching a board's post-its (BoardSearch). Case and accents don't matter, and with several words a post-it matches
- * when every word is found somewhere on it: its title, tags, people, who created it, or its blocks.
+ * when every word is found somewhere on it: its title, readable id (MPCT-415), tags, people, who created it, or its blocks.
  */
 
 /** Lower case without accents, so "cafe" finds "café". */
@@ -20,7 +20,7 @@ export const textMatches = (text: string, terms: string[]) => {
 /** One searchable piece of a post-it. */
 export interface SearchField {
   /** The title and tags are on the post-it on the board, where their matches are marked already. */
-  kind: 'title' | 'tag' | 'assignee' | 'creator' | 'block'
+  kind: 'title' | 'id' | 'tag' | 'assignee' | 'creator' | 'block'
   /** What it is, as shown under a result: "Tag", "Created by", or the block's title or kind. */
   label: string
   text: string
@@ -36,7 +36,10 @@ function blockTexts(block: NoteBlock): string[] {
 export const blockMatches = (block: NoteBlock, terms: string[]) => blockTexts(block).some((t) => textMatches(t, terms))
 
 function noteFields(note: NoteDetail): SearchField[] {
-  const fields: SearchField[] = [{ kind: 'title', label: 'Title', text: note.title }]
+  const fields: SearchField[] = [
+    { kind: 'title', label: 'Title', text: note.title },
+    { kind: 'id', label: 'ID', text: note.readableId },
+  ]
   for (const tag of note.tags) fields.push({ kind: 'tag', label: 'Tag', text: tag })
   for (const a of note.assignees) fields.push({ kind: 'assignee', label: 'Assigned to', text: a.name })
   if (note.createdBy) fields.push({ kind: 'creator', label: 'Created by', text: note.createdBy })

@@ -5,6 +5,8 @@ namespace PrikBoard.Api.Contracts;
 
 /// <summary>A post-it note. Every note is 200 by 120 pixels.</summary>
 /// <param name="Id">Note identifier.</param>
+/// <param name="Number">The note's number on its board: 1 for the first note, never reused. Part of its path and readable id.</param>
+/// <param name="ReadableId">How to refer to the note in text: the board's key and the note's number, e.g. "MPCT-415". MCP tools take it wherever they take a note. The key may change; the number does not.</param>
 /// <param name="BoardId">Board the note is stuck on.</param>
 /// <param name="BucketId">Bucket containing the note's centre, or null when the note is loose on the board.</param>
 /// <param name="Title">Short title shown on the post-it.</param>
@@ -19,10 +21,12 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="CreatedById">Principal id of whoever created the note, or null (see createdBy).</param>
 /// <param name="CreatedAt">When the note was created (UTC).</param>
 /// <param name="UpdatedAt">When the note was last edited or moved (UTC). The most recently updated note is drawn on top.</param>
-/// <param name="Path">Where the web app shows this note, relative to the site, e.g. "/#/boards/{boardId}/notes/{id}". Use it as a link's url to link this note from another note.</param>
+/// <param name="Path">Where the web app shows this note, relative to the site, e.g. "/#/boards/k3x9m2/notes/415" (the board's short id and the note's number). It never changes. Use it as a link's url to link this note from another note, and getNoteByNumber to look it up.</param>
 /// <param name="DeletedAt">When the note was deleted (UTC), for notes in the trash (listDeletedNotes); null otherwise.</param>
 public record NoteDetail(
     Guid Id,
+    int Number,
+    string ReadableId,
     Guid BoardId,
     Guid? BucketId,
     string Title,
@@ -40,16 +44,19 @@ public record NoteDetail(
     string Path,
     DateTimeOffset? DeletedAt = null)
 {
-    /// <summary>Maps a note; <paramref name="principals"/> holds its creator and assignees (see NoteEndpoints.PrincipalsOnAsync).</summary>
-    public static NoteDetail From(Note note, IReadOnlyDictionary<Guid, Principal> principals) =>
-        new(note.Id, note.BoardId, note.BucketId, note.Title, note.Color,
+    /// <summary>
+    /// Maps a note on <paramref name="board"/>; <paramref name="principals"/> holds its creator and assignees (see
+    /// NoteEndpoints.PrincipalsOnAsync).
+    /// </summary>
+    public static NoteDetail From(Note note, BoardRef board, IReadOnlyDictionary<Guid, Principal> principals) =>
+        new(note.Id, note.Number, NoteLinks.ReadableId(board.Key, note.Number), note.BoardId, note.BucketId, note.Title, note.Color,
             note.Tags,
             note.AssigneeIds.Select(id => Assignee.Of(id, principals)).ToList(),
             note.Blocks.Select(NoteBlockDetail.From).ToList(),
             note.AgentWorking, note.X, note.Y,
             note.CreatedById is { } by && principals.TryGetValue(by, out var creator) ? creator.ShownName : null,
             note.CreatedById, note.CreatedAt, note.UpdatedAt,
-            NoteLinks.NotePath(note.BoardId, note.Id), note.DeletedAt);
+            NoteLinks.NotePath(board.ShortId, note.Number), note.DeletedAt);
 }
 
 /// <summary>A person or AI agent assigned to a note.</summary>
@@ -76,7 +83,7 @@ public record ChecklistItem(
 
 /// <summary>A link related to a note: a web page, or another note.</summary>
 /// <param name="Title">Text shown for the link, e.g. "Retry-After handling (PR #415)".</param>
-/// <param name="Url">An absolute http or https address, or another note's path (path in getNote), e.g. "/#/boards/{boardId}/notes/{noteId}". The web app shows a linked note with its current title.</param>
+/// <param name="Url">An absolute http or https address, or another note's path (path in getNote), e.g. "/#/boards/k3x9m2/notes/415". The older form "/#/boards/{boardId}/notes/{noteId}" works too and is stored as the note's path. The web app shows a linked note with its current title.</param>
 public record NoteLink(
     [property: Required, StringLength(200, MinimumLength = 1)] string Title,
     [property: Required, StringLength(2000)] string Url);

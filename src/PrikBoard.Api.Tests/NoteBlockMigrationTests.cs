@@ -56,7 +56,8 @@ public class NoteBlockMigrationTests : IAsyncLifetime
 
         await db.GetService<IMigrator>().MigrateAsync(BeforeStoredFiles);
 
-        var notes = await db.Notes.AsNoTracking().ToDictionaryAsync(n => n.Id);
+        // Only columns this far into the migrations: the model has later ones too.
+        var notes = await db.Notes.AsNoTracking().Select(n => new { n.Id, n.Blocks }).ToDictionaryAsync(n => n.Id);
         var blocks = notes[full].Blocks;
         Assert.Equal([NoteBlockKind.Text, NoteBlockKind.Checklist, NoteBlockKind.Links], blocks.Select(b => b.Kind));
         Assert.Equal([(20, 20, 340, 220), (400, 20, 340, 200), (780, 20, 360, 160)], blocks.Select(b => (b.X, b.Y, b.Width, b.Height)));

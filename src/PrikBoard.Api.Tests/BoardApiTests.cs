@@ -391,16 +391,22 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     {
         var board = await CreateBoard("Note links");
         var target = await CreateNote(board.Id, new { title = "Retry policy" });
-        Assert.Equal($"/#/boards/{board.Id}/notes/{target.Id}", target.Path);
+        Assert.Equal($"/#/boards/{board.ShortId}/notes/{target.Number}", target.Path);
 
         var linking = await CreateNote(board.Id, new { title = "Follow-up", blocks = new[] { LinksBlock("Retry policy", target.Path) } });
         Assert.Equal([new NoteLink("Retry policy", target.Path)], linking.Blocks.Single().Links!);
 
         var notesUrl = $"/api/boards/{board.Id}/notes";
-        var relative = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", blocks = new[] { LinksBlock("x", "/somewhere") } });
-        var notAnId = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", blocks = new[] { LinksBlock("x", $"/#/boards/{board.Id}/notes/abc") } });
-        Assert.Equal(HttpStatusCode.BadRequest, relative.StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, notAnId.StatusCode);
+        string[] invalid =
+        [
+            "/somewhere", $"/#/boards/{board.Id}/notes/abc", $"/#/boards/{board.ShortId}/notes/abc", $"/#/boards/{board.ShortId}/notes/007",
+            $"/#/boards/{board.ShortId}/notes/{target.Id}", $"/#/boards/{board.Id}/notes/{target.Number}",
+        ];
+        foreach (var url in invalid)
+        {
+            var response = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", blocks = new[] { LinksBlock("x", url) } });
+            Assert.True(response.StatusCode == HttpStatusCode.BadRequest, url);
+        }
     }
 
     [Fact]
@@ -490,7 +496,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
             new HashSet<string?>
             {
                 "listBoards", "getBoard", "createBucket", "updateBucket", "deleteBucket",
-                "createNote", "moveNote", "updateNote", "deleteNote", "restoreNote", "setNoteWorking", "restoreBucket",
+                "createNote", "getNoteByNumber", "moveNote", "updateNote", "deleteNote", "restoreNote", "setNoteWorking", "restoreBucket",
                 "addNoteBlock", "updateNoteBlock", "deleteNoteBlock",
                 "listBoardTags", "createBoardTag", "updateBoardTag", "deleteBoardTag", "restoreBoardTag",
                 "whoAmI", "listAuthProviders", "getVersion",

@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -34,7 +35,8 @@ public static class BoardTransferEndpoints
             .WithName("importBoard")
             .WithSummary("Import a board from an export file")
             .WithDescription("Send the file from exportBoard as the request body. It always creates a new board, which you own, and never changes " +
-                             "an existing one. Ids are made new, positions are snapped to the grid, and each note's bucket follows from where it sits. " +
+                             "an existing one. Ids and the short id are made new (notes keep their numbers), positions are snapped to the grid, " +
+                             "and each note's bucket follows from where it sits. " +
                              "Notes are created by you and have no assignees. Tokens limited to chosen boards cannot import.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -55,6 +57,13 @@ public static class BoardTransferEndpoints
             .FirstOrDefaultAsync(b => b.Id == boardId, ct);
         if (board is null) return TypedResults.NotFound();
 
+        // Links to notes on this board point at them by id, the one thing the file keeps of them (see FollowLinks).
+        var ids = board.Notes.ToDictionary(n => n.Number, n => n.Id);
+        string InFile(string url) =>
+            NoteLinks.TryParse(url, out var target) && target.BoardShortId == board.ShortId && ids.TryGetValue(target.Number, out var id)
+                ? NoteLinks.NotePath(board.Id, id)
+                : url;
+
         var images = new List<ExportedImage>();
         foreach (var i in board.Images.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id))
         {
@@ -68,11 +77,13 @@ public static class BoardTransferEndpoints
             board.Tags.OrderBy(t => t.CreatedAt).ThenBy(t => t.Id).Select(t => t.Name).ToList(),
             // Oldest edit first: the importer gives them rising timestamps, so the most recently edited note stays on top.
             board.Notes.OrderBy(n => n.UpdatedAt).ThenBy(n => n.Id)
-                .Select(n => new ExportedNote(n.Id, n.Title, n.Color, n.Tags, n.X, n.Y, n.Blocks.Select(Exported).ToList())).ToList(),
+                .Select(n => new ExportedNote(n.Id, n.Title, n.Color, n.Tags, n.X, n.Y, n.Blocks.Select(b => Exported(b, InFile)).ToList(),
+                    Number: n.Number)).ToList(),
             images,
             board.Tags.Where(t => t.Color != TagColor.Default).ToDictionary(t => t.Name, t => t.Color),
             board.Drawings.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id)
-                .Select(d => new ExportedDrawing(d.NoteId, d.X, d.Y, d.Color, d.StrokeWidth, [.. d.Content!.Points])).ToList());
+                .Select(d => new ExportedDrawing(d.NoteId, d.X, d.Y, d.Color, d.StrokeWidth, [.. d.Content!.Points])).ToList(),
+            board.Key);
 
         var fileName = $"{CleanName(board.Name)}.prikboard.json";
         response.Headers[HeaderNames.ContentDisposition] = new ContentDispositionHeaderValue("attachment") { FileNameStar = fileName }.ToString();
@@ -98,9 +109,12 @@ public static class BoardTransferEndpoints
         if (file.Notes.Select(n => n.Id).Distinct().Count() != file.Notes.Count) errors["notes"] = ["Note ids must be unique within the file."];
         if (errors.Count > 0) return TypedResults.ValidationProblem(errors);
 
+        var key = file.Key is null ? null : Board.NormalizeKey(file.Key);
         var board = new Board
         {
+            ShortId = await BoardEndpoints.NewShortIdAsync(db, ct),
             Name = file.Name,
+            Key = key is not null && Regex.IsMatch(key, Board.KeyPattern) ? key : Board.KeyFrom(file.Name),
             Description = PatchText.Apply(null, file.Description),
             Rules = PatchText.Apply(null, file.Rules),
         };
@@ -124,6 +138,11 @@ public static class BoardTransferEndpoints
 
         var tags = new List<string>();
         var newIds = file.Notes.ToDictionary(n => n.Id, _ => Guid.CreateVersion7());
+        // The file's numbers when every note has its own, so MPCT-415 is 415 on the copy too; otherwise in file order.
+        var keepNumbers = file.Notes.All(n => n.Number is not null) && file.Notes.Select(n => n.Number).Distinct().Count() == file.Notes.Count;
+        var numbers = file.Notes.Select((n, i) => (n.Id, Number: keepNumbers ? n.Number!.Value : i + 1))
+            .ToDictionary(n => newIds[n.Id], n => n.Number);
+        board.NextNoteNumber = numbers.Values.DefaultIfEmpty(0).Max() + 1;
         var createdBy = principal.PrincipalId();
         foreach (var (source, i) in file.Notes.Select((n, i) => (n, i)))
         {
@@ -137,6 +156,7 @@ public static class BoardTransferEndpoints
             var note = new Note
             {
                 Id = newIds[source.Id],
+                Number = numbers[newIds[source.Id]],
                 Title = source.Title,
                 Color = source.Color,
                 Tags = noteTags,
@@ -147,7 +167,7 @@ public static class BoardTransferEndpoints
                 UpdatedAt = clock.AddMilliseconds(i),
             };
             var blocks = (file.Version >= 2 ? source.Blocks ?? [] : Version1Blocks(source))
-                .Select(b => b with { Links = b.Links is null ? null : FollowLinks(b.Links, newIds, board.Id) }).ToList();
+                .Select(b => b with { Links = b.Links is null ? null : FollowLinks(b.Links, newIds, board.ShortId, numbers) }).ToList();
             if (NoteBlockEndpoints.BuildAll(note, blocks, $"notes[{i}].") is { } invalidBlock) return invalidBlock;
             board.Notes.Add(note);
         }
@@ -248,11 +268,15 @@ public static class BoardTransferEndpoints
             BoardDetail.From(board, caller.Apply(board.Id, BoardRole.Owner)!.Value, principals, people, createdBy));
     }
 
-    /// <summary>A block as it goes in the file: like a new block, with its place and only the content of its kind.</summary>
-    private static NewNoteBlock Exported(NoteBlock block)
+    /// <summary>
+    /// A block as it goes in the file: like a new block, with its place and only the content of its kind, and each link's
+    /// url through <paramref name="url"/>.
+    /// </summary>
+    private static NewNoteBlock Exported(NoteBlock block, Func<string, string> url)
     {
         var detail = NoteBlockDetail.From(block);
-        return new NewNoteBlock(block.Kind, block.Title, detail.Text, detail.Items?.ToList(), detail.Links?.ToList(),
+        return new NewNoteBlock(block.Kind, block.Title, detail.Text, detail.Items?.ToList(),
+            detail.Links?.Select(l => l with { Url = url(l.Url) }).ToList(),
             block.X, block.Y, block.Width, block.Height);
     }
 
@@ -276,16 +300,20 @@ public static class BoardTransferEndpoints
     }
 
     /// <summary>
-    /// A link to another note in the file follows that note to its new id; web links stay (and invalid ones are left for
-    /// the block's own check); a path to a note outside the file is dropped, as it would dangle.
+    /// A link to another note in the file (by its id in the file) becomes that note's new path; web links stay (and invalid
+    /// ones are left for the block's own check); a path to a note outside the file is dropped, as it would dangle.
     /// </summary>
-    private static List<NoteLink> FollowLinks(IEnumerable<NoteLink> links, Dictionary<Guid, Guid> newIds, Guid boardId)
+    private static List<NoteLink> FollowLinks(
+        IEnumerable<NoteLink> links, Dictionary<Guid, Guid> newIds, string shortId, Dictionary<Guid, int> numbers)
     {
         var followed = new List<NoteLink>();
         foreach (var link in links)
         {
-            if (!NoteLinks.TryGetNoteId(link.Url, out var target)) followed.Add(link);
-            else if (newIds.TryGetValue(target, out var newTarget)) followed.Add(link with { Url = NoteLinks.NotePath(boardId, newTarget) });
+            if (!NoteLinks.TryParse(link.Url, out var target)) followed.Add(link);
+            else if (!target.ByNumber && newIds.TryGetValue(target.NoteId, out var newTarget))
+            {
+                followed.Add(link with { Url = NoteLinks.NotePath(shortId, numbers[newTarget]) });
+            }
         }
         return followed;
     }

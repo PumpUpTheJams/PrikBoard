@@ -396,7 +396,7 @@ function NoteIdButton({ note }: { note: NoteDetail }) {
   return (
     <button type="button" className="note-id" title="Copy a link to this post-it" onClick={copy}>
       {copied ? <CheckIcon size={12} /> : <LinkIcon size={12} />}
-      <span aria-live="polite">{copied === null ? note.id : copied ? 'Link copied' : "Couldn't copy the link"}</span>
+      <span aria-live="polite">{copied === null ? note.readableId : copied ? 'Link copied' : "Couldn't copy the link"}</span>
     </button>
   )
 }

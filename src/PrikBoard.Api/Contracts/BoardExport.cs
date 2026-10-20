@@ -20,6 +20,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Images">Images on the canvas and attached to notes, with their bytes.</param>
 /// <param name="TagColors">Colours of the tags that have one (not Default), by tag name. Optional; files without it import with default colours.</param>
 /// <param name="Drawings">Freehand pen strokes on the canvas and on notes, with their points, oldest first. Optional; files without it import without drawings.</param>
+/// <param name="Key">The board's key, shown before note numbers (MPCT-415). Optional; without a valid one the new board takes one from its name.</param>
 public record BoardExport(
     [property: Required] string Format,
     [property: Range(1, int.MaxValue)] int Version,
@@ -32,7 +33,8 @@ public record BoardExport(
     [property: Required, MaxLength(BoardExport.MaxNotes)] List<ExportedNote> Notes,
     [property: Required, MaxLength(BoardExport.MaxImages)] List<ExportedImage> Images,
     Dictionary<string, TagColor>? TagColors = null,
-    [property: MaxLength(BoardDrawing.MaxPerBoard)] List<ExportedDrawing>? Drawings = null)
+    [property: MaxLength(BoardDrawing.MaxPerBoard)] List<ExportedDrawing>? Drawings = null,
+    [property: StringLength(Board.KeyMaxLength)] string? Key = null)
 {
     public const string FormatName = "prikboard-board";
     public const int CurrentVersion = 2;
@@ -73,6 +75,7 @@ public record ExportedBucket(
 /// <param name="Body">Version 1 only: longer details, or null.</param>
 /// <param name="Checklist">Version 1 only: checklist items.</param>
 /// <param name="Links">Version 1 only: links. Web addresses are kept; a link to a note outside the file is dropped on import.</param>
+/// <param name="Number">The note's number on its board. Optional: when every note in the file has a different one, the imported notes keep them; otherwise they are numbered in file order.</param>
 public record ExportedNote(
     Guid Id,
     [property: Required(AllowEmptyStrings = true), StringLength(200)] string Title,
@@ -83,7 +86,8 @@ public record ExportedNote(
     [property: MaxLength(NoteBlock.MaxBlocks)] List<NewNoteBlock>? Blocks = null,
     [property: StringLength(NoteBlock.MaxTextLength)] string? Body = null,
     [property: MaxLength(NoteBlock.MaxItems)] List<ChecklistItem>? Checklist = null,
-    [property: MaxLength(NoteBlock.MaxLinks)] List<NoteLink>? Links = null);
+    [property: MaxLength(NoteBlock.MaxLinks)] List<NoteLink>? Links = null,
+    [property: Range(1, int.MaxValue)] int? Number = null);
 
 /// <summary>An image in an export.</summary>
 /// <param name="NoteId">Id of the note (in this file) the image is attached to, or null for an image on the canvas.</param>

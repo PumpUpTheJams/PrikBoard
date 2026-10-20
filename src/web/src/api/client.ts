@@ -151,7 +151,7 @@ export const api = {
   createBoard: (name: string, description?: string) =>
     request<BoardDetail>('POST', '/boards', { name, description }),
   getBoard: (boardId: string) => request<BoardDetail>('GET', `/boards/${boardId}`),
-  updateBoard: (boardId: string, changes: { name?: string; description?: string; rules?: string }) =>
+  updateBoard: (boardId: string, changes: { name?: string; key?: string; description?: string; rules?: string }) =>
     request<BoardSummary>('PATCH', `/boards/${boardId}`, changes),
   deleteBoard: (boardId: string) => request<void>('DELETE', `/boards/${boardId}`),
   /** The board as one file to save: its content with images, but no people. */
@@ -176,6 +176,8 @@ export const api = {
     boardId: string,
     note: Omit<NoteChanges, 'title'> & { title: string; blocks?: NewNoteBlock[] } & ({ bucketId?: string } | Point),
   ) => request<NoteDetail>('POST', `/boards/${boardId}/notes`, note),
+  /** The note at a path's board short id and number (#/boards/{shortId}/notes/{number}). */
+  getNoteByNumber: (shortId: string, number: number) => request<NoteDetail>('GET', `/boards/${shortId}/notes/${number}`),
   updateNote: (noteId: string, changes: NoteChanges) => request<NoteDetail>('PATCH', `/notes/${noteId}`, changes),
   /** Into a free spot inside a bucket, or exactly to a point (the server then works out the bucket). */
   moveNote: (noteId: string, to: { bucketId: string } | Point) =>

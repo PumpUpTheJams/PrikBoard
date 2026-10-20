@@ -136,10 +136,18 @@ namespace PrikBoard.Api.Data.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<int>("NextNoteNumber")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Rules")
                         .HasMaxLength(20000)
@@ -148,10 +156,18 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Property<DateTimeOffset?>("RulesUpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("ShortId")
+                        .IsRequired()
+                        .HasMaxLength(6)
+                        .HasColumnType("character varying(6)");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ShortId")
+                        .IsUnique();
 
                     b.ToTable("Boards");
                 });
@@ -493,6 +509,9 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Property<DateTimeOffset?>("DeletedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("Number")
+                        .HasColumnType("integer");
+
                     b.PrimitiveCollection<List<string>>("Tags")
                         .IsRequired()
                         .HasColumnType("text[]");
@@ -518,6 +537,9 @@ namespace PrikBoard.Api.Data.Migrations
                     b.HasIndex("BucketId");
 
                     b.HasIndex("CreatedById");
+
+                    b.HasIndex("BoardId", "Number")
+                        .IsUnique();
 
                     b.ToTable("Notes");
                 });

@@ -37,6 +37,14 @@ public static class NoteEndpoints
             .WithName("getNote")
             .WithSummary("Get a note");
 
+        notes.MapGet($"/boards/{{shortId:length({Board.ShortIdLength})}}/notes/{{number:int}}", GetNoteByNumber)
+            .RequireBoardRole(BoardRole.Viewer, BoardScope.ShortBoard)
+            .WithName("getNoteByNumber")
+            .WithSummary("Get a note by its number")
+            .WithDescription("Finds a note by its board's short id and its number, the two parts of its path " +
+                             "(/#/boards/{shortId}/notes/{number}, path in getNote). Use this to open a link to a note you were given; " +
+                             "the other note endpoints take the id it returns.");
+
         notes.MapPatch("/notes/{noteId:guid}", UpdateNote)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Note)
             .WithName("updateNote")
@@ -93,7 +101,7 @@ public static class NoteEndpoints
     internal static async Task<Results<Ok<List<NoteDetail>>, NotFound>> ListNotes(
         Guid boardId, Guid? bucketId, string[]? tag, string? assignee, string? search, PrikBoardDbContext db, CancellationToken ct)
     {
-        if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
+        if (await BoardRefAsync(db, boardId, ct) is not { } board) return TypedResults.NotFound();
 
         var query = db.Notes.AsNoTracking().Where(n => n.BoardId == boardId);
         if (bucketId is not null)
@@ -120,7 +128,7 @@ public static class NoteEndpoints
                 || (principals.TryGetValue(a, out var p) && p.ShownName.Equals(name, StringComparison.OrdinalIgnoreCase)))).ToList();
         }
         var buckets = await db.Buckets.AsNoTracking().Where(b => b.BoardId == boardId).ToListAsync(ct);
-        return TypedResults.Ok(Layout.ReadingOrder(notes, buckets).Select(n => NoteDetail.From(n, principals)).ToList());
+        return TypedResults.Ok(Layout.ReadingOrder(notes, buckets).Select(n => NoteDetail.From(n, board, principals)).ToList());
     }
 
     internal static async Task<Results<Created<NoteDetail>, NotFound, ValidationProblem>> CreateNote(
@@ -142,6 +150,7 @@ public static class NoteEndpoints
         }
         if (ApplyLists(note, request.Tags, request.AssigneeIds) is { } invalid) return invalid;
         if (request.Blocks is not null && NoteBlockEndpoints.BuildAll(note, request.Blocks) is { } invalidBlock) return invalidBlock;
+        await NoteBlockEndpoints.ShortenLinksAsync(db, boardId, note.Blocks, ct);
         if (await TagEndpoints.EnsureBoardTagsAsync(db, boardId, note.Tags, ct) is { } tooManyTags) return tooManyTags;
 
         var buckets = await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct);
@@ -149,15 +158,34 @@ public static class NoteEndpoints
         var bucketId = request.BucketId ?? (request.X is null && request.Y is null ? Layout.BackToFront(buckets).FirstOrDefault()?.Id : null);
         if (Place(note, bucketId, request.X, request.Y, buckets, others) is { } problem) return problem;
 
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        note.Number = await TakeNumberAsync(db, boardId, ct);
         db.Notes.Add(note);
         await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
         return TypedResults.Created($"/api/notes/{note.Id}", await DetailAsync(db, note, ct));
     }
+
+    /// <summary>
+    /// The board's next note number, counted up in the same statement. That locks the board's row until the transaction
+    /// ends, so notes created at the same time get different numbers, and a note that fails to save gives its number back.
+    /// </summary>
+    private static async Task<int> TakeNumberAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
+        (await db.Database.SqlQuery<int>($"""
+            UPDATE "Boards" SET "NextNoteNumber" = "NextNoteNumber" + 1 WHERE "Id" = {boardId} RETURNING "NextNoteNumber" - 1 AS "Value"
+            """).ToListAsync(ct)).Single();
 
     internal static async Task<Results<Ok<NoteDetail>, NotFound>> GetNote(
         Guid noteId, PrikBoardDbContext db, CancellationToken ct)
     {
         var note = await db.Notes.AsNoTracking().FirstOrDefaultAsync(n => n.Id == noteId, ct);
+        return note is null ? TypedResults.NotFound() : TypedResults.Ok(await DetailAsync(db, note, ct));
+    }
+
+    internal static async Task<Results<Ok<NoteDetail>, NotFound>> GetNoteByNumber(
+        string shortId, int number, PrikBoardDbContext db, CancellationToken ct)
+    {
+        var note = await db.Notes.AsNoTracking().FirstOrDefaultAsync(n => n.Board!.ShortId == shortId && n.Number == number, ct);
         return note is null ? TypedResults.NotFound() : TypedResults.Ok(await DetailAsync(db, note, ct));
     }
 
@@ -255,7 +283,7 @@ public static class NoteEndpoints
     internal static async Task<Results<Ok<TrashContents>, NotFound>> ListDeletedNotes(
         Guid boardId, string? search, PrikBoardDbContext db, CancellationToken ct)
     {
-        if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
+        if (await BoardRefAsync(db, boardId, ct) is not { } board) return TypedResults.NotFound();
 
         string[] deleted = [PrikBoardDbContext.SoftDelete];
         var notes = await db.Notes.AsNoTracking().IgnoreQueryFilters(deleted)
@@ -276,7 +304,7 @@ public static class NoteEndpoints
             .ToList();
         var principals = await PrincipalsOnAsync(db, notes, ct);
         return TypedResults.Ok(new TrashContents(
-            notes.Select(n => NoteDetail.From(n, principals)).ToList(),
+            notes.Select(n => NoteDetail.From(n, board, principals)).ToList(),
             images.Select(ImageDetail.From).ToList()));
     }
 
@@ -335,8 +363,12 @@ public static class NoteEndpoints
         return await db.Principals.AsNoTracking().Where(p => ids.Contains(p.Id)).ToDictionaryAsync(p => p.Id, ct);
     }
 
+    /// <summary>What a note's readable id and path need from its board; null when the board does not exist.</summary>
+    internal static Task<BoardRef?> BoardRefAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
+        db.Boards.AsNoTracking().Where(b => b.Id == boardId).Select(b => new BoardRef(b.ShortId, b.Key)).FirstOrDefaultAsync(ct);
+
     private static async Task<NoteDetail> DetailAsync(PrikBoardDbContext db, Note note, CancellationToken ct) =>
-        NoteDetail.From(note, await PrincipalsOnAsync(db, [note], ct));
+        NoteDetail.From(note, (await BoardRefAsync(db, note.BoardId, ct))!, await PrincipalsOnAsync(db, [note], ct));
 
     /// <summary>
     /// Positions <paramref name="note"/> exactly at X and Y, or in a free spot inside the bucket (and in it), or (with

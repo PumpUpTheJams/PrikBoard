@@ -347,6 +347,13 @@ input[aria-invalid='true'] {
   white-space: nowrap;
 }
 
+/* The board's key (MPCT in MPCT-415), in the tags' font. */
+.board-key {
+  flex: none;
+  color: var(--muted);
+  font: 11px/1 var(--mono);
+}
+
 .topbar-divider {
   width: 1px;
   height: 24px;
@@ -934,6 +941,26 @@ main {
 .post-it-corner button:focus-visible,
 .post-it-corner button.copied {
   background: rgba(23, 24, 27, 0.12);
+}
+
+/* The readable id (MPCT-415), on a tab above the top-left corner while the post-it is hovered, focused or selected. */
+.post-it-id {
+  position: absolute;
+  bottom: 100%;
+  left: 8px;
+  display: none;
+  padding: 2px 6px 1px;
+  border-radius: 3px 3px 0 0;
+  background: var(--fill);
+  color: var(--ink-soft);
+  font: 10px/1.4 var(--mono);
+  pointer-events: none;
+}
+
+.post-it:hover .post-it-id,
+.post-it:focus-within .post-it-id,
+.post-it.selected .post-it-id {
+  display: block;
 }
 
 /* "Link copied" for a moment, above the post-it's corner. */

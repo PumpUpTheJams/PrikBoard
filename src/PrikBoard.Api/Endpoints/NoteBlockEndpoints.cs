@@ -57,6 +57,7 @@ public static class NoteBlockEndpoints
         var taken = Layout.TakenOnNote(note, await db.Images.Where(i => i.NoteId == noteId).ToListAsync(ct));
         if (Build(request, taken, "") is not { } block) return InvalidBlock(request, "");
         if (Check(block, "") is { } invalid) return invalid;
+        await ShortenLinksAsync(db, note.BoardId, [block], ct);
         if (request.Id is { } id)
         {
             if (note.Blocks.Exists(b => b.Id == id))
@@ -92,6 +93,7 @@ public static class NoteBlockEndpoints
         block.Height = request.Height ?? block.Height;
         Layout.Clamp(block);
         if (Check(block, "") is { } invalid) return invalid;
+        if (request.Links is not null) await ShortenLinksAsync(db, note.BoardId, [block], ct);
 
         note.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
@@ -171,8 +173,33 @@ public static class NoteBlockEndpoints
 
     private static ValidationProblem? Check(NoteBlock block, string prefix) =>
         block.Links.Find(l => !NoteLinks.IsValid(l.Url)) is { } bad
-            ? Problem(prefix + "links", $"\"{bad.Url}\" is neither an absolute http or https URL nor a note's path (/#/boards/{{boardId}}/notes/{{noteId}}).")
+            ? Problem(prefix + "links", $"\"{bad.Url}\" is neither an absolute http or https URL nor a note's path (/#/boards/{{shortId}}/notes/{{number}}).")
             : null;
+
+    /// <summary>
+    /// Rewrites links in the older form (/#/boards/{boardId}/notes/{noteId}) to notes on <paramref name="boardId"/> into
+    /// those notes' paths, deleted notes included. Links to other boards stay as they are, so a link says nothing new about
+    /// a board the caller may not see.
+    /// </summary>
+    internal static async Task ShortenLinksAsync(PrikBoardDbContext db, Guid boardId, IEnumerable<NoteBlock> blocks, CancellationToken ct)
+    {
+        var links = new List<(LinkEntry Link, Guid NoteId)>();
+        foreach (var link in blocks.SelectMany(b => b.Links))
+        {
+            if (NoteLinks.TryParse(link.Url, out var target) && !target.ByNumber) links.Add((link, target.NoteId));
+        }
+        if (links.Count == 0) return;
+
+        var ids = links.Select(l => l.NoteId).Distinct().ToList();
+        var paths = await db.Notes.AsNoTracking().IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+            .Where(n => n.BoardId == boardId && ids.Contains(n.Id))
+            .Select(n => new { n.Id, n.Number, n.Board!.ShortId })
+            .ToDictionaryAsync(n => n.Id, n => NoteLinks.NotePath(n.ShortId, n.Number), ct);
+        foreach (var (link, noteId) in links)
+        {
+            if (paths.TryGetValue(noteId, out var path)) link.Url = path;
+        }
+    }
 
     private static ValidationProblem Problem(string key, string message) =>
         TypedResults.ValidationProblem(new Dictionary<string, string[]> { [key] = [message] });

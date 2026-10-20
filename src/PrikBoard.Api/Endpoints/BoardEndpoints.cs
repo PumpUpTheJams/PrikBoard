@@ -41,8 +41,8 @@ public static class BoardEndpoints
             .RequireBoardRole(BoardRole.Owner)
             .WithName("updateBoard")
             .WithSummary("Update a board")
-            .WithDescription("Changes the board name, description and/or agent rules. Omitted fields stay unchanged. Only owners can " +
-                             "do this, so agents cannot change the rules they follow.")
+            .WithDescription("Changes the board name, key, description and/or agent rules. Omitted fields stay unchanged. Only owners can " +
+                             "do this, so agents cannot change the rules they follow. The short id never changes, so links keep working.")
             .ProducesValidationProblem();
 
         boards.MapDelete("/{boardId:guid}", DeleteBoard)
@@ -80,7 +80,13 @@ public static class BoardEndpoints
                 detail: "This access token is limited to chosen boards, so it cannot create new ones.");
         }
 
-        var board = new Board { Name = request.Name, Description = PatchText.Apply(null, request.Description) };
+        var board = new Board
+        {
+            ShortId = await NewShortIdAsync(db, ct),
+            Name = request.Name,
+            Key = Board.KeyFrom(request.Name),
+            Description = PatchText.Apply(null, request.Description),
+        };
         foreach (var (name, color) in Board.DefaultBuckets)
         {
             var (x, y) = Layout.NextBucketSpot(board.Buckets);
@@ -133,6 +139,7 @@ public static class BoardEndpoints
         if (board is null) return TypedResults.NotFound();
 
         board.Name = request.Name ?? board.Name;
+        board.Key = request.Key is null ? board.Key : Board.NormalizeKey(request.Key);
         board.Description = PatchText.Apply(board.Description, request.Description);
         var rules = PatchText.Apply(board.Rules, request.Rules);
         if (rules != board.Rules)
@@ -145,6 +152,16 @@ public static class BoardEndpoints
         await db.SaveChangesAsync(ct);
         await events.BoardsChangedForMembersAsync(db, boardId, ct);
         return TypedResults.Ok(BoardSummary.From(board, http.BoardRole()));
+    }
+
+    /// <summary>A short id no board has yet. The unique index still guards against two boards drawing the same one at once.</summary>
+    internal static async Task<string> NewShortIdAsync(PrikBoardDbContext db, CancellationToken ct)
+    {
+        while (true)
+        {
+            var shortId = Board.NewShortId();
+            if (!await db.Boards.AnyAsync(b => b.ShortId == shortId, ct)) return shortId;
+        }
     }
 
     private static async Task<Results<NoContent, NotFound>> DeleteBoard(
