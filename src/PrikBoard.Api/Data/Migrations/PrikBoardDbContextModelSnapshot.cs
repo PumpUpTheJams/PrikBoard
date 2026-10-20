@@ -341,6 +341,9 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Property<Guid>("BoardId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("Collapsed")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Color")
                         .IsRequired()
                         .HasMaxLength(20)

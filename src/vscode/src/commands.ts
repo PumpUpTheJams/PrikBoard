@@ -85,7 +85,11 @@ export function registerNoteCommands(tree: BoardTree): vscode.Disposable[] {
 
   const deleteNote = async (node?: Node) => {
     if (node?.kind !== 'note') return
-    const answer = await vscode.window.showWarningMessage(`Delete "${node.note.title || 'Untitled post-it'}"?`, { modal: true }, 'Delete')
+    const answer = await vscode.window.showWarningMessage(
+      `Delete "${node.note.title || 'Untitled post-it'}"?`,
+      { modal: true, detail: 'It can be put back from Deleted items in the web app for 7 days.' },
+      'Delete',
+    )
     if (answer !== 'Delete') return
     await run(() => api.deleteNote(node.note.id))
   }

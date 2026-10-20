@@ -170,6 +170,14 @@ export const TrashIcon = ({ size = 15 }: IconProps) => (
   </Icon>
 )
 
+/** An arrow coming back out: put a deleted post-it back on the board. */
+export const PutBackIcon = ({ size = 14 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M9 14L4 9l5-5" />
+    <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+  </Icon>
+)
+
 export const CheckIcon = ({ size = 14 }: IconProps) => (
   <Icon size={size} width={2.4}>
     <path d="M5 12l5 5 9-10" />

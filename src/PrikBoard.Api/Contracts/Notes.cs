@@ -20,6 +20,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="CreatedAt">When the note was created (UTC).</param>
 /// <param name="UpdatedAt">When the note was last edited or moved (UTC). The most recently updated note is drawn on top.</param>
 /// <param name="Path">Where the web app shows this note, relative to the site, e.g. "/#/boards/{boardId}/notes/{id}". Use it as a link's url to link this note from another note.</param>
+/// <param name="DeletedAt">When the note was deleted (UTC), for notes in the trash (listDeletedNotes); null otherwise.</param>
 public record NoteDetail(
     Guid Id,
     Guid BoardId,
@@ -36,7 +37,8 @@ public record NoteDetail(
     Guid? CreatedById,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    string Path)
+    string Path,
+    DateTimeOffset? DeletedAt = null)
 {
     /// <summary>Maps a note; <paramref name="principals"/> holds its creator and assignees (see NoteEndpoints.PrincipalsOnAsync).</summary>
     public static NoteDetail From(Note note, IReadOnlyDictionary<Guid, Principal> principals) =>
@@ -47,7 +49,7 @@ public record NoteDetail(
             note.AgentWorking, note.X, note.Y,
             note.CreatedById is { } by && principals.TryGetValue(by, out var creator) ? creator.ShownName : null,
             note.CreatedById, note.CreatedAt, note.UpdatedAt,
-            NoteLinks.NotePath(note.BoardId, note.Id));
+            NoteLinks.NotePath(note.BoardId, note.Id), note.DeletedAt);
 }
 
 /// <summary>A person or AI agent assigned to a note.</summary>

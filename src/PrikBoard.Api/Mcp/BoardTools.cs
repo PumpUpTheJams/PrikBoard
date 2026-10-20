@@ -34,7 +34,8 @@ public sealed record NoteSummary(
 }
 
 /// <summary>A bucket (column) with its notes, top to bottom.</summary>
-public sealed record BucketOverview(Guid Id, string Name, IReadOnlyList<NoteSummary> Notes);
+/// <param name="Collapsed">Folded up on the board: its notes are hidden there until someone opens it (they are listed here all the same).</param>
+public sealed record BucketOverview(Guid Id, string Name, IReadOnlyList<NoteSummary> Notes, bool Collapsed);
 
 /// <summary>A compact board: buckets in order with their notes, plus notes outside every bucket.</summary>
 /// <param name="Id">The board id.</param>
@@ -94,7 +95,7 @@ public sealed class BoardTools
         var board = McpCall.Value<BoardDetail>(await BoardEndpoints.GetBoard(boardId, http, db, ct));
 
         var buckets = board.Buckets
-            .Select(b => new BucketOverview(b.Id, b.Name, board.Notes.Where(n => n.BucketId == b.Id).Select(NoteSummary.From).ToList()))
+            .Select(b => new BucketOverview(b.Id, b.Name, board.Notes.Where(n => n.BucketId == b.Id).Select(NoteSummary.From).ToList(), b.Collapsed))
             .ToList();
         var loose = board.Notes.Where(n => n.BucketId is null).Select(NoteSummary.From).ToList();
         return new BoardOverview(board.Id, board.Name, board.Description, board.YourRole, board.Rules, board.RulesUpdatedAt,
@@ -381,16 +382,39 @@ public sealed class BoardTools
     }
 
     [McpServerTool(Name = "restore_note", Title = "Restore a deleted note", OpenWorld = false)]
-    [Description("Brings back a note deleted in the last " + Tombstones.RetentionText + ", with the same id, content and place, " +
-                 "and the images deleted along with it. Needs the Editor role.")]
-    public static async Task<NoteDetail> RestoreNote(IHttpContextAccessor accessor, [Description("The note id.")] Guid noteId, CancellationToken ct)
+    [Description("Brings back a note deleted in the last " + Tombstones.RetentionText + " (see list_deleted_notes), with the same " +
+                 "id, content and images, at the place it had or at x and y. Needs the Editor role.")]
+    public static async Task<NoteDetail> RestoreNote(
+        IHttpContextAccessor accessor,
+        [Description("The note id.")] Guid noteId,
+        [Description("Left edge on the board, to put it somewhere else; give it with y.")] int? x = null,
+        [Description("Top edge on the board, to put it somewhere else; give it with x.")] int? y = null,
+        CancellationToken ct = default)
     {
         var http = McpCall.Http(accessor);
         var boardId = await McpCall.AuthorizeAsync(http, BoardScope.Note, noteId, BoardRole.Editor);
+        var request = new RestoreNoteRequest(x, y);
+        McpCall.Validate(request);
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
-        var note = McpCall.Value<NoteDetail>(await NoteEndpoints.RestoreNote(noteId, db, ct));
+        var note = McpCall.Value<NoteDetail>(await NoteEndpoints.RestoreNote(noteId, request, db, ct));
         await McpCall.AnnounceAsync(http, boardId);
         return note;
+    }
+
+    [McpServerTool(Name = "list_deleted_notes", Title = "List the notes in the trash", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [Description("Lists the notes deleted on a board in the last " + Tombstones.RetentionText + ", most recently deleted first, " +
+                 "optionally only those whose title or content contains some text. restore_note brings one back." + UntrustedText)]
+    public static async Task<List<NoteSummary>> ListDeletedNotes(
+        IHttpContextAccessor accessor,
+        [Description("The board id.")] Guid boardId,
+        [Description("Text to look for in titles and content.")] string? text = null,
+        CancellationToken ct = default)
+    {
+        var http = McpCall.Http(accessor);
+        await McpCall.AuthorizeAsync(http, BoardScope.Board, boardId, BoardRole.Viewer);
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var trash = McpCall.Value<TrashContents>(await NoteEndpoints.ListDeletedNotes(boardId, text, db, ct));
+        return trash.Notes.Select(NoteSummary.From).ToList();
     }
 
     [McpServerTool(Name = "create_bucket", Title = "Create a bucket", OpenWorld = false)]
@@ -425,6 +449,23 @@ public sealed class BoardTools
         var request = new UpdateBucketRequest(name);
         McpCall.Validate(request);
         var bucket = McpCall.Value<BucketDetail>(await BucketEndpoints.UpdateBucket(bucketId, request, db, ct));
+        await McpCall.AnnounceAsync(http, boardId);
+        return bucket;
+    }
+
+    [McpServerTool(Name = "collapse_bucket", Title = "Collapse or open a bucket", Idempotent = true, OpenWorld = false)]
+    [Description("Folds a bucket up into a small square on the board, hiding its notes from people looking at the board (they " +
+                 "keep their places), or opens it again. Needs the Editor role.")]
+    public static async Task<BucketDetail> CollapseBucket(
+        IHttpContextAccessor accessor,
+        [Description("The bucket id.")] Guid bucketId,
+        [Description("True to collapse it, false to open it.")] bool collapsed,
+        CancellationToken ct)
+    {
+        var http = McpCall.Http(accessor);
+        var boardId = await McpCall.AuthorizeAsync(http, BoardScope.Bucket, bucketId, BoardRole.Editor);
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var bucket = McpCall.Value<BucketDetail>(await BucketEndpoints.UpdateBucket(bucketId, new UpdateBucketRequest(Collapsed: collapsed), db, ct));
         await McpCall.AnnounceAsync(http, boardId);
         return bucket;
     }

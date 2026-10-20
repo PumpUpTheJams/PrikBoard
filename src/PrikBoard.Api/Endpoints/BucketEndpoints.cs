@@ -95,6 +95,14 @@ public static class BucketEndpoints
             });
         }
 
+        if (resizing && (request.Collapsed ?? bucket.Collapsed))
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                [request.Width is not null ? "width" : "height"] = ["A collapsed bucket can't be resized; open it first."],
+            });
+        }
+
         var notes = await db.Notes.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);
         var images = await db.Images.Where(i => i.BoardId == bucket.BoardId && i.NoteId == null).ToListAsync(ct);
         var dx = request.X is { } x ? Layout.Snap(x) - bucket.X : 0;
@@ -122,6 +130,7 @@ public static class BucketEndpoints
 
         bucket.Name = request.Name ?? bucket.Name;
         bucket.Color = request.Color ?? bucket.Color;
+        bucket.Collapsed = request.Collapsed ?? bucket.Collapsed;
         bucket.X += dx;
         bucket.Y += dy;
         if (request.Width is { } width) bucket.Width = Layout.SnapSize(width, Layout.MinBucketWidth);

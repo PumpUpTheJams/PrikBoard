@@ -23,6 +23,8 @@ public static class Layout
     public const int MaxImageWidth = 4000;
     /// <summary>Width a new image gets when none is given (smaller images keep their own width).</summary>
     public const int DefaultImageWidth = 360;
+    /// <summary>A collapsed bucket is a square this size in its top-right corner.</summary>
+    public const int CollapsedBucketSize = NoteHeight;
 
     /// <summary>A note's own canvas (its blocks and attached images) runs from 0 to this, in both directions.</summary>
     public const int NoteCanvasMax = 10_000;
@@ -50,6 +52,8 @@ public static class Layout
     // moving a bucket onto another never moves items from one to the other: a moved bucket carries exactly its own items
     // and takes nothing; a resized one lets go of its items now outside it (Release) and takes loose ones it now covers
     // (Adopt, looseOnly); a drawn or restored one takes what it covers (Adopt); a deleted one lets all its items go.
+    // A collapsed bucket keeps its items but takes no others: they would vanish into it (an item put into it by bucketId,
+    // dropped on its square, is the exception).
 
     /// <summary>Puts a note in the topmost bucket containing its centre (none: loose). For a note that moved.</summary>
     public static void Place(Note note, IReadOnlyList<Bucket> stacked) => note.BucketId = TopmostAt(stacked, Centre(note))?.Id;
@@ -88,6 +92,7 @@ public static class Layout
     public static void Adopt(
         Bucket bucket, IReadOnlyList<Bucket> stacked, IEnumerable<Note> notes, IEnumerable<BoardImage> images, bool looseOnly)
     {
+        if (bucket.Collapsed) return;
         foreach (var note in notes)
         {
             if ((!looseOnly || note.BucketId is null) && TopmostAt(stacked, Centre(note)) == bucket) note.BucketId = bucket.Id;
@@ -118,9 +123,9 @@ public static class Layout
     private static bool StillIn(Guid? bucketId, (int X, int Y) centre, IReadOnlyList<Bucket> stacked) =>
         bucketId is { } id && stacked.Any(b => b.Id == id && b.Contains(centre.X, centre.Y));
 
-    /// <summary>The topmost of <paramref name="stacked"/> (back to front) containing a point.</summary>
+    /// <summary>The topmost of <paramref name="stacked"/> (back to front) containing a point, leaving out collapsed ones.</summary>
     private static Bucket? TopmostAt(IReadOnlyList<Bucket> stacked, (int X, int Y) point) =>
-        stacked.LastOrDefault(b => b.Contains(point.X, point.Y));
+        stacked.LastOrDefault(b => !b.Collapsed && b.Contains(point.X, point.Y));
 
     /// <summary>Notes bucket by bucket (in stacking order, loose notes last), then top to bottom and left to right.</summary>
     public static List<Note> ReadingOrder(IEnumerable<Note> notes, IEnumerable<Bucket> buckets)

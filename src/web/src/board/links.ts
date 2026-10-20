@@ -25,6 +25,14 @@ export function noteIdFromHash(): string | null {
   return window.location.hash.match(NOTE_HASH)?.[2] ?? null
 }
 
+const TRASH_HASH = /^#\/boards\/[0-9a-f-]{36}\/trash$/i
+
+/** The open trash keeps its place in the address too (the board menu opens it through it): /#/boards/{id}/trash. */
+export const trashPath = (boardId: string) => `/#/boards/${boardId}/trash`
+
+/** Whether the address has the trash open. */
+export const trashInHash = () => TRASH_HASH.test(window.location.hash)
+
 /** The post-it a link points at: a post-it's path, or its full address on this site. Null for anything else. */
 export function noteRoute(url: string): NoteRoute | null {
   let hash: string

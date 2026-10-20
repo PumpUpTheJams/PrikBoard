@@ -21,6 +21,7 @@ import type {
   CreatedInvite,
   InvitePreview,
   TokenIssuer,
+  TrashContents,
   UserMatch,
   ImageChanges,
   ImageDetail,
@@ -176,8 +177,13 @@ export const api = {
   moveNote: (noteId: string, to: { bucketId: string } | Point) =>
     request<NoteDetail>('POST', `/notes/${noteId}/move`, to),
   deleteNote: (noteId: string) => request<void>('DELETE', `/notes/${noteId}`),
-  /** Brings back a note deleted in the last 7 days, with the same id and the images deleted along with it. */
-  restoreNote: (noteId: string) => request<NoteDetail>('POST', `/notes/${noteId}/restore`),
+  /**
+   * Brings back a note deleted in the last 7 days, with the same id and the images deleted along with it: where it was,
+   * or at `at` (dragged out of the trash).
+   */
+  restoreNote: (noteId: string, at?: Point) => request<NoteDetail>('POST', `/notes/${noteId}/restore`, at),
+  /** The post-its deleted in the last 7 days, most recently deleted first. */
+  listDeletedNotes: (boardId: string) => request<TrashContents>('GET', `/boards/${boardId}/trash`),
   addNoteBlock: (noteId: string, block: NewNoteBlock) => request<NoteBlock>('POST', `/notes/${noteId}/blocks`, block),
   updateNoteBlock: (noteId: string, blockId: string, changes: NoteBlockChanges) =>
     request<NoteBlock>('PATCH', `/notes/${noteId}/blocks/${blockId}`, changes),
