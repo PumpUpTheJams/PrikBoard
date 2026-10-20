@@ -28,8 +28,8 @@ public record BucketDetail(Guid Id, Guid BoardId, string Name, BucketColor Color
 public record CreateBucketRequest(
     [property: Required, StringLength(100)] string Name,
     BucketColor? Color = null,
-    [property: Range(0, Layout.MaxCoordinate)] int? X = null,
-    [property: Range(0, Layout.MaxCoordinate)] int? Y = null,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X = null,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null,
     [property: Range(Layout.MinBucketWidth, Layout.MaxBucketSize)] int? Width = null,
     [property: Range(Layout.MinBucketHeight, Layout.MaxBucketSize)] int? Height = null);
 
@@ -52,8 +52,8 @@ public record CreateBucketRequest(
 public record UpdateBucketRequest(
     [property: StringLength(100, MinimumLength = 1)] string? Name = null,
     BucketColor? Color = null,
-    [property: Range(0, Layout.MaxCoordinate)] int? X = null,
-    [property: Range(0, Layout.MaxCoordinate)] int? Y = null,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X = null,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null,
     [property: Range(Layout.MinBucketWidth, Layout.MaxBucketSize)] int? Width = null,
     [property: Range(Layout.MinBucketHeight, Layout.MaxBucketSize)] int? Height = null,
     [property: MaxLength(2000)] List<Guid>? CarryNoteIds = null);

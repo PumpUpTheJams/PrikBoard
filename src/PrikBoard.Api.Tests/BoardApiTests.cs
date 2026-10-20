@@ -44,7 +44,8 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var notesUrl = $"/api/boards/{board.Id}/notes";
 
         var tooLong = await _client.PostAsJsonAsync(notesUrl, new { title = new string('x', 201) });
-        var negative = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", x = -20, y = 0 });
+        // The board has no edge at the origin, but it does end somewhere.
+        var negative = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", x = -100_020, y = 0 });
         var onlyX = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", x = 100 });
         var both = await _client.PostAsJsonAsync(notesUrl, new { title = "Ok", bucketId = board.Buckets[0].Id, x = 0, y = 0 });
 
@@ -132,6 +133,25 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         Assert.Equal((60, 820, todo.Id), (movedInside.X, movedInside.Y, movedInside.BucketId));
         Assert.Equal((40, 700), (stillLoose.X, stillLoose.Y));
         Assert.Null(stillLoose.BucketId);
+    }
+
+    [Fact]
+    public async Task The_board_goes_on_left_of_and_above_the_origin()
+    {
+        var board = await CreateBoard("No edge");
+        var todo = board.Buckets[0];
+        var inside = await CreateNote(board.Id, new { title = "Inside" });
+        var far = await CreateNote(board.Id, new { title = "Far out", x = -600, y = -400 });
+
+        var response = await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { x = -1000, y = -800 });
+        response.EnsureSuccessStatusCode();
+        var moved = await MoveNote(far.Id, new { x = -1960, y = -1500 });
+
+        var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
+        var carried = snapshot!.Notes.Single(n => n.Id == inside.Id);
+        Assert.Equal((-600, -400), (far.X, far.Y));
+        Assert.Equal((-1960, -1500), (moved.X, moved.Y));
+        Assert.Equal((-980, -780, todo.Id), (carried.X, carried.Y, carried.BucketId));
     }
 
     [Fact]

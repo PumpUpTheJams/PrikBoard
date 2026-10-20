@@ -1,7 +1,8 @@
 namespace PrikBoard.Api.Domain;
 
 /// <summary>
-/// The geometry rules of a board. Coordinates are canvas pixels from the top-left, snapped to a grid.
+/// The geometry rules of a board. Coordinates are canvas pixels, snapped to a grid. The board has no edge: things can go
+/// left of and above the origin (negative coordinates) as well as right of and below it.
 /// A note belongs to the topmost bucket containing its centre; buckets stack in creation order, newest on top.
 /// </summary>
 public static class Layout
@@ -14,6 +15,7 @@ public static class Layout
     public const int MinBucketHeight = NoteHeight + 2 * Gap;
     public const int DefaultBucketWidth = MinBucketWidth;
     public const int DefaultBucketHeight = 600;
+    public const int MinCoordinate = -MaxCoordinate;
     public const int MaxCoordinate = 100_000;
     public const int MaxBucketSize = 10_000;
     public const int MinImageWidth = 80;

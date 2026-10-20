@@ -32,11 +32,13 @@ import {
   GRID,
   MIN_BUCKET_HEIGHT,
   MIN_BUCKET_WIDTH,
+  MIN_COORDINATE,
   NOTE_HEIGHT,
   NOTE_WIDTH,
   bucketSize,
   bucketUnderNote,
   defaultBlockSize,
+  onBoard,
   onNoteCanvas,
   resizeFrom,
   resizeImage,
@@ -214,6 +216,14 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [linkDrop, setLinkDrop] = useState<LinkDrop | null>(null)
   /** A new post-it being dragged from the tool rail: the pointer, in screen pixels. */
   const [newPostIt, setNewPostIt] = useState<Point | null>(null)
+  /**
+   * While a post-it is dragged (or a new one carried), the rail's post-it button is a trash can: dropping a post-it on it
+   * deletes it, dropping a new one there puts it back. Whether the pointer is over it, and the post-it dropped there,
+   * hidden until the reload takes it away.
+   */
+  const trashRef = useRef<HTMLButtonElement>(null)
+  const [overTrash, setOverTrash] = useState(false)
+  const [binned, setBinned] = useState<string | null>(null)
   const expandedRef = useRef<ExpandedNoteHandle>(null)
   /** Image uploads in flight, and whether files are being dragged over the board. */
   const [uploads, setUploads] = useState(0)
@@ -228,11 +238,14 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
    * searching there is more room above, so a post-it at the top can be scrolled below the list of results.
    */
   const margin = { x: Math.round(view.width / 2), y: Math.round(Math.max(view.height / 2, search ? SEARCH_MARGIN : 0)) }
-  /** Where the canvas's top-left corner is in the scrolled area: the margin, and the tool rail's room on the left. */
-  const origin = { x: margin.x + RAIL_INSET, y: margin.y }
+  /**
+   * Where the canvas's top-left corner is in the scrolled area: the margin, and the tool rail's room on the left. The
+   * board has no edge, so that corner is its leftmost and topmost item, or 0,0 (`low`, below); `origin` is where 0,0 is.
+   */
+  const corner = { x: margin.x + RAIL_INSET, y: margin.y }
   // The wheel zooms the board (Shift + wheel scrolls). A quick-edit window sits next to the post-it on screen; after
   // zooming it would point at nothing.
-  const { zoom, zoomTo } = useZoom(scrollRef, origin, { onZoom: () => setQuickEdit(null), wheel: 'always' })
+  const { zoom, zoomTo } = useZoom(scrollRef, corner, { onZoom: () => setQuickEdit(null), wheel: 'always' })
   /** A short confirmation at the bottom of the board (a link was added, an image went into a post-it, an undo). */
   const [toast, setToast] = useState<ToastMessage | null>(null)
   const clearToast = useCallback(() => setToast(null), [])
@@ -425,10 +438,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   /** Deletes a post-it, closing it if it was open. */
   function deleteNote(id: string) {
     const note = board.notes.find((n) => n.id === id)
-    if (!note) return
+    if (!note) return Promise.resolve(false)
     if (expanded?.id === id) setExpanded(null)
     setSelection(null)
-    void settle(
+    return settle(
       () => api.deleteNote(id),
       () => step('Delete post-it', [deleted(target.note(id), snap.note(note))], { toast: 'Post-it deleted' }),
     )
@@ -546,7 +559,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     if (!drag) return bucket
     const { d } = drag
     if (drag.kind === 'bucket') return { ...bucket, ...snapPoint({ x: bucket.x + d.x, y: bucket.y + d.y }) }
-    if (drag.kind === 'resize') return { ...bucket, ...resizeFrom(bucket, drag.handle, d, bucketSize) }
+    if (drag.kind === 'resize') return { ...bucket, ...resizeFrom(bucket, drag.handle, d, bucketSize, MIN_COORDINATE) }
     return bucket
   }
 
@@ -557,7 +570,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       // A moving bucket carries its notes along, as the server does.
       const bucket = board.buckets.find((b) => b.id === note.bucketId)!
       const moved = bucketRect(bucket)
-      return { x: Math.max(0, note.x + moved.x - bucket.x), y: Math.max(0, note.y + moved.y - bucket.y) }
+      return { x: onBoard(note.x + moved.x - bucket.x), y: onBoard(note.y + moved.y - bucket.y) }
     }
     return note
   }
@@ -568,7 +581,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     const { d } = drag
     if (drag.kind === 'image') return { ...image, ...snapPoint({ x: image.x + d.x, y: image.y + d.y }) }
     if (drag.kind === 'image-resize') {
-      const resized = resizeImage(image, drag.handle, d)
+      const resized = resizeImage(image, drag.handle, d, MIN_COORDINATE)
       return { ...image, ...resized, ...snapPoint(resized) }
     }
     return image
@@ -841,16 +854,22 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     )
   }
 
-  /** Where a new post-it dragged from the rail would go, in canvas pixels: over the board, not over the open post-it. */
+  /** Whether a screen point is over the rail's trash can (the post-it button while a post-it is dragged). */
+  function onTrash(client: Point) {
+    const r = trashRef.current?.getBoundingClientRect()
+    return !!r && client.x >= r.left && client.x <= r.right && client.y >= r.top && client.y <= r.bottom
+  }
+
+  /** Where a new post-it dragged from the rail would go, in canvas pixels: over the board, not over the open post-it or the trash. */
   function newPostItPoint(client: Point): Point | null {
-    if (expandedRef.current?.contains(client)) return null
+    if (expandedRef.current?.contains(client) || onTrash(client)) return null
     return boardPoint(client)
   }
 
   /**
    * A press on the rail's post-it button. Dragging from there carries a new post-it, which is stuck where it is released
    * (over a bucket, it lands in that bucket). Without a drag it stays a click, which picks the post-it tool. Escape, or
-   * releasing off the board, drops it.
+   * releasing it off the board or back on the button (a trash can by then), drops it.
    */
   function onPostItPointerDown(e: PointerEvent<HTMLButtonElement>) {
     if (e.button !== 0 || readOnly) return
@@ -863,6 +882,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       window.removeEventListener('pointercancel', end)
       window.removeEventListener('keydown', onKey, true)
       setNewPostIt(null)
+      setOverTrash(false)
     }
     const onMove = (ev: globalThis.PointerEvent) => {
       const current = { x: ev.clientX, y: ev.clientY }
@@ -870,6 +890,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       carried = true
       setQuickEdit(null)
       setNewPostIt(current)
+      setOverTrash(onTrash(current))
     }
     const onUp = (ev: globalThis.PointerEvent) => {
       end()
@@ -900,9 +921,12 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       el.scrollTop = pan.top - (e.clientY - pan.y)
     } else if (gesture && !gesture.done) {
       const next = { ...gesture, current: toCanvas(e) }
+      const client = { x: e.clientX, y: e.clientY }
+      const trash = next.kind === 'note' && isDrag(next) && onTrash(client)
       setGesture(next)
-      setIncoming(isDrag(next) ? dropOnNote(next, { x: e.clientX, y: e.clientY }) : null)
-      setLinkDrop(isDrag(next) ? linkDropFor(next, { x: e.clientX, y: e.clientY }) : null)
+      setOverTrash(trash)
+      setIncoming(isDrag(next) && !trash ? dropOnNote(next, client) : null)
+      setLinkDrop(isDrag(next) && !trash ? linkDropFor(next, client) : null)
     }
   }
 
@@ -939,6 +963,16 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     }
 
     const client = { x: e.clientX, y: e.clientY }
+    setOverTrash(false)
+    if (gesture.kind === 'note' && onTrash(client)) {
+      // Dropped on the trash can: deleted (the toast and Ctrl/Cmd+Z undo it), and gone at once rather than back in its place.
+      setLinkDrop(null)
+      setIncoming(null)
+      setGesture({ ...gesture, done: true })
+      setBinned(gesture.id)
+      void deleteNote(gesture.id).then(() => setBinned(null))
+      return
+    }
     const link = linkDropFor(gesture, client)
     setLinkDrop(null)
     if (link) {
@@ -1018,7 +1052,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
           return step('Move bucket', [
             patched(target.bucket(id, carried.map((n) => n.id)), snap.bucket(bucket), snap.bucket(moved), ['x', 'y']),
             ...carried.map((n) =>
-              patched(target.note(n.id), { x: n.x, y: n.y }, { x: Math.max(0, n.x + d.x), y: Math.max(0, n.y + d.y) }, ['x', 'y'], true),
+              patched(target.note(n.id), { x: n.x, y: n.y }, { x: onBoard(n.x + d.x), y: onBoard(n.y + d.y) }, ['x', 'y'], true),
             ),
           ])
         },
@@ -1043,6 +1077,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   for (const image of board.images) if (image.noteId) attached.set(image.noteId, (attached.get(image.noteId) ?? 0) + 1)
   // Most recently updated on top, the note being dragged above everything.
   const notes = board.notes
+    .filter((n) => n.id !== binned)
     .toSorted((a, b) => a.updatedAt.localeCompare(b.updatedAt))
     .map((note) => ({ note, point: notePoint(note) }))
   const resizing = gesture && (gesture.kind === 'resize' || gesture.kind === 'image-resize') && !gesture.done ? gesture : null
@@ -1053,7 +1088,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const newPostItAt = newPostIt && newPostItPoint(newPostIt)
   const newPostItSpot = newPostItAt ? postItSpot(newPostItAt) : null
   const dropTarget =
-    draggedNote && !linkDrop
+    draggedNote && !linkDrop && !overTrash
       ? bucketUnderNote(board.buckets, draggedNote.point)
       : newPostItSpot
         ? bucketUnderNote(board.buckets, newPostItSpot)
@@ -1061,7 +1096,14 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const draft =
     gesture?.kind === 'draw' && !gesture.done ? spanRect(snapPoint(gesture.start), snapPoint(gesture.current)) : null
 
-  // The canvas reaches past the furthest item; the margin around it fills the rest of the viewport.
+  // The canvas reaches from the leftmost and topmost item (or 0,0) to past the furthest one; the margin around it fills
+  // the rest of the viewport. Items left of or above 0,0 grow it that way, while they are dragged there too.
+  const low = {
+    x: Math.min(0, ...buckets.map((b) => b.rect.x), ...notes.map((n) => n.point.x), ...images.map((i) => i.rect.x)),
+    y: Math.min(0, ...buckets.map((b) => b.rect.y), ...notes.map((n) => n.point.y), ...images.map((i) => i.rect.y)),
+  }
+  /** Where canvas point 0,0 is in the scrolled area. */
+  const origin = { x: corner.x - low.x * zoom, y: corner.y - low.y * zoom }
   const extent = {
     width:
       CANVAS_MARGIN +
@@ -1080,6 +1122,16 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         ...images.map((i) => i.rect.y + i.rect.height),
       ),
   }
+
+  // When the canvas grows or shrinks on the left or top, the scroll position moves by as much, so what is on screen
+  // (a post-it being dragged there too) stays where it is.
+  const lastLow = useRef(low)
+  useLayoutEffect(() => {
+    const el = scrollRef.current!
+    el.scrollLeft += (lastLow.current.x - low.x) * zoom
+    el.scrollTop += (lastLow.current.y - low.y) * zoom
+    lastLow.current = { x: low.x, y: low.y }
+  }, [low.x, low.y, zoom])
 
   const selectedBucket = selection?.kind === 'bucket' ? board.buckets.find((b) => b.id === selection.id) : undefined
   const selectedImage = selection?.kind === 'image' ? board.images.find((i) => i.id === selection.id) : undefined
@@ -1172,6 +1224,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               setPan(null)
               setIncoming(null)
               setLinkDrop(null)
+              setOverTrash(false)
             }}
             // Losing the pointer without a release ends a pan or an unfinished drag, so nothing stays stuck mid-air.
             onLostPointerCapture={() => {
@@ -1179,6 +1232,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               setGesture((g) => (g && !g.done ? null : g))
               setIncoming(null)
               setLinkDrop(null)
+              setOverTrash(false)
             }}
           >
             {buckets.map(({ bucket, rect }) => {
@@ -1301,6 +1355,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         fill={fill}
         onFillChange={setFill}
         onPostItPointerDown={onPostItPointerDown}
+        trash={(draggedNote && !dragging?.done) || newPostIt ? (overTrash ? 'over' : 'shown') : undefined}
+        trashRef={trashRef}
         onAddImage={() => void addImagesFromPicker()}
         readOnly={readOnly}
         searching={!!search}
@@ -1345,7 +1401,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         zoom={zoom}
         onZoom={(direction) => zoomTo(stepZoom(zoom, direction))}
         onZoomReset={() => zoomTo(1)}
-        extent={extent}
+        extent={{ x: low.x, y: low.y, width: extent.width - low.x, height: extent.height - low.y }}
         viewport={{ x: (view.x - origin.x) / zoom, y: (view.y - origin.y) / zoom, width: view.width / zoom, height: view.height / zoom }}
         buckets={board.buckets}
         notes={board.notes}
@@ -1481,7 +1537,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       {newPostIt &&
         createPortal(
           <div
-            className="drag-ghost post-it-ghost"
+            className={`drag-ghost post-it-ghost${overTrash ? ' over-trash' : ''}`}
             aria-hidden="true"
             style={{
               left: newPostIt.x - (NOTE_WIDTH / 2) * zoom,

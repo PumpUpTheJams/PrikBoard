@@ -17,7 +17,14 @@ export const MIN_BLOCK_WIDTH = 160
 export const MIN_BLOCK_HEIGHT = 80
 export const MAX_BLOCK_SIZE = 2000
 
+/** The board has no edge at the origin: positions run from MIN_COORDINATE to MAX_COORDINATE, both ways. */
+export const MIN_COORDINATE = -100_000
+export const MAX_COORDINATE = 100_000
+
 export const snap = (value: number) => Math.round(value / GRID) * GRID
+
+/** A board position kept within the coordinate range, as the server keeps it. */
+export const onBoard = (value: number) => Math.min(MAX_COORDINATE, Math.max(MIN_COORDINATE, value))
 
 /** An image's display size for a width, as the server computes it: snapped, within limits, keeping the aspect ratio. */
 export function imageSize(image: { pixelWidth: number; pixelHeight: number }, width: number) {
@@ -25,8 +32,8 @@ export function imageSize(image: { pixelWidth: number; pixelHeight: number }, wi
   return { width: w, height: Math.max(1, Math.round((w * image.pixelHeight) / image.pixelWidth)) }
 }
 
-/** Snaps a top-left corner to the grid, keeping it on the canvas. */
-export const snapPoint = ({ x, y }: Point): Point => ({ x: Math.max(0, snap(x)), y: Math.max(0, snap(y)) })
+/** Snaps a top-left corner on the board to the grid, keeping it within the coordinate range. */
+export const snapPoint = ({ x, y }: Point): Point => ({ x: onBoard(snap(x)), y: onBoard(snap(y)) })
 
 /** The topmost bucket containing a note's centre. `buckets` is back to front, as the API returns them. */
 export function bucketUnderNote(buckets: BucketDetail[], note: Point): BucketDetail | undefined {
@@ -60,37 +67,38 @@ export function bucketSize(width: number, height: number) {
 
 /**
  * A rectangle resized by dragging a corner or an edge by `d`, the opposite corner or edge staying put (as long as the
- * top-left stays on the canvas); an edge only changes the size in its own direction. `size` snaps and limits the new
- * size, as the server does for that kind of item.
+ * top-left stays at or right of and below `min`: 0 on a note's canvas, MIN_COORDINATE on the board); an edge only
+ * changes the size in its own direction. `size` snaps and limits the new size, as the server does for that kind of item.
  */
 export function resizeFrom(
   rect: Rect,
   handle: ResizeHandle,
   d: Point,
   size: (width: number, height: number) => { width: number; height: number },
+  min = 0,
 ): Rect {
   const left = handle.endsWith('Left')
   const right = handle.endsWith('Right')
   const top = handle.startsWith('Top')
   const bottom = handle.startsWith('Bottom')
   const next = size(
-    left ? Math.min(rect.width - d.x, rect.x + rect.width) : right ? rect.width + d.x : rect.width,
-    top ? Math.min(rect.height - d.y, rect.y + rect.height) : bottom ? rect.height + d.y : rect.height,
+    left ? Math.min(rect.width - d.x, rect.x + rect.width - min) : right ? rect.width + d.x : rect.width,
+    top ? Math.min(rect.height - d.y, rect.y + rect.height - min) : bottom ? rect.height + d.y : rect.height,
   )
   return {
-    x: left ? Math.max(0, rect.x + rect.width - next.width) : rect.x,
-    y: top ? Math.max(0, rect.y + rect.height - next.height) : rect.y,
+    x: left ? Math.max(min, rect.x + rect.width - next.width) : rect.x,
+    y: top ? Math.max(min, rect.y + rect.height - next.height) : rect.y,
     ...next,
   }
 }
 
 /**
  * An image resized from a corner or edge. It keeps its aspect ratio, so the top and bottom edges set the width through
- * the height (the server only takes a width).
+ * the height (the server only takes a width). `min` as for resizeFrom.
  */
-export function resizeImage(image: ImageDetail, handle: ResizeHandle, d: Point): Rect {
+export function resizeImage(image: ImageDetail, handle: ResizeHandle, d: Point, min = 0): Rect {
   const byHeight = handle === 'Top' || handle === 'Bottom'
-  return resizeFrom(image, handle, d, (width, height) => imageSize(image, byHeight ? (height * image.pixelWidth) / image.pixelHeight : width))
+  return resizeFrom(image, handle, d, (width, height) => imageSize(image, byHeight ? (height * image.pixelWidth) / image.pixelHeight : width), min)
 }
 
 /** Snaps a top-left corner on a note's canvas, keeping a `size` rectangle on it. */

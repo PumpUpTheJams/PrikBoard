@@ -110,7 +110,7 @@ The tools use the same access checks, validation and layout rules as the REST en
 
 A board is a freeform canvas. It holds **buckets**, named rectangles such as *To do*, *Doing* and *Done*, and **notes**, which are 200×120 px post-its. A note belongs to the topmost bucket that contains its centre, and its `bucketId` says which one. A note outside every bucket is loose (`bucketId: null`). Buckets stack in creation order, with the newest on top.
 
-Coordinates are canvas pixels from the top-left corner. The server snaps them to a 20 px grid, and it works out each note's bucket again whenever a note or bucket moves.
+Coordinates are canvas pixels. The board has no edge at the origin: x and y run from -100000 to 100000, so things can go left of and above 0,0 too. The server snaps them to a 20 px grid, and it works out each note's bucket again whenever a note or bucket moves.
 
 Besides a title, a note has a `color` (fill), `tags`, `assignees` (people and agents), an `agentWorking` flag, who created it (`createdBy`, `createdById`; null for notes from before this was recorded) and its content as `blocks`. The board shows the title, tags and assignees on the post-it. Everything else appears when the post-it is expanded.
 

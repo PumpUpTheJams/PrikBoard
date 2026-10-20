@@ -11,6 +11,7 @@ import type {
   NoteDetail,
   TagChanges,
 } from '../api/types'
+import { onBoard } from './layout'
 
 /**
  * Undo and redo for changes made in this tab. Each change is recorded as what it touched before and after (the fields
@@ -282,8 +283,8 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
 }
 
 /**
- * A moved bucket carries its post-its by the same distance, but never past the board's edge. A post-it that was stopped
- * at the edge on the way there doesn't come back exactly, so it is put where it belongs.
+ * A moved bucket carries its post-its by the same distance, but never past the end of the coordinate range. A post-it
+ * that was stopped there on the way doesn't come back exactly, so it is put where it belongs.
  */
 async function fixCarried(entry: UndoEntry, direction: UndoDirection, from: Snapshot, to: Snapshot) {
   if (!('x' in to) || 'width' in to || 'height' in to) return
@@ -294,7 +295,7 @@ async function fixCarried(entry: UndoEntry, direction: UndoDirection, from: Snap
     const was = direction === 'undo' ? change.after : change.before
     const goal = direction === 'undo' ? change.before : change.after
     if (!was || !goal) continue
-    const landed = { x: Math.max(0, (was.x as number) + dx), y: Math.max(0, (was.y as number) + dy) }
+    const landed = { x: onBoard((was.x as number) + dx), y: onBoard((was.y as number) + dy) }
     if (landed.x !== goal.x || landed.y !== goal.y) await api.moveNote(change.target.id, { x: goal.x as number, y: goal.y as number })
   }
 }

@@ -75,7 +75,7 @@ public static class ImageEndpoints
         }
 
         if ((Invalid(x is null != y is null, x is null ? "x" : "y", "Give x and y together.")
-            ?? Invalid(x is < 0 or > Layout.MaxCoordinate || y is < 0 or > Layout.MaxCoordinate, "x", $"Coordinates run from 0 to {Layout.MaxCoordinate}.")
+            ?? Invalid(x is < Layout.MinCoordinate or > Layout.MaxCoordinate || y is < Layout.MinCoordinate or > Layout.MaxCoordinate, "x", $"Coordinates run from {Layout.MinCoordinate} to {Layout.MaxCoordinate}.")
             ?? Invalid(width is < Layout.MinImageWidth or > Layout.MaxImageWidth, "width", $"Width runs from {Layout.MinImageWidth} to {Layout.MaxImageWidth}.")
             ?? Invalid(caption?.Length > 500, "caption", "A caption is at most 500 characters.")) is { } invalid)
         {

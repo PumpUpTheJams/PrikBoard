@@ -99,8 +99,8 @@ public static class BucketEndpoints
                 : notes.Where(n => n.BucketId == bucket.Id);
             foreach (var note in carried)
             {
-                note.X = Math.Max(0, note.X + dx);
-                note.Y = Math.Max(0, note.Y + dy);
+                note.X = Math.Clamp(note.X + dx, Layout.MinCoordinate, Layout.MaxCoordinate);
+                note.Y = Math.Clamp(note.Y + dy, Layout.MinCoordinate, Layout.MaxCoordinate);
             }
         }
 

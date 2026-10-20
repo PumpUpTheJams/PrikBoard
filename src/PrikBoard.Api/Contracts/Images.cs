@@ -60,8 +60,8 @@ public record ImageDetail(
 /// <param name="NoteId">Attach the image to this note on the same board (from the board, or from another note).</param>
 /// <param name="Detach">True to take an attached image off its note and put it on the board. Do not combine with noteId.</param>
 public record UpdateImageRequest(
-    [property: Range(0, Layout.MaxCoordinate)] int? X = null,
-    [property: Range(0, Layout.MaxCoordinate)] int? Y = null,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X = null,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null,
     [property: Range(Layout.MinImageWidth, Layout.MaxImageWidth)] int? Width = null,
     [property: StringLength(500)] string? Caption = null,
     Guid? NoteId = null,

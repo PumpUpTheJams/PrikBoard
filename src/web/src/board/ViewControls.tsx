@@ -22,8 +22,8 @@ interface ViewControlsProps {
   zoom: number
   onZoom: (direction: 1 | -1) => void
   onZoomReset: () => void
-  /** Size of the whole canvas, in canvas pixels. */
-  extent: { width: number; height: number }
+  /** The whole canvas, in canvas pixels: it can start left of and above 0,0. */
+  extent: Rect
   /** The visible part of the canvas, in canvas pixels. */
   viewport: Rect
   buckets: BucketDetail[]
@@ -45,10 +45,10 @@ const shortcuts = { undo: mac ? '⌘Z' : 'Ctrl+Z', redo: mac ? '⇧⌘Z' : 'Ctrl
 export function ViewControls(props: ViewControlsProps) {
   const { undo, redo, zoom, onZoom, onZoomReset, extent, viewport, buckets, notes, dimmed, current, images, onNavigate } = props
   // The map shows the canvas and the view, which can reach into the empty margin around it.
-  const left = Math.min(0, viewport.x)
-  const top = Math.min(0, viewport.y)
-  const width = Math.max(extent.width, viewport.x + viewport.width) - left
-  const height = Math.max(extent.height, viewport.y + viewport.height) - top
+  const left = Math.min(extent.x, viewport.x)
+  const top = Math.min(extent.y, viewport.y)
+  const width = Math.max(extent.x + extent.width, viewport.x + viewport.width) - left
+  const height = Math.max(extent.y + extent.height, viewport.y + viewport.height) - top
   const scale = Math.min((MAP_WIDTH - 2 * MAP_PAD) / width, (MAP_HEIGHT - 2 * MAP_PAD) / height)
   const toMap = (r: Rect) => ({
     left: MAP_PAD + (r.x - left) * scale,

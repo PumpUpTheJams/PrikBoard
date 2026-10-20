@@ -1076,6 +1076,16 @@ main {
 .rail-button.tone-coral { color: var(--fill-coral); }
 .rail-button.tone-lilac { color: var(--fill-lilac); }
 
+/* The post-it button while a post-it is dragged: a trash can, lit up while the pointer is on it. */
+.rail-button.trash {
+  color: var(--danger);
+}
+
+.rail-button.trash.over {
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 55%, transparent);
+}
+
 .rail-divider {
   height: 1px;
   margin: 4px 6px;
@@ -1785,6 +1795,11 @@ input.editable {
   height: 120px;
   box-shadow: none;
   transform-origin: 0 0;
+}
+
+/* A new post-it over the trash can fades: letting go there puts it back. */
+.drag-ghost.post-it-ghost.over-trash {
+  opacity: 0.35;
 }
 
 .drag-ghost {
