@@ -95,6 +95,22 @@ public static class NoteEndpoints
                              "deleted first, with the images deleted along with them. Optionally only notes whose title or content " +
                              "contains search (case-insensitive). restoreNote brings one back.");
 
+        notes.MapDelete("/boards/{boardId:guid}/trash/{noteId:guid}", PurgeNote)
+            .RequireBoardRole(BoardRole.Editor)
+            .WithName("purgeNote")
+            .WithSummary("Delete a note in the trash for good")
+            .WithDescription("Deletes a note that is in the board's trash, with the images and drawings deleted along with it, " +
+                             "for good: restoreNote can no longer bring it back. 409 when the note is not deleted; 404 when it " +
+                             "is not on this board.")
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
+        notes.MapDelete("/boards/{boardId:guid}/trash", EmptyTrash)
+            .RequireBoardRole(BoardRole.Editor)
+            .WithName("emptyTrash")
+            .WithSummary("Empty the board's trash")
+            .WithDescription("Deletes every note in the board's trash for good, with the images and drawings deleted along " +
+                             "with them. Returns how many notes went.");
+
         return api;
     }
 
@@ -350,6 +366,34 @@ public static class NoteEndpoints
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         return TypedResults.Ok(await DetailAsync(db, note, ct));
+    }
+
+    internal static async Task<Results<NoContent, NotFound, ProblemHttpResult>> PurgeNote(
+        Guid boardId, Guid noteId, PrikBoardDbContext db, CancellationToken ct)
+    {
+        var note = await db.Notes.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+            .Where(n => n.Id == noteId && n.BoardId == boardId)
+            .Select(n => new { n.DeletedAt })
+            .FirstOrDefaultAsync(ct);
+        if (note is null) return TypedResults.NotFound();
+        if (note.DeletedAt is null)
+        {
+            return TypedResults.Problem(
+                statusCode: StatusCodes.Status409Conflict, title: "Not deleted", detail: "The note is not in the trash; delete it first.");
+        }
+        // Its images and drawings go with it through the cascades; their files at the next sweep.
+        await db.Notes.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+            .Where(n => n.Id == noteId && n.DeletedAt != null)
+            .ExecuteDeleteAsync(ct);
+        return TypedResults.NoContent();
+    }
+
+    internal static async Task<Ok<EmptyTrashResult>> EmptyTrash(Guid boardId, PrikBoardDbContext db, CancellationToken ct)
+    {
+        var purged = await db.Notes.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+            .Where(n => n.BoardId == boardId && n.DeletedAt != null)
+            .ExecuteDeleteAsync(ct);
+        return TypedResults.Ok(new EmptyTrashResult(purged));
     }
 
     /// <summary>

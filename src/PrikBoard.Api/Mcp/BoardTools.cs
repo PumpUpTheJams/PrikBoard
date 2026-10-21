@@ -461,6 +461,34 @@ public sealed class BoardTools
         return result;
     }
 
+    [McpServerTool(Name = "purge_note", Title = "Delete a note in the trash for good", Destructive = true, OpenWorld = false)]
+    [Description("Deletes a note that is in the trash (see list_deleted_notes) for good, with its images and drawings: it can't " +
+                 "be restored after this. Only do this when asked to. Needs the Editor role.")]
+    public static async Task<string> PurgeNote(IHttpContextAccessor accessor, [Description(NoteHelp)] string note, CancellationToken ct)
+    {
+        var http = McpCall.Http(accessor);
+        var noteId = await ResolveNoteAsync(http, note, ct, deleted: true);
+        var boardId = await McpCall.AuthorizeAsync(http, BoardScope.Note, noteId, BoardRole.Editor);
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        McpCall.Succeeded(await NoteEndpoints.PurgeNote(boardId, noteId, db, ct));
+        await McpCall.AnnounceAsync(http, boardId);
+        return "Deleted for good.";
+    }
+
+    [McpServerTool(Name = "empty_trash", Title = "Empty the board's trash", Destructive = true, OpenWorld = false)]
+    [Description("Deletes every note in the board's trash for good, with their images and drawings: none of them can be " +
+                 "restored after this. Only do this when asked to. Needs the Editor role.")]
+    public static async Task<EmptyTrashResult> EmptyTrash(IHttpContextAccessor accessor, [Description(BoardHelp)] string board, CancellationToken ct)
+    {
+        var http = McpCall.Http(accessor);
+        var boardId = await ResolveBoardAsync(http, board, ct);
+        await McpCall.AuthorizeAsync(http, BoardScope.Board, boardId, BoardRole.Editor);
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var result = McpCall.Value<EmptyTrashResult>(await NoteEndpoints.EmptyTrash(boardId, db, ct));
+        await McpCall.AnnounceAsync(http, boardId);
+        return result;
+    }
+
     [McpServerTool(Name = "list_deleted_notes", Title = "List the notes in the trash", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Lists the notes deleted on a board in the last " + Tombstones.RetentionText + ", most recently deleted first, " +
                  "optionally only those whose title or content contains some text. restore_note brings one back." + UntrustedText)]

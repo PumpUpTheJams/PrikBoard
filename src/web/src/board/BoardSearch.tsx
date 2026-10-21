@@ -20,7 +20,7 @@ interface BoardSearchProps {
   results: SearchResult[]
   /** The active result: outlined on the board, highlighted in the list. */
   current: string | null
-  /** The list folds away while you work on the board or have a post-it open. */
+  /** The list folds away while you work on the board or in the open post-it, and comes back in the field. */
   listOpen: boolean
   onListOpenChange: (open: boolean) => void
   onMove: (direction: 1 | -1) => void

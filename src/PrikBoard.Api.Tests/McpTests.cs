@@ -23,8 +23,8 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
 
         var tools = (await mcp.ListToolsAsync()).ToDictionary(t => t.Name, t => t.ProtocolTool);
         Assert.Equal(
-            ["add_image", "add_note_block", "begin_image_upload", "collapse_bucket", "create_bucket", "create_note", "create_tag", "delete_note", "delete_note_block", "delete_tag", "get_board",
-             "get_board_rules", "get_note", "list_boards", "list_deleted_notes", "move_note", "rename_bucket", "restore_note", "restore_tag",
+            ["add_image", "add_note_block", "begin_image_upload", "collapse_bucket", "create_bucket", "create_note", "create_tag", "delete_note", "delete_note_block", "delete_tag", "empty_trash", "get_board",
+             "get_board_rules", "get_note", "list_boards", "list_deleted_notes", "move_note", "purge_note", "rename_bucket", "restore_note", "restore_tag",
              "search_notes", "set_working", "update_note", "update_note_block", "update_tag"],
             tools.Keys.Order());
         Assert.True(tools["get_board"].Annotations!.ReadOnlyHint);
@@ -272,6 +272,26 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         Assert.Equal((2000, 2000), (back.GetProperty("x").GetInt32(), back.GetProperty("y").GetInt32()));
         Assert.True(collapsed.GetProperty("collapsed").GetBoolean());
         Assert.True(overview.GetProperty("buckets")[0].GetProperty("collapsed").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Agents_delete_notes_in_the_trash_for_good()
+    {
+        var owner = await factory.CreateSignedInClientAsync("mcp-purge@example.com");
+        var board = await owner.CreateBoardAsync("MCP purge");
+        var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor));
+        var first = await owner.CreateNoteAsync(board.Id, "First");
+        var second = await owner.CreateNoteAsync(board.Id, "Second");
+        var third = await owner.CreateNoteAsync(board.Id, "Third");
+        foreach (var note in new[] { first, second, third }) await CallRawAsync(mcp, "delete_note", new() { ["note"] = note.Id });
+
+        await CallRawAsync(mcp, "purge_note", new() { ["note"] = first.ReadableId });
+        var left = await CallAsync(mcp, "list_deleted_notes", new() { ["board"] = board.Id });
+        var emptied = await CallAsync(mcp, "empty_trash", new() { ["board"] = board.ShortId });
+
+        Assert.Equal(2, left.GetArrayLength());
+        Assert.Equal(2, emptied.GetProperty("purged").GetInt32());
+        Assert.Equal(0, (await CallAsync(mcp, "list_deleted_notes", new() { ["board"] = board.Id })).GetArrayLength());
     }
 
     [Fact]

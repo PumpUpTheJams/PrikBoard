@@ -496,7 +496,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
             new HashSet<string?>
             {
                 "listBoards", "getBoard", "createBucket", "updateBucket", "deleteBucket",
-                "createNote", "getNoteByNumber", "moveNote", "updateNote", "deleteNote", "restoreNote", "setNoteWorking", "restoreBucket",
+                "createNote", "getNoteByNumber", "moveNote", "updateNote", "deleteNote", "restoreNote", "purgeNote", "emptyTrash", "setNoteWorking", "restoreBucket",
                 "addNoteBlock", "updateNoteBlock", "deleteNoteBlock",
                 "listBoardTags", "createBoardTag", "updateBoardTag", "deleteBoardTag", "restoreBoardTag",
                 "whoAmI", "listAuthProviders", "getVersion",

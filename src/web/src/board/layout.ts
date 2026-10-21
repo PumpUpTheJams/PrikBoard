@@ -51,7 +51,7 @@ export function bucketUnderNote(buckets: BucketDetail[], note: Point, own?: stri
 
 /** The square a collapsed bucket folds up into: in its top-right corner (of `rect`, where the bucket is now, mid-drag too). */
 export function collapsedRect(rect: Rect): Rect {
-  return { x: Math.max(0, rect.x + rect.width - COLLAPSED_SIZE), y: rect.y, width: COLLAPSED_SIZE, height: COLLAPSED_SIZE }
+  return { x: rect.x + rect.width - COLLAPSED_SIZE, y: rect.y, width: COLLAPSED_SIZE, height: COLLAPSED_SIZE }
 }
 
 /**

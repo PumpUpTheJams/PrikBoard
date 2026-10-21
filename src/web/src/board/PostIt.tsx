@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent,
 import type { NoteDetail, Point } from '../api/types'
 import { AvatarStack } from '../components/Avatar'
 import { Highlight } from './Highlight'
-import { CheckIcon, ExpandIcon, LinkIcon, PutBackIcon } from './icons'
+import { CheckIcon, ExpandIcon, LinkIcon, PutBackIcon, TrashIcon } from './icons'
 import { noteLabel } from './links'
 import { NOTE_HEIGHT, NOTE_WIDTH } from './layout'
 import { keepPress } from './gesture'
@@ -72,16 +72,18 @@ interface PostItProps {
    * (the people still show, but can't be changed there).
    */
   onPutBack?: () => void
+  /** For a post-it in the trash: deletes it for good. Its button sits next to put back. */
+  onPurge?: () => void
 }
 
 /**
  * On the board a post-it shows its title, tags, assignees and how many things it holds. Everything else lives inside
- * (see ExpandedNote). The count sits in the top-right corner (the expand button when there's nothing inside); on hover
- * it becomes the expand button, with copy link below it.
+ * (see ExpandedNote). The count sits in the top-right corner when there is anything inside; on hover it becomes the
+ * expand button, with copy link (its tooltip names the readable id) below it.
  */
 export function PostIt(props: PostItProps) {
   const { note, point, images = 0, tagColors, selected, lifted, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
-  const { editingTitle, titleCaret, onRenameTitle, onTitleDone, onPutBack } = props
+  const { editingTitle, titleCaret, onRenameTitle, onTitleDone, onPutBack, onPurge } = props
   /** A saved title, shown until the reload brings it (while the server still has `from`). */
   const [saved, setSaved] = useState<{ title: string; from: string } | null>(null)
   const title = saved && saved.from === note.title ? saved.title : note.title
@@ -139,7 +141,7 @@ export function PostIt(props: PostItProps) {
           </span>
         )}
       </div>
-      <div className={`post-it-corner${contents > 0 ? '' : ' no-count'}`}>
+      <div className="post-it-corner">
         {contents > 0 && (
           <span className="post-it-count" role="img" title={summary} aria-label={summary}>
             {contents}
@@ -151,8 +153,8 @@ export function PostIt(props: PostItProps) {
         <button
           type="button"
           className={copied ? 'copied' : undefined}
-          aria-label={`Copy a link to ${name}`}
-          title="Copy link"
+          aria-label={`Copy a link to ${name} (${note.readableId})`}
+          title={`Copy link to ${note.readableId}`}
           onPointerDown={keepPress}
           onDoubleClick={stop}
           onClick={copy}
@@ -160,9 +162,6 @@ export function PostIt(props: PostItProps) {
           {copied ? <CheckIcon size={13} /> : <LinkIcon size={13} />}
         </button>
       </div>
-      <span className="post-it-id" aria-hidden="true">
-        <Highlight text={note.readableId} terms={highlight} />
-      </span>
       {copied !== null && (
         <span className="post-it-copied" role="status">
           {copied ? 'Link copied' : "Couldn't copy the link"}
@@ -179,6 +178,19 @@ export function PostIt(props: PostItProps) {
         {onPutBack ? (
           <span className="post-it-people put-back-slot">
             {note.assignees.length > 0 && <AvatarStack assignees={note.assignees} />}
+            {onPurge && (
+              <button
+                type="button"
+                className="post-it-put-back purge"
+                aria-label={`Delete ${name} for good`}
+                title="Delete for good"
+                onPointerDown={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onClick={onPurge}
+              >
+                <TrashIcon size={14} />
+              </button>
+            )}
             <button
               type="button"
               className="post-it-put-back"

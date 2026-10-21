@@ -43,7 +43,7 @@ export function NoteBar({ onAdd, onAddImage, pen, onDelete }: NoteBarProps) {
       <div className="note-pen">
         <button
           type="button"
-          className="rail-button note-pen-button"
+          className="rail-button pen-button"
           aria-label="Pen"
           title="Pen (P): draw on the post-it"
           aria-pressed={pen.on}

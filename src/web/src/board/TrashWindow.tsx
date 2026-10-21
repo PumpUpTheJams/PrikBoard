@@ -1,6 +1,7 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { api, errorMessage } from '../api/client'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import type { ImageDetail, NoteDetail, Point, TrashContents } from '../api/types'
 import { isDrag } from './gesture'
 import { CloseIcon, MinusIcon, PlusIcon, SearchIcon, TrashIcon } from './icons'
@@ -55,6 +56,10 @@ interface TrashWindowProps {
   /** Shows a post-it as it is inside, read only. */
   onOpenNote: (note: NoteDetail, images: ImageDetail[]) => void
   onPutBack: (note: NoteDetail) => void
+  /** Deletes a post-it in the trash for good; resolves false when that failed. */
+  onPurge: (note: NoteDetail) => Promise<boolean>
+  /** Deletes everything in the trash for good (after the window asked); resolves false when that failed. */
+  onEmpty: () => Promise<boolean>
   /** A post-it is being dragged out of the window (null once that ends). */
   onOutgoing: (drag: OutgoingNote | null) => void
   /** A post-it dragged out of the window was released outside it; false when it went nowhere (it stays in the trash). */
@@ -71,7 +76,7 @@ interface TrashWindowProps {
  */
 export function TrashWindow(props: TrashWindowProps) {
   const { boardId, reload, readOnly, tagColors, handle, dropOver, boardZoom, onClose, onOpenNote, onPutBack } = props
-  const { onOutgoing, onDropOut, onBusy } = props
+  const { onPurge, onEmpty, onOutgoing, onDropOut, onBusy } = props
   const dialogRef = useRef<HTMLElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
@@ -83,12 +88,12 @@ export function TrashWindow(props: TrashWindowProps) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
   const [press, setPress] = useState<Press | null>(null)
+  /** Asking whether to empty the trash. */
+  const [confirmEmpty, setConfirmEmpty] = useState(false)
   /** Post-its dropped out of the window: hidden until the next load no longer has them. */
   const [gone, setGone] = useState<Set<string>>(new Set())
   /** The scroll viewport in screen pixels, which the grid fits. */
   const [view, setView] = useState({ width: 0, height: 0 })
-  /** Above the expanded post-it while it was pressed last. */
-  const [front, setFront] = useState(true)
   /** The post-its the last two presses were on: the canvas holds the pointer, so double-clicks reach it, not the post-it. */
   const presses = useRef<[string | null, string | null]>([null, null])
 
@@ -120,15 +125,6 @@ export function TrashWindow(props: TrashWindowProps) {
     const observer = new ResizeObserver(update)
     observer.observe(el)
     return () => observer.disconnect()
-  }, [])
-
-  // The window pressed last is on top of the other one.
-  useEffect(() => {
-    function onDown(e: globalThis.PointerEvent) {
-      if (e.target instanceof Element && e.target.closest('.expanded')) setFront(!!dialogRef.current?.contains(e.target))
-    }
-    window.addEventListener('pointerdown', onDown, true)
-    return () => window.removeEventListener('pointerdown', onDown, true)
   }, [])
 
   const contains = (client: Point) => {
@@ -186,6 +182,16 @@ export function TrashWindow(props: TrashWindowProps) {
     }
   }
 
+  /** Hidden until the next load no longer has it. */
+  async function purge(note: NoteDetail) {
+    if (await onPurge(note)) setGone((g) => new Set(g).add(note.id))
+  }
+
+  async function empty() {
+    setConfirmEmpty(false)
+    if (await onEmpty()) setGone(new Set(all.map((n) => n.id)))
+  }
+
   function cancel() {
     if (!press) return
     setPress(null)
@@ -198,7 +204,7 @@ export function TrashWindow(props: TrashWindowProps) {
     <article
       ref={dialogRef}
       className={`expanded trash-window${moving ? ' moving' : ''}${dropOver ? ' drop-over' : ''}`}
-      style={rect ? { left: rect.x, top: rect.y, width: rect.width, height: rect.height, zIndex: front ? 12 : undefined } : { visibility: 'hidden' }}
+      style={rect ? { left: rect.x, top: rect.y, width: rect.width, height: rect.height } : { visibility: 'hidden' }}
       role="dialog"
       aria-modal="false"
       aria-label="Deleted items"
@@ -218,6 +224,18 @@ export function TrashWindow(props: TrashWindowProps) {
             <span className="count">{all.length}</span>
           </span>
           <div className="band-actions">
+            {!readOnly && (
+              <button
+                type="button"
+                className="band-button empty-trash"
+                title="Delete everything in here for good"
+                disabled={all.length === 0}
+                onClick={() => setConfirmEmpty(true)}
+              >
+                <TrashIcon size={15} />
+                Empty trash
+              </button>
+            )}
             <button type="button" className="band-button icon" aria-label="Close" title="Close (Esc)" onClick={onClose}>
               <CloseIcon />
             </button>
@@ -272,6 +290,7 @@ export function TrashWindow(props: TrashWindowProps) {
                     onPointerDown={(e) => onNotePointerDown(e, note, spots[i])}
                     onExpand={() => onOpenNote(note, imagesOf(note.id))}
                     onPutBack={readOnly ? undefined : () => onPutBack(note)}
+                    onPurge={readOnly ? undefined : () => void purge(note)}
                   />
                 </div>
               ))}
@@ -324,6 +343,18 @@ export function TrashWindow(props: TrashWindowProps) {
           >
             <PostIt note={dragging.note} point={{ x: 0, y: 0 }} images={imagesOf(dragging.note.id).length} tagColors={tagColors} selected={false} lifted onPointerDown={() => {}} onExpand={() => {}} />
           </div>,
+          document.body,
+        )}
+
+      {confirmEmpty &&
+        createPortal(
+          <ConfirmDialog
+            title="Empty the trash?"
+            message={`${all.length === 1 ? 'The post-it in here, with its' : `All ${all.length} post-its in here, with their`} images and drawings, will be deleted for good. This can't be undone.`}
+            confirmLabel="Empty trash"
+            onConfirm={() => void empty()}
+            onCancel={() => setConfirmEmpty(false)}
+          />,
           document.body,
         )}
     </article>

@@ -535,6 +535,25 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     })
   }
 
+  /** Deletes a post-it in the trash for good. That can't be undone, so it records no step. */
+  async function purge(note: NoteDetail) {
+    if (deletedPreview?.note.id === note.id) setDeletedPreview(null)
+    const ok = await runRec(() => api.purgeNote(board.id, note.id))
+    if (ok) notify('Deleted for good')
+    return ok
+  }
+
+  /** Deletes everything in the trash for good (the trash window asks first). */
+  async function emptyTrash() {
+    setDeletedPreview(null)
+    let purged = 0
+    const ok = await runRec(async () => {
+      purged = (await api.emptyTrash(board.id)).purged
+    })
+    if (ok) notify(purged === 1 ? '1 post-it deleted for good' : `${purged} post-its deleted for good`)
+    return ok
+  }
+
   /** Where a post-it dragged out of the trash window would land on the board, or null when it isn't over the board. */
   function outgoingSpot(drag: OutgoingNote): Point | null {
     if (!drag.outside || expandedRef.current?.contains(drag.client)) return null
@@ -1084,9 +1103,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     focusSearch.current = 'end'
   }
 
-  /** Opens the search with its words selected. An open post-it closes: nothing in it was being typed into. */
+  /** Opens the search with its words selected. An open post-it stays open; picking a result swaps it for that one. */
   function openSearch() {
-    setExpanded(null)
     setSearch((s) => ({ query: s?.query ?? '', current: s?.current ?? null, listOpen: true }))
     focusSearch.current = 'select'
   }
@@ -1974,7 +1992,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         matching={board.notes.filter((n) => !tagFaded(n)).length}
         total={board.notes.length}
       />
-      <div className="board-top" ref={boardTop}>
+      <div className={`board-top${search ? ' searching' : ''}`} ref={boardTop}>
         {search && (
           <BoardSearch
             inputRef={searchInput}
@@ -1983,7 +2001,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             terms={terms}
             results={results}
             current={current}
-            listOpen={search.listOpen && !expandedNote}
+            listOpen={search.listOpen}
             onListOpenChange={(listOpen) => setSearch((s) => s && { ...s, listOpen })}
             onMove={moveInResults}
             onOpen={openResult}
@@ -2137,6 +2155,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             setDeletedPreview({ note, images })
           }}
           onPutBack={(note) => putBack(note)}
+          onPurge={purge}
+          onEmpty={emptyTrash}
           onOutgoing={setOutgoing}
           onDropOut={dropOut}
           onBusy={setDeletedBusy}
