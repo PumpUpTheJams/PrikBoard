@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Validators;
 
 using PrikBoard.Api.Domain;
@@ -264,6 +265,9 @@ public static partial class AuthSetup
             options.ClientId = provider.ClientId;
             options.ClientSecret = provider.ClientSecret;
             options.ResponseType = "code";
+            // Not form_post (the default): a provider's cross-site post back carries no SameSite=Lax session cookie,
+            // so linking a sign-in could not find the session. A redirect with the code in the query does carry it.
+            options.ResponseMode = OpenIdConnectResponseMode.Query;
             options.CallbackPath = CallbackPath(id);
             options.SignInScheme = CookieScheme;
             options.GetClaimsFromUserInfoEndpoint = true;

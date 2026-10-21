@@ -94,6 +94,8 @@ PrikBoard stores **no personal data** about people beyond a copy of their GitHub
 - **Linking.** A signed-in person adds another sign-in from Account → *Connect another*. Under the hood that is a form post to `POST /api/auth/link/{provider}`.
   - The form post only works from PrikBoard's own pages: the `Origin` must match, and the SameSite=Lax cookie is not sent on cross-site posts.
   - The user id travels in the encrypted OAuth state. On the way back it must match the session again, so a callback replayed in someone else's browser does nothing.
+  - OpenID Connect providers answer with a redirect (`response_mode=query`), not the usual `form_post`: the cross-site post back would not carry the SameSite=Lax session cookie, so the link could never find the session.
+  - A failed link comes back as `?authError=…` while the person is still signed in, and the web app shows it over the board.
   - Accounts are never merged. A sign-in that already belongs to another user is refused (`?authError=identity_in_use`).
 - **No linking by email.** Sign-ins are never joined just because their emails match: a provider with weak email checks could otherwise take over accounts.
 - **Unlinking.** People remove sign-ins in the same place. The last one cannot be removed.
