@@ -4588,9 +4588,28 @@ button.picker-color:hover,
   color: var(--accent);
 }
 
+.bucket-collapsed-counts {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
 .bucket-collapsed-count {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   color: var(--text);
   font: 600 26px/1 var(--mono);
+}
+
+.bucket-collapsed-count > svg {
+  color: var(--muted);
+}
+
+/* Cards and images both: two smaller lines, so the name still fits in the square. */
+.bucket-collapsed-counts.both .bucket-collapsed-count {
+  font-size: 17px;
 }
 
 .bucket-collapsed-name {

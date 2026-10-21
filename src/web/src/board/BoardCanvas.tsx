@@ -31,7 +31,7 @@ import { TrashWindow, type OutgoingCard, type TrashWindowHandle } from './TrashW
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
 import { delta, isDrag } from './gesture'
 import { boardRefFromHash, isBoard, linksTo, cardInHash, cardLabel, trashInHash, trashPath } from './links'
-import { ChevronDownIcon, ChevronUpIcon } from './icons'
+import { CardIcon, ChevronDownIcon, ChevronUpIcon, ImageIcon } from './icons'
 import { pop, reducedMotion } from './motion'
 import { BucketInspector, ImageInspector } from './Inspector'
 import {
@@ -1664,6 +1664,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const selectedDrawing = selection?.kind === 'drawing' ? drawings.find((d) => d.drawing.id === selection.id) : undefined
   const expandedCard = expanded && board.cards.find((n) => n.id === expanded.id)
   const countIn = (bucketId: string) => board.cards.filter((n) => n.bucketId === bucketId).length
+  const imagesIn = (bucketId: string) => board.images.filter((i) => i.bucketId === bucketId && !i.cardId).length
   // Filter on tags that still exist (one may have been renamed or deleted meanwhile); any of them matches.
   const filter = tagFilter.filter((t) => board.tags.some((bt) => bt.name === t))
   const tagFaded = (card: CardDetail) => filter.length > 0 && !card.tags.some((t) => filter.includes(t))
@@ -1773,12 +1774,15 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               const count = countIn(bucket.id)
               const countLabel = count === 1 ? '1 card' : `${count} cards`
               if (bucket.collapsed) {
-                // Folded up: a square in its middle with its name and how many cards are inside.
+                // Folded up: a square in its top-right corner with its name and how many cards and images are inside
+                // (an empty one shows 0 cards).
                 const square = collapsedRect(rect)
+                const images = imagesIn(bucket.id)
+                const imagesLabel = images === 1 ? '1 image' : `${images} images`
                 return (
                   <section
                     key={bucket.id}
-                    aria-label={`${bucket.name} (collapsed, ${countLabel})`}
+                    aria-label={`${bucket.name} (collapsed, ${countLabel}${images > 0 ? `, ${imagesLabel}` : ''})`}
                     data-fold={bucket.id}
                     className={['bucket-collapsed', foldDrop === bucket.id && 'drop-target', isSelected('bucket', bucket.id) && 'selected']
                       .filter(Boolean)
@@ -1787,7 +1791,20 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                     title="Drag to move the bucket"
                     onPointerDown={(e) => onItemPointerDown(e, 'bucket', bucket.id)}
                   >
-                    <span className="bucket-collapsed-count">{count}</span>
+                    <span className={`bucket-collapsed-counts${count > 0 && images > 0 ? ' both' : ''}`} aria-hidden>
+                      {(count > 0 || images === 0) && (
+                        <span className="bucket-collapsed-count" title={countLabel}>
+                          <CardIcon size={14} />
+                          {count}
+                        </span>
+                      )}
+                      {images > 0 && (
+                        <span className="bucket-collapsed-count" title={imagesLabel}>
+                          <ImageIcon size={14} />
+                          {images}
+                        </span>
+                      )}
+                    </span>
                     <span className="bucket-collapsed-name">{bucket.name}</span>
                     {!readOnly && (
                       <button
