@@ -11,6 +11,8 @@ interface BoardImageViewProps {
   rect: Rect
   selected: boolean
   lifted: boolean
+  /** Drawn above the rest, with the bucket that was opened or pressed last. */
+  front?: boolean
   onPointerDown: (e: PointerEvent<HTMLElement>) => void
   /** A press on a corner or edge handle (shown while selected, for editors) starts resizing from there. */
   onResizePointerDown?: (e: PointerEvent<HTMLElement>, handle: ResizeHandle) => void
@@ -19,10 +21,11 @@ interface BoardImageViewProps {
 }
 
 /** An image or GIF on the canvas, with its file name (or caption) and who added it underneath. */
-export function BoardImageView({ image, rect, selected, lifted, onPointerDown, onResizePointerDown, onDelete }: BoardImageViewProps) {
+export function BoardImageView({ image, rect, selected, lifted, front, onPointerDown, onResizePointerDown, onDelete }: BoardImageViewProps) {
   const classes = ['board-image']
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
+  if (front) classes.push('in-front')
   const label = image.caption ?? image.fileName
 
   return (

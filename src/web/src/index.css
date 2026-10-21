@@ -4588,6 +4588,19 @@ button.picker-color:hover,
   color: var(--accent);
 }
 
+/* The bucket opened, pressed or moved last and what is in it are drawn above the rest (only on this screen). What is lifted stays above them. */
+.bucket.in-front,
+.card.in-front:not(.lifted, .link-copied),
+.board-image.in-front:not(.lifted),
+.drawing.in-front {
+  z-index: 1;
+}
+
+/* Without its fill, so what lies underneath shows through as it is. */
+.bucket.in-front:not(.drop-target) {
+  background: transparent;
+}
+
 .bucket-collapsed-counts {
   display: flex;
   flex-direction: column;

@@ -296,6 +296,14 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [deletedBusy, setDeletedBusy] = useState(false)
   /** The collapsed bucket a card (or several selected cards) being dragged would go into on release. */
   const [foldDrop, setFoldDrop] = useState<string | null>(null)
+  /**
+   * The bucket last opened, pressed or moved: it and what is in it are drawn above everything else, so a bucket opened
+   * over others isn't a tangle of cards. Only on this screen; which bucket an item is in doesn't change.
+   */
+  const [frontBucket, setFrontBucket] = useState<string | null>(null)
+  const front = board.buckets.find((b) => b.id === frontBucket && !b.collapsed)?.id ?? null
+  /** Whether an item is drawn in front, with its bucket. */
+  const inFront = (item: { bucketId: string | null }) => front !== null && item.bucketId === front
   /** Cards in a collapsed bucket are folded away with it: not on the board until it opens again. */
   const collapsedIds = new Set(board.buckets.filter((b) => b.collapsed).map((b) => b.id))
   const visibleCards = board.cards.filter((n) => !n.bucketId || !collapsedIds.has(n.bucketId))
@@ -591,8 +599,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   /** Folds a bucket up into a square in its top-right corner, hiding its cards, or opens it again with them where they were. */
   function toggleCollapsed(bucket: BucketDetail) {
     const collapsed = !bucket.collapsed
-    // What folds away with it is no longer selected.
+    // What folds away with it is no longer selected. Opened, it comes to the front with its cards.
     if (collapsed) setSelected((list) => list.filter((s) => s.kind === 'bucket' || bucketOf(s) !== bucket.id))
+    else setFrontBucket(bucket.id)
     void settle(
       () => api.updateBucket(bucket.id, { collapsed }),
       (after) => step(collapsed ? 'Collapse bucket' : 'Open bucket', [patched(target.bucket(bucket.id), snap.bucket(bucket), snap.bucket(after), ['collapsed'])]),
@@ -1017,11 +1026,14 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     return inside ? toCanvas({ clientX: client.x, clientY: client.y }) : null
   }
 
+  /** Cards in the order they are drawn: the front bucket's above the rest, then the most recently updated on top. */
+  const drawOrder = (a: CardDetail, b: CardDetail) => Number(inFront(a)) - Number(inFront(b)) || a.updatedAt.localeCompare(b.updatedAt)
+
   /** The topmost card on the board under a canvas point, other than `except` (one id, or the ids of a group). */
   function cardAt(p: Point, except?: string | Set<string>): CardDetail | undefined {
     const skip = (id: string) => (typeof except === 'string' ? id === except : !!except?.has(id))
     return visibleCards
-      .toSorted((a, b) => a.updatedAt.localeCompare(b.updatedAt))
+      .toSorted(drawOrder)
       .findLast((n) => !skip(n.id) && p.x >= n.x && p.x < n.x + CARD_WIDTH && p.y >= n.y && p.y < n.y + CARD_HEIGHT)
   }
 
@@ -1253,6 +1265,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     const onTitle = e.target instanceof Element && e.target.closest('.card-title') !== null
     titlePress.current = kind === 'card' && onTitle ? id : null
     const item: Selection = { kind: kind === 'card' || kind === 'drawing' ? kind : kind === 'image' || kind === 'image-resize' ? 'image' : 'bucket', id }
+    if (item.kind === 'bucket') setFrontBucket(id)
     const resize = kind === 'resize' || kind === 'image-resize'
     if (!resize && adds(e)) {
       titlePress.current = null
@@ -1275,6 +1288,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     if (e.target !== e.currentTarget || e.button !== 0 || tool !== 'select' || spaceHeld || readOnly) return
     e.stopPropagation()
     e.preventDefault()
+    setFrontBucket(bucket.id)
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
     cardPresses.current = [cardPresses.current[1], null]
     beginGesture(e, { kind: 'select', bucketId: bucket.id, base: adds(e) ? selected : [] })
@@ -1754,10 +1768,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   /** How many images are attached to each card. */
   const attached = new Map<string, number>()
   for (const image of board.images) if (image.cardId) attached.set(image.cardId, (attached.get(image.cardId) ?? 0) + 1)
-  // Most recently updated on top, the card being dragged above everything.
+  // The front bucket's cards above the rest, most recently updated on top, the card being dragged above everything.
   const cards = visibleCards
     .filter((n) => !binned.includes(n.id))
-    .toSorted((a, b) => a.updatedAt.localeCompare(b.updatedAt))
+    .toSorted(drawOrder)
     .map((card) => ({ card, point: cardPoint(card) }))
   /** Where a card dragged out of the trash window would land. */
   const outgoingPlace = outgoing ? outgoingSpot(outgoing) : null
@@ -1994,6 +2008,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                   aria-label={bucket.name}
                   className={[
                     'bucket',
+                    front === bucket.id && 'in-front',
                     dropTarget?.id === bucket.id && 'drop-target',
                     isSelected('bucket', bucket.id) && 'selected',
                   ]
@@ -2017,7 +2032,11 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                     title="Drag to move the bucket and its cards"
                     onPointerDown={(e) => onItemPointerDown(e, 'bucket', bucket.id)}
                     // Enter or Space on the name. A press that added to the selection is a click here too: leave it be.
-                    onClick={(e) => !adds(e) && setSelection({ kind: 'bucket', id: bucket.id })}
+                    onClick={(e) => {
+                      if (adds(e)) return
+                      setSelection({ kind: 'bucket', id: bucket.id })
+                      setFrontBucket(bucket.id)
+                    }}
                   >
                     <span className="bucket-name">{bucket.name}</span>
                     <span className="count" aria-label={countLabel}>
@@ -2057,6 +2076,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                 rect={rect}
                 selected={isSelected('image', image.id)}
                 lifted={lifting(image.id)}
+                front={inFront(image)}
                 onPointerDown={(e) => onItemPointerDown(e, 'image', image.id)}
                 // One of several selected has no handles: they move together, but resize one at a time.
                 onResizePointerDown={
@@ -2099,6 +2119,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                 tagColors={tagColors}
                 selected={isSelected('card', card.id)}
                 lifted={lifting(card.id) || remoteMoving(card.id)}
+                front={inFront(card)}
                 dimmed={dimmed(card)}
                 highlight={matches.has(card.id) ? terms : undefined}
                 current={card.id === current}
@@ -2125,6 +2146,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                 rect={rect}
                 selected={isSelected('drawing', drawing.id)}
                 lifted={lifting(drawing.id)}
+                front={inFront(drawing)}
                 onPointerDown={(e) => onItemPointerDown(e as PointerEvent<HTMLElement>, 'drawing', drawing.id)}
               />
             ))}
