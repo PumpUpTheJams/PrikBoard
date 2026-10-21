@@ -36,6 +36,7 @@ import type {
   NewCardComponent,
   CardComponent,
   CardComponentChanges,
+  CardChange,
   CardChanges,
   CardDetail,
   PlaceCardsRequest,
@@ -204,6 +205,8 @@ export const api = {
    */
   restoreCard: (cardId: string, at?: Point) => request<CardDetail>('POST', `/cards/${cardId}/restore`, at),
   /** The cards deleted in the last 7 days, most recently deleted first. */
+  /** Who changed what on a card and when, newest first; also for cards in the trash (members only). */
+  listCardHistory: (cardId: string) => request<CardChange[]>('GET', `/cards/${cardId}/history`),
   listDeletedCards: (boardId: string) => request<TrashContents>('GET', `/boards/${boardId}/trash`),
   /** Deletes a card in the trash for good, with its images and drawings. */
   purgeCard: (boardId: string, cardId: string) => request<void>('DELETE', `/boards/${boardId}/trash/${cardId}`),

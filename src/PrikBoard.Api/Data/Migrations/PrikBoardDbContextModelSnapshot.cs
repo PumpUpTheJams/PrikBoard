@@ -536,6 +536,37 @@ namespace PrikBoard.Api.Data.Migrations
                     b.ToTable("Cards");
                 });
 
+            modelBuilder.Entity("PrikBoard.Api.Domain.CardChange", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("BoardId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ById")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CardId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Entries")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ById");
+
+                    b.HasIndex("CardId", "At");
+
+                    b.ToTable("CardChanges");
+                });
+
             modelBuilder.Entity("PrikBoard.Api.Domain.DrawingContent", b =>
                 {
                     b.Property<Guid>("DrawingId")
@@ -949,6 +980,22 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Navigation("Board");
 
                     b.Navigation("CreatedBy");
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.CardChange", b =>
+                {
+                    b.HasOne("PrikBoard.Api.Domain.Principal", "By")
+                        .WithMany()
+                        .HasForeignKey("ById")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("PrikBoard.Api.Domain.Card", null)
+                        .WithMany()
+                        .HasForeignKey("CardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("By");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.DrawingContent", b =>

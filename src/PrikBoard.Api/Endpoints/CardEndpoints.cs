@@ -87,6 +87,14 @@ public static class CardEndpoints
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        cards.MapGet("/cards/{cardId:guid}/history", ListCardHistory)
+            .RequireBoardRole(BoardRole.Viewer, BoardScope.Card)
+            .WithName("listCardHistory")
+            .WithSummary("List a card's history")
+            .WithDescription("Returns who changed what on the card and when, newest first: title, color, tags, assignees, the " +
+                             "agent-working flag, moves between buckets, components, images and drawings added, edited or removed, " +
+                             "and deleting and restoring it. Also for cards in the trash. At most limit changes (default 100, at most 500).");
+
         cards.MapGet("/boards/{boardId:guid}/trash", ListDeletedCards)
             .RequireBoardRole(BoardRole.Viewer)
             .WithName("listDeletedCards")
@@ -278,17 +286,41 @@ public static class CardEndpoints
     }
 
     internal static async Task<Results<NoContent, NotFound>> DeleteCard(
-        Guid cardId, PrikBoardDbContext db, CancellationToken ct)
+        Guid cardId, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
     {
         var now = DateTimeOffset.UtcNow;
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var boardId = await db.Cards.Where(n => n.Id == cardId).Select(n => (Guid?)n.BoardId).FirstOrDefaultAsync(ct);
         var deleted = await db.Cards.Where(n => n.Id == cardId).ExecuteUpdateAsync(s => s.SetProperty(n => n.DeletedAt, now), ct);
-        if (deleted == 0) return TypedResults.NotFound();
+        if (deleted == 0 || boardId is null) return TypedResults.NotFound();
         // Its images and drawings share the card's stamp, so they come back with it (and ones deleted earlier don't).
         await db.Images.Where(i => i.CardId == cardId).ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, now), ct);
         await db.Drawings.Where(d => d.CardId == cardId).ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, now), ct);
+        CardHistory.Record(db, principal, cardId, boardId.Value, new(CardChangeKind.Deleted));
+        await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         return TypedResults.NoContent();
+    }
+
+    internal static async Task<Results<Ok<List<CardChangeDetail>>, NotFound>> ListCardHistory(
+        Guid cardId, int? limit, PrikBoardDbContext db, CancellationToken ct)
+    {
+        // Deleted cards have a history too (the trash window opens them).
+        if (!await db.Cards.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete]).AnyAsync(c => c.Id == cardId, ct))
+        {
+            return TypedResults.NotFound();
+        }
+
+        var changes = await db.CardChanges.AsNoTracking()
+            .Where(c => c.CardId == cardId)
+            .OrderByDescending(c => c.At).ThenByDescending(c => c.Id)
+            .Take(Math.Clamp(limit ?? 100, 1, 500))
+            .ToListAsync(ct);
+        var ids = changes.SelectMany(CardChangeDetail.PrincipalIds).Distinct().ToList();
+        var principals = ids.Count == 0
+            ? []
+            : await db.Principals.AsNoTracking().Where(p => ids.Contains(p.Id)).ToDictionaryAsync(p => p.Id, ct);
+        return TypedResults.Ok(changes.Select(c => CardChangeDetail.From(c, principals)).ToList());
     }
 
     /// <summary>Whether the title or any of the card's content contains <paramref name="text"/>, ignoring case.</summary>

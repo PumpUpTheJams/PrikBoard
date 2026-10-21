@@ -2465,6 +2465,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
           key={expandedCard.id}
           card={expandedCard}
           bucket={board.buckets.find((b) => b.id === expandedCard.bucketId)}
+          visiting={board.visiting}
           images={board.images.filter((i) => i.cardId === expandedCard.id)}
           cards={board.cards}
           handle={expandedRef}

@@ -5,6 +5,7 @@ import { AssigneePicker } from '../board/AssigneePicker'
 import { BoardImageView } from '../board/BoardImageView'
 import { ChecklistComponent, ComponentFrame, LinksComponent, TextComponent } from '../board/CardComponents'
 import { componentKinds } from '../board/componentKinds'
+import { shortDate } from '../board/dates'
 import { EditableText } from '../board/EditableText'
 import { CardIdButton, FillPicker, TagChips } from '../board/ExpandedCard'
 import { pickImageFiles } from '../board/files'
@@ -192,7 +193,10 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
               {!readOnly && <CloseIcon size={12} />}
             </button>
           ) : (
-            <span>{card.createdBy ? `Created by ${card.createdBy}` : ''}</span>
+            <span title={new Date(card.createdAt).toLocaleString()}>
+              {card.createdBy ? `Created by ${card.createdBy} · ` : 'Created '}
+              <time dateTime={card.createdAt}>{shortDate(card.createdAt)}</time>
+            </span>
           )}
           <CardIdButton card={card} />
         </div>

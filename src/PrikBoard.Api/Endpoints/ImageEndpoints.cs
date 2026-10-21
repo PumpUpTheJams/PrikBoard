@@ -314,11 +314,21 @@ public static class ImageEndpoints
                 await db.Images.Where(i => i.BoardId == image.BoardId && i.Id != image.Id).ToListAsync(ct));
     }
 
-    private static async Task<Results<NoContent, NotFound>> DeleteImage(Guid imageId, PrikBoardDbContext db, CancellationToken ct)
+    private static async Task<Results<NoContent, NotFound>> DeleteImage(
+        Guid imageId, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
     {
+        var image = await db.Images.AsNoTracking().Where(i => i.Id == imageId)
+            .Select(i => new { i.BoardId, i.CardId, Label = i.Caption ?? i.File!.FileName })
+            .FirstOrDefaultAsync(ct);
         var deleted = await db.Images.Where(i => i.Id == imageId)
             .ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, DateTimeOffset.UtcNow), ct);
-        return deleted == 0 ? TypedResults.NotFound() : TypedResults.NoContent();
+        if (deleted == 0) return TypedResults.NotFound();
+        if (image?.CardId is { } cardId)
+        {
+            CardHistory.Record(db, principal, cardId, image.BoardId, new(CardChangeKind.ImageRemoved, Before: image.Label, Ref: imageId));
+            await db.SaveChangesAsync(ct);
+        }
+        return TypedResults.NoContent();
     }
 
     internal static async Task<Results<Ok<ImageDetail>, NotFound, ProblemHttpResult>> RestoreImage(

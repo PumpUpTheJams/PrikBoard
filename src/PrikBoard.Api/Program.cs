@@ -16,8 +16,10 @@ using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddDbContext<PrikBoardDbContext>((services, options) =>
-    options.UseNpgsql(services.GetRequiredService<IConfiguration>().GetConnectionString("PrikBoard")));
+builder.Services.AddSingleton<CardHistory>();
+builder.Services.AddDbContext<PrikBoardDbContext>((services, options) => options
+    .UseNpgsql(services.GetRequiredService<IConfiguration>().GetConnectionString("PrikBoard"))
+    .AddInterceptors(services.GetRequiredService<CardHistory>()));
 
 // Strict number handling keeps numbers typed as plain integers in the OpenAPI schema (no "integer or string").
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict);

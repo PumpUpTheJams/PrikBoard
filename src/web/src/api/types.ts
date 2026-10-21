@@ -322,6 +322,48 @@ export interface CardDetail {
   deletedAt?: string | null
 }
 
+export type CardChangeKind =
+  | 'Created'
+  | 'Title'
+  | 'Color'
+  | 'Tags'
+  | 'Assignees'
+  | 'AgentWorking'
+  | 'Bucket'
+  | 'ComponentAdded'
+  | 'ComponentChanged'
+  | 'ComponentRemoved'
+  | 'ImageAdded'
+  | 'ImageRemoved'
+  | 'DrawingAdded'
+  | 'DrawingRemoved'
+  | 'Deleted'
+  | 'Restored'
+  /** A change this version can't describe; also how to treat kinds added later. */
+  | 'Other'
+
+/** One thing that changed; which fields are set depends on the kind. */
+export interface CardChangeEntry {
+  kind: CardChangeKind
+  /** Old title or color, the bucket it left (null: loose), a component's kind, or a removed image's caption or file name. */
+  before: string | null
+  /** New title or color, the bucket it went into (null: loose), a component's title, an added image's name, or "true"/"false". */
+  after: string | null
+  /** Tags added, or the names of people assigned. */
+  added: string[] | null
+  /** Tags removed, or the names of people unassigned. */
+  removed: string[] | null
+}
+
+/** One change to a card (quick edits by the same person merged), from listCardHistory. */
+export interface CardChange {
+  id: string
+  at: string
+  /** Who made it, with their current name; null once they no longer exist. */
+  by: Assignee | null
+  entries: CardChangeEntry[]
+}
+
 /** The trash: cards deleted in the last 7 days, most recently deleted first, and the images deleted with them. */
 export interface TrashContents {
   cards: CardDetail[]
