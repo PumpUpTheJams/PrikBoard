@@ -28,8 +28,9 @@ public class PlaceCardsApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
 
         var placed = await Place(todo.Id, new { cardIds = new[] { first.Id, second.Id } });
 
+        // A grid step below the card, then below the image (100 high), then below that card.
         Assert.Equal((60, 60), (there.X, there.Y));
-        Assert.Equal([(60, 340), (60, 480)], placed.Cards.Select(n => (n.X, n.Y)));
+        Assert.Equal([(60, 320), (60, 460)], placed.Cards.Select(n => (n.X, n.Y)));
         Assert.All(placed.Cards, n => Assert.Equal(todo.Id, n.BucketId));
         Assert.Equal((todo.X, todo.Y, todo.Width, todo.Height), (placed.Bucket.X, placed.Bucket.Y, placed.Bucket.Width, placed.Bucket.Height));
     }
@@ -74,6 +75,27 @@ public class PlaceCardsApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
         Assert.Equal((280, 60, todo.Id), (placed.Cards[0].X, placed.Cards[0].Y, placed.Cards[0].BucketId));
         var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
         Assert.Equal(todo.Id, snapshot!.Cards.Single(n => n.Id == extra.Id).BucketId);
+    }
+
+    [Fact]
+    public async Task Room_left_by_cards_off_the_grid_is_used_and_a_neighbours_cards_are_no_obstacle()
+    {
+        var board = await _client.CreateBoardAsync("Packed");
+        var (todo, doing) = (board.Buckets[0], board.Buckets[1]);
+        // Off the bucket's card grid: a slot grid from its corner would see both slots below them as taken.
+        await CreateCard(board.Id, new { title = "Odd 1", x = 60, y = 100 });
+        await CreateCard(board.Id, new { title = "Odd 2", x = 60, y = 260 });
+        // Doing's card, right next to To do: in the way only for Doing's own cards.
+        await CreateCard(board.Id, new { title = "Doing's", bucketId = doing.Id });
+        var extra = await CreateCard(board.Id, new { title = "Extra 1", x = 1000, y = 1000 });
+        var more = await CreateCard(board.Id, new { title = "Extra 2", x = 1300, y = 1000 });
+        var last = await CreateCard(board.Id, new { title = "Extra 3", x = 1600, y = 1000 });
+
+        var placed = await Place(todo.Id, new { cardIds = new[] { extra.Id, more.Id, last.Id }, grow = "Right" });
+
+        // Below the two (y 260 + 120 + 20 = 400) first, then one column more to the right, over Doing's card.
+        Assert.Equal([(60, 400), (280, 60), (280, 200)], placed.Cards.Select(n => (n.X, n.Y)));
+        Assert.Equal((40, 460, 600), (placed.Bucket.X, placed.Bucket.Width, placed.Bucket.Height));
     }
 
     [Fact]

@@ -35,10 +35,11 @@ public static class BucketEndpoints
             .RequireBoardRole(BoardRole.Editor, BoardScope.Bucket)
             .WithName("placeCardsInBucket")
             .WithSummary("Put several cards into a bucket")
-            .WithDescription("Moves the cards into free grid slots of the bucket, row by row in the order given, around the cards " +
-                             "and images already in it (also a collapsed bucket). When they don't fit, the bucket grows towards " +
-                             "grow (Down, Right, Left or Up) by whole rows or columns, only as far as they need, also over " +
-                             "neighbouring buckets (the cards still belong to this one). Returns the bucket and the cards.")
+            .WithDescription("Moves the cards into the free room of the bucket (on the 20 px grid, row by row in the order given), a " +
+                             "grid step clear of the cards and images in it (also a collapsed bucket); other buckets' items don't count. " +
+                             "When they don't fit, the bucket grows towards grow (Down, Right, Left or Up) by whole rows or columns, " +
+                             "only as far as they need, also over neighbouring buckets (the cards still belong to this one). " +
+                             "Returns the bucket and the cards.")
             .ProducesValidationProblem();
 
         buckets.MapDelete("/buckets/{bucketId:guid}", DeleteBucket)
@@ -193,10 +194,15 @@ public static class BucketEndpoints
         var buckets = await db.Buckets.Where(b => b.BoardId == bucket.BoardId).ToListAsync(ct);
         var images = await db.Images.Where(i => i.BoardId == bucket.BoardId && i.CardId == null).ToListAsync(ct);
         var others = boardCards.Where(n => !ids.Contains(n.Id)).ToList();
+        // They join the bucket by id, so only its own items (and loose ones) are in the way, not its neighbours': it may
+        // grow over those, only as far as needed.
+        bool InTheWay(Guid? owner) => owner is null || owner == bucket.Id;
         List<(int X, int Y, int Width, int Height)> taken =
-            [.. others.Select(n => (n.X, n.Y, Layout.CardWidth, Layout.CardHeight)), .. images.Select(i => (i.X, i.Y, i.Width, i.Height))];
-        // They join the bucket by id, so it only grows as much as they need, over neighbouring buckets too.
-        var spots = Layout.FreeSpotsIn(bucket, cards.Count, taken, buckets, request.Grow ?? GrowSide.Down, overBuckets: true);
+        [
+            .. others.Where(n => InTheWay(n.BucketId)).Select(n => (n.X, n.Y, Layout.CardWidth, Layout.CardHeight)),
+            .. images.Where(i => InTheWay(i.BucketId)).Select(i => (i.X, i.Y, i.Width, i.Height)),
+        ];
+        var spots = Layout.PackIn(bucket, cards.Count, taken, request.Grow ?? GrowSide.Down);
 
         var now = DateTimeOffset.UtcNow;
         foreach (var (card, (x, y)) in cards.Zip(spots))

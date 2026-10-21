@@ -54,24 +54,25 @@ const COLUMN_STEP = CARD_WIDTH + GRID
 const ROW_STEP = CARD_HEIGHT + GRID
 
 /**
- * Where cards put into a bucket go (Layout.FreeSpotsIn on the server): the first `count` card slots inside it, row by
- * row, clear of `taken` (the cards and images there) and of the buckets stacked above it (`above`). When there aren't
- * enough, the bucket grows a row or column at a time towards `grow` (left and up move its edge out), downwards once that
- * side reaches the limit. The bucket as it would be, and the slots.
+ * Where cards put into a bucket by id go (Layout.PackIn on the server): the first `count` places on the 20 px grid
+ * inside it, row by row, a grid step clear of `taken` (the bucket's own cards and images, and loose ones) and of each
+ * other. When there aren't enough, the bucket grows a row or column at a time towards `grow` (left and up move its edge
+ * out), over its neighbours too, downwards once that side reaches the limit. The bucket as it would be, and the places.
  */
-export function freeSpotsIn(bucket: Rect, count: number, taken: Rect[], above: Rect[], grow: GrowSide): { bucket: Rect; spots: Point[] } {
+export function packIn(bucket: Rect, count: number, taken: Rect[], grow: GrowSide): { bucket: Rect; spots: Point[] } {
   let rect = { x: bucket.x, y: bucket.y, width: bucket.width, height: bucket.height }
-  const slots = () => {
-    const spots: Point[] = []
+  // The room it has is used first; what it grows by only takes the rest.
+  const spots: Point[] = []
+  const pack = () => {
     const right = rect.x + Math.max(rect.width, MIN_BUCKET_WIDTH) - GRID
     const bottom = rect.y + Math.max(rect.height, MIN_BUCKET_HEIGHT) - GRID
-    for (let y = rect.y + GRID; y + CARD_HEIGHT <= bottom && spots.length < count; y += ROW_STEP) {
-      for (let x = rect.x + GRID; x + CARD_WIDTH <= right && spots.length < count; x += COLUMN_STEP) {
-        const slot = { x, y, width: CARD_WIDTH, height: CARD_HEIGHT }
-        if (!taken.some((t) => intersects(t, slot)) && !above.some((b) => intersects(b, slot))) spots.push({ x, y })
+    for (let y = rect.y + GRID; y + CARD_HEIGHT <= bottom && spots.length < count; y += GRID) {
+      for (let x = rect.x + GRID; x + CARD_WIDTH <= right && spots.length < count; x += GRID) {
+        const around = { x: x - GRID, y: y - GRID, width: CARD_WIDTH + 2 * GRID, height: CARD_HEIGHT + 2 * GRID }
+        const placed = spots.map((s) => ({ ...s, width: CARD_WIDTH, height: CARD_HEIGHT }))
+        if (!taken.some((t) => intersects(t, around)) && !placed.some((p) => intersects(p, around))) spots.push({ x, y })
       }
     }
-    return spots
   }
   const grown = (side: GrowSide): Rect | null => {
     const columns = Math.floor((Math.max(rect.width, MIN_BUCKET_WIDTH) - GRID) / COLUMN_STEP)
@@ -88,12 +89,12 @@ export function freeSpotsIn(bucket: Rect, count: number, taken: Rect[], above: R
       ? { ...rect, y: rect.y - ROW_STEP, height: rect.height + ROW_STEP }
       : null
   }
-  let spots = slots()
+  pack()
   while (spots.length < count) {
     const next = grown(grow) ?? grown('Down')
     if (!next) break
     rect = next
-    spots = slots()
+    pack()
   }
   while (spots.length < count) spots.push({ x: rect.x + GRID, y: rect.y + GRID })
   return { bucket: rect, spots }

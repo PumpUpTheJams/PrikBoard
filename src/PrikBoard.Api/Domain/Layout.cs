@@ -147,19 +147,16 @@ public static class Layout
         FreeSpotsIn(bucket, 1, [.. cards.Select(n => (n.X, n.Y, CardWidth, CardHeight))], buckets, GrowSide.Down)[0];
 
     /// <summary>
-    /// The first <paramref name="count"/> grid slots for cards inside <paramref name="bucket"/>, row by row, clear of what
-    /// is <paramref name="taken"/> (cards and images there) and, unless <paramref name="overBuckets"/>, of buckets stacked
-    /// above it (a card placed there by position would belong to that one). When there aren't enough, the bucket grows by
-    /// a row or column at a time towards <paramref name="grow"/> until they fit (left and up move its edge out; what is in
-    /// it stays put), downwards once that side reaches the size or coordinate limit. Slots that can't be found at all are
-    /// the top-left one. Cards put in by id (placeCardsInBucket) belong to the bucket wherever they sit, so it grows only
-    /// as much as they need, over neighbouring buckets too (<paramref name="overBuckets"/>).
+    /// The first <paramref name="count"/> slots of a card-sized grid inside <paramref name="bucket"/>, row by row, clear
+    /// of what is <paramref name="taken"/> and of buckets stacked above it (a card placed there by position would belong to
+    /// that one). When there aren't enough, the bucket grows by a row or column at a time towards <paramref name="grow"/>
+    /// (left and up move its edge out; what is in it stays put), downwards once that side reaches the size or coordinate
+    /// limit. Slots that can't be found at all are the top-left one.
     /// </summary>
     public static List<(int X, int Y)> FreeSpotsIn(
-        Bucket bucket, int count, IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, IEnumerable<Bucket> buckets, GrowSide grow,
-        bool overBuckets = false)
+        Bucket bucket, int count, IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, IEnumerable<Bucket> buckets, GrowSide grow)
     {
-        List<Bucket> above = overBuckets ? [] : BackToFront(buckets).SkipWhile(b => b.Id != bucket.Id).Skip(1).ToList();
+        var above = BackToFront(buckets).SkipWhile(b => b.Id != bucket.Id).Skip(1).ToList();
         var spots = SlotsIn(bucket, count, taken, above);
         while (spots.Count < count && (Grow(bucket, grow) || Grow(bucket, GrowSide.Down)))
         {
@@ -167,6 +164,39 @@ public static class Layout
         }
         while (spots.Count < count) spots.Add((bucket.X + Gap, bucket.Y + Gap));
         return spots;
+    }
+
+    /// <summary>
+    /// Where cards put into a bucket by id go (placeCardsInBucket): the first <paramref name="count"/> places on the 20 px
+    /// grid inside it, row by row, a gap clear of what is <paramref name="taken"/> (the bucket's own cards and images, and
+    /// loose ones) and of each other, so any room big enough for a card is used. They belong to the bucket wherever they
+    /// sit, so other buckets' items don't count: when they don't fit, the bucket grows a row or column at a time towards
+    /// <paramref name="grow"/>, over its neighbours too, as <see cref="FreeSpotsIn"/> does.
+    /// </summary>
+    public static List<(int X, int Y)> PackIn(Bucket bucket, int count, IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, GrowSide grow)
+    {
+        // The room it has is used first; what it grows by only takes the rest.
+        var spots = new List<(int X, int Y)>();
+        Pack(bucket, count, taken, spots);
+        while (spots.Count < count && (Grow(bucket, grow) || Grow(bucket, GrowSide.Down))) Pack(bucket, count, taken, spots);
+        while (spots.Count < count) spots.Add((bucket.X + Gap, bucket.Y + Gap));
+        return spots;
+    }
+
+    /// <summary>Adds free places for cards inside a bucket as it is now to <paramref name="spots"/>, row by row on the 20 px grid, up to <paramref name="count"/>.</summary>
+    private static void Pack(Bucket bucket, int count, IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, List<(int X, int Y)> spots)
+    {
+        var right = bucket.X + Math.Max(bucket.Width, MinBucketWidth) - Gap;
+        var bottom = bucket.Y + Math.Max(bucket.Height, MinBucketHeight) - Gap;
+        for (var y = bucket.Y + Gap; y + CardHeight <= bottom && spots.Count < count; y += Grid)
+        {
+            for (var x = bucket.X + Gap; x + CardWidth <= right && spots.Count < count; x += Grid)
+            {
+                var around = (x - Gap, y - Gap, CardWidth + 2 * Gap, CardHeight + 2 * Gap);
+                if (taken.Any(t => Intersects(t, around)) || spots.Any(s => Intersects((s.X, s.Y, CardWidth, CardHeight), around))) continue;
+                spots.Add((x, y));
+            }
+        }
     }
 
     private const int ColumnStep = CardWidth + Gap;

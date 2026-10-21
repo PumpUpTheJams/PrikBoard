@@ -46,8 +46,8 @@ import {
   bucketUnderCard,
   collapsedRect,
   defaultComponentSize,
-  freeSpotsIn,
   onBoard,
+  packIn,
   onCardCanvas,
   resizeFrom,
   resizeImage,
@@ -1200,14 +1200,18 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       ['Down', bucket.y + bucket.height - p.y],
     ]
     const side = edges.reduce((a, b) => (b[1] < a[1] ? b : a))[0]
-    // What is in the way: the other cards, and the images, the group's own where they are dropped (they move first).
+    // What is in the way: the bucket's own cards and images and loose ones, not its neighbours' (they join it by id, so
+    // it may grow over those, only as far as needed), and the group's images where they are dropped (they move first).
     const ids = new Set(g.members.map((m) => m.id))
+    const inTheWay = (owner: string | null) => owner === null || owner === bucket.id
     const taken = [
-      ...board.cards.filter((n) => !ids.has(n.id)).map((n) => ({ x: n.x, y: n.y, width: CARD_WIDTH, height: CARD_HEIGHT })),
-      ...board.images.filter((i) => i.cardId === null).map((i) => (ids.has(i.id) ? imageRect(i) : i)),
+      ...board.cards
+        .filter((n) => !ids.has(n.id) && inTheWay(n.bucketId))
+        .map((n) => ({ x: n.x, y: n.y, width: CARD_WIDTH, height: CARD_HEIGHT })),
+      ...board.images.filter((i) => i.cardId === null && !ids.has(i.id) && inTheWay(i.bucketId)),
+      ...board.images.filter((i) => ids.has(i.id)).map(imageRect),
     ]
-    // They join it by id, so it grows only as much as they need, over neighbouring buckets too (as on the server).
-    const { bucket: grown, spots } = freeSpotsIn(bucket, cards.length, taken, [], side)
+    const { bucket: grown, spots } = packIn(bucket, cards.length, taken, side)
     return { bucket, side, grown, spots: Object.fromEntries(cards.map((n, i) => [n.id, spots[i]])) }
   }
 
