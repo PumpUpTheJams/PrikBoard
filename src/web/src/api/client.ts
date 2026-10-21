@@ -5,6 +5,9 @@ import type {
   AdminUser,
   AppSignInCode,
   CreatedAccessToken,
+  DiscordBoardChoice,
+  DiscordConnectCode,
+  DiscordConnection,
   AuthProvider,
   ServerVersion,
   BoardDetail,
@@ -155,6 +158,13 @@ export const api = {
     request<AppSignInCode>('POST', '/me/app-sign-ins', signIn),
   exchangeAppSignIn: (code: string, codeVerifier: string) =>
     request<CreatedAccessToken>('POST', '/auth/app-sign-ins/token', { code, codeVerifier }),
+
+  approveDiscordConnect: (codeChallenge: string, boards: DiscordBoardChoice[]) =>
+    request<DiscordConnectCode>('POST', '/me/discord-connects', { codeChallenge, boards }),
+  listDiscordConnections: (boardId: string) => request<DiscordConnection[]>('GET', `/boards/${boardId}/discord`),
+  removeDiscordConnection: (boardId: string, guildId: string) => request<void>('DELETE', `/boards/${boardId}/discord/${guildId}`),
+  removeDiscordChannel: (boardId: string, guildId: string, channelId: string) =>
+    request<void>('DELETE', `/boards/${boardId}/discord/${guildId}/channels/${channelId}`),
 
   listBoards: () => request<BoardSummary[]>('GET', '/boards'),
   createBoard: (name: string, description?: string) =>

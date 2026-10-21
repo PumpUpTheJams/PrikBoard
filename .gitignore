@@ -432,3 +432,6 @@ FodyWeavers.xsd
 
 # Images and avatars of a local API (Storage:Path in Development)
 src/PrikBoard.Api/files/
+
+# Discord server tokens and their keys of a local Discord bot (Storage:Path in Development)
+src/PrikBoard.Discord/data/

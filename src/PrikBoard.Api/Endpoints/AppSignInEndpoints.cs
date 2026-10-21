@@ -146,13 +146,14 @@ public static class AppSignInEndpoints
         && parsed.UserInfo.Length == 0
         && parsed.Fragment.Length == 0;
 
-    private static bool Matches(string verifier, string challenge)
+    /// <summary>Whether the PKCE verifier hashes (S256) to the challenge.</summary>
+    internal static bool Matches(string verifier, string challenge)
     {
         var computed = Base64Url.EncodeToString(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
         return CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(computed), Encoding.ASCII.GetBytes(challenge));
     }
 
-    private static string CleanName(string name)
+    internal static string CleanName(string name)
     {
         var clean = new string(name.Where(c => !char.IsControl(c)).ToArray()).Trim();
         return clean.Length == 0 ? "App" : clean;

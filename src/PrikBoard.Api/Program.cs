@@ -77,6 +77,15 @@ builder.Services.AddRateLimiter(options =>
     Policy(MemberEndpoints.LookupLimit, "LookupsPerMinute", 10);
     Policy(InviteEndpoints.InviteLimit, "InvitesPerMinute", 20);
     Policy(AppSignInEndpoints.ExchangeLimit, "AppSignInsPerMinute", 10);
+    Policy(DiscordEndpoints.ExchangeLimit, "DiscordConnectsPerMinute", 10);
+    // Per connected Discord server (its agent), not per bot: one busy server can't use up the others' previews.
+    options.AddPolicy(DiscordEndpoints.PreviewLimit, context => RateLimitPartition.GetFixedWindowLimiter(
+        context.User.FindFirstValue(UserPrincipal.PrincipalClaim) ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = builder.Configuration.GetValue("RateLimits:LinkPreviewsPerMinute", 60),
+            Window = TimeSpan.FromMinutes(1),
+        }));
 
     // Every request with a personal access token counts against that token, so a leaked token in a loop cannot hammer the API.
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
@@ -183,6 +192,7 @@ api.MapMemberEndpoints();
 api.MapInviteEndpoints();
 api.MapAccessTokenEndpoints();
 api.MapAppSignInEndpoints();
+api.MapDiscordEndpoints();
 api.MapAdminEndpoints();
 // MCP at /mcp, outside /api where MCP clients expect it; each tool checks board access itself.
 app.MapMcp("/mcp").RequireAuthorization(AuthSetup.McpPolicy).ExcludeFromDescription();

@@ -608,7 +608,7 @@ export interface RemoteDrag extends DragUpdate {
 
 /** A personal access token, without the token itself (only shown when created). */
 /** Agent: its own agent with capped access. App: a PrikBoard app (the VS Code extension) signed in as you. */
-export type AccessTokenKind = 'Agent' | 'App'
+export type AccessTokenKind = 'Agent' | 'App' | 'Discord'
 
 export interface AccessToken {
   id: string
@@ -637,4 +637,33 @@ export interface CreatedAccessToken {
 export interface AppSignInCode {
   code: string
   expiresAt: string
+}
+
+/** A board to connect to a Discord server: previews in the channel where /prikboard connect was run, or in the whole server. */
+export interface DiscordBoardChoice {
+  boardId: string
+  wholeServer: boolean
+}
+
+/** The one-time code to paste into Discord with /prikboard finish (5 minutes, once). */
+export interface DiscordConnectCode {
+  code: string
+  expiresAt: string
+}
+
+export interface DiscordChannel {
+  id: string
+  name: string
+}
+
+/** A Discord server whose PrikBoard bot previews a board's links. */
+export interface DiscordConnection {
+  guildId: string
+  guildName: string
+  /** The server's member on the board (a Viewer agent). */
+  agentId: string
+  /** The channels links are previewed in, or null for the whole server. */
+  channels: DiscordChannel[] | null
+  connectedAt: string
+  connectedBy: string | null
 }

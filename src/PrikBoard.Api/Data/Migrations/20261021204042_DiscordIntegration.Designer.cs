@@ -13,8 +13,8 @@ using PrikBoard.Api.Data;
 namespace PrikBoard.Api.Data.Migrations
 {
     [DbContext(typeof(PrikBoardDbContext))]
-    [Migration("20261021205323_CardHistory")]
-    partial class CardHistory
+    [Migration("20261021204042_DiscordIntegration")]
+    partial class DiscordIntegration
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -539,35 +539,91 @@ namespace PrikBoard.Api.Data.Migrations
                     b.ToTable("Cards");
                 });
 
-            modelBuilder.Entity("PrikBoard.Api.Domain.CardChange", b =>
+            modelBuilder.Entity("PrikBoard.Api.Domain.DiscordBoardChannels", b =>
+                {
+                    b.Property<string>("GuildId")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("BoardId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Channels")
+                        .HasColumnType("jsonb");
+
+                    b.HasKey("GuildId", "BoardId");
+
+                    b.HasIndex("BoardId");
+
+                    b.ToTable("DiscordBoardChannels");
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.DiscordConnectGrant", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<DateTimeOffset>("At")
+                    b.PrimitiveCollection<List<Guid>>("ChannelBoardIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]");
+
+                    b.Property<string>("CodeChallenge")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<byte[]>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("bytea");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid>("BoardId")
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OwnerId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("ById")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("CardId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Entries")
+                    b.PrimitiveCollection<List<Guid>>("WholeServerBoardIds")
                         .IsRequired()
-                        .HasColumnType("jsonb");
+                        .HasColumnType("uuid[]");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ById");
+                    b.HasIndex("CodeHash")
+                        .IsUnique();
 
-                    b.HasIndex("CardId", "At");
+                    b.HasIndex("OwnerId");
 
-                    b.ToTable("CardChanges");
+                    b.ToTable("DiscordConnectGrants");
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.DiscordGuild", b =>
+                {
+                    b.Property<string>("GuildId")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("AgentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("ConnectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ConnectedById")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("GuildId");
+
+                    b.HasIndex("AgentId")
+                        .IsUnique();
+
+                    b.HasIndex("ConnectedById");
+
+                    b.ToTable("DiscordGuilds");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.DrawingContent", b =>
@@ -985,20 +1041,46 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Navigation("CreatedBy");
                 });
 
-            modelBuilder.Entity("PrikBoard.Api.Domain.CardChange", b =>
+            modelBuilder.Entity("PrikBoard.Api.Domain.DiscordBoardChannels", b =>
                 {
-                    b.HasOne("PrikBoard.Api.Domain.Principal", "By")
+                    b.HasOne("PrikBoard.Api.Domain.Board", null)
                         .WithMany()
-                        .HasForeignKey("ById")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("PrikBoard.Api.Domain.Card", null)
-                        .WithMany()
-                        .HasForeignKey("CardId")
+                        .HasForeignKey("BoardId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("By");
+                    b.HasOne("PrikBoard.Api.Domain.DiscordGuild", null)
+                        .WithMany()
+                        .HasForeignKey("GuildId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.DiscordConnectGrant", b =>
+                {
+                    b.HasOne("PrikBoard.Api.Domain.User", "Owner")
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Owner");
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.DiscordGuild", b =>
+                {
+                    b.HasOne("PrikBoard.Api.Domain.Agent", "Agent")
+                        .WithOne()
+                        .HasForeignKey("PrikBoard.Api.Domain.DiscordGuild", "AgentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PrikBoard.Api.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("ConnectedById")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Agent");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.DrawingContent", b =>

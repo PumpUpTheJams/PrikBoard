@@ -3,10 +3,12 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OAuth;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using PrikBoard.Api.Contracts;
 
 namespace PrikBoard.Api.Tests;
@@ -72,6 +74,16 @@ public class AuthApiTests(AuthApiTests.Factory factory) : IClassFixture<AuthApiT
         Assert.Equal("https://github.com/login/oauth/authorize", location.GetLeftPart(UriPartial.Path));
         Assert.Contains("client_id=test-client", location.Query);
         Assert.Contains(Uri.EscapeDataString("/api/auth/callback/github"), location.Query);
+    }
+
+    [Fact]
+    public void OpenId_Connect_providers_come_back_by_redirect_so_linking_sees_the_session()
+    {
+        // form_post would be a cross-site post from the provider, which carries no SameSite=Lax session cookie.
+        var options = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>();
+
+        Assert.Equal(OpenIdConnectResponseMode.Query, options.Get("acme").ResponseMode);
+        Assert.Equal(OpenIdConnectResponseMode.Query, options.Get("google").ResponseMode);
     }
 
     [Fact]
