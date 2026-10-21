@@ -92,6 +92,7 @@ export const snap = {
     agentWorking: n.agentWorking,
     x: n.x,
     y: n.y,
+    bucketId: n.bucketId,
     components: n.components,
   }),
   component: (b: CardComponent): Snapshot => ({
@@ -118,7 +119,9 @@ export const deleted = (t: UndoTarget, before: Snapshot): UndoChange => ({ targe
 /** A change of some fields; nothing (null) when none of them changed. A position keeps x and y together. */
 export function patched(t: UndoTarget, before: Snapshot, after: Snapshot, keys: string[], implied = false): UndoChange | null {
   let changed = keys.filter((k) => !same(before[k], after[k]))
-  if (changed.includes('x') || changed.includes('y')) changed = [...new Set([...changed, ...keys.filter((k) => k === 'x' || k === 'y')])]
+  // A card's bucket goes with its place: where buckets overlap, the place alone doesn't say which one it was in.
+  const place: string[] = [...keys.filter((k) => k === 'x' || k === 'y'), ...(t.kind === 'card' ? ['bucketId'] : [])]
+  if (changed.includes('x') || changed.includes('y')) changed = [...new Set([...changed, ...place])]
   return changed.length === 0 ? null : { target: t, before: pick(before, changed), after: pick(after, changed), implied }
 }
 
@@ -267,8 +270,8 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
   }
   switch (t.kind) {
     case 'card': {
-      const { x, y, components: _components, ...rest } = to
-      if (x !== undefined) await api.moveCard(t.id, { x: x as number, y: y as number })
+      const { x, y, bucketId, components: _components, ...rest } = to
+      if (x !== undefined) await api.moveCard(t.id, { x: x as number, y: y as number, ...(bucketId ? { bucketId: bucketId as string } : {}) })
       if (Object.keys(rest).length > 0) await api.updateCard(t.id, rest as CardChanges)
       return
     }

@@ -58,6 +58,18 @@ public static class Layout
     /// <summary>Puts a card in the topmost bucket containing its centre (none: loose). For a card that moved.</summary>
     public static void Place(Card card, IReadOnlyList<Bucket> stacked) => card.BucketId = TopmostAt(stacked, Centre(card))?.Id;
 
+    /// <summary>
+    /// Puts a card in <paramref name="bucket"/> when that contains its centre, even with another bucket stacked above it
+    /// there (a drop on the bucket a screen shows in front) or collapsed (asked for by name). False (and nothing changes) otherwise.
+    /// </summary>
+    public static bool PlaceIn(Card card, Bucket bucket)
+    {
+        var (x, y) = Centre(card);
+        if (!bucket.Contains(x, y)) return false;
+        card.BucketId = bucket.Id;
+        return true;
+    }
+
     /// <summary>Likewise for an image or drawing; one on a card is in no bucket.</summary>
     public static void Place(ICanvasItem item, IReadOnlyList<Bucket> stacked) =>
         item.BucketId = item.CardId is null ? TopmostAt(stacked, Centre(item))?.Id : null;

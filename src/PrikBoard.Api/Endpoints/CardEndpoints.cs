@@ -461,11 +461,12 @@ public static class CardEndpoints
                 [x is null ? "x" : "y"] = ["Give X and Y together."],
             });
         }
-        if (bucketId is not null && x is not null)
+        var bucket = bucketId is { } id ? buckets.Find(b => b.Id == id) : null;
+        if (bucketId is not null && bucket is null)
         {
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["bucketId"] = ["Give either a bucketId or X and Y, not both."],
+                ["bucketId"] = ["The bucket does not exist on this board."],
             });
         }
 
@@ -473,18 +474,18 @@ public static class CardEndpoints
         if (x is { } exactX && y is { } exactY)
         {
             (card.X, card.Y) = (Layout.Snap(exactX), Layout.Snap(exactY));
-            Layout.Place(card, stacked);
-        }
-        else if (bucketId is { } id)
-        {
-            var bucket = buckets.Find(b => b.Id == id);
-            if (bucket is null)
+            // Dropped where buckets overlap, it joins the one named (shown in front), not the topmost.
+            if (bucket is null) Layout.Place(card, stacked);
+            else if (!Layout.PlaceIn(card, bucket))
             {
                 return TypedResults.ValidationProblem(new Dictionary<string, string[]>
                 {
-                    ["bucketId"] = ["The bucket does not exist on this board."],
+                    ["bucketId"] = ["With X and Y, the bucket must contain the card's centre."],
                 });
             }
+        }
+        else if (bucket is not null)
+        {
             (card.X, card.Y) = Layout.MakeRoomIn(bucket, others, buckets);
             // Asked for by name, so it joins even a collapsed bucket (which other cards don't).
             card.BucketId = bucket.Id;
