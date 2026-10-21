@@ -209,6 +209,21 @@ export interface BucketDetail {
   collapsed: boolean
 }
 
+/** The side a bucket grows towards when cards put into it don't fit; Left and Up move its edge out. */
+export type GrowSide = 'Down' | 'Right' | 'Left' | 'Up'
+
+/** placeCardsInBucket: cards to put into free slots, in order, and where the bucket grows when full (default Down). */
+export interface PlaceCardsRequest {
+  cardIds: string[]
+  grow?: GrowSide
+}
+
+/** The bucket (possibly grown) and the cards put into it, in the order given. */
+export interface PlacedCards {
+  bucket: BucketDetail
+  cards: CardDetail[]
+}
+
 export type AssigneeKind = 'Person' | 'Agent'
 
 export interface Assignee {

@@ -38,6 +38,8 @@ import type {
   CardComponentChanges,
   CardChanges,
   CardDetail,
+  PlaceCardsRequest,
+  PlacedCards,
   Point,
   Rect,
   TagChanges,
@@ -171,6 +173,9 @@ export const api = {
     request<BucketDetail>('POST', `/boards/${boardId}/buckets`, bucket),
   updateBucket: (bucketId: string, changes: BucketChanges) =>
     request<BucketDetail>('PATCH', `/buckets/${bucketId}`, changes),
+  /** Puts cards into free slots of a bucket, in order, growing it towards `grow` when they don't fit. */
+  placeCardsInBucket: (bucketId: string, placement: PlaceCardsRequest) =>
+    request<PlacedCards>('POST', `/buckets/${bucketId}/cards`, placement),
   deleteBucket: (bucketId: string) => request<void>('DELETE', `/buckets/${bucketId}`),
   /** Brings back a bucket deleted in the last 7 days, with the same id. */
   restoreBucket: (bucketId: string) => request<BucketDetail>('POST', `/buckets/${bucketId}/restore`),

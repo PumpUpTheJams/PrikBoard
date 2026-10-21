@@ -1,6 +1,6 @@
 // Client copy of the server's geometry rules (src/PrikBoard.Api/Domain/Layout.cs), used for live feedback while dragging.
 // The server snaps and assigns buckets again on every change, so it stays the source of truth.
-import type { BucketDetail, ImageDetail, CardComponentKind, Point, Rect, ResizeHandle } from '../api/types'
+import type { BucketDetail, ImageDetail, CardComponentKind, GrowSide, Point, Rect, ResizeHandle } from '../api/types'
 
 export const GRID = 20
 export const CARD_WIDTH = 200
@@ -23,6 +23,7 @@ export const MAX_COMPONENT_SIZE = 2000
 /** The board has no edge at the origin: positions run from MIN_COORDINATE to MAX_COORDINATE, both ways. */
 export const MIN_COORDINATE = -100_000
 export const MAX_COORDINATE = 100_000
+export const MAX_BUCKET_SIZE = 10_000
 
 export const snap = (value: number) => Math.round(value / GRID) * GRID
 
@@ -47,6 +48,55 @@ export function bucketUnderCard(buckets: BucketDetail[], card: Point, own?: stri
   const cx = card.x + CARD_WIDTH / 2
   const cy = card.y + CARD_HEIGHT / 2
   return buckets.findLast((b) => cx >= b.x && cx < b.x + b.width && cy >= b.y && cy < b.y + b.height && (!b.collapsed || b.id === own))
+}
+
+const COLUMN_STEP = CARD_WIDTH + GRID
+const ROW_STEP = CARD_HEIGHT + GRID
+
+/**
+ * Where cards put into a bucket go (Layout.FreeSpotsIn on the server): the first `count` card slots inside it, row by
+ * row, clear of `taken` (the cards and images there) and of the buckets stacked above it (`above`). When there aren't
+ * enough, the bucket grows a row or column at a time towards `grow` (left and up move its edge out), downwards once that
+ * side reaches the limit. The bucket as it would be, and the slots.
+ */
+export function freeSpotsIn(bucket: Rect, count: number, taken: Rect[], above: Rect[], grow: GrowSide): { bucket: Rect; spots: Point[] } {
+  let rect = { x: bucket.x, y: bucket.y, width: bucket.width, height: bucket.height }
+  const slots = () => {
+    const spots: Point[] = []
+    const right = rect.x + Math.max(rect.width, MIN_BUCKET_WIDTH) - GRID
+    const bottom = rect.y + Math.max(rect.height, MIN_BUCKET_HEIGHT) - GRID
+    for (let y = rect.y + GRID; y + CARD_HEIGHT <= bottom && spots.length < count; y += ROW_STEP) {
+      for (let x = rect.x + GRID; x + CARD_WIDTH <= right && spots.length < count; x += COLUMN_STEP) {
+        const slot = { x, y, width: CARD_WIDTH, height: CARD_HEIGHT }
+        if (!taken.some((t) => intersects(t, slot)) && !above.some((b) => intersects(b, slot))) spots.push({ x, y })
+      }
+    }
+    return spots
+  }
+  const grown = (side: GrowSide): Rect | null => {
+    const columns = Math.floor((Math.max(rect.width, MIN_BUCKET_WIDTH) - GRID) / COLUMN_STEP)
+    const rows = Math.floor((Math.max(rect.height, MIN_BUCKET_HEIGHT) - GRID) / ROW_STEP)
+    const width = GRID + (columns + 1) * COLUMN_STEP
+    const height = GRID + (rows + 1) * ROW_STEP
+    if (side === 'Right') return width <= MAX_BUCKET_SIZE && rect.x + width <= MAX_COORDINATE ? { ...rect, width: Math.max(rect.width, width) } : null
+    if (side === 'Down') return height <= MAX_BUCKET_SIZE && rect.y + height <= MAX_COORDINATE ? { ...rect, height: Math.max(rect.height, height) } : null
+    if (side === 'Left')
+      return rect.width + COLUMN_STEP <= MAX_BUCKET_SIZE && rect.x - COLUMN_STEP >= MIN_COORDINATE
+        ? { ...rect, x: rect.x - COLUMN_STEP, width: rect.width + COLUMN_STEP }
+        : null
+    return rect.height + ROW_STEP <= MAX_BUCKET_SIZE && rect.y - ROW_STEP >= MIN_COORDINATE
+      ? { ...rect, y: rect.y - ROW_STEP, height: rect.height + ROW_STEP }
+      : null
+  }
+  let spots = slots()
+  while (spots.length < count) {
+    const next = grown(grow) ?? grown('Down')
+    if (!next) break
+    rect = next
+    spots = slots()
+  }
+  while (spots.length < count) spots.push({ x: rect.x + GRID, y: rect.y + GRID })
+  return { bucket: rect, spots }
 }
 
 /** The square a collapsed bucket folds up into: in its top-right corner (of `rect`, where the bucket is now, mid-drag too). */

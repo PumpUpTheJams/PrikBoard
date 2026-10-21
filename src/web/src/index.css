@@ -2528,6 +2528,45 @@ a.button.primary:hover {
   cursor: default;
 }
 
+/* Above several selected cards, centred, at the same size on screen at any zoom (anchored at its bottom middle). */
+.selection-toolbar {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--float-shadow);
+  transform-origin: 50% 100%;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.selection-toolbar-label {
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.selection-toolbar button {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.selection-toolbar button:hover {
+  background: var(--tool-hover);
+  color: var(--text);
+}
+
 .drawing-toolbar .ink-swatches {
   padding: 4px 0;
 }
