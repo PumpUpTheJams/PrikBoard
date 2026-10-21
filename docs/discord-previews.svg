@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 780" width="760" height="780" font-family="Geist, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>PrikBoard link previews in Discord</title>
+  <desc>Three previews: the anonymous preview of a post-it link, the large-image variant, and the rich embed the bot posts for a connected server.</desc>
+  <defs>
+    <g id="postit">
+      <path d="M4 4h24v17l-7 7H4z" fill="#ffd54f"/>
+      <path d="M28 21h-7v7z" fill="#f9a825"/>
+      <path d="M9 11h14M9 16h10" stroke="#5d4037" stroke-width="2" stroke-linecap="round"/>
+    </g>
+    <g id="avatar">
+      <circle cx="16" cy="16" r="16" fill="#5865f2"/>
+      <text x="16" y="21" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">DW</text>
+    </g>
+  </defs>
+
+  <rect width="760" height="780" rx="12" fill="#313338"/>
+
+  <!-- 1: anonymous preview, small card -->
+  <text x="24" y="34" font-size="12" fill="#949ba4">1 · Anonymous preview: anyone, signed in or not, no bot</text>
+  <use href="#avatar" x="24" y="52"/>
+  <text x="68" y="64" font-size="14" font-weight="600" fill="#f2f3f5">Daniel <tspan font-size="11" font-weight="400" fill="#949ba4">Today at 10:42</tspan></text>
+  <text x="68" y="84" font-size="14" fill="#00a8fc">https://prikboard.example/b/7KX2QD/n/109</text>
+  <rect x="68" y="96" width="460" height="104" rx="4" fill="#2b2d31"/>
+  <rect x="68" y="96" width="4" height="104" fill="#ffd54f"/>
+  <use href="#postit" transform="translate(84 109) scale(0.44)"/>
+  <text x="104" y="121" font-size="12" fill="#dbdee1">PrikBoard</text>
+  <text x="84" y="144" font-size="15" font-weight="600" fill="#00a8fc">Post-it 109 on PrikBoard</text>
+  <text x="84" y="166" font-size="13" fill="#dbdee1">A post-it on a PrikBoard board. Open it to see the details.</text>
+  <text x="84" y="184" font-size="13" fill="#dbdee1">You need to be a member of the board.</text>
+  <rect x="448" y="112" width="68" height="68" rx="6" fill="#16181d"/>
+  <use href="#postit" transform="translate(458 122) scale(1.5)"/>
+
+  <!-- 2: anonymous preview, large image -->
+  <text x="24" y="240" font-size="12" fill="#949ba4">2 · Same link where the app shows the large og:image (summary_large_image)</text>
+  <use href="#avatar" x="24" y="258"/>
+  <text x="68" y="282" font-size="14" fill="#00a8fc">https://prikboard.example/b/7KX2QD</text>
+  <rect x="68" y="294" width="460" height="290" rx="4" fill="#2b2d31"/>
+  <rect x="68" y="294" width="4" height="290" fill="#ffd54f"/>
+  <text x="84" y="318" font-size="12" fill="#dbdee1">PrikBoard</text>
+  <text x="84" y="340" font-size="15" font-weight="600" fill="#00a8fc">A PrikBoard board</text>
+  <text x="84" y="360" font-size="13" fill="#dbdee1">A post-it board for planning small projects. Sign in to open it.</text>
+  <rect x="84" y="372" width="428" height="200" rx="6" fill="#15171b"/>
+  <g fill="#2a2d33">
+    <circle cx="104" cy="392" r="1.5"/><circle cx="124" cy="392" r="1.5"/><circle cx="144" cy="392" r="1.5"/>
+    <circle cx="452" cy="552" r="1.5"/><circle cx="472" cy="552" r="1.5"/><circle cx="492" cy="552" r="1.5"/>
+  </g>
+  <text x="108" y="464" font-size="30" font-weight="600" fill="#f2f2f2">PrikBoard</text>
+  <text x="108" y="490" font-size="13" fill="#9aa0aa">Post-it boards for small projects,</text>
+  <text x="108" y="508" font-size="13" fill="#9aa0aa">for people and AI agents.</text>
+  <use href="#postit" transform="translate(372 404) rotate(4) scale(3.6)"/>
+
+  <!-- 3: bot embed -->
+  <text x="24" y="624" font-size="12" fill="#949ba4">3 · Bot embed: only in a Discord server a board owner connected</text>
+  <rect x="24" y="638" width="32" height="32" rx="16" fill="#16181d"/>
+  <use href="#postit" transform="translate(30 644) scale(0.62)"/>
+  <text x="68" y="652" font-size="14" font-weight="600" fill="#f2f3f5">PrikBoard <tspan font-size="10" font-weight="600" fill="#fff" dx="4">APP</tspan></text>
+  <rect x="68" y="662" width="460" height="104" rx="4" fill="#2b2d31"/>
+  <rect x="68" y="662" width="4" height="104" fill="#ffd54f"/>
+  <text x="84" y="686" font-size="15" font-weight="600" fill="#00a8fc">PRIK-109 · Return to the previous board after the admin page</text>
+  <text x="84" y="708" font-size="13" fill="#dbdee1">Bucket <tspan font-weight="600">Doing</tspan>   ·   Tags <tspan font-weight="600">web, polish</tspan>   ·   Assignees <tspan font-weight="600">Daniel</tspan></text>
+  <text x="84" y="728" font-size="13" fill="#dbdee1">After closing the admin page you land on the first board instead of… · 2/5 done</text>
+  <text x="84" y="754" font-size="11" fill="#949ba4">PrikBoard · Marketing site</text>
+</svg>
