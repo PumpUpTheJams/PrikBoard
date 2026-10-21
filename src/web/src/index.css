@@ -4699,11 +4699,6 @@ button.picker-color:hover,
   z-index: 1;
 }
 
-/* Without its fill, so what lies underneath shows through as it is. */
-.bucket.in-front:not(.drop-target) {
-  background: transparent;
-}
-
 .bucket-collapsed-counts {
   display: flex;
   flex-direction: column;
