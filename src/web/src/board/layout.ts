@@ -150,3 +150,20 @@ export function freeSpot(taken: Rect[], size: { width: number; height: number },
   }
   return null
 }
+
+/**
+ * Items in reading order: top to bottom, and left to right for items that start on the same grid row. The mobile
+ * layout lists a bucket's cards and images, and a card's components and images, this way, so the list follows the
+ * canvas.
+ */
+export function readingOrder<T extends Point>(items: T[]): T[] {
+  return [...items].sort((a, b) => snap(a.y) - snap(b.y) || a.x - b.x)
+}
+
+/** Where a new item of `size` goes on a card's canvas below everything on it (the mobile layout adds to the end). */
+export function belowAll(taken: Rect[], size: { width: number; height: number }): Point {
+  if (taken.length === 0) return { x: GRID, y: GRID }
+  const left = Math.min(...taken.map((t) => t.x))
+  const bottom = Math.max(...taken.map((t) => t.y + t.height))
+  return onCardCanvas({ x: left, y: bottom + GRID }, size)
+}

@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { CheckIcon, CloseIcon, PencilIcon, SearchIcon } from '../board/icons'
+import { useMobileLayout } from '../layoutMode'
 
 export interface PickerChip {
   key: string
@@ -62,6 +63,8 @@ const WIDTH = 300
  */
 export function PickerWindow(props: PickerWindowProps) {
   const { anchor, label, placeholder, query, onQueryChange, chips = [], rows, footer, empty, holdOpen, owner, overlay, onClose } = props
+  /** On a phone it is a sheet along the bottom of the screen (above the keyboard), not a window next to the anchor. */
+  const sheet = useMobileLayout()
   const id = useId()
   const panel = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null)
@@ -71,6 +74,8 @@ export function PickerWindow(props: PickerWindowProps) {
   const activeRow = selectable[Math.min(active, selectable.length - 1)]
 
   useLayoutEffect(() => {
+    // A sheet has its place in the CSS.
+    if (sheet) return
     const height = panel.current?.offsetHeight ?? 0
     // Below the anchor, left-aligned; up when there is no room below, and always on screen.
     const below = anchor.bottom + 6 + height <= window.innerHeight - 8
@@ -78,12 +83,12 @@ export function PickerWindow(props: PickerWindowProps) {
       top: below ? anchor.bottom + 6 : Math.max(8, anchor.top - 6 - height),
       left: Math.min(Math.max(8, anchor.left), window.innerWidth - WIDTH - 8),
     })
-  }, [anchor, rows.length, chips.length])
+  }, [anchor, rows.length, chips.length, sheet])
 
   // Picking or editing moves focus to buttons and fields inside; give it back to the search field afterwards.
   // (It is hidden until placed, and hidden fields can't take focus.)
   const editing = rows.some((r) => r.editor)
-  const placed = place !== null
+  const placed = sheet || place !== null
   useEffect(() => {
     if (placed && !editing && !holdOpen) input.current?.focus({ preventScroll: true })
   }, [placed, editing, holdOpen])
@@ -98,6 +103,8 @@ export function PickerWindow(props: PickerWindowProps) {
       if (!panel.current?.contains(e.target as Node)) onClose()
     }
     document.addEventListener('pointerdown', onPointerDown, true)
+    // A sheet stays put while the page scrolls or the keyboard resizes it; a window would point at nothing.
+    if (sheet) return () => document.removeEventListener('pointerdown', onPointerDown, true)
     document.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', onClose)
     return () => {
@@ -105,15 +112,15 @@ export function PickerWindow(props: PickerWindowProps) {
       document.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', onClose)
     }
-  }, [holdOpen, owner, onClose])
+  }, [holdOpen, owner, onClose, sheet])
 
   return createPortal(
     <div
       ref={panel}
-      className="picker"
+      className={sheet ? 'picker sheet' : 'picker'}
       role="dialog"
       aria-label={label}
-      style={place ? { top: place.top, left: place.left, width: WIDTH } : { visibility: 'hidden', width: WIDTH }}
+      style={sheet ? undefined : place ? { top: place.top, left: place.left, width: WIDTH } : { visibility: 'hidden', width: WIDTH }}
       onKeyDown={(e) => {
         // Inside the window, Escape and Tab belong to it, not to the card or board around it.
         if (e.key === 'Escape') {

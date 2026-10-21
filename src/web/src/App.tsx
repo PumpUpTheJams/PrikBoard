@@ -21,6 +21,8 @@ import { boardRefFromHash, isBoard, trashPath } from './board/links'
 import { useBoard } from './board/useBoard'
 import { UndoHistory } from './board/useUndo'
 import { useLive } from './live/useLive'
+import { MobileLayout, useLayoutMode } from './layoutMode'
+import { MobileWorkspace } from './mobile/MobileWorkspace'
 import { AccountDialog, DisplayNameDialog } from './components/AccountDialogs'
 import { AdminPage } from './components/AdminPage'
 import { ConfirmDialog } from './components/ConfirmDialog'
@@ -124,6 +126,9 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   const [boardToDelete, setBoardToDelete] = useState<BoardSummary | null>(null)
   const [boardToLeave, setBoardToLeave] = useState<BoardSummary | null>(null)
   const [dialog, setDialog] = useState<'share' | 'account' | 'rules' | null>(null)
+  /** Phones get the mobile layout (lists, a screen at a time); touch devices can switch in the settings menu. */
+  const layout = useLayoutMode()
+  const mobile = layout.mode === 'mobile' && !adminView
 
   const loadBoards = useCallback(() => api.listBoards().then(setBoards, (e) => setError(errorMessage(e))), [])
 
@@ -144,8 +149,10 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
     void loadBoards().finally(() => setRecheckedId(selectedId))
   }, [selectedMissing, selectedId, recheckedId, loadBoards])
 
-  // Fall back to the newest board when nothing is selected; a board you can't open gets the sad page instead.
-  const activeBoard = adminView || selectedMissing ? null : (boards?.find((b) => isBoard(b, selectedId)) ?? boards?.[0] ?? null)
+  // Fall back to the newest board when nothing is selected (the mobile layout lists the boards instead); a board you
+  // can't open gets the sad page instead.
+  const activeBoard =
+    adminView || selectedMissing ? null : (boards?.find((b) => isBoard(b, selectedId)) ?? (mobile ? null : boards?.[0]) ?? null)
   const isOwner = activeBoard?.yourRole === 'Owner'
 
   // The board was deleted or you were removed from it (by an owner or admin, possibly in another tab): the board's
@@ -277,6 +284,78 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
     } catch (e) {
       setError(errorMessage(e))
     }
+  }
+
+  const dialogs = (
+    <>
+      {dialog === 'share' && activeBoard && (
+        <ShareDialog key={activeBoard.id} board={activeBoard} onClose={() => setDialog(null)} onLeft={() => left(activeBoard)} />
+      )}
+      {dialog === 'rules' && board && (
+        <Suspense>
+          <BoardRulesDialog
+            board={board}
+            onSave={(rules) => run(() => api.updateBoard(board.id, { rules }))}
+            onClose={() => setDialog(null)}
+          />
+        </Suspense>
+      )}
+      {dialog === 'account' && <AccountDialog user={user} boards={boards ?? []} onChange={onUserChange} onClose={() => setDialog(null)} />}
+
+      {boardToLeave && (
+        <ConfirmDialog
+          title="Leave this board?"
+          message={`You'll lose access to "${boardToLeave.name}" until someone adds you again. A board's last owner can't leave.`}
+          confirmLabel="Leave board"
+          onConfirm={() => void leaveBoard(boardToLeave)}
+          onCancel={() => setBoardToLeave(null)}
+        />
+      )}
+
+      {boardToDelete && (
+        <ConfirmDialog
+          title="Delete this board?"
+          message={`"${boardToDelete.name}" and all of its buckets and cards will be deleted. This can't be undone.`}
+          confirmLabel="Delete board"
+          onConfirm={() => void deleteBoard(boardToDelete)}
+          onCancel={() => setBoardToDelete(null)}
+        />
+      )}
+    </>
+  )
+
+  const errorBar = error && (
+    <div className="error" role="alert">
+      <span>{error}</span>
+      <button type="button" className="ghost" onClick={() => setError(null)}>
+        Dismiss
+      </button>
+    </div>
+  )
+
+  if (mobile) {
+    return (
+      <MobileLayout.Provider value>
+        <div className="app mobile">
+          {errorBar}
+          <MobileWorkspace
+            user={user}
+            boards={boards}
+            activeBoard={activeBoard}
+            board={board}
+            missing={selectedMissing ? (recheckedId === selectedId ? 'gone' : 'checking') : null}
+            run={run}
+            undoHistory={undoHistory}
+            moving={(id) => live.drags.some((r) => !r.endedAt && (r.id === id || r.items?.includes(id)))}
+            onCreateBoard={createBoard}
+            onDialog={setDialog}
+            onSignOut={onSignOut}
+            onDesktop={() => layout.choose('desktop')}
+          />
+          {dialogs}
+        </div>
+      </MobileLayout.Provider>
+    )
   }
 
   return (
@@ -499,6 +578,20 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
                     Admin
                   </button>
                 )}
+                {layout.canSwitch && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="menu-item"
+                    onClick={() => {
+                      close()
+                      layout.choose('mobile')
+                    }}
+                  >
+                    <CardIcon />
+                    Mobile view
+                  </button>
+                )}
                 <a role="menuitem" className="menu-item" href="/scalar" target="_blank" rel="noreferrer" onClick={close}>
                   <ExternalIcon />
                   API reference
@@ -518,14 +611,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
         </div>
       </header>
 
-      {error && (
-        <div className="error" role="alert">
-          <span>{error}</span>
-          <button type="button" className="ghost" onClick={() => setError(null)}>
-            Dismiss
-          </button>
-        </div>
-      )}
+      {errorBar}
 
       <main>
         {adminView ? (
@@ -571,39 +657,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
         )}
       </main>
 
-      {dialog === 'share' && activeBoard && (
-        <ShareDialog key={activeBoard.id} board={activeBoard} onClose={() => setDialog(null)} onLeft={() => left(activeBoard)} />
-      )}
-      {dialog === 'rules' && board && (
-        <Suspense>
-          <BoardRulesDialog
-            board={board}
-            onSave={(rules) => run(() => api.updateBoard(board.id, { rules }))}
-            onClose={() => setDialog(null)}
-          />
-        </Suspense>
-      )}
-      {dialog === 'account' && <AccountDialog user={user} boards={boards ?? []} onChange={onUserChange} onClose={() => setDialog(null)} />}
-
-      {boardToLeave && (
-        <ConfirmDialog
-          title="Leave this board?"
-          message={`You'll lose access to "${boardToLeave.name}" until someone adds you again. A board's last owner can't leave.`}
-          confirmLabel="Leave board"
-          onConfirm={() => void leaveBoard(boardToLeave)}
-          onCancel={() => setBoardToLeave(null)}
-        />
-      )}
-
-      {boardToDelete && (
-        <ConfirmDialog
-          title="Delete this board?"
-          message={`"${boardToDelete.name}" and all of its buckets and cards will be deleted. This can't be undone.`}
-          confirmLabel="Delete board"
-          onConfirm={() => void deleteBoard(boardToDelete)}
-          onCancel={() => setBoardToDelete(null)}
-        />
-      )}
+      {dialogs}
     </div>
   )
 }

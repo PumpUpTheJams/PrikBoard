@@ -314,7 +314,7 @@ export function ExpandedCard(props: ExpandedCardProps) {
   )
 }
 
-function FillPicker({ value, onChange }: { value: CardColor; onChange: (color: CardColor) => void }) {
+export function FillPicker({ value, onChange }: { value: CardColor; onChange: (color: CardColor) => void }) {
   return (
     <div className="band-fills" role="group" aria-label="Fill">
       {cardColors.map((c) => (
@@ -342,7 +342,7 @@ interface TagChipsProps {
   onAdd: (anchor: DOMRect) => void
 }
 
-function TagChips({ tags, tagColors, highlight, onRemove, onAdd }: TagChipsProps) {
+export function TagChips({ tags, tagColors, highlight, onRemove, onAdd }: TagChipsProps) {
   return (
     <div className="band-tags">
       {tags.map((tag) => (
@@ -389,7 +389,7 @@ function AssigneeChips({ assignees, highlight, onRemove, onAdd }: AssigneeChipsP
 }
 
 /** The card's ID. Clicking it copies a link that opens this card. */
-function CardIdButton({ card }: { card: CardDetail }) {
+export function CardIdButton({ card }: { card: CardDetail }) {
   /** Whether the last copy worked; null shows the ID again. */
   const { copied, copy } = useCopyLink(card)
 

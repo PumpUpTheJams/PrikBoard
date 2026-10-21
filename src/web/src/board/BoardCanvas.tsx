@@ -55,6 +55,7 @@ import {
 import { Card } from './Card'
 import { resizeCursor } from './resizeCursor'
 import { ResizeHandles } from './ResizeHandles'
+import { ops } from './ops'
 import { matchCard, searchTerms, type SearchField } from './search'
 import { adds, isPicked, mergePicked, togglePicked, touches, useSpaceHeld } from './selection'
 import { shakeDetector } from './shake'
@@ -65,7 +66,7 @@ import { ToolRail } from './ToolRail'
 import { toolKeys, type Tool } from './tools'
 import type { IncomingDrawing, IncomingImage } from './CardCanvas'
 import type { BoardState } from './useBoard'
-import { created, deleted, cardEdit, patched, snap, step, target, type RecordingRun, type UndoChange, type UndoEntry } from './undo'
+import { created, deleted, patched, snap, step, target, type RecordingRun, type UndoChange, type UndoEntry } from './undo'
 import { useStroke } from './useStroke'
 import { useUndo, type UndoHistory } from './useUndo'
 import { useZoom } from './useZoom'
@@ -513,8 +514,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }
 
   /** Edits a card's fields, as one undo step. */
-  const editCard = (card: CardDetail, changes: CardChanges) =>
-    settle(() => api.updateCard(card.id, changes), (after) => cardEdit(card, after, changes))
+  const editCard = (card: CardDetail, changes: CardChanges) => settle(...ops.editCard(card, changes))
 
   /** Deletes a card, closing it if it was open. */
   function deleteCard(id: string) {
@@ -522,10 +522,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     if (!card) return Promise.resolve(false)
     if (expanded?.id === id) setExpanded(null)
     setSelection(null)
-    return settle(
-      () => api.deleteCard(id),
-      () => step('Delete card', [deleted(target.card(id), snap.card(card))], { toast: 'Card deleted' }),
-    )
+    return settle(...ops.deleteCard(card))
   }
 
   /** Puts a card from the trash back on the board: where it was, or at `at` (dragged out of the trash window). */
@@ -619,35 +616,21 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     )
   }
 
-  const renameTag = (tag: BoardTag, name: string) =>
-    settle(
-      () => api.updateBoardTag(board.id, tag.id, { name }),
-      (renamed) => step('Rename tag', [patched(target.tag(tag.id), snap.tag(tag), snap.tag(renamed), ['name'])]),
-    )
+  const renameTag = (tag: BoardTag, name: string) => settle(...ops.renameTag(board.id, tag, name))
   /** Recolors a tag; the new color shows right away and stays until the reloaded board has it. */
   async function recolorTag(tag: BoardTag, color: TagColor) {
     setTagSaving({ tagId: tag.id, color })
-    const ok = await settle(
-      () => api.updateBoardTag(board.id, tag.id, { color }),
-      (recolored) => step('Change tag color', [patched(target.tag(tag.id), snap.tag(tag), snap.tag(recolored), ['color'])]),
-    )
+    const ok = await settle(...ops.recolorTag(board.id, tag, color))
     setTagSaving((s) => (s?.tagId === tag.id && s.color === color ? null : s))
     return ok
   }
-  const deleteTag = (tag: BoardTag) =>
-    settle(
-      () => api.deleteBoardTag(board.id, tag.id),
-      () => step('Delete tag', [deleted(target.tag(tag.id), snap.tag(tag))], { toast: `Tag “${tag.name}” deleted` }),
-    )
+  const deleteTag = (tag: BoardTag) => settle(...ops.deleteTag(board.id, tag))
 
   function deleteImage(id: string) {
     const image = board.images.find((i) => i.id === id)
     if (!image) return
     unselect(id)
-    void settle(
-      () => api.deleteImage(id),
-      () => step('Delete image', [deleted(target.image(id), snap.image(image))], { toast: 'Image deleted' }),
-    )
+    void settle(...ops.deleteImage(image))
   }
 
   function deleteDrawing(id: string) {
@@ -1472,10 +1455,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       setGesture({ ...gesture, done: true })
       setLinkDrop(null)
       const card = board.cards.find((n) => n.id === gesture.id)!
-      void settle(
-        () => api.moveCard(card.id, { bucketId: fold.id }),
-        (moved) => step('Move card', [patched(target.card(card.id), snap.card(card), snap.card(moved), ['x', 'y'])]),
-      ).then((ok) => ok && pop(canvasRef.current?.querySelector(`[data-fold="${fold.id}"]`), 1.08))
+      void settle(...ops.moveCardInto(card, fold.id)).then((ok) => ok && pop(canvasRef.current?.querySelector(`[data-fold="${fold.id}"]`), 1.08))
       return
     }
     const link = linkDropFor(gesture, client)
