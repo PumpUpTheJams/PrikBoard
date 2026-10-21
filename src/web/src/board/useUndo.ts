@@ -69,7 +69,7 @@ interface UndoOptions {
   notify: (message: { text: string; tone?: 'warn'; action?: { label: string; onAction: () => void } }) => void
   /** Whether someone else is dragging an item right now. */
   moving: (id: string) => boolean
-  /** Called after a step was taken, e.g. to close a post-it that is gone now. */
+  /** Called after a step was taken, e.g. to close a card that is gone now. */
   onApplied?: (entry: UndoEntry, direction: UndoDirection) => void
 }
 

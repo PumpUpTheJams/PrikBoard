@@ -7,10 +7,10 @@ import type {
   BucketColor,
   BucketDetail,
   Caller,
-  NoteBlock,
-  NoteColor,
-  NoteDetail,
-  NoteLink,
+  CardComponent,
+  CardColor,
+  CardDetail,
+  CardLink,
 } from '../../web/src/api/types'
 import { webUrl } from './auth'
 
@@ -18,19 +18,19 @@ import { webUrl } from './auth'
  * `canEdit` is false on boards where the caller is a Viewer; it decides which commands a row offers.
  */
 export type Node =
-  /** The notes assigned to the signed-in caller, across all their boards. */
+  /** The cards assigned to the signed-in caller, across all their boards. */
   | { kind: 'mine'; me: Caller }
   | { kind: 'board'; board: BoardSummary }
-  /** `bucket` is null for notes that sit in no bucket. */
-  | { kind: 'bucket'; boardId: string; bucket: BucketDetail | null; notes: NoteDetail[]; canEdit: boolean }
-  /** `where` (board and bucket) is set where a note is shown outside its board, under "Assigned to you". */
-  | { kind: 'note'; note: NoteDetail; canEdit: boolean; where?: string }
-  /** One item of one of the note's checklist blocks. */
-  | { kind: 'checklist'; note: NoteDetail; block: NoteBlock; index: number; canEdit: boolean }
-  | { kind: 'link'; link: NoteLink }
+  /** `bucket` is null for cards that sit in no bucket. */
+  | { kind: 'bucket'; boardId: string; bucket: BucketDetail | null; cards: CardDetail[]; canEdit: boolean }
+  /** `where` (board and bucket) is set where a card is shown outside its board, under "Assigned to you". */
+  | { kind: 'card'; card: CardDetail; canEdit: boolean; where?: string }
+  /** One item of one of the card's checklist components. */
+  | { kind: 'checklist'; card: CardDetail; component: CardComponent; index: number; canEdit: boolean }
+  | { kind: 'link'; link: CardLink }
   | { kind: 'assignee'; assignee: Assignee }
 
-const noteColors: Record<NoteColor, string> = {
+const cardColors: Record<CardColor, string> = {
   Butter: 'charts.yellow',
   Mint: 'charts.green',
   Sky: 'charts.blue',
@@ -46,18 +46,18 @@ const bucketColors: Record<BucketColor, string> = {
   Rose: 'charts.red',
 }
 
-/** A note's content is blocks; the tree shows the items of all its checklists and all its links. */
-const checklistsOf = (note: NoteDetail) => note.blocks.filter((b) => b.kind === 'Checklist')
-const itemsOf = (note: NoteDetail) => checklistsOf(note).flatMap((b) => b.items ?? [])
-const linksOf = (note: NoteDetail) => note.blocks.flatMap((b) => b.links ?? [])
+/** A card's content is components; the tree shows the items of all its checklists and all its links. */
+const checklistsOf = (card: CardDetail) => card.components.filter((b) => b.kind === 'Checklist')
+const itemsOf = (card: CardDetail) => checklistsOf(card).flatMap((b) => b.items ?? [])
+const linksOf = (card: CardDetail) => card.components.flatMap((b) => b.links ?? [])
 
 const icon = (id: string, color?: string) => new vscode.ThemeIcon(id, color ? new vscode.ThemeColor(color) : undefined)
 
-/** Menus in package.json match these, for example `viewItem == note.edit`. */
+/** Menus in package.json match these, for example `viewItem == card.edit`. */
 const contextOf = (kind: string, canEdit = false) => (canEdit ? `${kind}.edit` : kind)
 
 /**
- * "Assigned to you", then boards with their buckets, notes and a note's checklist, links and assignees. A board loads
+ * "Assigned to you", then boards with their buckets, cards and a card's checklist, links and assignees. A board loads
  * when it is first opened; "Assigned to you" loads all of them.
  */
 export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposable {
@@ -101,14 +101,14 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
         case 'board':
           return this.bucketNodes(await this.loadBoard(node.board.id))
         case 'bucket':
-          return node.notes.map((note): Node => ({ kind: 'note', note, canEdit: node.canEdit }))
-        case 'note':
+          return node.cards.map((card): Node => ({ kind: 'card', card, canEdit: node.canEdit }))
+        case 'card':
           return [
-            ...checklistsOf(node.note).flatMap((block) =>
-              (block.items ?? []).map((_, index): Node => ({ kind: 'checklist', note: node.note, block, index, canEdit: node.canEdit })),
+            ...checklistsOf(node.card).flatMap((component) =>
+              (component.items ?? []).map((_, index): Node => ({ kind: 'checklist', card: node.card, component, index, canEdit: node.canEdit })),
             ),
-            ...linksOf(node.note).map((link): Node => ({ kind: 'link', link })),
-            ...node.note.assignees.map((assignee): Node => ({ kind: 'assignee', assignee })),
+            ...linksOf(node.card).map((link): Node => ({ kind: 'link', link })),
+            ...node.card.assignees.map((assignee): Node => ({ kind: 'assignee', assignee })),
           ]
         default:
           return []
@@ -128,7 +128,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
         item.contextValue = contextOf('mine')
         item.iconPath = icon('account')
         item.description = node.me.displayName
-        item.tooltip = `Notes assigned to ${node.me.displayName}, on all your boards`
+        item.tooltip = `Cards assigned to ${node.me.displayName}, on all your boards`
         return item
       }
       case 'board': {
@@ -144,13 +144,13 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
         const item = new vscode.TreeItem(node.bucket?.name ?? 'No bucket', vscode.TreeItemCollapsibleState.Expanded)
         item.contextValue = contextOf('bucket', node.canEdit)
         item.iconPath = icon('circle-filled', node.bucket ? bucketColors[node.bucket.color] : undefined)
-        item.description = String(node.notes.length)
+        item.description = String(node.cards.length)
         return item
       }
-      case 'note':
-        return this.noteItem(node.note, node.canEdit, node.where)
+      case 'card':
+        return this.cardItem(node.card, node.canEdit, node.where)
       case 'checklist': {
-        const entry = node.block.items![node.index]
+        const entry = node.component.items![node.index]
         const item = new vscode.TreeItem(entry.text)
         item.contextValue = contextOf('checklist', node.canEdit)
         item.iconPath = icon(entry.done ? 'pass' : 'circle-large-outline')
@@ -175,47 +175,47 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
     }
   }
 
-  /** The web app address of a board or note row, for "Open in PrikBoard". */
+  /** The web app address of a board or card row, for "Open in PrikBoard". */
   urlOf(node: Node): string | undefined {
-    const boardId = node.kind === 'board' ? node.board.id : node.kind === 'note' ? node.note.boardId : undefined
+    const boardId = node.kind === 'board' ? node.board.id : node.kind === 'card' ? node.card.boardId : undefined
     return boardId ? `${webUrl()}/#/boards/${boardId}` : undefined
   }
 
-  private noteItem(note: NoteDetail, canEdit: boolean, where?: string) {
-    const items = itemsOf(note)
-    const hasDetails = items.length > 0 || linksOf(note).length > 0 || note.assignees.length > 0
+  private cardItem(card: CardDetail, canEdit: boolean, where?: string) {
+    const items = itemsOf(card)
+    const hasDetails = items.length > 0 || linksOf(card).length > 0 || card.assignees.length > 0
     const item = new vscode.TreeItem(
-      note.title || 'Untitled post-it',
+      card.title || 'Untitled card',
       hasDetails ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
     )
-    item.contextValue = contextOf('note', canEdit)
-    item.iconPath = note.agentWorking ? icon('loading~spin') : icon('note', noteColors[note.color])
+    item.contextValue = contextOf('card', canEdit)
+    item.iconPath = card.agentWorking ? icon('loading~spin') : icon('note', cardColors[card.color]) // 'note' is the codicon's name
 
     const done = items.filter((entry) => entry.done).length
-    item.description = [where ?? '', ...note.tags.map((tag) => `#${tag}`), items.length > 0 ? `${done}/${items.length}` : '']
+    item.description = [where ?? '', ...card.tags.map((tag) => `#${tag}`), items.length > 0 ? `${done}/${items.length}` : '']
       .filter(Boolean)
       .join(' ')
 
-    // appendText escapes markdown, so a note cannot format or link its own tooltip.
+    // appendText escapes markdown, so a card cannot format or link its own tooltip.
     const tooltip = new vscode.MarkdownString()
-    tooltip.appendText(note.title || 'Untitled post-it')
-    for (const block of note.blocks) if (block.kind === 'Text' && block.text) tooltip.appendText(`\n\n${block.text}`)
+    tooltip.appendText(card.title || 'Untitled card')
+    for (const component of card.components) if (component.kind === 'Text' && component.text) tooltip.appendText(`\n\n${component.text}`)
     item.tooltip = tooltip
     return item
   }
 
-  /** Notes assigned to the caller on every board, board by board in the board's own order. */
+  /** Cards assigned to the caller on every board, board by board in the board's own order. */
   private async assignedTo(me: Caller): Promise<Node[]> {
     const boards = await Promise.all((await this.loadBoards()).map((summary) => this.loadBoard(summary.id)))
     return boards.flatMap((board) =>
       this.bucketNodes(board).flatMap((node) =>
         node.kind !== 'bucket'
           ? []
-          : node.notes
-              .filter((note) => note.assignees.some((assignee) => assignee.principalId === me.id))
-              .map((note): Node => ({
-                kind: 'note',
-                note,
+          : node.cards
+              .filter((card) => card.assignees.some((assignee) => assignee.principalId === me.id))
+              .map((card): Node => ({
+                kind: 'card',
+                card,
                 canEdit: node.canEdit,
                 where: `${board.name} · ${node.bucket?.name ?? 'no bucket'}`,
               })),
@@ -229,11 +229,11 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
       kind: 'bucket',
       boardId: board.id,
       bucket,
-      notes: board.notes.filter((note) => note.bucketId === bucket.id),
+      cards: board.cards.filter((card) => card.bucketId === bucket.id),
       canEdit,
     }))
-    const loose = board.notes.filter((note) => note.bucketId === null)
-    return loose.length > 0 ? [...buckets, { kind: 'bucket', boardId: board.id, bucket: null, notes: loose, canEdit }] : buckets
+    const loose = board.cards.filter((card) => card.bucketId === null)
+    return loose.length > 0 ? [...buckets, { kind: 'bucket', boardId: board.id, bucket: null, cards: loose, canEdit }] : buckets
   }
 
   private async loadBoards() {

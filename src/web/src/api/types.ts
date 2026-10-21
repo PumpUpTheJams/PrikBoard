@@ -1,12 +1,12 @@
 // Mirrors the API contracts in src/PrikBoard.Api/Contracts (see /openapi/v1.json).
 
-export const noteColors = ['Butter', 'Mint', 'Sky', 'Coral', 'Lilac'] as const
-export type NoteColor = (typeof noteColors)[number]
+export const cardColors = ['Butter', 'Mint', 'Sky', 'Coral', 'Lilac'] as const
+export type CardColor = (typeof cardColors)[number]
 
 export const bucketColors = ['Blue', 'Amber', 'Violet', 'Teal', 'Rose'] as const
 export type BucketColor = (typeof bucketColors)[number]
 
-/** Default is a shade of the post-it's own fill; the others are solid chips of their own, in palette order. */
+/** Default is a shade of the card's own fill; the others are solid chips of their own, in palette order. */
 export const tagColors = ['Default', 'Brick', 'Rust', 'Ochre', 'Moss', 'Pine', 'Teal', 'Ocean', 'Indigo', 'Violet', 'Berry', 'Ink'] as const
 export type TagColor = (typeof tagColors)[number]
 
@@ -22,9 +22,9 @@ export const hasRole = (role: BoardRole, minimum: BoardRole) => boardRoles.index
 
 export interface BoardSummary {
   id: string
-  /** The board in web addresses (#/boards/{shortId}/notes/{number}): random and never changed. */
+  /** The board in web addresses (#/boards/{shortId}/cards/{number}): random and never changed. */
   shortId: string
-  /** Shown before note numbers, e.g. "MPCT" in MPCT-415. Owners may change it; it is not unique. */
+  /** Shown before card numbers, e.g. "MPCT" in MPCT-415. Owners may change it; it is not unique. */
   key: string
   name: string
   description: string | null
@@ -39,33 +39,33 @@ export interface BoardDetail extends BoardSummary {
   rulesUpdatedAt: string | null
   /** Back to front: later buckets are drawn on top. */
   buckets: BucketDetail[]
-  /** Bucket by bucket, loose notes last; not stacking order (see updatedAt). */
-  notes: NoteDetail[]
-  /** On the canvas (noteId null) and attached to notes, oldest first. */
+  /** Bucket by bucket, loose cards last; not stacking order (see updatedAt). */
+  cards: CardDetail[]
+  /** On the canvas (cardId null) and attached to cards, oldest first. */
   images: ImageDetail[]
-  /** Pen strokes on the canvas (noteId null) and on notes' canvases, oldest first. */
+  /** Pen strokes on the canvas (cardId null) and on cards' canvases, oldest first. */
   drawings: DrawingDetail[]
-  /** The board's tags by name, with how many notes use each. Notes pick their tags from these. */
+  /** The board's tags by name, with how many cards use each. Cards pick their tags from these. */
   tags: BoardTag[]
   /** Who can be assigned: you first, then people, then agents. */
   people: BoardPerson[]
 }
 
-/** A tag defined on a board; it stays when no note uses it. */
+/** A tag defined on a board; it stays when no card uses it. */
 export interface BoardTag {
   id: string
   name: string
   color: TagColor
-  noteCount: number
+  cardCount: number
 }
 
-/** A PATCH of a board tag: omitted fields stay unchanged. A new name changes it on every note too. */
+/** A PATCH of a board tag: omitted fields stay unchanged. A new name changes it on every card too. */
 export interface TagChanges {
   name?: string
   color?: TagColor
 }
 
-/** Someone who can be assigned to notes on a board: a member, or the agent of a member's access token. */
+/** Someone who can be assigned to cards on a board: a member, or the agent of a member's access token. */
 export interface BoardPerson {
   principalId: string
   name: string
@@ -83,8 +83,8 @@ export const imageTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
 export interface ImageDetail {
   id: string
   boardId: string
-  noteId: string | null
-  /** The bucket it sits in on the board (it moves with it); null when loose or attached to a note. */
+  cardId: string | null
+  /** The bucket it sits in on the board (it moves with it); null when loose or attached to a card. */
   bucketId: string | null
   fileName: string
   contentType: string
@@ -105,7 +105,7 @@ export interface ImageDetail {
 }
 
 export interface ImagePlacement {
-  noteId?: string
+  cardId?: string
   x?: number
   y?: number
   width?: number
@@ -125,20 +125,20 @@ export interface ImageUploadUrl {
   command: string
 }
 
-/** x and y are on the board, or on the note's canvas when attached (or being attached). */
+/** x and y are on the board, or on the card's canvas when attached (or being attached). */
 export interface ImageChanges {
   x?: number
   y?: number
   width?: number
   caption?: string
-  /** Attach the image to this note. */
-  noteId?: string
-  /** Take an attached image off its note and put it on the board. */
+  /** Attach the image to this card. */
+  cardId?: string
+  /** Take an attached image off its card and put it on the board. */
   detach?: boolean
 }
 
 /**
- * Pen inks in two rows of matching pairs: light ones for the dark board, then dark ones for drawing over a post-it's
+ * Pen inks in two rows of matching pairs: light ones for the dark board, then dark ones for drawing over a card's
  * light fill. Mirrored as `--ink-*` tokens in index.css.
  */
 export const inkColors = ['Chalk', 'Butter', 'Mint', 'Sky', 'Coral', 'Lilac', 'Ink', 'Ochre', 'Pine', 'Ocean', 'Brick', 'Violet'] as const
@@ -155,8 +155,8 @@ export type StrokePoint = [number, number, number]
 export interface DrawingDetail {
   id: string
   boardId: string
-  noteId: string | null
-  /** The bucket it sits in on the board (it moves with it); null when loose or on a note. */
+  cardId: string | null
+  /** The bucket it sits in on the board (it moves with it); null when loose or on a card. */
   bucketId: string | null
   x: number
   y: number
@@ -184,7 +184,7 @@ export interface NewDrawing {
   points: StrokePoint[]
   color?: InkColor
   strokeWidth?: number
-  noteId?: string
+  cardId?: string
 }
 
 /** A PATCH of a drawing; x and y are on wherever it ends up (give both when attaching or detaching). */
@@ -192,7 +192,7 @@ export interface DrawingChanges {
   x?: number
   y?: number
   color?: InkColor
-  noteId?: string
+  cardId?: string
   detach?: boolean
 }
 
@@ -205,7 +205,7 @@ export interface BucketDetail {
   y: number
   width: number
   height: number
-  /** Folded up into a square in its top-right corner: its post-its are hidden (keeping their places) until it opens again. */
+  /** Folded up into a square in its top-right corner: its cards are hidden (keeping their places) until it opens again. */
   collapsed: boolean
 }
 
@@ -225,17 +225,17 @@ export interface ChecklistItem {
   done: boolean
 }
 
-export interface NoteLink {
+export interface CardLink {
   title: string
   url: string
 }
 
-export type NoteBlockKind = 'Text' | 'Checklist' | 'Links'
+export type CardComponentKind = 'Text' | 'Checklist' | 'Links'
 
-/** A block of a note's content on its own canvas, in note pixels. Only the content field of its kind is set. */
-export interface NoteBlock {
+/** A component of a card's content on its own canvas, in card pixels. Only the content field of its kind is set. */
+export interface CardComponent {
   id: string
-  kind: NoteBlockKind
+  kind: CardComponentKind
   x: number
   y: number
   width: number
@@ -243,71 +243,71 @@ export interface NoteBlock {
   title: string | null
   text: string | null
   items: ChecklistItem[] | null
-  links: NoteLink[] | null
+  links: CardLink[] | null
 }
 
-/** A new block; without x and y the server finds a free spot, without a size it gets its kind's default. */
-export interface NewNoteBlock {
-  kind: NoteBlockKind
+/** A new component; without x and y the server finds a free spot, without a size it gets its kind's default. */
+export interface NewCardComponent {
+  kind: CardComponentKind
   title?: string | null
   text?: string | null
   items?: ChecklistItem[] | null
-  links?: NoteLink[] | null
+  links?: CardLink[] | null
   x?: number
   y?: number
   width?: number
   height?: number
-  /** Only to put back a removed block: the id it had. */
+  /** Only to put back a removed component: the id it had. */
   id?: string
 }
 
-/** A PATCH of a block: omitted fields stay unchanged, a given list replaces the block's whole list. */
-export interface NoteBlockChanges {
+/** A PATCH of a component: omitted fields stay unchanged, a given list replaces the component's whole list. */
+export interface CardComponentChanges {
   title?: string
   text?: string
   items?: ChecklistItem[]
-  links?: NoteLink[]
+  links?: CardLink[]
   x?: number
   y?: number
   width?: number
   height?: number
 }
 
-export interface NoteDetail {
+export interface CardDetail {
   id: string
-  /** Its number on the board: 1 for the first note, never reused. */
+  /** Its number on the board: 1 for the first card, never reused. */
   number: number
-  /** The board's key and the note's number, e.g. "MPCT-415". */
+  /** The board's key and the card's number, e.g. "MPCT-415". */
   readableId: string
   boardId: string
   bucketId: string | null
   title: string
-  color: NoteColor
+  color: CardColor
   tags: string[]
   assignees: Assignee[]
-  /** Its content: text, checklists and links on the note's own canvas. */
-  blocks: NoteBlock[]
+  /** Its content: text, checklists and links on the card's own canvas. */
+  components: CardComponent[]
   agentWorking: boolean
   x: number
   y: number
-  /** Current display name of whoever created it; null for older notes. */
+  /** Current display name of whoever created it; null for older cards. */
   createdBy: string | null
   createdById: string | null
   createdAt: string
   updatedAt: string
-  /** Where the web app shows it: "/#/boards/{shortId}/notes/{number}". Links to it store this path. */
+  /** Where the web app shows it: "/#/boards/{shortId}/cards/{number}". Links to it store this path. */
   path: string
-  /** When it was deleted, for post-its in the trash; null (or missing) otherwise. */
+  /** When it was deleted, for cards in the trash; null (or missing) otherwise. */
   deletedAt?: string | null
 }
 
-/** The trash: post-its deleted in the last 7 days, most recently deleted first, and the images deleted with them. */
+/** The trash: cards deleted in the last 7 days, most recently deleted first, and the images deleted with them. */
 export interface TrashContents {
-  notes: NoteDetail[]
+  cards: CardDetail[]
   images: ImageDetail[]
 }
 
-/** What emptyTrash did: how many post-its were deleted for good. */
+/** What emptyTrash did: how many cards were deleted for good. */
 export interface EmptyTrashResult {
   purged: number
 }
@@ -325,8 +325,8 @@ export interface Rect extends Point {
 export interface BucketChanges extends Partial<Rect> {
   name?: string
   color?: BucketColor
-  /** With a move only: exactly these notes move along instead of the bucket's notes (undoing a move). */
-  carryNoteIds?: string[]
+  /** With a move only: exactly these cards move along instead of the bucket's cards (undoing a move). */
+  carryCardIds?: string[]
   /** Likewise for images on the board, instead of the images in the bucket. */
   carryImageIds?: string[]
   /** Like carryImageIds, for drawings on the board. */
@@ -335,9 +335,9 @@ export interface BucketChanges extends Partial<Rect> {
 }
 
 /** A PATCH: omitted fields stay unchanged, a given list replaces the whole list. */
-export interface NoteChanges {
+export interface CardChanges {
   title?: string
-  color?: NoteColor
+  color?: CardColor
   /** Tag names; new names are added to the board. */
   tags?: string[]
   /** Principal ids, from the board's people. */
@@ -484,7 +484,7 @@ export interface AcceptedInvite {
 // Live updates over SignalR (/api/live); mirrors Contracts/Live.cs.
 
 /** Group: several selected items moving together (`items`). */
-export type DragKind = 'Note' | 'Bucket' | 'Resize' | 'Image' | 'ImageResize' | 'Group'
+export type DragKind = 'Card' | 'Bucket' | 'Resize' | 'Image' | 'ImageResize' | 'Group'
 
 /** The corner or edge a resize drags; the opposite one stays where it is, and an edge resizes in its direction only. */
 export type ResizeHandle = 'BottomRight' | 'BottomLeft' | 'TopRight' | 'TopLeft' | 'Top' | 'Right' | 'Bottom' | 'Left'
@@ -525,7 +525,7 @@ export interface DragUpdate {
   /** For Resize and ImageResize: the corner or edge being dragged (default BottomRight). */
   handle?: ResizeHandle
   /**
-   * For Group: every item moving by this distance (notes, buckets, images and drawings), `id` (the one held) among
+   * For Group: every item moving by this distance (cards, buckets, images and drawings), `id` (the one held) among
    * them. What is in a bucket that moves isn't listed: the bucket carries it.
    */
   items?: string[] | null

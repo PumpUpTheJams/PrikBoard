@@ -1,8 +1,8 @@
 import { useLayoutEffect, useState, type PointerEvent, type RefObject } from 'react'
 import type { Rect } from '../api/types'
 
-/** Where the expanded post-it's size and place are kept, per browser (not per post-it). Other windows pass their own key. */
-const STORAGE_KEY = 'prikboard.expandedNote.window'
+/** Where the expanded card's size and place are kept, per browser (not per card). Other windows pass their own key. */
+const STORAGE_KEY = 'prikboard.expandedCard.window'
 const MIN_WIDTH = 560
 const MIN_HEIGHT = 420
 /** Room left around a new window. */

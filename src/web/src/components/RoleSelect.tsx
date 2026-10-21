@@ -6,7 +6,7 @@ const roleOptions: SelectOption<BoardRole>[] = boardRoles.map((role) => ({
   label: role,
   description: {
     Viewer: 'Can look, not change',
-    Editor: 'Can change post-its, buckets and images',
+    Editor: 'Can change cards, buckets and images',
     Owner: 'Can also manage people and the board',
   }[role],
 }))

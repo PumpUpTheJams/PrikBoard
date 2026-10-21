@@ -5,26 +5,26 @@ using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
 
-/// <summary>Board tags: the list notes pick their tags from, renamed and deleted for every note at once.</summary>
+/// <summary>Board tags: the list cards pick their tags from, renamed and deleted for every card at once.</summary>
 public class TagApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiFactory>
 {
     [Fact]
-    public async Task Tags_used_on_notes_join_the_board_list()
+    public async Task Tags_used_on_cards_join_the_board_list()
     {
         var client = await factory.CreateSignedInClientAsync("tags-join@example.com");
         var board = await client.CreateBoardAsync("Tags join");
 
-        await CreateNote(client, board.Id, "Ingest", "Back end", "ui");
-        await CreateNote(client, board.Id, "Dashboard", "UI");
+        await CreateCard(client, board.Id, "Ingest", "Back end", "ui");
+        await CreateCard(client, board.Id, "Dashboard", "UI");
 
         var tags = await TagsAsync(client, board.Id);
-        Assert.Equal([("back-end", 1), ("ui", 2)], tags.Select(t => (t.Name, t.NoteCount)));
+        Assert.Equal([("back-end", 1), ("ui", 2)], tags.Select(t => (t.Name, t.CardCount)));
         var snapshot = (await client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
         Assert.Equal(tags, snapshot.Tags);
     }
 
     [Fact]
-    public async Task Board_tags_exist_without_notes()
+    public async Task Board_tags_exist_without_cards()
     {
         var client = await factory.CreateSignedInClientAsync("tags-alone@example.com");
         var board = await client.CreateBoardAsync("Tags alone");
@@ -32,34 +32,34 @@ public class TagApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardA
         var created = await client.PostAsJsonAsync($"/api/boards/{board.Id}/tags", new { name = " Some Day " });
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var tag = (await created.Content.ReadFromJsonAsync<BoardTagDetail>())!;
-        Assert.Equal(("some-day", 0), (tag.Name, tag.NoteCount));
+        Assert.Equal(("some-day", 0), (tag.Name, tag.CardCount));
 
         var again = await client.PostAsJsonAsync($"/api/boards/{board.Id}/tags", new { name = "some day" });
         Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
         var blank = await client.PostAsJsonAsync($"/api/boards/{board.Id}/tags", new { name = "   " });
         Assert.Equal(HttpStatusCode.BadRequest, blank.StatusCode);
 
-        // Taking a tag off a note keeps it on the board.
-        var note = await CreateNote(client, board.Id, "Later", "some-day");
-        (await client.PatchAsJsonAsync($"/api/notes/{note.Id}", new { tags = Array.Empty<string>() })).EnsureSuccessStatusCode();
-        Assert.Equal([("some-day", 0)], (await TagsAsync(client, board.Id)).Select(x => (x.Name, x.NoteCount)));
+        // Taking a tag off a card keeps it on the board.
+        var card = await CreateCard(client, board.Id, "Later", "some-day");
+        (await client.PatchAsJsonAsync($"/api/cards/{card.Id}", new { tags = Array.Empty<string>() })).EnsureSuccessStatusCode();
+        Assert.Equal([("some-day", 0)], (await TagsAsync(client, board.Id)).Select(x => (x.Name, x.CardCount)));
     }
 
     [Fact]
-    public async Task Renaming_a_tag_renames_it_on_every_note()
+    public async Task Renaming_a_tag_renames_it_on_every_card()
     {
         var client = await factory.CreateSignedInClientAsync("tags-rename@example.com");
         var board = await client.CreateBoardAsync("Tags rename");
-        var first = await CreateNote(client, board.Id, "First", "ui", "backend");
-        var second = await CreateNote(client, board.Id, "Second", "ui");
+        var first = await CreateCard(client, board.Id, "First", "ui", "backend");
+        var second = await CreateCard(client, board.Id, "Second", "ui");
         var ui = (await TagsAsync(client, board.Id)).Single(t => t.Name == "ui");
 
         var renamed = await client.PatchAsJsonAsync($"/api/boards/{board.Id}/tags/{ui.Id}", new { name = "Front End" });
         renamed.EnsureSuccessStatusCode();
 
         Assert.Equal(new BoardTagDetail(ui.Id, "front-end", TagColor.Default, 2), await renamed.Content.ReadFromJsonAsync<BoardTagDetail>());
-        Assert.Equal(["front-end", "backend"], (await NoteAsync(client, first.Id)).Tags);
-        Assert.Equal(["front-end"], (await NoteAsync(client, second.Id)).Tags);
+        Assert.Equal(["front-end", "backend"], (await CardAsync(client, first.Id)).Tags);
+        Assert.Equal(["front-end"], (await CardAsync(client, second.Id)).Tags);
         Assert.Equal(["backend", "front-end"], (await TagsAsync(client, board.Id)).Select(t => t.Name));
 
         var clash = await client.PatchAsJsonAsync($"/api/boards/{board.Id}/tags/{ui.Id}", new { name = "backend" });
@@ -69,24 +69,24 @@ public class TagApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardA
     }
 
     [Fact]
-    public async Task A_tag_gets_a_colour_of_its_own_and_back_to_default()
+    public async Task A_tag_gets_a_color_of_its_own_and_back_to_default()
     {
-        var client = await factory.CreateSignedInClientAsync("tags-colour@example.com");
-        var board = await client.CreateBoardAsync("Tags colour");
-        var note = await CreateNote(client, board.Id, "Urgent", "ui");
+        var client = await factory.CreateSignedInClientAsync("tags-color@example.com");
+        var board = await client.CreateBoardAsync("Tags color");
+        var card = await CreateCard(client, board.Id, "Urgent", "ui");
         var ui = (await TagsAsync(client, board.Id)).Single();
         Assert.Equal(TagColor.Default, ui.Color);
 
         var created = await client.PostAsJsonAsync($"/api/boards/{board.Id}/tags", new { name = "urgent", color = "Brick" });
         Assert.Equal(TagColor.Brick, (await created.Content.ReadFromJsonAsync<BoardTagDetail>())!.Color);
 
-        // Only the colour: the name and the notes stay as they are.
-        var recoloured = await client.PatchAsJsonAsync($"/api/boards/{board.Id}/tags/{ui.Id}", new { color = "Ocean" });
-        recoloured.EnsureSuccessStatusCode();
-        Assert.Equal(new BoardTagDetail(ui.Id, "ui", TagColor.Ocean, 1), await recoloured.Content.ReadFromJsonAsync<BoardTagDetail>());
-        Assert.Equal(["ui"], (await NoteAsync(client, note.Id)).Tags);
+        // Only the color: the name and the cards stay as they are.
+        var recolored = await client.PatchAsJsonAsync($"/api/boards/{board.Id}/tags/{ui.Id}", new { color = "Ocean" });
+        recolored.EnsureSuccessStatusCode();
+        Assert.Equal(new BoardTagDetail(ui.Id, "ui", TagColor.Ocean, 1), await recolored.Content.ReadFromJsonAsync<BoardTagDetail>());
+        Assert.Equal(["ui"], (await CardAsync(client, card.Id)).Tags);
 
-        // A new name keeps the colour; both at once change both.
+        // A new name keeps the color; both at once change both.
         var renamed = await client.PatchAsJsonAsync($"/api/boards/{board.Id}/tags/{ui.Id}", new { name = "front-end" });
         Assert.Equal(TagColor.Ocean, (await renamed.Content.ReadFromJsonAsync<BoardTagDetail>())!.Color);
         var both = await client.PatchAsJsonAsync($"/api/boards/{board.Id}/tags/{ui.Id}", new { name = "ui", color = "Default" });
@@ -100,18 +100,18 @@ public class TagApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardA
     }
 
     [Fact]
-    public async Task Deleting_a_tag_removes_it_from_every_note()
+    public async Task Deleting_a_tag_removes_it_from_every_card()
     {
         var client = await factory.CreateSignedInClientAsync("tags-delete@example.com");
         var board = await client.CreateBoardAsync("Tags delete");
-        var first = await CreateNote(client, board.Id, "First", "ui", "backend");
-        var second = await CreateNote(client, board.Id, "Second", "ui");
+        var first = await CreateCard(client, board.Id, "First", "ui", "backend");
+        var second = await CreateCard(client, board.Id, "Second", "ui");
         var ui = (await TagsAsync(client, board.Id)).Single(t => t.Name == "ui");
 
         Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/boards/{board.Id}/tags/{ui.Id}")).StatusCode);
 
-        Assert.Equal(["backend"], (await NoteAsync(client, first.Id)).Tags);
-        Assert.Empty((await NoteAsync(client, second.Id)).Tags);
+        Assert.Equal(["backend"], (await CardAsync(client, first.Id)).Tags);
+        Assert.Empty((await CardAsync(client, second.Id)).Tags);
         Assert.Equal(["backend"], (await TagsAsync(client, board.Id)).Select(t => t.Name));
         Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync($"/api/boards/{board.Id}/tags/{ui.Id}")).StatusCode);
     }
@@ -122,7 +122,7 @@ public class TagApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardA
         var client = await factory.CreateSignedInClientAsync("tags-other@example.com");
         var mine = await client.CreateBoardAsync("Tags A");
         var other = await client.CreateBoardAsync("Tags B");
-        await CreateNote(client, mine.Id, "Tagged", "ui");
+        await CreateCard(client, mine.Id, "Tagged", "ui");
         var ui = Assert.Single(await TagsAsync(client, mine.Id));
 
         var rename = await client.PatchAsJsonAsync($"/api/boards/{other.Id}/tags/{ui.Id}", new { name = "x" });
@@ -144,24 +144,24 @@ public class TagApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardA
         }
 
         var oneMore = await client.PostAsJsonAsync($"/api/boards/{board.Id}/tags", new { name = "extra" });
-        var newOnNote = await client.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "New", tags = new[] { "extra" } });
-        var existingOnNote = await client.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "Old", tags = new[] { "t1" } });
+        var newOnCard = await client.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "New", tags = new[] { "extra" } });
+        var existingOnCard = await client.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Old", tags = new[] { "t1" } });
 
         Assert.Equal(HttpStatusCode.Conflict, oneMore.StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, newOnNote.StatusCode);
-        Assert.Contains("\"tags\"", await newOnNote.Content.ReadAsStringAsync());
-        Assert.Equal(HttpStatusCode.Created, existingOnNote.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, newOnCard.StatusCode);
+        Assert.Contains("\"tags\"", await newOnCard.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Created, existingOnCard.StatusCode);
     }
 
-    private static async Task<NoteDetail> CreateNote(HttpClient client, Guid boardId, string title, params string[] tags)
+    private static async Task<CardDetail> CreateCard(HttpClient client, Guid boardId, string title, params string[] tags)
     {
-        var response = await client.PostAsJsonAsync($"/api/boards/{boardId}/notes", new { title, tags });
+        var response = await client.PostAsJsonAsync($"/api/boards/{boardId}/cards", new { title, tags });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        return (await response.Content.ReadFromJsonAsync<NoteDetail>())!;
+        return (await response.Content.ReadFromJsonAsync<CardDetail>())!;
     }
 
-    private static async Task<NoteDetail> NoteAsync(HttpClient client, Guid noteId) =>
-        (await client.GetFromJsonAsync<NoteDetail>($"/api/notes/{noteId}"))!;
+    private static async Task<CardDetail> CardAsync(HttpClient client, Guid cardId) =>
+        (await client.GetFromJsonAsync<CardDetail>($"/api/cards/{cardId}"))!;
 
     private static async Task<List<BoardTagDetail>> TagsAsync(HttpClient client, Guid boardId) =>
         (await client.GetFromJsonAsync<List<BoardTagDetail>>($"/api/boards/{boardId}/tags"))!;

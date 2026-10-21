@@ -9,14 +9,14 @@ When someone pastes a PrikBoard link in Discord, the chat should show what it po
 | Where | Link | Preview |
 | --- | --- | --- |
 | Any chat app, or a Discord server without the integration | Any PrikBoard link | Small: the PrikBoard icon with a *not signed in* badge, saying it is a PrikBoard link and that neither you nor the integration is signed in here. Nothing from the board. |
-| A Discord server with the integration, for a board connected to it | Board or post-it | The board's name and description, or the post-it's readable id, title and description, when there is one. |
+| A Discord server with the integration, for a board connected to it | Board or card | The board's name and description, or the card's readable id, title and description, when there is one. |
 | A Discord server with the integration | Invite (from *Share*) | *You're invited to join &lt;board name&gt;*, with the role and expiry. |
 
-![Mockup: the anonymous preview, and the integration's post-it, board and invite embeds](discord-previews.svg)
+![Mockup: the anonymous preview, and the integration's card, board and invite embeds](discord-previews.svg)
 
 ### Constraints
 
-- **Links stay as they are.** Board and post-it links keep everything behind the `#` (`/#/boards/{shortId}/notes/{number}`), and so do invites (`/#/invite/{token}`). There are no new share links or server-rendered pages.
+- **Links stay as they are.** Board and card links keep everything behind the `#` (`/#/boards/{shortId}/cards/{number}`), and so do invites (`/#/invite/{token}`). There are no new share links or server-rendered pages.
 - **The integration only talks to the API.** The Discord bot is a separate process that calls the PrikBoard REST API (`/api/...`) with its own credential, like any other client. It has no database access and doesn't read the web app. The API, in turn, never calls Discord.
 
 ## Why the chat app's own preview sees so little
@@ -41,18 +41,18 @@ The integration avoids both limits: the bot reads the link from the message text
 <meta property="og:image" content="/og-signed-out.png">
 <meta property="og:image:width" content="256">
 <meta property="og:image:height" content="256">
-<meta property="og:image:alt" content="The PrikBoard post-it with a not-signed-in badge">
+<meta property="og:image:alt" content="The PrikBoard card with a not-signed-in badge">
 <meta name="twitter:card" content="summary">
 <meta name="theme-color" content="#ffd54f">
 ```
 
 - **Small card.** `twitter:card` `summary` and a square image give the small thumbnail on the right of the card, not a large banner.
 - **No `og:url`.** It would tell the chat app that every link is the home page; without it, the card links to what was pasted.
-- **The image** (`src/web/public/og-signed-out.png`, 256 × 256): the post-it logo on the Night shift background with a small round badge (a person with a slash, or a lock) in a corner. Many crawlers don't render SVG, so it is a PNG. Add `icon-512.png` and `apple-touch-icon.png` there too; the bot uses the icon.
+- **The image** (`src/web/public/og-signed-out.png`, 256 × 256): the card logo on the Night shift background with a small round badge (a person with a slash, or a lock) in a corner. Many crawlers don't render SVG, so it is a PNG. Add `icon-512.png` and `apple-touch-icon.png` there too; the bot uses the icon.
 - **Relative image URL.** Discord and most crawlers resolve `og:image` against the page URL. If one doesn't, the build can write the absolute URL from a `PRIKBOARD_PUBLIC_URL` build variable; decide when there is a host.
-- `theme-color` `#ffd54f` (the logo's yellow) colours the bar beside Discord's card.
+- `theme-color` `#ffd54f` (the logo's yellow) colors the bar beside Discord's card.
 
-The text is the same everywhere it appears: the home page, a board, a post-it, an invite. It never says which kind of link it is, because the server can't tell.
+The text is the same everywhere it appears: the home page, a board, a card, an invite. It never says which kind of link it is, because the server can't tell.
 
 ### Checklist
 
@@ -105,13 +105,13 @@ For previews the bot makes one call per link, to a new endpoint that does the pa
 
 | `kind` | When | Fields |
 | --- | --- | --- |
-| `Note` | A post-it link (either path form, `NoteLinks.TryParse`) on a board the guild's agent can read | `readableId`, `title`, `description`, `color`, `boardName`, `path` |
+| `Card` | A card link (either path form, `CardLinks.TryParse`) on a board the guild's agent can read | `readableId`, `title`, `description`, `color`, `boardName`, `path` |
 | `Board` | A board link (`/#/boards/{shortId}` or `/#/boards/{boardId}`) the agent can read | `boardName`, `description`, `path` |
 | `Invite` | `/#/invite/{token}` for an open invite | `boardName`, `role`, `invitedBy`, `expiresAt` |
 
-Everything else is a 404: a link to another host, a board or post-it the guild can't see or that doesn't exist, a used, revoked or expired invite. The four look the same, so the bot can't be used to find out which boards exist.
+Everything else is a 404: a link to another host, a board or card the guild can't see or that doesn't exist, a used, revoked or expired invite. The four look the same, so the bot can't be used to find out which boards exist.
 
-- **Note description.** Notes have no description field, so it is the first text block on the note's canvas (top to bottom, then left to right), Markdown reduced to plain text and cut to 300 characters at a word, with an ellipsis. A note without text blocks has none, and a note whose content is a checklist gets `3/7 done` instead. Built by a `NotePreview.Describe(note)` helper so the rule can be tested on its own.
+- **Card description.** Cards have no description field, so it is the first text component on the card's canvas (top to bottom, then left to right), Markdown reduced to plain text and cut to 300 characters at a word, with an ellipsis. A card without text components has none, and a card whose content is a checklist gets `3/7 done` instead. Built by a `CardPreview.Describe(card)` helper so the rule can be tested on its own.
 - **Board description.** `Board.Description`, cut the same way, or null.
 - **Invites** reuse `previewInvite`'s lookup and never spend the token. They need no membership, since anyone holding the link is meant to see the board's name, but the guild must be connected to at least one board, so the bot's credential alone can't be used to test tokens. Rate limited with `InviteEndpoints.InviteLimit`, keyed per guild.
 - The invite response has no `yourRole`: the bot can't tell who will click.
@@ -129,14 +129,14 @@ A new project, `src/PrikBoard.Discord`: a .NET worker using a Discord library (D
 - It posts one reply per message, with one embed per link that got a preview (Discord allows 10), and stays silent about the rest. Saying "no access" would confirm that the board exists.
 - It checks the channel against `ChannelIds` before posting.
 - It ignores messages from bots, including its own.
-- With *Manage Messages* it removes Discord's own anonymous card from the message it answers (suppress embeds), so the channel doesn't show "not signed in" right above a full preview. Without it, both show.
+- With *Manage Messages* it removes Discord's own anonymous link preview from the message it answers (suppress embeds), so the channel doesn't show "not signed in" right above a full preview. Without it, both show.
 
 ### What the embeds show
 
-All three have the PrikBoard icon and "PrikBoard" as author, so they read as the same thing as the anonymous card.
+All three have the PrikBoard icon and "PrikBoard" as author, so they read as the same thing as the anonymous link preview.
 
-- **Post-it**: title `PRIK-109 · <note title>` linking to the post-it; the description, when there is one; footer the board name; colour the post-it's fill.
-- **Board**: title the board name linking to the board; the description, when there is one; colour the logo's yellow.
+- **Card**: title `PRIK-109 · <card title>` linking to the card; the description, when there is one; footer the board name; color the card's fill.
+- **Board**: title the board name linking to the board; the description, when there is one; color the logo's yellow.
 - **Invite**: title *You're invited to join &lt;board name&gt;* linking to the invite; *Daniel invited you as Editor · expires 28 Oct*; and a line saying the link works once, for whoever accepts it first. No board description: an invite shows what `previewInvite` shows, nothing more.
 
 No images and no avatars (see open questions).
@@ -152,17 +152,17 @@ No images and no avatars (see open questions).
 
 - `DiscordGuild` entity and migration; an `Agent` issuer `discord`.
 - Endpoints, each with `WithName`, summaries and `RequireBoardRole`/`NoBoardScope`: `beginDiscordConnect` (bot), `getDiscordConnect` (session, for the connect page), `confirmDiscordConnect` (session), `getDiscordStatus` (bot), `getLinkPreview` (bot), `listDiscordConnections` and `removeDiscordConnection` (board Owner).
-- `NoteLinks` gains a board-link parser next to `TryParse`; `NotePreview.Describe`.
+- `CardLinks` gains a board-link parser next to `TryParse`; `CardPreview.Describe`.
 - The bot auth scheme.
 - Configuration: `Discord:PublicUrl` (the PrikBoard origin links are matched against) and whatever the bot credential needs. `Discord:BotToken` belongs to the bot only.
-- Tests: connect flow (code expiry, reuse, non-owner); `getLinkPreview` for a note with and without text, a checklist note, a board with and without a description, an open invite, and identical 404s for an unknown board, a board the guild can't see, a removed connection, an unknown guild, another host and a used invite; previewing an invite doesn't spend it; the description cut.
+- Tests: connect flow (code expiry, reuse, non-owner); `getLinkPreview` for a card with and without text, a checklist card, a board with and without a description, an open invite, and identical 404s for an unknown board, a board the guild can't see, a removed connection, an unknown guild, another host and a used invite; previewing an invite doesn't spend it; the description cut.
 - Docs: `api.md` endpoint table, `authentication.md` (the bot as a caller).
 
 ### Simpler first step
 
-Without any API changes: an owner creates a Viewer personal access token limited to one board and gives it to the bot with `/prikboard connect token:<pat>` (the reply is ephemeral). The bot stores it per guild and calls `getNote` and `getBoard` with it, building the description itself.
+Without any API changes: an owner creates a Viewer personal access token limited to one board and gives it to the bot with `/prikboard connect token:<pat>` (the reply is ephemeral). The bot stores it per guild and calls `getCard` and `getBoard` with it, building the description itself.
 
-It is enough to try board and post-it embeds, but:
+It is enough to try board and card embeds, but:
 - invites don't work, since `previewInvite` is people only;
 - it acts through the owner's membership, so it stops working when they leave the board or are removed;
 - the bot stores a secret per server;
@@ -180,7 +180,7 @@ It is enough to try board and post-it embeds, but:
 2. **Invites in public channels.** An invite link is single-use and goes to whoever accepts it first. Should the embed only appear in channels limited by `ChannelIds`, or should the bot warn (as planned) and leave the choice to the poster?
 3. **Channel limits: in the bot or in the API?** If the bot sends the channel id and the API checks it, a bug or a compromised bot can't post a board into the wrong channel. It also means the API learns about Discord channels.
 4. **Channel limits per board or per server?** Per board is more precise (`#design` sees the design board only) but makes the settings page bigger.
-5. **More on the post-it embed.** Bucket, tags and assignees fit as embed fields. Leave them out to start, as planned, or show them?
+5. **More on the card embed.** Bucket, tags and assignees fit as embed fields. Leave them out to start, as planned, or show them?
 6. **Readable ids in plain text.** Should the bot also preview a bare `MPCT-415` typed in a message? Keys aren't unique, so it would only look among the guild's boards, and it may fire on text that only looks like an id.
 7. **Per-person check.** Should the bot only preview links the poster can open? That needs Discord as a sign-in provider (a hashed `UserIdentity`, as now) and the poster to link their account. The server grant is still needed, since the whole channel sees the embed.
 8. **Revoked access.** Embeds already posted stay in Discord's history after a disconnect. Accept and document it, or have the bot edit its old replies away (it would have to remember them)?

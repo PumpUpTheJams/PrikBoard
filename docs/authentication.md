@@ -117,7 +117,7 @@ Boards are members-only. The roles are:
 | Role | Can |
 | --- | --- |
 | **Viewer** | Read the board. |
-| **Editor** | Also change buckets, notes and images. |
+| **Editor** | Also change buckets, cards and images. |
 | **Owner** | Also rename or delete the board, and manage members and invite links. |
 
 The creator becomes the owner, and a board always keeps at least one. Owners add people with a single-use invite link (`/#/invite/{token}`, 7 days by default) in the Share dialog, or through the API by exact email (findUserByEmail, then addBoardMember). Only a hash of the invite token is stored.
@@ -178,7 +178,7 @@ Register PrikBoard as an API at your identity provider, with the scopes `boards:
 | `Issuers:{id}:UserClients` | Client ids of interactive apps (for example the VS Code extension) whose tokens act as the signed-in person. See below. Default none |
 | `Issuers:{id}:UserProvider` | The sign-in provider id the token's `sub` belongs to. Default: the issuer id |
 
-Provider notes:
+Provider cards:
 
 - **Auth0:** APIs → Create API with identifier `api://prikboard`, and add the permissions `boards:read` and `boards:write`. Then Applications → Create → Machine to Machine, and authorise it for the API with the permissions it needs.
 - **Entra ID:** In an app registration for PrikBoard, set the Application ID URI (use it as the `Audience`), and add the app roles `boards:read` and `boards:write` for Applications. Grant them to each client app with admin consent. Entra puts them in `roles`. Use a tenant-specific authority.
@@ -237,7 +237,7 @@ Admins (`User.IsAdmin`) run the instance from *Admin* in the settings menu: they
 
 - There is always at least one admin (`409` otherwise), and an admin cannot delete themselves.
 - A user who is the only owner of a board cannot be deleted until that board has another owner (`409`, with the boards in the problem's `boards` field).
-- Deleting a user deletes their sign-ins, memberships and access tokens. Their notes and images stay (the creator becomes unknown). Their session cookie stops working on the next request: the cookie handler checks that the user still exists (`UserState`, cached for a minute and evicted on delete).
+- Deleting a user deletes their sign-ins, memberships and access tokens. Their cards and images stay (the creator becomes unknown). Their session cookie stops working on the next request: the cookie handler checks that the user still exists (`UserState`, cached for a minute and evicted on delete).
 - The admin endpoints (`/api/admin/*`) are **sessions only**, like token management: tokens get `403`, and there are no MCP tools for them.
 
 ## Local development

@@ -4,7 +4,7 @@ import { CloseIcon, ExternalIcon, TrashIcon } from './icons'
 
 interface BucketInspectorProps {
   bucket: BucketDetail
-  noteCount: number
+  cardCount: number
   /** Focus and select the name, for a bucket that was just drawn. */
   autoFocus: boolean
   onSave: (changes: BucketChanges) => Promise<boolean>
@@ -13,7 +13,7 @@ interface BucketInspectorProps {
 }
 
 /** A small panel for the selected bucket: rename it or delete it. */
-export function BucketInspector({ bucket, noteCount, autoFocus, onSave, onDelete, onClose }: BucketInspectorProps) {
+export function BucketInspector({ bucket, cardCount, autoFocus, onSave, onDelete, onClose }: BucketInspectorProps) {
   const [name, setName] = useState(bucket.name)
   const dirty = name.trim() !== bucket.name
 
@@ -27,7 +27,7 @@ export function BucketInspector({ bucket, noteCount, autoFocus, onSave, onDelete
       <header className="inspector-header">
         <h2>Bucket</h2>
         <span className="inspector-meta">
-          {noteCount === 1 ? '1 post-it' : `${noteCount} post-its`} · {bucket.width}×{bucket.height}
+          {cardCount === 1 ? '1 card' : `${cardCount} cards`} · {bucket.width}×{bucket.height}
         </span>
         <button type="button" className="icon-button" aria-label="Close" onClick={onClose}>
           <CloseIcon />
@@ -51,7 +51,7 @@ export function BucketInspector({ bucket, noteCount, autoFocus, onSave, onDelete
             Delete
           </button>
         </div>
-        <p className="inspector-note">Deleting a bucket keeps its post-its on the board.</p>
+        <p className="inspector-hint">Deleting a bucket keeps its cards on the board.</p>
       </form>
     </aside>
   )
@@ -88,7 +88,7 @@ export function ImageInspector({ image, onSave, onDelete, onClose }: ImageInspec
           <CloseIcon />
         </button>
       </header>
-      <p className="inspector-note" title={image.fileName}>
+      <p className="inspector-hint" title={image.fileName}>
         {image.fileName} · added by {image.addedBy}
       </p>
       <form className="inspector-form" onSubmit={save}>

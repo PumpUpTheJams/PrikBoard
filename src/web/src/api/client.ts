@@ -33,11 +33,11 @@ import type {
   ImageUploadUrl,
   ImagePlacement,
   NewDrawing,
-  NewNoteBlock,
-  NoteBlock,
-  NoteBlockChanges,
-  NoteChanges,
-  NoteDetail,
+  NewCardComponent,
+  CardComponent,
+  CardComponentChanges,
+  CardChanges,
+  CardDetail,
   Point,
   Rect,
   TagChanges,
@@ -175,48 +175,48 @@ export const api = {
   /** Brings back a bucket deleted in the last 7 days, with the same id. */
   restoreBucket: (bucketId: string) => request<BucketDetail>('POST', `/buckets/${bucketId}/restore`),
 
-  createNote: (
+  createCard: (
     boardId: string,
-    note: Omit<NoteChanges, 'title'> & { title: string; blocks?: NewNoteBlock[] } & ({ bucketId?: string } | Point),
-  ) => request<NoteDetail>('POST', `/boards/${boardId}/notes`, note),
-  /** The note at a path's board short id and number (#/boards/{shortId}/notes/{number}). */
-  getNoteByNumber: (shortId: string, number: number) => request<NoteDetail>('GET', `/boards/${shortId}/notes/${number}`),
-  updateNote: (noteId: string, changes: NoteChanges) => request<NoteDetail>('PATCH', `/notes/${noteId}`, changes),
+    card: Omit<CardChanges, 'title'> & { title: string; components?: NewCardComponent[] } & ({ bucketId?: string } | Point),
+  ) => request<CardDetail>('POST', `/boards/${boardId}/cards`, card),
+  /** The card at a path's board short id and number (#/boards/{shortId}/cards/{number}). */
+  getCardByNumber: (shortId: string, number: number) => request<CardDetail>('GET', `/boards/${shortId}/cards/${number}`),
+  updateCard: (cardId: string, changes: CardChanges) => request<CardDetail>('PATCH', `/cards/${cardId}`, changes),
   /** Into a free spot inside a bucket, or exactly to a point (the server then works out the bucket). */
-  moveNote: (noteId: string, to: { bucketId: string } | Point) =>
-    request<NoteDetail>('POST', `/notes/${noteId}/move`, to),
-  deleteNote: (noteId: string) => request<void>('DELETE', `/notes/${noteId}`),
+  moveCard: (cardId: string, to: { bucketId: string } | Point) =>
+    request<CardDetail>('POST', `/cards/${cardId}/move`, to),
+  deleteCard: (cardId: string) => request<void>('DELETE', `/cards/${cardId}`),
   /**
-   * Brings back a note deleted in the last 7 days, with the same id and the images deleted along with it: where it was,
+   * Brings back a card deleted in the last 7 days, with the same id and the images deleted along with it: where it was,
    * or at `at` (dragged out of the trash).
    */
-  restoreNote: (noteId: string, at?: Point) => request<NoteDetail>('POST', `/notes/${noteId}/restore`, at),
-  /** The post-its deleted in the last 7 days, most recently deleted first. */
-  listDeletedNotes: (boardId: string) => request<TrashContents>('GET', `/boards/${boardId}/trash`),
-  /** Deletes a post-it in the trash for good, with its images and drawings. */
-  purgeNote: (boardId: string, noteId: string) => request<void>('DELETE', `/boards/${boardId}/trash/${noteId}`),
+  restoreCard: (cardId: string, at?: Point) => request<CardDetail>('POST', `/cards/${cardId}/restore`, at),
+  /** The cards deleted in the last 7 days, most recently deleted first. */
+  listDeletedCards: (boardId: string) => request<TrashContents>('GET', `/boards/${boardId}/trash`),
+  /** Deletes a card in the trash for good, with its images and drawings. */
+  purgeCard: (boardId: string, cardId: string) => request<void>('DELETE', `/boards/${boardId}/trash/${cardId}`),
   /** Deletes everything in the board's trash for good. */
   emptyTrash: (boardId: string) => request<EmptyTrashResult>('DELETE', `/boards/${boardId}/trash`),
-  addNoteBlock: (noteId: string, block: NewNoteBlock) => request<NoteBlock>('POST', `/notes/${noteId}/blocks`, block),
-  updateNoteBlock: (noteId: string, blockId: string, changes: NoteBlockChanges) =>
-    request<NoteBlock>('PATCH', `/notes/${noteId}/blocks/${blockId}`, changes),
-  deleteNoteBlock: (noteId: string, blockId: string) => request<void>('DELETE', `/notes/${noteId}/blocks/${blockId}`),
+  addCardComponent: (cardId: string, component: NewCardComponent) => request<CardComponent>('POST', `/cards/${cardId}/components`, component),
+  updateCardComponent: (cardId: string, componentId: string, changes: CardComponentChanges) =>
+    request<CardComponent>('PATCH', `/cards/${cardId}/components/${componentId}`, changes),
+  deleteCardComponent: (cardId: string, componentId: string) => request<void>('DELETE', `/cards/${cardId}/components/${componentId}`),
   /** Assigns you and shows the working halo (true), or takes the halo away (false). */
-  setNoteWorking: (noteId: string, working: boolean) =>
-    request<NoteDetail>('POST', `/notes/${noteId}/working`, { working }),
+  setCardWorking: (cardId: string, working: boolean) =>
+    request<CardDetail>('POST', `/cards/${cardId}/working`, { working }),
 
   listBoardTags: (boardId: string) => request<BoardTag[]>('GET', `/boards/${boardId}/tags`),
   createBoardTag: (boardId: string, name: string, color?: TagColor) =>
     request<BoardTag>('POST', `/boards/${boardId}/tags`, { name, color }),
-  /** Renames (on every note of the board too) and/or recolours a tag. */
+  /** Renames (on every card of the board too) and/or recolors a tag. */
   updateBoardTag: (boardId: string, tagId: string, changes: TagChanges) =>
     request<BoardTag>('PATCH', `/boards/${boardId}/tags/${tagId}`, changes),
-  /** Removes the tag from every note of the board too. */
+  /** Removes the tag from every card of the board too. */
   deleteBoardTag: (boardId: string, tagId: string) => request<void>('DELETE', `/boards/${boardId}/tags/${tagId}`),
-  /** Brings back a deleted tag and puts it back on the notes it was removed from. */
+  /** Brings back a deleted tag and puts it back on the cards it was removed from. */
   restoreBoardTag: (boardId: string, tagId: string) => request<BoardTag>('POST', `/boards/${boardId}/tags/${tagId}/restore`),
 
-  /** Uploads a file onto the board, or attached to a note with noteId; at x/y (on the note's canvas with noteId) or a free spot. */
+  /** Uploads a file onto the board, or attached to a card with cardId; at x/y (on the card's canvas with cardId) or a free spot. */
   uploadImage: (boardId: string, file: File, placement: ImagePlacement = {}) => {
     const query = new URLSearchParams({ fileName: file.name })
     for (const [key, value] of Object.entries(placement)) if (value !== undefined) query.set(key, String(value))
@@ -230,7 +230,7 @@ export const api = {
     request<ImageDetail>('PUT', `/image-uploads/${uploadUrl.slice(uploadUrl.lastIndexOf('/') + 1)}`, file),
   updateImage: (imageId: string, changes: ImageChanges) => request<ImageDetail>('PATCH', `/images/${imageId}`, changes),
   deleteImage: (imageId: string) => request<void>('DELETE', `/images/${imageId}`),
-  /** Brings back an image deleted in the last 7 days (not one whose note is deleted: restore the note). */
+  /** Brings back an image deleted in the last 7 days (not one whose card is deleted: restore the card). */
   restoreImage: (imageId: string) => request<ImageDetail>('POST', `/images/${imageId}/restore`),
 
   createDrawing: (boardId: string, drawing: NewDrawing) => request<DrawingDetail>('POST', `/boards/${boardId}/drawings`, drawing),
@@ -239,7 +239,7 @@ export const api = {
   updateDrawing: (drawingId: string, changes: DrawingChanges) =>
     request<DrawingDetail>('PATCH', `/drawings/${drawingId}`, changes),
   deleteDrawing: (drawingId: string) => request<void>('DELETE', `/drawings/${drawingId}`),
-  /** Brings back a drawing deleted in the last 7 days (not one whose note is deleted: restore the note). */
+  /** Brings back a drawing deleted in the last 7 days (not one whose card is deleted: restore the card). */
   restoreDrawing: (drawingId: string) => request<DrawingDetail>('POST', `/drawings/${drawingId}/restore`),
 
   listBoardMembers: (boardId: string) => request<BoardMember[]>('GET', `/boards/${boardId}/members`),

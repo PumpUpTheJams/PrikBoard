@@ -42,8 +42,8 @@ public class AppSignInTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoa
         // The person's own role, Owner included, and changes show as them.
         var listed = Assert.Single((await app.GetFromJsonAsync<List<BoardSummary>>("/api/boards"))!, b => b.Id == board.Id);
         Assert.Equal(BoardRole.Owner, listed.YourRole);
-        var note = await app.CreateNoteAsync(board.Id, "From VS Code");
-        Assert.Equal(self.Id, note.CreatedById);
+        var card = await app.CreateCardAsync(board.Id, "From VS Code");
+        Assert.Equal(self.Id, card.CreatedById);
 
         // Still a token: it cannot manage tokens or sign other apps in.
         Assert.Equal(HttpStatusCode.Forbidden, (await app.GetAsync("/api/me/tokens")).StatusCode);

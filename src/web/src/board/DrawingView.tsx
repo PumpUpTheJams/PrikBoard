@@ -76,7 +76,7 @@ export function DrawingToolbar({ drawing, rect, zoom, onRecolor, onDelete }: Dra
   )
 }
 
-/** The twelve inks in two rows: light ones for the board, then dark ones for drawing over a post-it. */
+/** The twelve inks in two rows: light ones for the board, then dark ones for drawing over a card. */
 export function InkSwatches({ value, onChange }: { value: InkColor; onChange: (color: InkColor) => void }) {
   return (
     <div className="ink-swatches">
@@ -143,7 +143,7 @@ export function DrawingGhost({ drawing, at, zoom }: { drawing: DrawingDetail; at
   )
 }
 
-/** A board stroke dragged over a post-it's canvas, where it would land. */
+/** A board stroke dragged over a card's canvas, where it would land. */
 export function IncomingDrawingView({ drawing, at }: { drawing: DrawingDetail; at: Point }) {
   const points = useDrawingPoints(drawing)
   return points ? (

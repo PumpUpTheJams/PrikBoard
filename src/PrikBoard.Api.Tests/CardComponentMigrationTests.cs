@@ -7,8 +7,8 @@ using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
 
-/// <summary>The NoteBlocks migration, run against a throwaway database of its own (see <see cref="MigrationTests"/>).</summary>
-public class NoteBlockMigrationTests : IAsyncLifetime
+/// <summary>The NoteBlocks migration (notes' body, checklist and links become blocks, now card components), run against a throwaway database of its own (see <see cref="MigrationTests"/>).</summary>
+public class CardComponentMigrationTests : IAsyncLifetime
 {
     private const string BeforeBlocks = "20261019010826_BoardRules";
     /// <summary>The images here have no bytes, which the move of bytes to disk (StartupMigration) would drop.</summary>
@@ -31,7 +31,7 @@ public class NoteBlockMigrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Body_checklist_and_links_become_blocks_and_attached_images_get_a_place()
+    public async Task Body_checklist_and_links_become_components_and_attached_images_get_a_place()
     {
         var board = Guid.NewGuid();
         var (full, listsOnly, empty) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
@@ -56,22 +56,25 @@ public class NoteBlockMigrationTests : IAsyncLifetime
 
         await db.GetService<IMigrator>().MigrateAsync(BeforeStoredFiles);
 
-        // Only columns this far into the migrations: the model has later ones too.
-        var notes = await db.Notes.AsNoTracking().Select(n => new { n.Id, n.Blocks }).ToDictionaryAsync(n => n.Id);
-        var blocks = notes[full].Blocks;
-        Assert.Equal([NoteBlockKind.Text, NoteBlockKind.Checklist, NoteBlockKind.Links], blocks.Select(b => b.Kind));
-        Assert.Equal([(20, 20, 340, 220), (400, 20, 340, 200), (780, 20, 360, 160)], blocks.Select(b => (b.X, b.Y, b.Width, b.Height)));
-        Assert.Equal("Retry tiles", blocks[0].Text);
-        Assert.Equal([("Backoff", true), ("DLQ", false)], blocks[1].Items.Select(i => (i.Text, i.Done)));
-        Assert.Equal([("PR #412", "https://example.com/412")], blocks[2].Links.Select(l => (l.Title, l.Url)));
-        Assert.Equal(3, blocks.Select(b => b.Id).Distinct().Count(id => id != Guid.Empty));
+        // Still the Notes table and its Blocks column this far into the migrations (CardsAndComponents renames them).
+        var cards = (await db.Database.SqlQuery<OldCard>($"""SELECT "Id", "Blocks"::text AS "Blocks" FROM "Notes" """).ToListAsync())
+            .ToDictionary(n => n.Id, n => new { n.Id, Components = CardComponentsJson.Converter.ConvertFromProviderTyped(n.Blocks) });
+        var components = cards[full].Components;
+        Assert.Equal([CardComponentKind.Text, CardComponentKind.Checklist, CardComponentKind.Links], components.Select(b => b.Kind));
+        Assert.Equal([(20, 20, 340, 220), (400, 20, 340, 200), (780, 20, 360, 160)], components.Select(b => (b.X, b.Y, b.Width, b.Height)));
+        Assert.Equal("Retry tiles", components[0].Text);
+        Assert.Equal([("Backoff", true), ("DLQ", false)], components[1].Items.Select(i => (i.Text, i.Done)));
+        Assert.Equal([("PR #412", "https://example.com/412")], components[2].Links.Select(l => (l.Title, l.Url)));
+        Assert.Equal(3, components.Select(b => b.Id).Distinct().Count(id => id != Guid.Empty));
 
-        var listBlock = Assert.Single(notes[listsOnly].Blocks);
-        Assert.Equal((NoteBlockKind.Checklist, 20), (listBlock.Kind, listBlock.X));
-        Assert.Empty(notes[empty].Blocks);
+        var listComponent = Assert.Single(cards[listsOnly].Components);
+        Assert.Equal((CardComponentKind.Checklist, 20), (listComponent.Kind, listComponent.X));
+        Assert.Empty(cards[empty].Components);
 
         var images = await db.Images.AsNoTracking().OrderBy(i => i.CreatedAt).Select(i => new { i.X, i.Y }).ToListAsync();
-        // Under the tallest block (20 + 220) with a 20 px gap, side by side.
+        // Under the tallest component (20 + 220) with a 20 px gap, side by side.
         Assert.Equal([(20, 260), (340, 260)], images.Select(i => (i.X, i.Y)));
     }
+
+    private sealed record OldCard(Guid Id, string Blocks);
 }

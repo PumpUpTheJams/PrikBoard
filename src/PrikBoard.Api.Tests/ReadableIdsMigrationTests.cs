@@ -29,7 +29,7 @@ public class ReadableIdsMigrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Boards_get_short_ids_and_keys_notes_get_numbers_and_links_become_paths()
+    public async Task Boards_get_short_ids_and_keys_cards_get_numbers_and_links_become_paths()
     {
         var (board, other) = (Guid.NewGuid(), Guid.NewGuid());
         var (first, deleted, linking, away, missing) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
@@ -58,21 +58,22 @@ public class ReadableIdsMigrationTests : IAsyncLifetime
         await db.GetService<IMigrator>().MigrateAsync();
 
         var boards = await db.Boards.AsNoTracking().ToDictionaryAsync(b => b.Id);
-        Assert.Equal(("MMST", 4), (boards[board].Key, boards[board].NextNoteNumber));
-        Assert.Equal(("PB", 2), (boards[other].Key, boards[other].NextNoteNumber));
+        Assert.Equal(("MMST", 4), (boards[board].Key, boards[board].NextCardNumber));
+        Assert.Equal(("PB", 2), (boards[other].Key, boards[other].NextCardNumber));
         Assert.All(boards.Values, b => Assert.True(Board.IsShortId(b.ShortId), b.ShortId));
         Assert.NotEqual(boards[board].ShortId, boards[other].ShortId);
 
-        var notes = await db.Notes.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete]).AsNoTracking().ToDictionaryAsync(n => n.Id);
+        var cards = await db.Cards.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete]).AsNoTracking().ToDictionaryAsync(n => n.Id);
         // In the order they were created, deleted ones too.
-        Assert.Equal([1, 2, 3, 1], new[] { first, deleted, linking, away }.Select(id => notes[id].Number));
+        Assert.Equal([1, 2, 3, 1], new[] { first, deleted, linking, away }.Select(id => cards[id].Number));
 
-        var path = (Guid board, Guid note) => NoteLinks.NotePath(boards[board].ShortId, notes[note].Number);
+        var path = (Guid board, Guid card) => CardLinks.CardPath(boards[board].ShortId, cards[card].Number);
         Assert.Equal(
-            ["https://example.com", path(board, first), path(board, deleted), path(other, away), $"/#/boards/{board}/notes/{missing}"],
-            notes[linking].Blocks[0].Links.Select(l => l.Url));
-        Assert.Equal(["Web", "First", "Deleted", "Away", "Missing"], notes[linking].Blocks[0].Links.Select(l => l.Title));
-        // Only links change: text that looks like a path stays.
-        Assert.Equal($"/#/boards/{board}/notes/{first}", notes[linking].Blocks[1].Text);
+            ["https://example.com", path(board, first), path(board, deleted), path(other, away), $"/#/boards/{board}/cards/{missing}"],
+            cards[linking].Components[0].Links.Select(l => l.Url));
+        Assert.Equal(["Web", "First", "Deleted", "Away", "Missing"], cards[linking].Components[0].Links.Select(l => l.Title));
+        // ReadableIds only changes links (text that looks like a path keeps the id form); CardsAndComponents then
+        // renames /notes/ to /cards/ in both.
+        Assert.Equal($"/#/boards/{board}/cards/{first}", cards[linking].Components[1].Text);
     }
 }

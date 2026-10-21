@@ -1,15 +1,15 @@
 # PrikBoard for VS Code
 
-Your PrikBoard boards, buckets and notes in the side bar. Work in progress.
+Your PrikBoard boards, buckets and cards in the side bar. Work in progress.
 
-**Assigned to you**, at the top of the tree, lists the notes assigned to you on all your boards, with the board and bucket next to each. It uses who you are signed in as (`whoAmI`), so it shows your own notes after **Sign in**, or the agent's after signing in with an agent's access token.
+**Assigned to you**, at the top of the tree, lists the cards assigned to you on all your boards, with the board and bucket next to each. It uses who you are signed in as (`whoAmI`), so it shows your own cards after **Sign in**, or the agent's after signing in with an agent's access token.
 
 On boards where you are an Editor or Owner you can, from the tree:
 
-- add a note to a bucket (the **+** on the bucket row),
-- rename a note, edit its tags, move it to another bucket, or delete it (right-click),
+- add a card to a bucket (the **+** on the bucket row),
+- rename a card, edit its tags, move it to another bucket, or delete it (right-click),
 - tick or untick a checklist item (click it),
-- toggle **Agent working** (the sparkle on the note row).
+- toggle **Agent working** (the sparkle on the card row).
 
 Viewers get a read-only tree. The server decides what is allowed and its message is shown if a change is refused.
 

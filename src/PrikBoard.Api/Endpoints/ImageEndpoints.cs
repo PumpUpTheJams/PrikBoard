@@ -23,8 +23,8 @@ public static class ImageEndpoints
             .WithSummary("Add an image or GIF to a board")
             .WithDescription("Send the file itself as the request body with its content type (image/png, image/jpeg, image/gif or " +
                              "image/webp; at most 10 MB), for example curl --data-binary @shot.png -H \"Content-Type: image/png\". " +
-                             "Query parameters: fileName, noteId (attach to a note instead of the board), x and y (top-left on the " +
-                             "board, or on the note's canvas with noteId; default: a free spot), width (display width; default: the image's own width, " +
+                             "Query parameters: fileName, cardId (attach to a card instead of the board), x and y (top-left on the " +
+                             "board, or on the card's canvas with cardId; default: a free spot), width (display width; default: the image's own width, " +
                              "at most 360) and caption. The format and pixel size are read from the file; SVG is not accepted.")
             .Accepts<Stream>(ImageFormats.ContentTypes[0], ImageFormats.ContentTypes[1..])
             .ProducesValidationProblem()
@@ -38,7 +38,7 @@ public static class ImageEndpoints
             .WithSummary("Get a one-time URL to upload an image to")
             .WithDescription("For agents that can run commands: instead of sending the file through this API (or base64 through MCP), " +
                              "get a URL and send the file there with a plain PUT, e.g. curl -T shot.png \"<uploadUrl>\". The URL needs no " +
-                             "authentication, adds one image where this request says (a note, x and y, width, caption, file name) as you, " +
+                             "authentication, adds one image where this request says (a card, x and y, width, caption, file name) as you, " +
                              $"and expires after {ImageUpload.Lifetime.TotalMinutes:0} minutes. Your access is checked again on upload. " +
                              $"At most {ImageUpload.MaxPendingPerPrincipal} unused URLs per caller (409 beyond that).")
             .ProducesValidationProblem()
@@ -70,7 +70,7 @@ public static class ImageEndpoints
             .WithName("updateImage")
             .WithSummary("Move, resize or re-caption an image")
             .WithDescription("Changes any of position, display width (the height follows the aspect ratio) and caption, " +
-                             "attaches the image to a note (noteId), or puts an attached image back on the board (detach). " +
+                             "attaches the image to a card (cardId), or puts an attached image back on the board (detach). " +
                              "Omitted fields stay unchanged.")
             .ProducesValidationProblem();
 
@@ -85,7 +85,7 @@ public static class ImageEndpoints
             .WithName("restoreImage")
             .WithSummary("Restore a deleted image")
             .WithDescription($"Brings back an image deleted in the last {Tombstones.RetentionText}, with the same id, place and file. " +
-                             "409 when it is not deleted, or when it was attached to a note that is deleted (restore the note instead).")
+                             "409 when it is not deleted, or when it was attached to a card that is deleted (restore the card instead).")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         return api;
@@ -93,7 +93,7 @@ public static class ImageEndpoints
 
     private static async Task<Results<Created<ImageDetail>, NotFound, ValidationProblem, ProblemHttpResult>> UploadImage(
         Guid boardId, Stream body, HttpRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, FileStore files, CancellationToken ct,
-        string? fileName = null, Guid? noteId = null, int? x = null, int? y = null, int? width = null, string? caption = null)
+        string? fileName = null, Guid? cardId = null, int? x = null, int? y = null, int? width = null, string? caption = null)
     {
         // Only image types (or octet-stream): form encodings would let another site post here with someone's session cookie.
         var declared = request.ContentType?.Split(';')[0].Trim().ToLowerInvariant();
@@ -102,7 +102,7 @@ public static class ImageEndpoints
             if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
             return Unsupported("Send the image file itself as the request body, with Content-Type image/png, image/jpeg, image/gif or image/webp.");
         }
-        return await AddImage(boardId, body, principal.PrincipalId(), db, files, ct, fileName, noteId, x, y, width, caption);
+        return await AddImage(boardId, body, principal.PrincipalId(), db, files, ct, fileName, cardId, x, y, width, caption);
     }
 
     /// <summary>
@@ -111,13 +111,13 @@ public static class ImageEndpoints
     /// </summary>
     internal static async Task<Results<Created<ImageDetail>, NotFound, ValidationProblem, ProblemHttpResult>> AddImage(
         Guid boardId, Stream body, Guid addedById, PrikBoardDbContext db, FileStore files, CancellationToken ct,
-        string? fileName = null, Guid? noteId = null, int? x = null, int? y = null, int? width = null, string? caption = null)
+        string? fileName = null, Guid? cardId = null, int? x = null, int? y = null, int? width = null, string? caption = null)
     {
         if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
 
         if (InvalidPlacement(x, y, width, caption) is { } invalid) return invalid;
-        var note = noteId is null ? null : await db.Notes.FirstOrDefaultAsync(n => n.Id == noteId && n.BoardId == boardId, ct);
-        if (noteId is not null && note is null) return NoteNotOnBoard();
+        var card = cardId is null ? null : await db.Cards.FirstOrDefaultAsync(n => n.Id == cardId && n.BoardId == boardId, ct);
+        if (cardId is not null && card is null) return CardNotOnBoard();
 
         var data = await ReadUpTo(body, ImageFormats.MaxBytes, ct);
         if (data is null)
@@ -133,7 +133,7 @@ public static class ImageEndpoints
         var image = new BoardImage
         {
             BoardId = boardId,
-            NoteId = noteId,
+            CardId = cardId,
             PixelWidth = info.Width,
             PixelHeight = info.Height,
             Caption = PatchText.Apply(null, caption),
@@ -141,7 +141,7 @@ public static class ImageEndpoints
             File = StoredFile.For(boardId, CleanFileName(fileName, info.ContentType), info.ContentType, data),
         };
         image.Resize(width ?? Math.Min(info.Width, Layout.DefaultImageWidth));
-        await PlaceAsync(db, image, note, x, y, ct);
+        await PlaceAsync(db, image, card, x, y, ct);
         Layout.Place(image, await StackAsync(db, boardId, ct));
 
         await files.WriteAsync(image.File, data, ct);
@@ -158,7 +158,7 @@ public static class ImageEndpoints
         Guid boardId, CreateImageUploadRequest request, HttpContext http, PrikBoardDbContext db, CancellationToken ct)
     {
         if (InvalidPlacement(request.X, request.Y, request.Width, request.Caption) is { } invalid) return invalid;
-        if (request.NoteId is { } noteId && !await db.Notes.AnyAsync(n => n.Id == noteId && n.BoardId == boardId, ct)) return NoteNotOnBoard();
+        if (request.CardId is { } cardId && !await db.Cards.AnyAsync(n => n.Id == cardId && n.BoardId == boardId, ct)) return CardNotOnBoard();
 
         var principalId = http.User.PrincipalId();
         var now = DateTimeOffset.UtcNow;
@@ -174,7 +174,7 @@ public static class ImageEndpoints
         var upload = new ImageUpload
         {
             BoardId = boardId,
-            NoteId = request.NoteId,
+            CardId = request.CardId,
             X = request.X,
             Y = request.Y,
             Width = request.Width,
@@ -218,7 +218,7 @@ public static class ImageEndpoints
 
         // Saves the image and spends the URL together; a failed upload saves nothing, so the URL can be used again.
         var result = await AddImage(upload.BoardId, body, upload.PrincipalId, db, files, ct,
-            upload.FileName, upload.NoteId, upload.X, upload.Y, upload.Width, upload.Caption);
+            upload.FileName, upload.CardId, upload.X, upload.Y, upload.Width, upload.Caption);
         if (result.Result is not Created<ImageDetail>) return result;
         await transaction.CommitAsync(ct);
         await events.ChangedAsync(upload.BoardId, upload.PrincipalId);
@@ -254,8 +254,8 @@ public static class ImageEndpoints
         if (image is null) return TypedResults.NotFound();
 
         var detach = request.Detach == true;
-        var moving = (request.NoteId is { } to && to != image.NoteId) || (detach && image.NoteId is not null);
-        if ((Invalid(request.NoteId is not null && detach, "detach", "Give either a noteId or detach, not both.")
+        var moving = (request.CardId is { } to && to != image.CardId) || (detach && image.CardId is not null);
+        if ((Invalid(request.CardId is not null && detach, "detach", "Give either a cardId or detach, not both.")
             ?? Invalid(moving && request.X is null != request.Y is null, request.X is null ? "x" : "y", "Give x and y together.")) is { } invalid)
         {
             return invalid;
@@ -263,21 +263,21 @@ public static class ImageEndpoints
         if (request.Width is { } width) image.Resize(width);
         if (moving)
         {
-            var note = detach ? null : await db.Notes.FirstOrDefaultAsync(n => n.Id == request.NoteId && n.BoardId == image.BoardId, ct);
-            if (!detach && note is null)
+            var card = detach ? null : await db.Cards.FirstOrDefaultAsync(n => n.Id == request.CardId && n.BoardId == image.BoardId, ct);
+            if (!detach && card is null)
             {
-                return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["noteId"] = ["The note does not exist on this board."] });
+                return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["cardId"] = ["The card does not exist on this board."] });
             }
-            image.NoteId = note?.Id;
-            await PlaceAsync(db, image, note, request.X, request.Y, ct);
+            image.CardId = card?.Id;
+            await PlaceAsync(db, image, card, request.X, request.Y, ct);
         }
-        else if (image.NoteId is null)
+        else if (image.CardId is null)
         {
             (image.X, image.Y) = (Layout.Snap(request.X ?? image.X), Layout.Snap(request.Y ?? image.Y));
         }
         else
         {
-            (image.X, image.Y) = Layout.OnNoteCanvas(request.X ?? image.X, request.Y ?? image.Y, image.Width, image.Height);
+            (image.X, image.Y) = Layout.OnCardCanvas(request.X ?? image.X, request.Y ?? image.Y, image.Width, image.Height);
         }
         // An image that moved (or changed size) joins the bucket it now sits in; only a new caption leaves it where it is.
         if (moving || request.X is not null || request.Y is not null || request.Width is not null)
@@ -292,24 +292,24 @@ public static class ImageEndpoints
     }
 
     /// <summary>
-    /// Puts <paramref name="image"/> at X and Y (snapped) or in a free spot: on <paramref name="note"/>'s canvas, or on the
+    /// Puts <paramref name="image"/> at X and Y (snapped) or in a free spot: on <paramref name="card"/>'s canvas, or on the
     /// board when it is null.
     /// </summary>
-    private static async Task PlaceAsync(PrikBoardDbContext db, BoardImage image, Note? note, int? x, int? y, CancellationToken ct)
+    private static async Task PlaceAsync(PrikBoardDbContext db, BoardImage image, Card? card, int? x, int? y, CancellationToken ct)
     {
-        if (note is not null)
+        if (card is not null)
         {
-            var attached = await db.Images.Where(i => i.NoteId == note.Id && i.Id != image.Id).ToListAsync(ct);
-            (image.X, image.Y) = x is { } noteX && y is { } noteY
-                ? Layout.OnNoteCanvas(noteX, noteY, image.Width, image.Height)
-                : Layout.NextNoteSpot(Layout.TakenOnNote(note, attached), image.Width, image.Height);
+            var attached = await db.Images.Where(i => i.CardId == card.Id && i.Id != image.Id).ToListAsync(ct);
+            (image.X, image.Y) = x is { } cardX && y is { } cardY
+                ? Layout.OnCardCanvas(cardX, cardY, image.Width, image.Height)
+                : Layout.NextCardSpot(Layout.TakenOnCard(card, attached), image.Width, image.Height);
             return;
         }
         (image.X, image.Y) = x is { } boardX && y is { } boardY
             ? (Layout.Snap(boardX), Layout.Snap(boardY))
             : Layout.NextImageSpot(
                 await db.Buckets.Where(b => b.BoardId == image.BoardId).ToListAsync(ct),
-                await db.Notes.Where(n => n.BoardId == image.BoardId).ToListAsync(ct),
+                await db.Cards.Where(n => n.BoardId == image.BoardId).ToListAsync(ct),
                 await db.Images.Where(i => i.BoardId == image.BoardId && i.Id != image.Id).ToListAsync(ct));
     }
 
@@ -329,10 +329,10 @@ public static class ImageEndpoints
             .FirstOrDefaultAsync(i => i.Id == imageId, ct);
         if (image is null) return TypedResults.NotFound();
         if (image.DeletedAt is null) return TagEndpoints.NotDeleted("image");
-        if (image.NoteId is { } noteId && !await db.Notes.AnyAsync(n => n.Id == noteId, ct))
+        if (image.CardId is { } cardId && !await db.Cards.AnyAsync(n => n.Id == cardId, ct))
         {
-            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Note deleted",
-                detail: "The image is attached to a deleted note. Restore the note (restoreNote) to bring back its images.");
+            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Card deleted",
+                detail: "The image is attached to a deleted card. Restore the card (restoreCard) to bring back its images.");
         }
 
         image.DeletedAt = null;
@@ -375,8 +375,8 @@ public static class ImageEndpoints
         ?? Invalid(width is < Layout.MinImageWidth or > Layout.MaxImageWidth, "width", $"Width runs from {Layout.MinImageWidth} to {Layout.MaxImageWidth}.")
         ?? Invalid(caption?.Length > 500, "caption", "A caption is at most 500 characters.");
 
-    private static ValidationProblem NoteNotOnBoard() =>
-        TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["noteId"] = ["The note does not exist on this board."] });
+    private static ValidationProblem CardNotOnBoard() =>
+        TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["cardId"] = ["The card does not exist on this board."] });
 
     private static ValidationProblem? Invalid(bool condition, string field, string message) =>
         condition ? TypedResults.ValidationProblem(new Dictionary<string, string[]> { [field] = [message] }) : null;

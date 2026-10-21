@@ -16,10 +16,10 @@ public class ImageUploadApiTests(PrikBoardApiFactory factory) : IClassFixture<Pr
     {
         var owner = await factory.CreateSignedInClientAsync("upload-url@example.com");
         var board = await owner.CreateBoardAsync("Upload URLs");
-        var note = await owner.CreateNoteAsync(board.Id, "Ingest errors");
+        var card = await owner.CreateCardAsync(board.Id, "Ingest errors");
         var png = TestImages.Png(800, 600);
 
-        var url = await CreateAsync(owner, board.Id, new { noteId = note.Id, caption = "Last night", fileName = "errors.png", width = 200 });
+        var url = await CreateAsync(owner, board.Id, new { cardId = card.Id, caption = "Last night", fileName = "errors.png", width = 200 });
         Assert.StartsWith($"{owner.BaseAddress!.GetLeftPart(UriPartial.Authority)}/api/image-uploads/{ImageUpload.Prefix}", url.UploadUrl);
         Assert.Equal($"curl -sS -T FILE \"{url.UploadUrl}\"", url.Command);
         Assert.InRange(url.ExpiresAt, DateTimeOffset.UtcNow.AddMinutes(14), DateTimeOffset.UtcNow.AddMinutes(16));
@@ -29,7 +29,7 @@ public class ImageUploadApiTests(PrikBoardApiFactory factory) : IClassFixture<Pr
         var response = await anonymous.PutAsync(url.UploadUrl, new ByteArrayContent(png));
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var image = (await response.Content.ReadFromJsonAsync<ImageDetail>())!;
-        Assert.Equal((board.Id, note.Id, "errors.png", "Last night", 200), (image.BoardId, image.NoteId, image.FileName, image.Caption, image.Width));
+        Assert.Equal((board.Id, card.Id, "errors.png", "Last night", 200), (image.BoardId, image.CardId, image.FileName, image.Caption, image.Width));
         var me = await owner.MeAsync();
         Assert.Equal((me.DisplayName, me.Id), (image.AddedBy, image.AddedById));
         Assert.Equal(png, await owner.GetByteArrayAsync(image.ContentUrl));
@@ -85,12 +85,12 @@ public class ImageUploadApiTests(PrikBoardApiFactory factory) : IClassFixture<Pr
         var viewer = await factory.CreateSignedInClientAsync("upload-checks-viewer@example.com");
         var board = await owner.CreateBoardAsync("Upload checks");
         var other = await owner.CreateBoardAsync("Upload checks elsewhere");
-        var elsewhere = await owner.CreateNoteAsync(other.Id);
+        var elsewhere = await owner.CreateCardAsync(other.Id);
         await owner.ShareAsync(board.Id, viewer, BoardRole.Viewer);
 
         Assert.Equal(HttpStatusCode.Forbidden, (await viewer.PostAsJsonAsync($"/api/boards/{board.Id}/image-uploads", new { })).StatusCode);
         await Invalid(new { x = 20 }, "y");
-        await Invalid(new { noteId = elsewhere.Id }, "noteId");
+        await Invalid(new { cardId = elsewhere.Id }, "cardId");
         await Invalid(new { width = 20 }, "width");
 
         async Task Invalid(object request, string field)

@@ -412,7 +412,7 @@ export function AdminPage({ onYouChanged, onBack }: AdminPageProps) {
       {pending?.kind === 'deleteUser' && (
         <ConfirmDialog
           title={`Delete ${pending.user.displayName}?`}
-          message="Their account, sign-ins, board memberships and access tokens are deleted, and they are signed out. Post-its they wrote stay. They can only come back through a new invite link."
+          message="Their account, sign-ins, board memberships and access tokens are deleted, and they are signed out. Cards they wrote stay. They can only come back through a new invite link."
           confirmLabel="Delete user"
           onConfirm={() => confirmPending(pending)}
           onCancel={() => setPending(null)}
@@ -421,7 +421,7 @@ export function AdminPage({ onYouChanged, onBack }: AdminPageProps) {
       {pending?.kind === 'deleteBoard' && (
         <ConfirmDialog
           title={`Delete "${pending.board.name}"?`}
-          message={`The board and all of its buckets, post-its and images are deleted for its ${pending.board.members.length} ${pending.board.members.length === 1 ? 'member' : 'members'}. This can't be undone.`}
+          message={`The board and all of its buckets, cards and images are deleted for its ${pending.board.members.length} ${pending.board.members.length === 1 ? 'member' : 'members'}. This can't be undone.`}
           confirmLabel="Delete board"
           onConfirm={() => confirmPending(pending)}
           onCancel={() => setPending(null)}

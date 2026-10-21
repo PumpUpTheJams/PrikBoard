@@ -18,14 +18,14 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { description = "Ship it", rules = "Be brief." })).EnsureSuccessStatusCode();
         var doing = board.Buckets.Single(b => b.Name == "Doing");
 
-        var target = await owner.CreateNoteAsync(board.Id, "Target");
-        var response = await owner.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new
+        var target = await owner.CreateCardAsync(board.Id, "Target");
+        var response = await owner.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new
         {
             title = "Write the changelog",
             color = "Mint",
             bucketId = doing.Id,
             tags = new[] { "Docs", "release" },
-            blocks = new object[]
+            components = new object[]
             {
                 new { kind = "Text", title = "Why", text = "Everything that changed.", x = 400, y = 600, width = 500, height = 300 },
                 new { kind = "Checklist", items = new[] { new { text = "Draft", done = true }, new { text = "Review", done = false } } },
@@ -36,17 +36,17 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
                     {
                         new { title = "Spec", url = "https://example.com/spec" },
                         new { title = "The target", url = target.Path },
-                        new { title = "Elsewhere", url = $"/#/boards/{Guid.NewGuid()}/notes/{Guid.NewGuid()}" },
+                        new { title = "Elsewhere", url = $"/#/boards/{Guid.NewGuid()}/cards/{Guid.NewGuid()}" },
                     },
                 },
             },
         });
         response.EnsureSuccessStatusCode();
-        var note = (await response.Content.ReadFromJsonAsync<NoteDetail>())!;
+        var card = (await response.Content.ReadFromJsonAsync<CardDetail>())!;
         (await owner.PostAsJsonAsync($"/api/boards/{board.Id}/tags", new { name = "unused", color = "Teal" })).EnsureSuccessStatusCode();
         var png = TestImages.Png(400, 200);
         var onCanvas = await Upload(owner, board.Id, png, "?fileName=canvas.png&x=600&y=700&width=200&caption=Diagram");
-        var attached = await Upload(owner, board.Id, TestImages.Png(100, 100), $"?fileName=attached.png&noteId={note.Id}&x=1000&y=1200");
+        var attached = await Upload(owner, board.Id, TestImages.Png(100, 100), $"?fileName=attached.png&cardId={card.Id}&x=1000&y=1200");
 
         var exported = await owner.GetAsync($"/api/boards/{board.Id}/export");
         exported.EnsureSuccessStatusCode();
@@ -54,7 +54,7 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         Assert.Equal("Release 2.0.prikboard.json", exported.Content.Headers.ContentDisposition?.FileNameStar);
         var file = await exported.Content.ReadAsStringAsync();
         Assert.Contains("\"format\":\"prikboard-board\"", file);
-        Assert.Contains("\"version\":2", file);
+        Assert.Contains("\"version\":3", file);
         Assert.DoesNotContain("export-owner@example.com", file);
 
         // Someone else imports it: a new board they own, and nothing changes on the original.
@@ -71,24 +71,24 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         Assert.Equal([("docs", TagColor.Default), ("release", TagColor.Default), ("unused", TagColor.Teal)],
             copy.Tags.Select(t => (t.Name, t.Color)).Order());
 
-        var copiedNote = copy.Notes.Single(n => n.Title == "Write the changelog");
-        var copiedTarget = copy.Notes.Single(n => n.Title == "Target");
-        Assert.Equal(copy.Buckets.Single(b => b.Name == "Doing").Id, copiedNote.BucketId);
-        Assert.Equal(NoteColor.Mint, copiedNote.Color);
-        Assert.Equal(["docs", "release"], copiedNote.Tags);
-        Assert.Equal((note.X, note.Y), (copiedNote.X, copiedNote.Y));
-        Assert.Equal(note.Blocks.Select(b => (b.Kind, b.Title, b.Text, b.X, b.Y, b.Width, b.Height)),
-            copiedNote.Blocks.Select(b => (b.Kind, b.Title, b.Text, b.X, b.Y, b.Width, b.Height)));
-        Assert.Equal([("Draft", true), ("Review", false)], copiedNote.Blocks[1].Items!.Select(c => (c.Text, c.Done)));
+        var copiedCard = copy.Cards.Single(n => n.Title == "Write the changelog");
+        var copiedTarget = copy.Cards.Single(n => n.Title == "Target");
+        Assert.Equal(copy.Buckets.Single(b => b.Name == "Doing").Id, copiedCard.BucketId);
+        Assert.Equal(CardColor.Mint, copiedCard.Color);
+        Assert.Equal(["docs", "release"], copiedCard.Tags);
+        Assert.Equal((card.X, card.Y), (copiedCard.X, copiedCard.Y));
+        Assert.Equal(card.Components.Select(b => (b.Kind, b.Title, b.Text, b.X, b.Y, b.Width, b.Height)),
+            copiedCard.Components.Select(b => (b.Kind, b.Title, b.Text, b.X, b.Y, b.Width, b.Height)));
+        Assert.Equal([("Draft", true), ("Review", false)], copiedCard.Components[1].Items!.Select(c => (c.Text, c.Done)));
         Assert.Equal([("Spec", "https://example.com/spec"), ("The target", copiedTarget.Path)],
-            copiedNote.Blocks[2].Links!.Select(l => (l.Title, l.Url)));
-        Assert.Equal((me.Id, me.DisplayName), (copiedNote.CreatedById, copiedNote.CreatedBy));
-        Assert.Empty(copiedNote.Assignees);
+            copiedCard.Components[2].Links!.Select(l => (l.Title, l.Url)));
+        Assert.Equal((me.Id, me.DisplayName), (copiedCard.CreatedById, copiedCard.CreatedBy));
+        Assert.Empty(copiedCard.Assignees);
 
         Assert.Equal(2, copy.Images.Count);
-        var copiedCanvas = copy.Images.Single(i => i.NoteId is null);
-        var copiedAttached = copy.Images.Single(i => i.NoteId is not null);
-        Assert.Equal(copiedNote.Id, copiedAttached.NoteId);
+        var copiedCanvas = copy.Images.Single(i => i.CardId is null);
+        var copiedAttached = copy.Images.Single(i => i.CardId is not null);
+        Assert.Equal(copiedCard.Id, copiedAttached.CardId);
         Assert.Equal(("canvas.png", "Diagram", onCanvas.X, onCanvas.Y, onCanvas.Width, onCanvas.Height),
             (copiedCanvas.FileName, copiedCanvas.Caption, copiedCanvas.X, copiedCanvas.Y, copiedCanvas.Width, copiedCanvas.Height));
         Assert.Equal(png, await (await importer.GetAsync(copiedCanvas.ContentUrl)).Content.ReadAsByteArrayAsync());
@@ -97,65 +97,39 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
 
         var original = (await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
         Assert.Equal(board.Id, original.Id);
-        Assert.Equal(2, original.Notes.Count);
+        Assert.Equal(2, original.Cards.Count);
         var boards = (await importer.GetFromJsonAsync<List<BoardSummary>>("/api/boards"))!;
         Assert.Equal(copy.Id, Assert.Single(boards).Id);
     }
 
-    [Fact]
-    public async Task A_version_1_file_turns_body_checklist_and_links_into_blocks()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task A_file_from_before_cards_is_refused_with_a_clear_message(int version)
     {
-        var client = await factory.CreateSignedInClientAsync("export-version1@example.com");
-        Guid noteId = Guid.NewGuid(), otherId = Guid.NewGuid();
+        var client = await factory.CreateSignedInClientAsync($"export-version{version}@example.com");
+        // As exportBoard wrote them then: notes with blocks, images by noteId.
         var file = new
         {
             format = "prikboard-board",
-            version = 1,
+            version,
             exportedAt = DateTimeOffset.UtcNow,
             name = "Old export",
             buckets = Array.Empty<object>(),
             tags = Array.Empty<string>(),
-            notes = new object[]
-            {
-                new
-                {
-                    id = noteId, title = "Full", body = "Details", color = "Sky", tags = Array.Empty<string>(), x = 40, y = 40,
-                    checklist = new[] { new { text = "One", done = true }, new { text = "Two", done = false } },
-                    links = new[]
-                    {
-                        new { title = "Docs", url = "https://example.com" },
-                        new { title = "Other", url = $"/#/boards/{Guid.NewGuid()}/notes/{otherId}" },
-                        new { title = "Gone", url = $"/#/boards/{Guid.NewGuid()}/notes/{Guid.NewGuid()}" },
-                    },
-                },
-                new
-                {
-                    id = otherId, title = "Checklist only", body = (string?)null, color = "Butter", tags = Array.Empty<string>(), x = 300, y = 40,
-                    checklist = new[] { new { text = "Only", done = false } }, links = Array.Empty<object>(),
-                },
-            },
-            images = new[]
-            {
-                new { noteId = (Guid?)noteId, fileName = "a.png", x = 0, y = 0, width = 100, data = TestImages.Png(100, 100) },
-            },
+            notes = new[] { new { id = Guid.NewGuid(), title = "Old", color = "Sky", tags = Array.Empty<string>(), x = 40, y = 40, blocks = Array.Empty<object>() } },
+            images = Array.Empty<object>(),
         };
+        var before = await BoardCount(client);
 
         var response = await client.PostAsJsonAsync("/api/boards/import", file);
 
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        var board = (await response.Content.ReadFromJsonAsync<BoardDetail>())!;
-        var full = board.Notes.Single(n => n.Title == "Full");
-        var other = board.Notes.Single(n => n.Title == "Checklist only");
-        // Side by side, sized like the NoteBlocks migration sizes existing notes.
-        Assert.Equal([(NoteBlockKind.Text, 20, 20, 340, 220), (NoteBlockKind.Checklist, 380, 20, 340, 200), (NoteBlockKind.Links, 740, 20, 360, 240)],
-            full.Blocks.Select(b => (b.Kind, b.X, b.Y, b.Width, b.Height)));
-        Assert.Equal("Details", full.Blocks[0].Text);
-        Assert.Equal([("One", true), ("Two", false)], full.Blocks[1].Items!.Select(c => (c.Text, c.Done)));
-        Assert.Equal([("Docs", "https://example.com"), ("Other", other.Path)], full.Blocks[2].Links!.Select(l => (l.Title, l.Url)));
-        Assert.Equal([NoteBlockKind.Checklist], other.Blocks.Select(b => b.Kind));
-        // The attached image goes under the blocks, like the NoteBlocks migration places them.
-        var image = Assert.Single(board.Images);
-        Assert.Equal((full.Id, 20, 280), (image.NoteId, image.X, image.Y));
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        // The web app shows the first error, so the version comes first.
+        var (key, messages) = (await response.Content.ReadFromJsonAsync<JsonObject>())!["errors"]!.AsObject().First();
+        Assert.Equal("version", key, ignoreCase: true);
+        Assert.Equal(BoardExport.TooOldMessage, messages![0]!.GetValue<string>());
+        Assert.Equal(before, await BoardCount(client));
     }
 
     [Fact]
@@ -163,14 +137,14 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
     {
         var client = await factory.CreateSignedInClientAsync("export-twice@example.com");
         var board = await client.CreateBoardAsync("Twice");
-        await client.CreateNoteAsync(board.Id);
+        await client.CreateCardAsync(board.Id);
         var file = await (await client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync();
 
         var first = (await (await Import(client, file)).Content.ReadFromJsonAsync<BoardDetail>())!;
         var second = (await (await Import(client, file)).Content.ReadFromJsonAsync<BoardDetail>())!;
 
         Assert.NotEqual(first.Id, second.Id);
-        Assert.NotEqual(first.Notes.Single().Id, second.Notes.Single().Id);
+        Assert.NotEqual(first.Cards.Single().Id, second.Cards.Single().Id);
         Assert.Equal(3, (await client.GetFromJsonAsync<List<BoardSummary>>("/api/boards"))!.Count);
     }
 
@@ -203,6 +177,7 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
     [Theory]
     [InlineData("format", "something-else", "format")]
     [InlineData("version", 99, "version")]
+    [InlineData("version", 2, "version")]
     [InlineData("name", "", "Name")]
     public async Task A_file_that_is_not_a_valid_export_is_refused(string property, object value, string errorKey)
     {
@@ -241,18 +216,18 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
     }
 
     [Fact]
-    public async Task An_untitled_note_survives_export_and_import()
+    public async Task An_untitled_card_survives_export_and_import()
     {
         var client = await factory.CreateSignedInClientAsync("export-untitled@example.com");
         var board = await client.CreateBoardAsync("Untitled");
-        await client.CreateNoteAsync(board.Id, "");
+        await client.CreateCardAsync(board.Id, "");
         var file = await (await client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync();
 
         var response = await Import(client, file);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var copy = (await response.Content.ReadFromJsonAsync<BoardDetail>())!;
-        Assert.Equal("", Assert.Single(copy.Notes).Title);
+        Assert.Equal("", Assert.Single(copy.Cards).Title);
     }
 
     private static async Task<int> BoardCount(HttpClient client) =>

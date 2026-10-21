@@ -160,12 +160,12 @@ public class TokenAuthTests(TokenAuthTests.Factory factory) : IClassFixture<Toke
         var member = (await added.Content.ReadFromJsonAsync<BoardMemberDetail>())!;
         Assert.Equal((PrincipalKind.Agent, "Helper", "primary", "helper-bot"), (member.Kind, member.DisplayName, member.Issuer, member.ClientId));
 
-        Assert.Equal(HttpStatusCode.Created, (await agent.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "From the agent" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await agent.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "From the agent" })).StatusCode);
         // A read token stays read-only whatever the role.
-        Assert.Equal(HttpStatusCode.Forbidden, (await reader.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "Nope" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await reader.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Nope" })).StatusCode);
 
         (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}/members/{member.PrincipalId}", new { role = "Viewer" })).EnsureSuccessStatusCode();
-        Assert.Equal(HttpStatusCode.Forbidden, (await agent.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "Nope" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await agent.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Nope" })).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await reader.GetAsync($"/api/boards/{board.Id}")).StatusCode);
 
         var unknownIssuer = await owner.PostAsJsonAsync($"/api/boards/{board.Id}/agents", new { issuer = "elsewhere", clientId = "x", role = "Viewer" });

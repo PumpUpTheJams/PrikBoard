@@ -5,7 +5,7 @@ using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
 
-/// <summary>Assignees are board members (and their token agents) by principal id; notes remember who created them.</summary>
+/// <summary>Assignees are board members (and their token agents) by principal id; cards remember who created them.</summary>
 public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiFactory>
 {
     [Fact]
@@ -33,7 +33,7 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
     }
 
     [Fact]
-    public async Task Notes_are_assigned_to_board_members_by_principal_id()
+    public async Task Cards_are_assigned_to_board_members_by_principal_id()
     {
         var owner = await SignInAsync("assign-owner@example.com", "Owen");
         var mila = await SignInAsync("assign-mila@example.com", "Mila V.");
@@ -41,13 +41,13 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         await owner.ShareAsync(board.Id, mila, BoardRole.Editor);
         var (ownerId, milaId) = ((await owner.MeAsync()).Id, (await mila.MeAsync()).Id);
 
-        var created = await PostNoteAsync(owner, board.Id, new { title = "Pair", assigneeIds = new[] { milaId, ownerId, milaId } });
+        var created = await PostCardAsync(owner, board.Id, new { title = "Pair", assigneeIds = new[] { milaId, ownerId, milaId } });
 
         Assert.Equal(
             [new Assignee(milaId, "Mila V.", AssigneeKind.Person, null), new Assignee(ownerId, "Owen", AssigneeKind.Person, null)],
             created.Assignees);
-        var cleared = await owner.PatchAsJsonAsync($"/api/notes/{created.Id}", new { assigneeIds = Array.Empty<Guid>() });
-        Assert.Empty((await cleared.Content.ReadFromJsonAsync<NoteDetail>())!.Assignees);
+        var cleared = await owner.PatchAsJsonAsync($"/api/cards/{created.Id}", new { assigneeIds = Array.Empty<Guid>() });
+        Assert.Empty((await cleared.Content.ReadFromJsonAsync<CardDetail>())!.Assignees);
     }
 
     [Fact]
@@ -59,8 +59,8 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         var elsewhere = await owner.CreateBoardAsync("Reach elsewhere");
         var (_, reaching) = await factory.TokenAsync(owner, "Reaching");
         var (_, limited) = await factory.TokenAsync(owner, "Limited", boardIds: [elsewhere.Id]);
-        var note = await owner.CreateNoteAsync(board.Id);
-        var url = $"/api/notes/{note.Id}";
+        var card = await owner.CreateCardAsync(board.Id);
+        var url = $"/api/cards/{card.Id}";
 
         var strangerResponse = await owner.PatchAsJsonAsync(url, new { assigneeIds = new[] { (await stranger.MeAsync()).Id } });
         var limitedResponse = await owner.PatchAsJsonAsync(url, new { assigneeIds = new[] { limited.Details.AgentId } });
@@ -72,7 +72,7 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         Assert.Equal(HttpStatusCode.OK, reachingResponse.StatusCode);
         Assert.Equal(
             [new Assignee(reaching.Details.AgentId!.Value, "Reaching", AssigneeKind.Agent, null)],
-            (await reachingResponse.Content.ReadFromJsonAsync<NoteDetail>())!.Assignees);
+            (await reachingResponse.Content.ReadFromJsonAsync<CardDetail>())!.Assignees);
     }
 
     [Fact]
@@ -82,11 +82,11 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         var mila = await SignInAsync("rename-mila@example.com", "Mila V.");
         var board = await owner.CreateBoardAsync("Rename");
         await owner.ShareAsync(board.Id, mila, BoardRole.Editor);
-        var note = await PostNoteAsync(owner, board.Id, new { title = "Rename", assigneeIds = new[] { (await mila.MeAsync()).Id } });
+        var card = await PostCardAsync(owner, board.Id, new { title = "Rename", assigneeIds = new[] { (await mila.MeAsync()).Id } });
 
         await mila.RenameAsync("Mila van Dijk");
 
-        var saved = (await owner.GetFromJsonAsync<NoteDetail>($"/api/notes/{note.Id}"))!;
+        var saved = (await owner.GetFromJsonAsync<CardDetail>($"/api/cards/{card.Id}"))!;
         Assert.Equal("Mila van Dijk", Assert.Single(saved.Assignees).Name);
     }
 
@@ -98,34 +98,34 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         var board = await owner.CreateBoardAsync("Removed");
         await owner.ShareAsync(board.Id, mila, BoardRole.Editor);
         var milaId = (await mila.MeAsync()).Id;
-        var note = await PostNoteAsync(owner, board.Id, new { title = "Hers", assigneeIds = new[] { milaId } });
-        var other = await owner.CreateNoteAsync(board.Id, "Other");
+        var card = await PostCardAsync(owner, board.Id, new { title = "Hers", assigneeIds = new[] { milaId } });
+        var other = await owner.CreateCardAsync(board.Id, "Other");
 
         (await owner.DeleteAsync($"/api/boards/{board.Id}/members/{milaId}")).EnsureSuccessStatusCode();
 
-        var kept = await owner.PatchAsJsonAsync($"/api/notes/{note.Id}", new { title = "Still hers", assigneeIds = new[] { milaId } });
+        var kept = await owner.PatchAsJsonAsync($"/api/cards/{card.Id}", new { title = "Still hers", assigneeIds = new[] { milaId } });
         Assert.Equal(HttpStatusCode.OK, kept.StatusCode);
-        Assert.Equal("Mila V.", Assert.Single((await kept.Content.ReadFromJsonAsync<NoteDetail>())!.Assignees).Name);
-        var added = await owner.PatchAsJsonAsync($"/api/notes/{other.Id}", new { assigneeIds = new[] { milaId } });
+        Assert.Equal("Mila V.", Assert.Single((await kept.Content.ReadFromJsonAsync<CardDetail>())!.Assignees).Name);
+        var added = await owner.PatchAsJsonAsync($"/api/cards/{other.Id}", new { assigneeIds = new[] { milaId } });
         Assert.Equal(HttpStatusCode.BadRequest, added.StatusCode);
         Assert.DoesNotContain((await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.People, p => p.PrincipalId == milaId);
     }
 
     [Fact]
-    public async Task Notes_remember_who_created_them()
+    public async Task Cards_remember_who_created_them()
     {
         var owner = await SignInAsync("creator-owner@example.com", "Owen");
         var board = await owner.CreateBoardAsync("Creators");
         var (agent, token) = await factory.TokenAsync(owner, "Script");
         var ownerId = (await owner.MeAsync()).Id;
 
-        var byOwner = await owner.CreateNoteAsync(board.Id, "By a person");
-        var byAgent = await agent.CreateNoteAsync(board.Id, "By an agent");
+        var byOwner = await owner.CreateCardAsync(board.Id, "By a person");
+        var byAgent = await agent.CreateCardAsync(board.Id, "By an agent");
 
         Assert.Equal(("Owen", ownerId), (byOwner.CreatedBy, byOwner.CreatedById));
         Assert.Equal(("Script", token.Details.AgentId), (byAgent.CreatedBy, byAgent.CreatedById));
         var snapshot = (await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
-        Assert.Equal(["Owen", "Script"], snapshot.Notes.OrderBy(n => n.CreatedAt).Select(n => n.CreatedBy));
+        Assert.Equal(["Owen", "Script"], snapshot.Cards.OrderBy(n => n.CreatedAt).Select(n => n.CreatedBy));
     }
 
     [Fact]
@@ -134,12 +134,12 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         var owner = await SignInAsync("working-owner@example.com", "Owen");
         var board = await owner.CreateBoardAsync("Working");
         var (agent, token) = await factory.TokenAsync(owner, "Claude Code");
-        var note = await owner.CreateNoteAsync(board.Id, "Do it");
-        var url = $"/api/notes/{note.Id}/working";
+        var card = await owner.CreateCardAsync(board.Id, "Do it");
+        var url = $"/api/cards/{card.Id}/working";
 
-        var started = await (await agent.PostAsJsonAsync(url, new { working = true })).Content.ReadFromJsonAsync<NoteDetail>();
-        var again = await (await agent.PostAsJsonAsync(url, new { working = true })).Content.ReadFromJsonAsync<NoteDetail>();
-        var stopped = await (await agent.PostAsJsonAsync(url, new { working = false })).Content.ReadFromJsonAsync<NoteDetail>();
+        var started = await (await agent.PostAsJsonAsync(url, new { working = true })).Content.ReadFromJsonAsync<CardDetail>();
+        var again = await (await agent.PostAsJsonAsync(url, new { working = true })).Content.ReadFromJsonAsync<CardDetail>();
+        var stopped = await (await agent.PostAsJsonAsync(url, new { working = false })).Content.ReadFromJsonAsync<CardDetail>();
 
         var me = new Assignee(token.Details.AgentId!.Value, "Claude Code", AssigneeKind.Agent, null);
         Assert.True(started!.AgentWorking);
@@ -159,10 +159,10 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         return client;
     }
 
-    private static async Task<NoteDetail> PostNoteAsync(HttpClient client, Guid boardId, object request)
+    private static async Task<CardDetail> PostCardAsync(HttpClient client, Guid boardId, object request)
     {
-        var response = await client.PostAsJsonAsync($"/api/boards/{boardId}/notes", request);
+        var response = await client.PostAsJsonAsync($"/api/boards/{boardId}/cards", request);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        return (await response.Content.ReadFromJsonAsync<NoteDetail>())!;
+        return (await response.Content.ReadFromJsonAsync<CardDetail>())!;
     }
 }

@@ -6,14 +6,14 @@ namespace PrikBoard.Api.Data;
 public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : DbContext(options)
 {
     /// <summary>
-    /// The query filter that hides deleted notes, buckets, images, drawings and tags until they are restored or purged
+    /// The query filter that hides deleted cards, buckets, images, drawings and tags until they are restored or purged
     /// (<see cref="Tombstones"/>). Bypass it with <c>IgnoreQueryFilters([SoftDelete])</c>; raw SQL never applies it.
     /// </summary>
     public const string SoftDelete = "SoftDelete";
 
     public DbSet<Board> Boards => Set<Board>();
     public DbSet<Bucket> Buckets => Set<Bucket>();
-    public DbSet<Note> Notes => Set<Note>();
+    public DbSet<Card> Cards => Set<Card>();
     public DbSet<BoardTag> BoardTags => Set<BoardTag>();
     public DbSet<Principal> Principals => Set<Principal>();
     public DbSet<User> Users => Set<User>();
@@ -43,7 +43,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
                 .WithOne(c => c.Board)
                 .HasForeignKey(c => c.BoardId)
                 .OnDelete(DeleteBehavior.Cascade);
-            board.HasMany(b => b.Notes)
+            board.HasMany(b => b.Cards)
                 .WithOne(n => n.Board)
                 .HasForeignKey(n => n.BoardId)
                 .OnDelete(DeleteBehavior.Cascade);
@@ -55,11 +55,11 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
 
         modelBuilder.Entity<BoardTag>(tag =>
         {
-            tag.Property(t => t.Name).HasMaxLength(NoteTags.MaxLength);
+            tag.Property(t => t.Name).HasMaxLength(CardTags.MaxLength);
             tag.Property(t => t.Color).HasConversion<string>().HasMaxLength(20);
             // A deleted tag keeps its name, so a new tag may take it; restoring the old one then fails.
             tag.HasIndex(t => new { t.BoardId, t.Name }).IsUnique().HasFilter("\"DeletedAt\" IS NULL");
-            tag.PrimitiveCollection(t => t.RemovedFromNoteIds);
+            tag.PrimitiveCollection(t => t.RemovedFromCardIds);
             tag.HasQueryFilter(SoftDelete, t => t.DeletedAt == null);
         });
 
@@ -71,24 +71,24 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             bucket.HasQueryFilter(SoftDelete, b => b.DeletedAt == null);
         });
 
-        modelBuilder.Entity<Note>(note =>
+        modelBuilder.Entity<Card>(card =>
         {
-            note.Property(n => n.Title).HasMaxLength(200);
-            note.Property(n => n.Color).HasConversion<string>().HasMaxLength(20);
-            // Lists that are always read and replaced whole live on the note: arrays, or JSON columns.
-            note.PrimitiveCollection(n => n.Tags).IsRequired();
-            note.PrimitiveCollection(n => n.AssigneeIds).IsRequired();
-            note.Property(n => n.Blocks).HasColumnType("jsonb").HasConversion(NoteBlocksJson.Converter, NoteBlocksJson.Comparer);
-            // Deleting a bucket leaves its notes on the board as loose notes.
-            note.HasOne<Bucket>()
+            card.Property(n => n.Title).HasMaxLength(200);
+            card.Property(n => n.Color).HasConversion<string>().HasMaxLength(20);
+            // Lists that are always read and replaced whole live on the card: arrays, or JSON columns.
+            card.PrimitiveCollection(n => n.Tags).IsRequired();
+            card.PrimitiveCollection(n => n.AssigneeIds).IsRequired();
+            card.Property(n => n.Components).HasColumnType("jsonb").HasConversion(CardComponentsJson.Converter, CardComponentsJson.Comparer);
+            // Deleting a bucket leaves its cards on the board as loose cards.
+            card.HasOne<Bucket>()
                 .WithMany()
                 .HasForeignKey(n => n.BucketId)
                 .OnDelete(DeleteBehavior.SetNull);
-            note.HasIndex(n => n.BoardId);
-            // Unfiltered, unlike the tag names: a deleted note keeps its number, and gets it back when restored.
-            note.HasIndex(n => new { n.BoardId, n.Number }).IsUnique();
-            note.HasQueryFilter(SoftDelete, n => n.DeletedAt == null);
-            note.HasOne(n => n.CreatedBy).WithMany().HasForeignKey(n => n.CreatedById).OnDelete(DeleteBehavior.SetNull);
+            card.HasIndex(n => n.BoardId);
+            // Unfiltered, unlike the tag names: a deleted card keeps its number, and gets it back when restored.
+            card.HasIndex(n => new { n.BoardId, n.Number }).IsUnique();
+            card.HasQueryFilter(SoftDelete, n => n.DeletedAt == null);
+            card.HasOne(n => n.CreatedBy).WithMany().HasForeignKey(n => n.CreatedById).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<BoardImage>(image =>
@@ -96,14 +96,14 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             image.Property(i => i.Caption).HasMaxLength(500);
             image.HasOne(i => i.AddedBy).WithMany().HasForeignKey(i => i.AddedById).OnDelete(DeleteBehavior.SetNull);
             image.HasOne(i => i.Board).WithMany(b => b.Images).HasForeignKey(i => i.BoardId).OnDelete(DeleteBehavior.Cascade);
-            // An attached image goes when its note goes.
-            image.HasOne<Note>().WithMany().HasForeignKey(i => i.NoteId).OnDelete(DeleteBehavior.Cascade);
-            // Like a note, an image in a purged bucket stays on the board, loose.
+            // An attached image goes when its card goes.
+            image.HasOne<Card>().WithMany().HasForeignKey(i => i.CardId).OnDelete(DeleteBehavior.Cascade);
+            // Like a card, an image in a purged bucket stays on the board, loose.
             image.HasOne<Bucket>().WithMany().HasForeignKey(i => i.BucketId).OnDelete(DeleteBehavior.SetNull);
             // Files are deleted by the sweep once nothing refers to them (FileStore.SweepAsync), never by a cascade.
             image.HasOne(i => i.File).WithOne().HasForeignKey<BoardImage>(i => i.FileId).OnDelete(DeleteBehavior.Restrict);
             image.HasIndex(i => i.BoardId);
-            image.HasIndex(i => i.NoteId);
+            image.HasIndex(i => i.CardId);
             image.HasQueryFilter(SoftDelete, i => i.DeletedAt == null);
         });
 
@@ -119,13 +119,13 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             drawing.Property(d => d.Color).HasConversion<string>().HasMaxLength(20);
             drawing.HasOne(d => d.AddedBy).WithMany().HasForeignKey(d => d.AddedById).OnDelete(DeleteBehavior.SetNull);
             drawing.HasOne(d => d.Board).WithMany(b => b.Drawings).HasForeignKey(d => d.BoardId).OnDelete(DeleteBehavior.Cascade);
-            // A drawing on a note goes when its note goes.
-            drawing.HasOne<Note>().WithMany().HasForeignKey(d => d.NoteId).OnDelete(DeleteBehavior.Cascade);
-            // Like a note, a drawing in a purged bucket stays on the board, loose.
+            // A drawing on a card goes when its card goes.
+            drawing.HasOne<Card>().WithMany().HasForeignKey(d => d.CardId).OnDelete(DeleteBehavior.Cascade);
+            // Like a card, a drawing in a purged bucket stays on the board, loose.
             drawing.HasOne<Bucket>().WithMany().HasForeignKey(d => d.BucketId).OnDelete(DeleteBehavior.SetNull);
             drawing.HasOne(d => d.Content).WithOne().HasForeignKey<DrawingContent>(c => c.DrawingId).OnDelete(DeleteBehavior.Cascade);
             drawing.HasIndex(d => d.BoardId);
-            drawing.HasIndex(d => d.NoteId);
+            drawing.HasIndex(d => d.CardId);
             drawing.HasQueryFilter(SoftDelete, d => d.DeletedAt == null);
         });
 
@@ -184,7 +184,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             grant.HasIndex(g => g.OwnerId);
         });
 
-        // Gone with its board, note, caller, member or token: an upload URL never outlives the access it was given for.
+        // Gone with its board, card, caller, member or token: an upload URL never outlives the access it was given for.
         modelBuilder.Entity<ImageUpload>(upload =>
         {
             upload.Property(u => u.TokenHash).HasMaxLength(32);
@@ -193,7 +193,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             upload.Property(u => u.FileName).HasMaxLength(255);
             upload.Property(u => u.Cap).HasConversion<string>().HasMaxLength(10);
             upload.HasOne<Board>().WithMany().HasForeignKey(u => u.BoardId).OnDelete(DeleteBehavior.Cascade);
-            upload.HasOne<Note>().WithMany().HasForeignKey(u => u.NoteId).OnDelete(DeleteBehavior.Cascade);
+            upload.HasOne<Card>().WithMany().HasForeignKey(u => u.CardId).OnDelete(DeleteBehavior.Cascade);
             upload.HasOne<Principal>().WithMany().HasForeignKey(u => u.PrincipalId).OnDelete(DeleteBehavior.Cascade);
             upload.HasOne<Principal>().WithMany().HasForeignKey(u => u.MemberId).OnDelete(DeleteBehavior.Cascade);
             upload.HasOne<AccessToken>().WithMany().HasForeignKey(u => u.AccessTokenId).OnDelete(DeleteBehavior.Cascade);

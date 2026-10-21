@@ -8,7 +8,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Kind">Agent: acts as its own agent with capped access. App: a PrikBoard app (the VS Code extension) signed in as you.</param>
 /// <param name="Name">What the person called it, for example "Claude Code laptop"; also the agent's name on boards.</param>
 /// <param name="Hint">The token's last four characters, to tell tokens apart.</param>
-/// <param name="Access">Viewer (read-only) or Editor (can change buckets, notes and images). Capped by your own role on each board. App tokens have your own roles.</param>
+/// <param name="Access">Viewer (read-only) or Editor (can change buckets, cards and images). Capped by your own role on each board. App tokens have your own roles.</param>
 /// <param name="BoardIds">The only boards the token can use; null for all of your boards.</param>
 /// <param name="AgentId">The agent the token acts as; changes made with it show as this agent. Null for app tokens, which act as you.</param>
 /// <param name="CreatedAt">When it was created (UTC).</param>

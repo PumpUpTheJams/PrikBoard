@@ -34,7 +34,7 @@ public static class AdminEndpoints
             .RequireAdmin()
             .WithName("adminDeleteBoard")
             .WithSummary("Delete any board")
-            .WithDescription("Admins only. Permanently deletes the board with all of its buckets, notes, images, members " +
+            .WithDescription("Admins only. Permanently deletes the board with all of its buckets, cards, images, members " +
                              "and invites, like deleteBoard does for its owners. Admins don't need to be a member.");
 
         admin.MapGet("/users", ListUsers)
@@ -71,7 +71,7 @@ public static class AdminEndpoints
             .WithName("adminDeleteUser")
             .WithSummary("Delete a user")
             .WithDescription("Admins only. Deletes the account with its sign-ins, memberships and access tokens; their sessions " +
-                             "stop working at once. Notes they wrote stay. Refused for yourself (400) and while they are the " +
+                             "stop working at once. Cards they wrote stay. Refused for yourself (400) and while they are the " +
                              "only owner of a board (409, with those boards in the problem's boards field).")
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status409Conflict);
@@ -255,7 +255,7 @@ public static class AdminEndpoints
         }
 
         var tokenHashes = await db.AccessTokens.Where(t => t.OwnerId == userId).Select(t => t.TokenHash).ToListAsync(ct);
-        // The database cascades to their sign-ins, memberships and tokens, and clears them from notes, images and invites.
+        // The database cascades to their sign-ins, memberships and tokens, and clears them from cards, images and invites.
         // Their avatar's file goes at the next sweep.
         await db.Users.Where(u => u.Id == userId).ExecuteDeleteAsync(ct);
         await transaction.CommitAsync(ct);

@@ -2,7 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace PrikBoard.Api.Domain;
 
-public static partial class NoteTags
+public static partial class CardTags
 {
     public const int MaxLength = 30;
 

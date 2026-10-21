@@ -30,7 +30,7 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         // The box holds the furthest point (rounded up) plus half the stroke width.
         Assert.Equal((103, 32), (drawing.Width, drawing.Height));
         Assert.Equal((InkColor.Sky, 4, 3), (drawing.Color, drawing.StrokeWidth, drawing.PointCount));
-        Assert.Null(drawing.NoteId);
+        Assert.Null(drawing.CardId);
         var me = await _client.MeAsync();
         Assert.Equal((me.DisplayName, me.Id), (drawing.AddedBy, drawing.AddedById));
 
@@ -47,7 +47,7 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     }
 
     [Fact]
-    public async Task Colour_and_stroke_width_have_defaults_and_the_margin_follows_the_width()
+    public async Task Color_and_stroke_width_have_defaults_and_the_margin_follows_the_width()
     {
         var board = await _client.CreateBoardAsync("Defaults");
 
@@ -63,7 +63,7 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     {
         var board = await _client.CreateBoardAsync("Rejects");
         var other = await _client.CreateBoardAsync("Other");
-        var foreign = await _client.CreateNoteAsync(other.Id, "Elsewhere");
+        var foreign = await _client.CreateCardAsync(other.Id, "Elsewhere");
         var url = $"/api/boards/{board.Id}/drawings";
         double[] ok = [1, 1, 0.5];
 
@@ -76,7 +76,7 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         await AssertInvalid(url, new { x = 0, y = 0, points = new[] { ok }, strokeWidth = 3 }, "StrokeWidth");
         await AssertInvalid(url, new { y = 0, points = new[] { ok } }, "X");
         await AssertInvalid(url, new { x = Layout.MaxCoordinate + 1, y = 0, points = new[] { ok } }, "X");
-        await AssertInvalid(url, new { x = 0, y = 0, points = new[] { ok }, noteId = foreign.Id }, "noteId");
+        await AssertInvalid(url, new { x = 0, y = 0, points = new[] { ok }, cardId = foreign.Id }, "cardId");
 
         // Numbers JSON can't hold as a finite double, and an ink that doesn't exist.
         var huge = await _client.PostAsync(url, Json("""{"x":0,"y":0,"points":[[1e400,1,0.5]]}"""));
@@ -89,12 +89,12 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     }
 
     [Fact]
-    public async Task Drawings_move_recolour_and_go_between_the_board_and_notes()
+    public async Task Drawings_move_recolor_and_go_between_the_board_and_cards()
     {
         var board = await _client.CreateBoardAsync("Edits");
         var other = await _client.CreateBoardAsync("Other");
-        var note = await _client.CreateNoteAsync(board.Id, "Target");
-        var foreign = await _client.CreateNoteAsync(other.Id, "Foreign");
+        var card = await _client.CreateCardAsync(board.Id, "Target");
+        var foreign = await _client.CreateCardAsync(other.Id, "Foreign");
         var drawing = await Create(board.Id, new { x = 0, y = 0, points = Squiggle });
 
         var moved = await Patch(drawing.Id, new { x = 1201, y = 99, color = "Mint" });
@@ -102,18 +102,18 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         var onlyY = await Patch(drawing.Id, new { y = 41 });
         Assert.Equal((1200, 40), (onlyY.X, onlyY.Y));
 
-        var attached = await Patch(drawing.Id, new { noteId = note.Id, x = 61, y = 39, color = "Pine" });
-        Assert.Equal((note.Id, 60, 40, InkColor.Pine), (attached.NoteId, attached.X, attached.Y, attached.Color));
-        // On a note's canvas it stays on the canvas, at the last grid line where it fits (10000 - 103 → 9880).
+        var attached = await Patch(drawing.Id, new { cardId = card.Id, x = 61, y = 39, color = "Pine" });
+        Assert.Equal((card.Id, 60, 40, InkColor.Pine), (attached.CardId, attached.X, attached.Y, attached.Color));
+        // On a card's canvas it stays on the canvas, at the last grid line where it fits (10000 - 103 → 9880).
         var pushed = await Patch(drawing.Id, new { x = 20_000, y = 0 });
         Assert.Equal((9880, 0), (pushed.X, pushed.Y));
 
         var detached = await Patch(drawing.Id, new { detach = true, x = 1001, y = 2001 });
-        Assert.Equal((null, 1000, 2000), (detached.NoteId, detached.X, detached.Y));
+        Assert.Equal((null, 1000, 2000), (detached.CardId, detached.X, detached.Y));
 
-        var both = await _client.PatchAsJsonAsync($"/api/drawings/{drawing.Id}", new { noteId = note.Id, detach = true });
-        var elsewhere = await _client.PatchAsJsonAsync($"/api/drawings/{drawing.Id}", new { noteId = foreign.Id, x = 0, y = 0 });
-        var noPlace = await _client.PatchAsJsonAsync($"/api/drawings/{drawing.Id}", new { noteId = note.Id, x = 40 });
+        var both = await _client.PatchAsJsonAsync($"/api/drawings/{drawing.Id}", new { cardId = card.Id, detach = true });
+        var elsewhere = await _client.PatchAsJsonAsync($"/api/drawings/{drawing.Id}", new { cardId = foreign.Id, x = 0, y = 0 });
+        var noPlace = await _client.PatchAsJsonAsync($"/api/drawings/{drawing.Id}", new { cardId = card.Id, x = 40 });
         Assert.Equal(HttpStatusCode.BadRequest, both.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, elsewhere.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, noPlace.StatusCode);
@@ -143,26 +143,26 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     }
 
     [Fact]
-    public async Task Drawings_on_a_note_go_and_come_back_with_the_note()
+    public async Task Drawings_on_a_card_go_and_come_back_with_the_card()
     {
         var board = await _client.CreateBoardAsync("Cascade");
-        var note = await _client.CreateNoteAsync(board.Id, "Explained with a sketch");
-        var onNote = await Create(board.Id, new { x = 505, y = 611, points = Squiggle, noteId = note.Id, color = "Ink" });
-        var removedEarlier = await Create(board.Id, new { x = 0, y = 0, points = Squiggle, noteId = note.Id });
+        var card = await _client.CreateCardAsync(board.Id, "Explained with a sketch");
+        var onCard = await Create(board.Id, new { x = 505, y = 611, points = Squiggle, cardId = card.Id, color = "Ink" });
+        var removedEarlier = await Create(board.Id, new { x = 0, y = 0, points = Squiggle, cardId = card.Id });
         var onBoard = await Create(board.Id, new { x = 0, y = 0, points = Squiggle });
-        Assert.Equal((note.Id, 500, 620), (onNote.NoteId, onNote.X, onNote.Y));
+        Assert.Equal((card.Id, 500, 620), (onCard.CardId, onCard.X, onCard.Y));
         (await _client.DeleteAsync($"/api/drawings/{removedEarlier.Id}")).EnsureSuccessStatusCode();
 
-        (await _client.DeleteAsync($"/api/notes/{note.Id}")).EnsureSuccessStatusCode();
+        (await _client.DeleteAsync($"/api/cards/{card.Id}")).EnsureSuccessStatusCode();
         var hidden = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
         Assert.Equal(onBoard.Id, Assert.Single(hidden.Drawings).Id);
-        var restoreAlone = await _client.PostAsync($"/api/drawings/{onNote.Id}/restore", null);
+        var restoreAlone = await _client.PostAsync($"/api/drawings/{onCard.Id}/restore", null);
         Assert.Equal(HttpStatusCode.Conflict, restoreAlone.StatusCode);
 
-        (await _client.PostAsync($"/api/notes/{note.Id}/restore", null)).EnsureSuccessStatusCode();
+        (await _client.PostAsync($"/api/cards/{card.Id}/restore", null)).EnsureSuccessStatusCode();
         var back = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
         // The one deleted on its own earlier stays deleted.
-        Assert.Equal([onNote.Id, onBoard.Id], back.Drawings.Select(d => d.Id).Order());
+        Assert.Equal([onCard.Id, onBoard.Id], back.Drawings.Select(d => d.Id).Order());
     }
 
     [Fact]
@@ -215,9 +215,9 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     public async Task Drawings_travel_with_an_exported_board()
     {
         var board = await _client.CreateBoardAsync("Sketches");
-        var note = await _client.CreateNoteAsync(board.Id, "With a doodle");
+        var card = await _client.CreateCardAsync(board.Id, "With a doodle");
         await Create(board.Id, new { x = 300, y = 400, points = Squiggle, color = "Lilac", strokeWidth = 2 });
-        await Create(board.Id, new { x = 20, y = 40, points = Squiggle, color = "Violet", noteId = note.Id });
+        await Create(board.Id, new { x = 20, y = 40, points = Squiggle, color = "Violet", cardId = card.Id });
 
         var file = await _client.GetStringAsync($"/api/boards/{board.Id}/export");
         var imported = await _client.PostAsync("/api/boards/import", Json(file));
@@ -225,17 +225,17 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         var copy = (await imported.Content.ReadFromJsonAsync<BoardDetail>())!;
 
         Assert.Equal(2, copy.Drawings.Count);
-        var loose = copy.Drawings.Single(d => d.NoteId is null);
-        var attached = copy.Drawings.Single(d => d.NoteId is not null);
+        var loose = copy.Drawings.Single(d => d.CardId is null);
+        var attached = copy.Drawings.Single(d => d.CardId is not null);
         Assert.Equal((300, 400, InkColor.Lilac, 2), (loose.X, loose.Y, loose.Color, loose.StrokeWidth));
-        Assert.Equal((Assert.Single(copy.Notes).Id, 20, 40, InkColor.Violet), (attached.NoteId, attached.X, attached.Y, attached.Color));
+        Assert.Equal((Assert.Single(copy.Cards).Id, 20, 40, InkColor.Violet), (attached.CardId, attached.X, attached.Y, attached.Color));
         var points = (await _client.GetFromJsonAsync<DrawingContentDetail>(loose.ContentUrl))!.Points;
         Assert.Equal([[2, 2, 0.5], [40, 10.1, 0.12], [100.2, 30, 1]], points);
 
-        // A drawing pointing at a note that isn't in the file, or with bad points, refuses the whole import.
-        var badNote = file.Replace($"\"noteId\":\"{note.Id}\"", $"\"noteId\":\"{Guid.NewGuid()}\"");
-        Assert.NotEqual(file, badNote);
-        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsync("/api/boards/import", Json(badNote))).StatusCode);
+        // A drawing pointing at a card that isn't in the file, or with bad points, refuses the whole import.
+        var badCard = file.Replace($"\"cardId\":\"{card.Id}\"", $"\"cardId\":\"{Guid.NewGuid()}\"");
+        Assert.NotEqual(file, badCard);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsync("/api/boards/import", Json(badCard))).StatusCode);
         var badPoints = file.Replace("[100.2,30,1]", "[100.2,30,7]");
         Assert.NotEqual(file, badPoints);
         Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsync("/api/boards/import", Json(badPoints))).StatusCode);
@@ -246,22 +246,22 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     {
         var board = await _client.CreateBoardAsync("Drawings in buckets");
         var todo = board.Buckets[0];
-        var note = (await (await _client.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "Canvas" })).Content.ReadFromJsonAsync<NoteDetail>())!;
+        var card = (await (await _client.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Canvas" })).Content.ReadFromJsonAsync<CardDetail>())!;
 
         // The squiggle is 103 by 32, so its centre is 51 right of and 16 below its corner.
         var inside = await Create(board.Id, new { x = todo.X + 20, y = todo.Y + 100, points = Squiggle });
         var outside = await Create(board.Id, new { x = 3000, y = 100, points = Squiggle });
-        var onNote = await Create(board.Id, new { noteId = note.Id, x = 20, y = 20, points = Squiggle });
+        var onCard = await Create(board.Id, new { cardId = card.Id, x = 20, y = 20, points = Squiggle });
         Assert.Equal(todo.Id, inside.BucketId);
         Assert.Null(outside.BucketId);
-        Assert.Null(onNote.BucketId);
+        Assert.Null(onCard.BucketId);
 
-        // Moving it out leaves the bucket; a new colour alone keeps it where it is.
+        // Moving it out leaves the bucket; a new color alone keeps it where it is.
         Assert.Null((await Patch(inside.Id, new { x = 3000 })).BucketId);
         Assert.Equal(todo.Id, (await Patch(outside.Id, new { x = todo.X + 20, y = todo.Y + 200 })).BucketId);
         Assert.Equal(todo.Id, (await Patch(outside.Id, new { color = "Coral" })).BucketId);
-        // Put on the board from a note, it joins the bucket it lands in.
-        Assert.Equal(todo.Id, (await Patch(onNote.Id, new { detach = true, x = todo.X + 20, y = todo.Y + 300 })).BucketId);
+        // Put on the board from a card, it joins the bucket it lands in.
+        Assert.Equal(todo.Id, (await Patch(onCard.Id, new { detach = true, x = todo.X + 20, y = todo.Y + 300 })).BucketId);
     }
 
     [Fact]

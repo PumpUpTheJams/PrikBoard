@@ -12,8 +12,8 @@ public enum BoardScope
     /// <summary>{boardId}</summary>
     Board,
 
-    /// <summary>{noteId}: the note's board.</summary>
-    Note,
+    /// <summary>{cardId}: the card's board.</summary>
+    Card,
 
     /// <summary>{bucketId}: the bucket's board.</summary>
     Bucket,
@@ -86,7 +86,7 @@ public static class BoardAccess
     }
 
     /// <summary>
-    /// Who can be assigned to notes on a board: its members (people and issuer agents) plus the agents of members'
+    /// Who can be assigned to cards on a board: its members (people and issuer agents) plus the agents of members'
     /// personal access tokens that reach the board (not expired, and not limited to other boards). Keep this in line
     /// with <see cref="BoardCaller.Apply"/> and the expiry check in <see cref="AccessTokenHandler"/>.
     /// </summary>
@@ -111,7 +111,7 @@ public static class BoardAccess
     public sealed record Authorization(Guid BoardId, BoardRole Role, IResult? Failure);
 
     /// <summary>
-    /// Finds the board a board, note, bucket, image or drawing id belongs to and checks the caller's role on it in one query:
+    /// Finds the board a board, card, bucket, image or drawing id belongs to and checks the caller's role on it in one query:
     /// 404 when the caller has no access (so existence does not leak), 403 when the role is too low. On success the role
     /// is available through <see cref="BoardRole(HttpContext)"/>. Used by the endpoint filter and by MCP tools.
     /// </summary>
@@ -124,7 +124,7 @@ public static class BoardAccess
         var boardIds = scope switch
         {
             BoardScope.Board => db.Boards.Where(b => b.Id == id).Select(b => b.Id),
-            BoardScope.Note => db.Notes.IgnoreQueryFilters(deleted).Where(n => n.Id == id).Select(n => n.BoardId),
+            BoardScope.Card => db.Cards.IgnoreQueryFilters(deleted).Where(n => n.Id == id).Select(n => n.BoardId),
             BoardScope.Bucket => db.Buckets.IgnoreQueryFilters(deleted).Where(b => b.Id == id).Select(b => b.BoardId),
             BoardScope.Image => db.Images.IgnoreQueryFilters(deleted).Where(i => i.Id == id).Select(i => i.BoardId),
             BoardScope.Drawing => db.Drawings.IgnoreQueryFilters(deleted).Where(d => d.Id == id).Select(d => d.BoardId),
@@ -181,7 +181,7 @@ public static class BoardAccess
             var routeValue = scope switch
             {
                 BoardScope.Board => "boardId",
-                BoardScope.Note => "noteId",
+                BoardScope.Card => "cardId",
                 BoardScope.Bucket => "bucketId",
                 BoardScope.Image => "imageId",
                 _ => "drawingId",

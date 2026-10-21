@@ -1,7 +1,7 @@
 import * as vscode from 'vscode'
 import { Auth, setting } from './auth'
 import { BoardTree, type Node } from './boardTree'
-import { registerNoteCommands } from './commands'
+import { registerCardCommands } from './commands'
 
 export async function activate(context: vscode.ExtensionContext) {
   const auth = new Auth(context.secrets)
@@ -50,7 +50,7 @@ export async function activate(context: vscode.ExtensionContext) {
       const url = node && tree.urlOf(node)
       if (url) void vscode.env.openExternal(vscode.Uri.parse(url))
     }),
-    ...registerNoteCommands(tree),
+    ...registerCardCommands(tree),
   )
 
   startPolling()

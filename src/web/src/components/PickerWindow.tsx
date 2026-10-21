@@ -6,7 +6,7 @@ export interface PickerChip {
   key: string
   label: string
   leading?: ReactNode
-  /** Extra class names, e.g. a tag's colour. */
+  /** Extra class names, e.g. a tag's color. */
   className?: string
   onRemove: () => void
 }
@@ -17,13 +17,13 @@ export interface PickerRow {
   /** A second, muted line. */
   detail?: string
   leading?: ReactNode
-  /** Shown on the right, e.g. how many notes use a tag. */
+  /** Shown on the right, e.g. how many cards use a tag. */
   meta?: ReactNode
-  /** A tick in front: the item is on the note (or in the filter). */
+  /** A tick in front: the item is on the card (or in the filter). */
   checked?: boolean
   disabled?: boolean
   onSelect: () => void
-  /** Shown at the end of the row, before the edit button, e.g. a tag's colour circle. */
+  /** Shown at the end of the row, before the edit button, e.g. a tag's color circle. */
   trailing?: ReactNode
   /** Shows an edit button on the row. */
   onEdit?: () => void
@@ -58,7 +58,7 @@ const WIDTH = 300
  * A small search window next to what opened it: a search field, the current picks as chips, and a list to pick from.
  * Keyboard: arrows move through the list, Enter picks, Escape closes (and only the window), Backspace in an empty
  * field removes the last chip. It is portalled to the page, so the board's zoom doesn't scale or clip it, and focus
- * stays in its field, so the board's shortcuts (Delete removes the selected post-it) never fire while it is open.
+ * stays in its field, so the board's shortcuts (Delete removes the selected card) never fire while it is open.
  */
 export function PickerWindow(props: PickerWindowProps) {
   const { anchor, label, placeholder, query, onQueryChange, chips = [], rows, footer, empty, holdOpen, owner, overlay, onClose } = props
@@ -115,7 +115,7 @@ export function PickerWindow(props: PickerWindowProps) {
       aria-label={label}
       style={place ? { top: place.top, left: place.left, width: WIDTH } : { visibility: 'hidden', width: WIDTH }}
       onKeyDown={(e) => {
-        // Inside the window, Escape and Tab belong to it, not to the post-it or board around it.
+        // Inside the window, Escape and Tab belong to it, not to the card or board around it.
         if (e.key === 'Escape') {
           e.stopPropagation()
           if (!editing) onClose()

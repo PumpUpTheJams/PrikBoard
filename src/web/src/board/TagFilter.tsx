@@ -8,15 +8,15 @@ import { normalizeTag } from './tags'
 interface TagFilterProps {
   boardTags: BoardTag[]
   tagColors: TagColors
-  /** The picked tags; post-its with any of them stay bright, the others fade. */
+  /** The picked tags; cards with any of them stay bright, the others fade. */
   value: string[]
   onChange: (tags: string[]) => void
-  /** Post-its that match, of all of them. */
+  /** Cards that match, of all of them. */
   matching: number
   total: number
 }
 
-/** A floating pill at the bottom left of the board that filters post-its by tag. */
+/** A floating pill at the bottom left of the board that filters cards by tag. */
 export function TagFilter({ boardTags, tagColors, value, onChange, matching, total }: TagFilterProps) {
   const [anchor, setAnchor] = useState<DOMRect | null>(null)
   const [query, setQuery] = useState('')
@@ -63,7 +63,7 @@ export function TagFilter({ boardTags, tagColors, value, onChange, matching, tot
             .map((t) => ({
               key: t.id,
               label: t.name,
-              meta: t.noteCount,
+              meta: t.cardCount,
               checked: value.includes(t.name),
               onSelect: () => toggle(t.name),
               trailing: (
@@ -73,7 +73,7 @@ export function TagFilter({ boardTags, tagColors, value, onChange, matching, tot
               ),
             }))}
           empty="No tag matches."
-          footer="Post-its with any of the picked tags stay bright."
+          footer="Cards with any of the picked tags stay bright."
           owner={pill}
           onClose={() => {
             setAnchor(null)

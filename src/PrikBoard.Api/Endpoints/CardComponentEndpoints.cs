@@ -1,0 +1,221 @@
+using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.EntityFrameworkCore;
+using PrikBoard.Api.Auth;
+using PrikBoard.Api.Contracts;
+using PrikBoard.Api.Data;
+using PrikBoard.Api.Domain;
+
+namespace PrikBoard.Api.Endpoints;
+
+/// <summary>
+/// The components on a card's own canvas. Each write locks the card's row, so people editing different components of the same
+/// card at once never overwrite each other's changes.
+/// </summary>
+public static class CardComponentEndpoints
+{
+    public static RouteGroupBuilder MapCardComponentEndpoints(this RouteGroupBuilder api)
+    {
+        var components = api.MapGroup("/cards/{cardId:guid}/components").WithTags("Cards");
+
+        components.MapPost("/", AddCardComponent)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
+            .WithName("addCardComponent")
+            .WithSummary("Add a component to a card")
+            .WithDescription("Adds a text, checklist or links component to the card's content. Without x and y it goes in the first " +
+                             $"free spot on the card's canvas. A card has at most {CardComponent.MaxComponents} components. " +
+                             "To put back a removed component, send it with the id it had.")
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
+        components.MapPatch("/{componentId:guid}", UpdateCardComponent)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
+            .WithName("updateCardComponent")
+            .WithSummary("Edit, move or resize a component")
+            .WithDescription("Changes any of a component's title, content (text, checklist items or links, whichever fits its kind), " +
+                             "position and size. Omitted fields stay unchanged; a list that is given replaces the component's whole list.")
+            .ProducesValidationProblem();
+
+        components.MapDelete("/{componentId:guid}", DeleteCardComponent)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
+            .WithName("deleteCardComponent")
+            .WithSummary("Remove a component from a card");
+
+        return api;
+    }
+
+    internal static async Task<Results<Created<CardComponentDetail>, NotFound, ValidationProblem, ProblemHttpResult>> AddCardComponent(
+        Guid cardId, NewCardComponent request, PrikBoardDbContext db, CancellationToken ct)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (await LockedCardAsync(db, cardId, ct) is not { } card) return TypedResults.NotFound();
+        if (card.Components.Count >= CardComponent.MaxComponents)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Too many components",
+                detail: $"The card already has {CardComponent.MaxComponents} components; remove one first.");
+        }
+
+        var taken = Layout.TakenOnCard(card, await db.Images.Where(i => i.CardId == cardId).ToListAsync(ct));
+        if (Build(request, taken, "") is not { } component) return InvalidComponent(request, "");
+        if (Check(component, "") is { } invalid) return invalid;
+        await ShortenLinksAsync(db, card.BoardId, [component], ct);
+        if (request.Id is { } id)
+        {
+            if (card.Components.Exists(b => b.Id == id))
+            {
+                return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Component exists",
+                    detail: "The card already has a component with this id.");
+            }
+            component.Id = id;
+        }
+
+        card.Components.Add(component);
+        card.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return TypedResults.Created($"/api/cards/{cardId}/components/{component.Id}", CardComponentDetail.From(component));
+    }
+
+    internal static async Task<Results<Ok<CardComponentDetail>, NotFound, ValidationProblem>> UpdateCardComponent(
+        Guid cardId, Guid componentId, UpdateCardComponentRequest request, PrikBoardDbContext db, CancellationToken ct)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (await LockedCardAsync(db, cardId, ct) is not { } card) return TypedResults.NotFound();
+        if (card.Components.Find(b => b.Id == componentId) is not { } component) return TypedResults.NotFound();
+
+        if (Misfit(component.Kind, request.Text, request.Items, request.Links, "") is { } misfit) return misfit;
+        component.Title = Clean(PatchText.Apply(component.Title, request.Title));
+        if (component.Kind == CardComponentKind.Text) component.Text = PatchText.Apply(component.Text, request.Text);
+        if (request.Items is not null) component.Items = Items(request.Items);
+        if (request.Links is not null) component.Links = Links(request.Links);
+        component.X = request.X ?? component.X;
+        component.Y = request.Y ?? component.Y;
+        component.Width = request.Width ?? component.Width;
+        component.Height = request.Height ?? component.Height;
+        Layout.Clamp(component);
+        if (Check(component, "") is { } invalid) return invalid;
+        if (request.Links is not null) await ShortenLinksAsync(db, card.BoardId, [component], ct);
+
+        card.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return TypedResults.Ok(CardComponentDetail.From(component));
+    }
+
+    internal static async Task<Results<NoContent, NotFound>> DeleteCardComponent(
+        Guid cardId, Guid componentId, PrikBoardDbContext db, CancellationToken ct)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (await LockedCardAsync(db, cardId, ct) is not { } card) return TypedResults.NotFound();
+        if (card.Components.RemoveAll(b => b.Id == componentId) == 0) return TypedResults.NotFound();
+
+        card.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return TypedResults.NoContent();
+    }
+
+    /// <summary>
+    /// Builds the components of a new card, laying out the ones without a position. Returns a problem (keyed on
+    /// "components[i].field", after <paramref name="keyPrefix"/>) for content that does not fit a component's kind or an invalid link.
+    /// </summary>
+    internal static ValidationProblem? BuildAll(Card card, IReadOnlyList<NewCardComponent> requests, string keyPrefix = "")
+    {
+        var taken = Layout.TakenOnCard(card, []);
+        for (var i = 0; i < requests.Count; i++)
+        {
+            var prefix = $"{keyPrefix}components[{i}].";
+            if (Build(requests[i], taken, prefix) is not { } component) return InvalidComponent(requests[i], prefix);
+            if (Check(component, prefix) is { } invalid) return invalid;
+            card.Components.Add(component);
+            taken.Add((component.X, component.Y, component.Width, component.Height));
+        }
+        return null;
+    }
+
+    /// <summary>A component from a request, placed in a free spot without X and Y; null when the request does not fit its kind.</summary>
+    private static CardComponent? Build(NewCardComponent request, IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, string prefix)
+    {
+        if (request.Kind is not { } kind || Misfit(kind, request.Text, request.Items, request.Links, prefix) is not null
+            || request.X is null != request.Y is null)
+        {
+            return null;
+        }
+
+        var (width, height) = Layout.DefaultComponentSize(kind);
+        var component = new CardComponent
+        {
+            Kind = kind,
+            Title = Clean(PatchText.Apply(null, request.Title)),
+            Text = kind == CardComponentKind.Text ? PatchText.Apply(null, request.Text) : null,
+            Items = Items(request.Items ?? []),
+            Links = Links(request.Links ?? []),
+            Width = request.Width ?? width,
+            Height = request.Height ?? height,
+        };
+        Layout.Clamp(component);
+        (component.X, component.Y) = request.X is { } x && request.Y is { } y ? (x, y) : Layout.NextCardSpot(taken, component.Width, component.Height);
+        Layout.Clamp(component);
+        return component;
+    }
+
+    /// <summary>Why <see cref="Build"/> returned null.</summary>
+    private static ValidationProblem InvalidComponent(NewCardComponent request, string prefix) =>
+        request.Kind is not { } kind ? Problem(prefix + "kind", "Give the kind: Text, Checklist or Links.")
+        : Misfit(kind, request.Text, request.Items, request.Links, prefix)
+          ?? Problem(prefix + (request.X is null ? "x" : "y"), "Give X and Y together.");
+
+    /// <summary>A problem when content is given that does not fit a component of <paramref name="kind"/>.</summary>
+    private static ValidationProblem? Misfit(CardComponentKind kind, string? text, List<ChecklistItem>? items, List<CardLink>? links, string prefix) =>
+        kind != CardComponentKind.Text && !string.IsNullOrEmpty(text) ? Problem(prefix + "text", $"A {kind} component has no text; use a Text component.")
+        : kind != CardComponentKind.Checklist && items is { Count: > 0 } ? Problem(prefix + "items", $"A {kind} component has no checklist items; use a Checklist component.")
+        : kind != CardComponentKind.Links && links is { Count: > 0 } ? Problem(prefix + "links", $"A {kind} component has no links; use a Links component.")
+        : null;
+
+    private static ValidationProblem? Check(CardComponent component, string prefix) =>
+        component.Links.Find(l => !CardLinks.IsValid(l.Url)) is { } bad
+            ? Problem(prefix + "links", $"\"{bad.Url}\" is neither an absolute http or https URL nor a card's path (/#/boards/{{shortId}}/cards/{{number}}).")
+            : null;
+
+    /// <summary>
+    /// Rewrites links in the older form (/#/boards/{boardId}/cards/{cardId}) to cards on <paramref name="boardId"/> into
+    /// those cards' paths, deleted cards included. Links to other boards stay as they are, so a link says nothing new about
+    /// a board the caller may not see.
+    /// </summary>
+    internal static async Task ShortenLinksAsync(PrikBoardDbContext db, Guid boardId, IEnumerable<CardComponent> components, CancellationToken ct)
+    {
+        var links = new List<(LinkEntry Link, Guid CardId)>();
+        foreach (var link in components.SelectMany(b => b.Links))
+        {
+            if (CardLinks.TryParse(link.Url, out var target) && !target.ByNumber) links.Add((link, target.CardId));
+        }
+        if (links.Count == 0) return;
+
+        var ids = links.Select(l => l.CardId).Distinct().ToList();
+        var paths = await db.Cards.AsNoTracking().IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+            .Where(n => n.BoardId == boardId && ids.Contains(n.Id))
+            .Select(n => new { n.Id, n.Number, n.Board!.ShortId })
+            .ToDictionaryAsync(n => n.Id, n => CardLinks.CardPath(n.ShortId, n.Number), ct);
+        foreach (var (link, cardId) in links)
+        {
+            if (paths.TryGetValue(cardId, out var path)) link.Url = path;
+        }
+    }
+
+    private static ValidationProblem Problem(string key, string message) =>
+        TypedResults.ValidationProblem(new Dictionary<string, string[]> { [key] = [message] });
+
+    private static string? Clean(string? title) => title?.Trim();
+
+    private static List<ChecklistEntry> Items(IEnumerable<ChecklistItem> items) =>
+        items.Select(c => new ChecklistEntry { Text = c.Text.Trim(), Done = c.Done }).ToList();
+
+    private static List<LinkEntry> Links(IEnumerable<CardLink> links) =>
+        links.Select(l => new LinkEntry { Title = l.Title.Trim(), Url = l.Url.Trim() }).ToList();
+
+    /// <summary>Locks the card's row until the transaction ends, then loads it; null when it does not exist.</summary>
+    private static async Task<Card?> LockedCardAsync(PrikBoardDbContext db, Guid cardId, CancellationToken ct)
+    {
+        await db.Database.ExecuteSqlInterpolatedAsync($"""SELECT 1 FROM "Cards" WHERE "Id" = {cardId} FOR UPDATE""", ct);
+        return await db.Cards.FirstOrDefaultAsync(n => n.Id == cardId, ct);
+    }
+}

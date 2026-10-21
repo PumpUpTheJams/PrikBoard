@@ -1,4 +1,4 @@
-// Inline stroke icons from the board design; they inherit the text colour.
+// Inline stroke icons from the board design; they inherit the text color.
 
 import type { ReactNode } from 'react'
 
@@ -24,7 +24,7 @@ interface IconProps {
   size?: number
 }
 
-export const PostItIcon = ({ size = 18 }: IconProps) => (
+export const CardIcon = ({ size = 18 }: IconProps) => (
   <Icon size={size}>
     <path d="M4 4h16v10l-6 6H4z" />
     <path d="M14 20v-6h6" />
@@ -38,8 +38,8 @@ export const PenIcon = ({ size = 18 }: IconProps) => (
   </Icon>
 )
 
-/** A post-it with a frown, for pages with nothing to show. */
-export const SadPostItIcon = ({ size = 18 }: IconProps) => (
+/** A card with a frown, for pages with nothing to show. */
+export const SadCardIcon = ({ size = 18 }: IconProps) => (
   <Icon size={size}>
     <path d="M4 4h16v10l-6 6H4z" />
     <path d="M14 20v-6h6" />
@@ -60,7 +60,7 @@ export const SelectIcon = ({ size = 18 }: IconProps) => (
   </Icon>
 )
 
-export const FrameIcon = ({ size = 18 }: IconProps) => (
+export const BucketToolIcon = ({ size = 18 }: IconProps) => (
   <Icon size={size}>
     <rect x="3" y="4" width="18" height="16" rx="2" />
     <path d="M9 4v16M15 4v16" />
@@ -135,7 +135,7 @@ export const MinusIcon = ({ size = 14 }: IconProps) => (
   </Icon>
 )
 
-export const NoteDocIcon = ({ size = 16 }: IconProps) => (
+export const TextIcon = ({ size = 16 }: IconProps) => (
   <Icon size={size}>
     <path d="M5 4h14v16H5zM9 9h6M9 13h6M9 17h3" />
   </Icon>
@@ -177,7 +177,7 @@ export const TrashIcon = ({ size = 15 }: IconProps) => (
   </Icon>
 )
 
-/** An arrow coming back out: put a deleted post-it back on the board. */
+/** An arrow coming back out: put a deleted card back on the board. */
 export const PutBackIcon = ({ size = 14 }: IconProps) => (
   <Icon size={size}>
     <path d="M9 14L4 9l5-5" />

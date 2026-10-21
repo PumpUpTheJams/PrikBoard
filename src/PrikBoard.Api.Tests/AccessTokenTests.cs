@@ -50,8 +50,8 @@ public class AccessTokenTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         var listed = Assert.Single(boards!, b => b.Id == board.Id);
         Assert.Equal(BoardRole.Editor, listed.YourRole);
 
-        var note = await agent.CreateNoteAsync(board.Id, "From the token");
-        Assert.Equal("From the token", note.Title);
+        var card = await agent.CreateCardAsync(board.Id, "From the token");
+        Assert.Equal("From the token", card.Title);
 
         // Owner-only things stay out of reach, whatever the owner's own role.
         Assert.Equal(HttpStatusCode.Forbidden, (await agent.DeleteAsync($"/api/boards/{board.Id}")).StatusCode);
@@ -68,14 +68,14 @@ public class AccessTokenTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         // An Editor token of someone who is only a Viewer stays a Viewer.
         var viewersToken = Bearer((await CreateAsync(viewer, "Viewer's agent", BoardRole.Editor)).Token);
         Assert.Equal(BoardRole.Viewer, (await viewersToken.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.YourRole);
-        var refused = await viewersToken.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "Nope" });
+        var refused = await viewersToken.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Nope" });
         Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
 
         // A read-only token of the owner can read but not write.
         var readOnly = Bearer((await CreateAsync(owner, "Reader", BoardRole.Viewer)).Token);
         Assert.Equal(["boards:read"], (await readOnly.MeAsync()).Scopes);
         Assert.Equal(HttpStatusCode.OK, (await readOnly.GetAsync($"/api/boards/{board.Id}")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await readOnly.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "Nope" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await readOnly.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Nope" })).StatusCode);
     }
 
     [Fact]

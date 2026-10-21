@@ -1,12 +1,12 @@
 import { Fragment, useLayoutEffect, useRef, type RefObject } from 'react'
-import type { NoteDetail } from '../api/types'
+import type { CardDetail } from '../api/types'
 import { Highlight } from './Highlight'
-import { noteLabel } from './links'
+import { cardLabel } from './links'
 import { ChevronDownIcon, ChevronUpIcon, CloseIcon, SearchIcon } from './icons'
 import { excerpt, type SearchField } from './search'
 
 export interface SearchResult {
-  note: NoteDetail
+  card: CardDetail
   /** Where the search words were found on it. */
   fields: SearchField[]
 }
@@ -16,25 +16,25 @@ interface BoardSearchProps {
   query: string
   onQueryChange: (query: string) => void
   terms: string[]
-  /** Matching post-its that pass the tag filter, in board order. */
+  /** Matching cards that pass the tag filter, in board order. */
   results: SearchResult[]
   /** The active result: outlined on the board, highlighted in the list. */
   current: string | null
-  /** The list folds away while you work on the board or in the open post-it, and comes back in the field. */
+  /** The list folds away while you work on the board or in the open card, and comes back in the field. */
   listOpen: boolean
   onListOpenChange: (open: boolean) => void
   onMove: (direction: 1 | -1) => void
-  onOpen: (noteId: string) => void
+  onOpen: (cardId: string) => void
   onClose: () => void
   /** Matches the tag filter fades, so they aren't in the results. */
   faded: number
   onClearFilter: () => void
-  bucketName: (note: NoteDetail) => string
+  bucketName: (card: CardDetail) => string
 }
 
 /**
  * The search at the top of the board, opened with / or Ctrl+F: a field with the number of matches, and the matching
- * post-its listed under it. ↑ and ↓ move through them, Enter opens one, Escape closes the search.
+ * cards listed under it. ↑ and ↓ move through them, Enter opens one, Escape closes the search.
  */
 export function BoardSearch(props: BoardSearchProps) {
   const { inputRef, query, onQueryChange, terms, results, current, listOpen, onListOpenChange, onMove, onOpen, onClose } = props
@@ -42,7 +42,7 @@ export function BoardSearch(props: BoardSearchProps) {
   const listRef = useRef<HTMLUListElement>(null)
   const searching = terms.length > 0
   const showList = listOpen && searching
-  const index = results.findIndex((r) => r.note.id === current)
+  const index = results.findIndex((r) => r.card.id === current)
 
   // Keeps the active result in view in the list.
   useLayoutEffect(() => {
@@ -129,29 +129,29 @@ export function BoardSearch(props: BoardSearchProps) {
           <ul ref={listRef} id="board-search-results" className="search-result-list" role="listbox" aria-label="Search results">
             {results.length === 0 ? (
               <li className="search-empty" role="presentation">
-                {faded > 0 ? 'None of the post-its the tag filter shows' : 'No post-it on this board'} matches “{query.trim()}”.
+                {faded > 0 ? 'None of the cards the tag filter shows' : 'No card on this board'} matches “{query.trim()}”.
               </li>
             ) : (
-              results.map(({ note, fields }) => (
+              results.map(({ card, fields }) => (
                 <li
-                  key={note.id}
-                  id={`search-result-${note.id}`}
-                  data-result={note.id}
+                  key={card.id}
+                  id={`search-result-${card.id}`}
+                  data-result={card.id}
                   role="option"
-                  aria-selected={note.id === current}
-                  className={`search-result${note.id === current ? ' active' : ''}`}
-                  onClick={() => onOpen(note.id)}
+                  aria-selected={card.id === current}
+                  className={`search-result${card.id === current ? ' active' : ''}`}
+                  onClick={() => onOpen(card.id)}
                 >
-                  <span className={`link-swatch fill-${note.color.toLowerCase()}`} aria-hidden="true" />
+                  <span className={`link-swatch fill-${card.color.toLowerCase()}`} aria-hidden="true" />
                   <span className="search-result-text">
                     <span className="search-result-title">
-                      <Highlight text={noteLabel(note)} terms={terms} />
+                      <Highlight text={cardLabel(card)} terms={terms} />
                     </span>
                     <span className="search-result-where">
                       <FoundIn fields={fields} terms={terms} />
                     </span>
                   </span>
-                  <span className="search-result-bucket">{bucketName(note)}</span>
+                  <span className="search-result-bucket">{bucketName(card)}</span>
                 </li>
               ))
             )}
@@ -187,7 +187,7 @@ export function BoardSearch(props: BoardSearchProps) {
 }
 
 /**
- * Where a result matched: first what the post-it on the board doesn't show (a checklist item, who created it), then its
+ * Where a result matched: first what the card on the board doesn't show (a checklist item, who created it), then its
  * tags. The title is marked in the row already.
  */
 function FoundIn({ fields, terms }: { fields: SearchField[]; terms: string[] }) {
@@ -200,7 +200,7 @@ function FoundIn({ fields, terms }: { fields: SearchField[]; terms: string[] }) 
     <Fragment key={i}>
       {i > 0 && ' · '}
       <span className="search-where-label">{f.label}</span>
-      <Highlight text={f.kind === 'block' ? excerpt(f.text, terms) : f.text} terms={terms} />
+      <Highlight text={f.kind === 'component' ? excerpt(f.text, terms) : f.text} terms={terms} />
     </Fragment>
   ))
 }

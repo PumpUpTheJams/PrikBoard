@@ -113,7 +113,7 @@ public static class InviteEndpoints
         InviteTokenRequest request, ClaimsPrincipal principal, HttpContext http, PrikBoardDbContext db, BoardEvents events,
         CancellationToken ct)
     {
-        // An agent could have read the link on a note; joining boards that way would bypass the owner.
+        // An agent could have read the link on a card; joining boards that way would bypass the owner.
         if (principal.IsToken()) return TypedResults.Forbid();
 
         var userId = principal.UserId();

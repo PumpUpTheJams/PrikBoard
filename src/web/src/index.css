@@ -24,13 +24,13 @@
   --accent-bg: #263142;
   --danger: #ff8a80;
   --danger-strong: #e5484d;
-  --frame-bg: rgba(20, 23, 29, 0.8);
+  --bucket-bg: rgba(20, 23, 29, 0.8);
   --dot: rgba(255, 255, 255, 0.1);
   --mini-bg: #111419;
   --mini-dot: rgba(255, 255, 255, 0.08);
   --chip: #1d222b;
   --dim: rgba(7, 8, 11, 0.78);
-  --minimap-block: #2a303b;
+  --minimap-bucket-fill: #2a303b;
   --slot: #3a4150;
   --halo: #c4a7ff;
   --float-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
@@ -47,7 +47,7 @@
   --fill-coral: #f4a99a;
   --fill-lilac: #cdb8f5;
 
-  /* Pen inks (InkColor): light ones for the dark board, dark ones for drawing over a post-it's fill. */
+  /* Pen inks (InkColor): light ones for the dark board, dark ones for drawing over a card's fill. */
   --ink-chalk: #e6e8ec;
   --ink-butter: #f3d77a;
   --ink-mint: #9fe0c0;
@@ -118,40 +118,40 @@ body {
 }
 
 /*
- * The board and the post-it's canvas always show both scroll bars, so their size never changes while things are
+ * The board and the card's canvas always show both scroll bars, so their size never changes while things are
  * dragged, zoomed or resized (which made them flicker on and off). The tracks and the corner share one fill, so the two
  * bars meet in a square corner.
  */
 .board-scroll,
-.note-scroll {
+.card-scroll {
   overflow: scroll;
 }
 
 .board-scroll::-webkit-scrollbar-track,
 .board-scroll::-webkit-scrollbar-corner,
-.note-scroll::-webkit-scrollbar-track,
-.note-scroll::-webkit-scrollbar-corner {
+.card-scroll::-webkit-scrollbar-track,
+.card-scroll::-webkit-scrollbar-corner {
   background: var(--scrollbar-track);
 }
 
 .board-scroll::-webkit-scrollbar-track:vertical,
-.note-scroll::-webkit-scrollbar-track:vertical {
+.card-scroll::-webkit-scrollbar-track:vertical {
   box-shadow: inset 1px 0 var(--bar-line);
 }
 
 .board-scroll::-webkit-scrollbar-track:horizontal,
-.note-scroll::-webkit-scrollbar-track:horizontal {
+.card-scroll::-webkit-scrollbar-track:horizontal {
   box-shadow: inset 0 1px var(--bar-line);
 }
 
 .board-scroll::-webkit-scrollbar-corner,
-.note-scroll::-webkit-scrollbar-corner {
+.card-scroll::-webkit-scrollbar-corner {
   box-shadow: inset 1px 1px var(--bar-line);
 }
 
 @supports not selector(::-webkit-scrollbar) {
   .board-scroll,
-  .note-scroll {
+  .card-scroll {
     scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   }
 }
@@ -675,7 +675,7 @@ main {
   background-position: calc(var(--margin-left, 0px) - 10px) calc(var(--margin-top, 0px) - 10px);
 }
 
-.canvas.tool-note,
+.canvas.tool-card,
 .canvas.tool-bucket {
   cursor: crosshair;
 }
@@ -708,7 +708,7 @@ main {
   cursor: grabbing;
 }
 
-.canvas:not(.tool-select) .post-it,
+.canvas:not(.tool-select) .card,
 .canvas:not(.tool-select) .bucket-head {
   cursor: inherit;
 }
@@ -719,7 +719,7 @@ main {
   position: absolute;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: var(--frame-bg);
+  background: var(--bucket-bg);
   transition: border-color 0.12s, background 0.12s;
 }
 
@@ -730,7 +730,7 @@ main {
 
 .bucket.drop-target {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 7%, var(--frame-bg));
+  background: color-mix(in srgb, var(--accent) 7%, var(--bucket-bg));
 }
 
 /* A bucket's rim moves it, like its name; inside, a drag draws a selection rectangle. */
@@ -763,7 +763,7 @@ main {
   cursor: inherit;
 }
 
-/* The selection rectangle, on the board and in the expanded post-it. */
+/* The selection rectangle, on the board and in the expanded card. */
 .marquee {
   position: absolute;
   z-index: 20;
@@ -776,8 +776,8 @@ main {
 /* Space held: a press pans. */
 .canvas.space-pan,
 .canvas.space-pan *,
-.note-canvas.space-pan,
-.note-canvas.space-pan * {
+.card-canvas.space-pan,
+.card-canvas.space-pan * {
   cursor: grab !important;
 }
 
@@ -832,9 +832,9 @@ main {
   background: transparent;
 }
 
-/* Post-its */
+/* Cards */
 
-.post-it {
+.card {
   position: absolute;
   display: flex;
   flex-direction: column;
@@ -849,7 +849,7 @@ main {
 }
 
 /* The folded corner. */
-.post-it::after {
+.card::after {
   content: '';
   position: absolute;
   right: 0;
@@ -860,27 +860,27 @@ main {
   background: linear-gradient(135deg, transparent 50%, rgba(0, 0, 0, 0.14) 50%);
 }
 
-.canvas.tool-select .post-it:hover:not(.lifted) {
+.canvas.tool-select .card:hover:not(.lifted) {
   transform: translateY(-2px);
   box-shadow: 0 2px 2px rgba(0, 0, 0, 0.25), 0 14px 28px rgba(0, 0, 0, 0.4);
 }
 
-.post-it:focus-visible {
+.card:focus-visible {
   outline-offset: 3px;
 }
 
-.post-it.selected {
+.card.selected {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
 
-.post-it.drop-target {
+.card.drop-target {
   outline: 2px dashed var(--accent);
   outline-offset: 4px;
 }
 
-/* Carried post-its and images are see-through, so you can see where they go. */
-.post-it.lifted {
+/* Carried cards and images are see-through, so you can see where they go. */
+.card.lifted {
   z-index: 2;
   opacity: 0.6;
   transform: rotate(3deg) scale(1.03);
@@ -888,7 +888,7 @@ main {
   cursor: grabbing;
 }
 
-.post-it.agent-working {
+.card.agent-working {
   box-shadow: 0 0 0 2px var(--halo), 0 0 0 7px rgba(196, 167, 255, 0.18), 0 6px 14px rgba(0, 0, 0, 0.28);
   animation: halo 2.4s ease-in-out infinite;
 }
@@ -900,19 +900,19 @@ main {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .post-it.agent-working {
+  .card.agent-working {
     animation: none;
   }
 }
 
 /* Room on the right for the corner stack. */
-.post-it-head {
+.card-head {
   display: flex;
   min-height: 0;
   padding-right: 30px;
 }
 
-.post-it-title {
+.card-title {
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
@@ -926,11 +926,11 @@ main {
 }
 
 /*
- * The corner stack: how many blocks and images the post-it holds, in a circle the size of an assignee and in line with
+ * The corner stack: how many components and images the card holds, in a circle the size of an assignee and in line with
  * them. On hover (or focus, or when selected) the count becomes the expand button, with copy link below it in one
- * pill. An empty post-it shows nothing there until it is hovered. No transitions: it changes at once.
+ * pill. An empty card shows nothing there until it is hovered. No transitions: it changes at once.
  */
-.post-it-corner {
+.card-corner {
   position: absolute;
   top: 9px;
   right: 12px;
@@ -943,21 +943,21 @@ main {
   color: #2a2b30;
 }
 
-.post-it:hover .post-it-corner,
-.post-it:focus-within .post-it-corner,
-.post-it.selected .post-it-corner,
-.post-it.link-copied .post-it-corner {
+.card:hover .card-corner,
+.card:focus-within .card-corner,
+.card.selected .card-corner,
+.card.link-copied .card-corner {
   background: rgba(23, 24, 27, 0.13);
 }
 
-.post-it-count {
+.card-count {
   display: grid;
   place-items: center;
   height: 24px;
   font: 11px/1 var(--mono);
 }
 
-.post-it-corner button {
+.card-corner button {
   display: none;
   place-items: center;
   width: 24px;
@@ -970,32 +970,32 @@ main {
   cursor: pointer;
 }
 
-.post-it:hover .post-it-count,
-.post-it:focus-within .post-it-count,
-.post-it.selected .post-it-count,
-.post-it.link-copied .post-it-count {
+.card:hover .card-count,
+.card:focus-within .card-count,
+.card.selected .card-count,
+.card.link-copied .card-count {
   display: none;
 }
 
-.post-it:hover .post-it-corner button,
-.post-it:focus-within .post-it-corner button,
-.post-it.selected .post-it-corner button,
-.post-it.link-copied .post-it-corner button {
+.card:hover .card-corner button,
+.card:focus-within .card-corner button,
+.card.selected .card-corner button,
+.card.link-copied .card-corner button {
   display: grid;
 }
 
-.post-it-corner button:hover,
-.post-it-corner button:focus-visible,
-.post-it-corner button.copied {
+.card-corner button:hover,
+.card-corner button:focus-visible,
+.card-corner button.copied {
   background: rgba(23, 24, 27, 0.12);
 }
 
-/* "Link copied" for a moment, above the post-it's corner. */
-.post-it.link-copied {
+/* "Link copied" for a moment, above the card's corner. */
+.card.link-copied {
   z-index: 2;
 }
 
-.post-it-copied {
+.card-copied {
   position: absolute;
   right: -4px;
   bottom: calc(100% + 8px);
@@ -1009,7 +1009,7 @@ main {
   pointer-events: none;
 }
 
-.post-it-foot {
+.card-foot {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
@@ -1018,7 +1018,7 @@ main {
 }
 
 /* Tags wrap to a second row, never more. */
-.post-it-tags {
+.card-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
@@ -1037,7 +1037,7 @@ main {
 }
 
 /* Outlined in the shade of the fill that tags and the corner count use, which also parts overlapping avatars. */
-.post-it .avatar {
+.card .avatar {
   border: 2px solid color-mix(in srgb, var(--fill), #17181b 12%);
 }
 
@@ -1050,12 +1050,12 @@ main {
   opacity: 0;
 }
 
-.post-it:hover .avatar-slot {
+.card:hover .avatar-slot {
   opacity: 1;
 }
 
 /*
- * Corner handles of a selected item that can be resized (buckets, images, blocks): centred on the corners of the
+ * Corner handles of a selected item that can be resized (buckets, images, components): centred on the corners of the
  * selection outline (2 px, 3 px out), with a larger invisible area to grab.
  */
 .handle {
@@ -1108,13 +1108,13 @@ main {
 .edge.e { right: -10px; }
 .edge.w { left: -10px; }
 
-.post-it-slot {
+.card-slot {
   position: absolute;
   border: 1.5px dashed var(--slot);
   border-radius: 4px;
 }
 
-/* Floating tool rail, and the expanded post-it's bar that looks the same */
+/* Floating tool rail, and the expanded card's bar that looks the same */
 
 .rail {
   display: flex;
@@ -1169,7 +1169,7 @@ main {
 .rail-button.tone-coral { color: var(--fill-coral); }
 .rail-button.tone-lilac { color: var(--fill-lilac); }
 
-/* The post-it button while a post-it is dragged: a trash can, lit up while the pointer is on it. */
+/* The card button while a card is dragged: a trash can, lit up while the pointer is on it. */
 .rail-button.trash {
   color: var(--danger);
 }
@@ -1194,7 +1194,8 @@ main {
   color: var(--danger);
 }
 
-.rail-note {
+/* A rail button with a flyout next to it */
+.rail-anchor {
   position: relative;
 }
 
@@ -1306,7 +1307,7 @@ main {
   pointer-events: none;
 }
 
-/* The search and its results stay usable above the open post-it and the trash window. */
+/* The search and its results stay usable above the open card and the trash window. */
 .board-top.searching {
   z-index: 12;
 }
@@ -1359,10 +1360,10 @@ main {
 .minimap-bucket {
   position: absolute;
   border-radius: 2px;
-  background: var(--minimap-block);
+  background: var(--minimap-bucket-fill);
 }
 
-.minimap-note {
+.minimap-card {
   position: absolute;
   border-radius: 1px;
   background: var(--fill);
@@ -1452,13 +1453,13 @@ main {
   gap: 8px;
 }
 
-.inspector-note {
+.inspector-hint {
   margin: 0;
   color: var(--subtle);
   font-size: 12px;
 }
 
-/* Expanded post-it: a window floating over the board, which stays fully visible around it */
+/* Expanded card: a window floating over the board, which stays fully visible around it */
 
 .expanded {
   position: absolute;
@@ -1483,7 +1484,7 @@ main {
   cursor: grab;
 }
 
-.expanded .note-viewport {
+.expanded .card-viewport {
   overflow: hidden;
   border-radius: 0 0 15px 15px;
 }
@@ -1492,12 +1493,12 @@ main {
  * While the window is moved or resized, its canvas catches up with the new size a frame later, so the scroll thumbs
  * would flash on and off. They stay hidden until it is done, and then only show when there is something to scroll to.
  */
-.expanded.moving .note-scroll::-webkit-scrollbar-thumb {
+.expanded.moving .card-scroll::-webkit-scrollbar-thumb {
   background: transparent;
 }
 
 @supports not selector(::-webkit-scrollbar) {
-  .expanded.moving .note-scroll {
+  .expanded.moving .card-scroll {
     scrollbar-color: transparent var(--scrollbar-track);
   }
 }
@@ -1733,27 +1734,27 @@ input.editable {
   font-size: 12px;
 }
 
-/* The post-it's own canvas: blocks and images, with zoom and pan */
+/* The card's own canvas: components and images, with zoom and pan */
 
-.note-viewport {
+.card-viewport {
   position: relative;
   flex: 1;
   min-height: 0;
   background-color: var(--mini-bg);
 }
 
-.note-scroll {
+.card-scroll {
   position: absolute;
   inset: 0;
   outline: none;
 }
 
-.note-scroll.file-over .note-canvas {
+.card-scroll.file-over .card-canvas {
   outline: 2px dashed var(--accent);
   outline-offset: -8px;
 }
 
-.note-canvas {
+.card-canvas {
   position: absolute;
   top: 0;
   left: 0;
@@ -1766,11 +1767,11 @@ input.editable {
   cursor: grab;
 }
 
-.note-canvas.panning {
+.card-canvas.panning {
   cursor: grabbing;
 }
 
-.note-empty {
+.card-empty {
   position: absolute;
   top: 40%;
   left: 50%;
@@ -1783,7 +1784,7 @@ input.editable {
   pointer-events: none;
 }
 
-.note-block {
+.card-component {
   position: absolute;
   display: flex;
   flex-direction: column;
@@ -1795,17 +1796,17 @@ input.editable {
   user-select: text;
 }
 
-.note-block.selected {
+.card-component.selected {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
 
-.note-block.lifted {
+.card-component.lifted {
   z-index: 2;
   box-shadow: 0 28px 60px rgba(0, 0, 0, 0.55);
 }
 
-.block-head {
+.component-head {
   display: flex;
   flex: none;
   align-items: center;
@@ -1817,15 +1818,15 @@ input.editable {
   user-select: none;
 }
 
-.note-block.lifted .block-head {
+.card-component.lifted .component-head {
   cursor: grabbing;
 }
 
-.block-head svg {
+.component-head svg {
   flex: none;
 }
 
-.block-title {
+.component-title {
   min-width: 0;
   max-width: calc(100% - 60px);
   padding: 2px 4px;
@@ -1839,21 +1840,21 @@ input.editable {
   text-transform: uppercase;
 }
 
-.block-title::placeholder {
+.component-title::placeholder {
   color: var(--muted);
 }
 
-.block-title:focus {
+.component-title:focus {
   background: var(--bg);
   color: var(--text);
   outline: none;
 }
 
-.block-title:read-only:focus {
+.component-title:read-only:focus {
   background: transparent;
 }
 
-.block-remove {
+.component-remove {
   display: grid;
   place-items: center;
   width: 24px;
@@ -1867,22 +1868,22 @@ input.editable {
   opacity: 0;
 }
 
-.note-block:hover .block-remove,
-.note-block.selected .block-remove,
-.block-remove:focus-visible {
+.card-component:hover .component-remove,
+.card-component.selected .component-remove,
+.component-remove:focus-visible {
   opacity: 1;
 }
 
-.block-remove {
+.component-remove {
   color: var(--danger);
 }
 
-.block-remove:hover {
+.component-remove:hover {
   background: color-mix(in srgb, var(--danger) 16%, transparent);
   color: var(--danger);
 }
 
-.block-body {
+.component-body {
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -1892,18 +1893,18 @@ input.editable {
   overflow: auto;
 }
 
-.block-progress {
+.component-progress {
   align-self: flex-end;
   margin-top: -2px;
   color: var(--muted);
   font-size: 11px;
 }
 
-.kind-text .block-body {
+.kind-text .component-body {
   padding: 0;
 }
 
-.block-text {
+.component-text {
   flex: 1;
   min-height: 0;
   padding: 2px 14px 14px;
@@ -1914,33 +1915,33 @@ input.editable {
   line-height: 1.55;
 }
 
-.block-text:focus-visible {
+.component-text:focus-visible {
   outline: none;
 }
 
-.block-text::-webkit-scrollbar-track {
+.component-text::-webkit-scrollbar-track {
   margin-bottom: 10px;
 }
 
-.block-text::placeholder {
+.component-text::placeholder {
   color: var(--subtle);
 }
 
-/* A text block's rendered Markdown; a click edits it. */
-.block-view {
+/* A text component's rendered Markdown; a click edits it. */
+.component-view {
   cursor: text;
 }
 
-.block-view .markdown {
+.component-view .markdown {
   font-size: inherit;
   line-height: inherit;
 }
 
-.block-plain {
+.component-plain {
   white-space: pre-wrap;
 }
 
-.note-canvas .board-image {
+.card-canvas .board-image {
   cursor: grab;
 }
 
@@ -1982,8 +1983,8 @@ input.editable {
   object-fit: cover;
 }
 
-/* The post-it inside is see-through already (lifted). */
-.drag-ghost.post-it-ghost {
+/* The card inside is see-through already (lifted). */
+.drag-ghost.card-ghost {
   opacity: 1;
   width: 200px;
   height: 120px;
@@ -1991,8 +1992,8 @@ input.editable {
   transform-origin: 0 0;
 }
 
-/* A new post-it over the trash can fades: letting go there puts it back. */
-.drag-ghost.post-it-ghost.over-trash {
+/* A new card over the trash can fades: letting go there puts it back. */
+.drag-ghost.card-ghost.over-trash {
   opacity: 0.35;
 }
 
@@ -2005,7 +2006,7 @@ input.editable {
   pointer-events: none;
 }
 
-.note-zoom {
+.card-zoom {
   position: absolute;
   right: calc(16px + var(--scrollbar));
   bottom: calc(16px + var(--scrollbar));
@@ -2013,7 +2014,7 @@ input.editable {
   box-shadow: var(--float-shadow);
 }
 
-.note-bar {
+.card-bar {
   position: absolute;
   bottom: calc(16px + var(--scrollbar));
   left: 50%;
@@ -2021,20 +2022,20 @@ input.editable {
   transform: translateX(-50%);
 }
 
-.note-bar .rail-divider {
+.card-bar .rail-divider {
   width: 1px;
   height: auto;
   margin: 6px 4px;
 }
 
-/* The post-it's pen: its ink shows as a dot on the button (a dark ink wouldn't show as the icon's colour), and its inks
+/* The card's pen: its ink shows as a dot on the button (a dark ink wouldn't show as the icon's color), and its inks
    and sizes open above the bar. */
-.note-pen {
+.card-pen {
   position: relative;
   display: flex;
 }
 
-/* The pen, in the tool rail and in the post-it's bar: its ink shows in a dot in the corner. */
+/* The pen, in the tool rail and in the card's bar: its ink shows in a dot in the corner. */
 .pen-button {
   position: relative;
 }
@@ -2051,7 +2052,7 @@ input.editable {
   box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 2.5px var(--scrollbar-thumb-hover);
 }
 
-.note-pen-flyout {
+.card-pen-flyout {
   position: absolute;
   bottom: calc(100% + 14px);
   left: 50%;
@@ -2066,17 +2067,17 @@ input.editable {
   transform: translateX(-50%);
 }
 
-.note-canvas.pen {
+.card-canvas.pen {
   cursor: none;
 }
 
-.note-canvas.pen.panning {
+.card-canvas.pen.panning {
   cursor: grabbing;
 }
 
-/* With the pen on, presses on strokes and blocks draw instead. */
-.note-canvas.pen .stroke-hit,
-.note-canvas.pen .drawing-box {
+/* With the pen on, presses on strokes and components draw instead. */
+.card-canvas.pen .stroke-hit,
+.card-canvas.pen .drawing-box {
   cursor: inherit;
 }
 
@@ -3221,7 +3222,7 @@ a.button.primary:hover {
 .expanded.read-only .chip-remove,
 .expanded.read-only .row-remove,
 .expanded.read-only .widget-add,
-.expanded.read-only .note-bar {
+.expanded.read-only .card-bar {
   display: none;
 }
 
@@ -3545,8 +3546,8 @@ a.button.primary:hover {
 }
 
 /*
- * Tag colours (TagColor). Default is a shade of whatever the tag sits on; the 11 others are deep, muted takes on the
- * post-it fills (brick ~ coral, ochre ~ butter, pine ~ mint, ocean ~ sky, violet ~ lilac) plus hues in between, all
+ * Tag colors (TagColor). Default is a shade of whatever the tag sits on; the 11 others are deep, muted takes on the
+ * card fills (brick ~ coral, ochre ~ butter, pine ~ mint, ocean ~ sky, violet ~ lilac) plus hues in between, all
  * equally light (OKLCH L ~0.52), so each stands out on every fill without clashing. White text reads on all of them.
  */
 .tag-color-brick { --tag: #ae4538; }
@@ -3573,7 +3574,7 @@ a.button.primary:hover {
   color: var(--text);
 }
 
-/* Ink is nearly the colour of the dark windows, so there it gets a light edge. */
+/* Ink is nearly the color of the dark windows, so there it gets a light edge. */
 .picker-chip.tag-color-ink,
 .tag-filter-chip.tag-color-ink {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
@@ -3583,7 +3584,7 @@ a.button.primary:hover {
   color: inherit;
 }
 
-/* A tag's colour circle in the tag windows; in the post-it's tag window it opens the palette. */
+/* A tag's color circle in the tag windows; in the card's tag window it opens the palette. */
 .picker-color {
   display: grid;
   flex: none;
@@ -3646,9 +3647,9 @@ button.picker-color:hover,
   box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--line-strong);
 }
 
-/* Quick edit on a post-it: its tags and people open the search window */
+/* Quick edit on a card: its tags and people open the search window */
 
-.post-it .quick-edit {
+.card .quick-edit {
   margin: -3px;
   padding: 3px;
   border: 0;
@@ -3660,17 +3661,17 @@ button.picker-color:hover,
   cursor: pointer;
 }
 
-.post-it .quick-edit:hover,
-.post-it .quick-edit:focus-visible {
+.card .quick-edit:hover,
+.card .quick-edit:focus-visible {
   background: rgba(23, 24, 27, 0.08);
 }
 
-.post-it-tags.quick-edit {
+.card-tags.quick-edit {
   max-height: 48px;
 }
 
 /* A flex box, so the empty slot inside keeps its size (inline it would collapse). */
-.post-it-people {
+.card-people {
   display: flex;
   flex: none;
   border-radius: 999px;
@@ -3683,28 +3684,28 @@ button.picker-color:hover,
   opacity: 0;
 }
 
-.post-it:hover .tag-add,
-.post-it:focus-within .tag-add,
-.post-it.selected .tag-add,
-.post-it.selected .avatar-slot,
-.post-it:focus-within .avatar-slot {
+.card:hover .tag-add,
+.card:focus-within .tag-add,
+.card.selected .tag-add,
+.card.selected .avatar-slot,
+.card:focus-within .avatar-slot {
   opacity: 1;
 }
 
-/* The tag filter fades post-its without the picked tags; they stay where they are and still work. */
+/* The tag filter fades cards without the picked tags; they stay where they are and still work. */
 
-.post-it.dimmed {
+.card.dimmed {
   opacity: 0.28;
   filter: saturate(0.6);
 }
 
-.post-it.dimmed:hover,
-.post-it.dimmed.selected,
-.post-it.dimmed:focus-within {
+.card.dimmed:hover,
+.card.dimmed.selected,
+.card.dimmed:focus-within {
   opacity: 0.85;
 }
 
-.minimap-note.dimmed {
+.minimap-card.dimmed {
   opacity: 0.25;
 }
 
@@ -3771,8 +3772,8 @@ button.picker-color:hover,
 }
 
 /*
- * The board search (BoardSearch): a pill shaped like the tag filter's, with the matching post-its listed under it.
- * Post-its without the words fade like the tag filter fades them; the words are marked where they show.
+ * The board search (BoardSearch): a pill shaped like the tag filter's, with the matching cards listed under it.
+ * Cards without the words fade like the tag filter fades them; the words are marked where they show.
  */
 
 .board-search {
@@ -3995,8 +3996,8 @@ button.picker-color:hover,
   background: var(--tool-hover);
 }
 
-/* Marked words: a highlighter stroke on the post-it fills, a tint of the accent on dark panels. */
-.post-it mark,
+/* Marked words: a highlighter stroke on the card fills, a tint of the accent on dark panels. */
+.card mark,
 .band mark {
   margin: 0 -1px;
   padding: 0 1px;
@@ -4014,26 +4015,26 @@ button.picker-color:hover,
 }
 
 .search-results mark,
-.note-block mark {
+.card-component mark {
   border-radius: 2px;
   background: color-mix(in srgb, var(--accent) 24%, transparent);
   color: var(--text);
 }
 
-/* The result being looked at, on the board and in the minimap; blocks in the open post-it where the words were found. */
-.post-it.search-current {
+/* The result being looked at, on the board and in the minimap; components in the open card where the words were found. */
+.card.search-current {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
   box-shadow: 0 0 0 7px rgba(124, 196, 255, 0.16), 0 6px 14px rgba(0, 0, 0, 0.28);
 }
 
-.minimap-note.current {
+.minimap-card.current {
   z-index: 1;
   opacity: 1;
   box-shadow: 0 0 0 1.5px var(--accent);
 }
 
-.note-block.matched {
+.card-component.matched {
   border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
 }
 
@@ -4043,9 +4044,9 @@ button.picker-color:hover,
   font-size: 12px;
 }
 
-/* The post-it's ID: a click copies a link that opens the post-it */
+/* The card's ID: a click copies a link that opens the card */
 
-.note-id {
+.card-id {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -4059,11 +4060,11 @@ button.picker-color:hover,
   font: 11px var(--mono);
 }
 
-.note-id:hover {
+.card-id:hover {
   background: rgba(23, 24, 27, 0.08);
 }
 
-/* A linked post-it shows its fill; post-its to link show up below the address field while typing */
+/* A linked card shows its fill; cards to link show up below the address field while typing */
 
 .link-swatch {
   flex: none;
@@ -4087,20 +4088,20 @@ button.picker-color:hover,
   text-align: left;
 }
 
-/* A post-it's title edited in place: looks like the title itself, as in the expanded post-it (no box, a thin focus ring) */
+/* A card's title edited in place: looks like the title itself, as in the expanded card (no box, a thin focus ring) */
 
-.post-it-title.editable-title {
+.card-title.editable-title {
   cursor: pointer;
 }
 
-.post-it-title-input {
+.card-title-input {
   display: block;
   flex: 1;
   min-width: 0;
   max-height: calc(3 * 1.3em);
   margin: 0;
   padding: 0;
-  /* A longer title scrolls with the text cursor, without a scrollbar squeezed into the post-it. */
+  /* A longer title scrolls with the text cursor, without a scrollbar squeezed into the card. */
   overflow: hidden auto;
   scrollbar-width: none;
   border: 0;
@@ -4118,8 +4119,8 @@ button.picker-color:hover,
   cursor: text;
 }
 
-.post-it-title-input:focus,
-.post-it-title-input:focus-visible {
+.card-title-input:focus,
+.card-title-input:focus-visible {
   outline: 1px solid var(--ink);
   outline-offset: 3px;
 }
@@ -4350,13 +4351,13 @@ button.picker-color:hover,
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: var(--frame-bg);
+  background: var(--bucket-bg);
   transition: border-color 0.12s, background 0.12s;
 }
 
 .admin-bucket.drop-target {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 7%, var(--frame-bg));
+  background: color-mix(in srgb, var(--accent) 7%, var(--bucket-bg));
 }
 
 .admin-admins {
@@ -4542,7 +4543,7 @@ button.picker-color:hover,
   color: var(--muted);
 }
 
-/* Inside the top-right corner, in the same spot for the bucket and its collapsed square (they share that corner), so it can be clicked again and again. Clear of the post-its, which sit a grid step in. */
+/* Inside the top-right corner, in the same spot for the bucket and its collapsed square (they share that corner), so it can be clicked again and again. Clear of the cards, which sit a grid step in. */
 .bucket > .bucket-fold,
 .bucket-collapsed > .bucket-fold {
   top: 1px;
@@ -4564,7 +4565,7 @@ button.picker-color:hover,
   padding: 10px;
   border: 1px solid var(--line-strong);
   border-radius: 10px;
-  background: var(--frame-bg);
+  background: var(--bucket-bg);
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
   color: var(--muted);
   cursor: grab;
@@ -4583,7 +4584,7 @@ button.picker-color:hover,
 
 .bucket-collapsed.drop-target {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--frame-bg));
+  background: color-mix(in srgb, var(--accent) 12%, var(--bucket-bg));
   color: var(--accent);
 }
 
@@ -4601,9 +4602,9 @@ button.picker-color:hover,
   white-space: nowrap;
 }
 
-/* The trash window: an expanded post-it's frame with a dark band and a search that is always there */
+/* The trash window: a window like the expanded card's, with a dark band and a search that is always there */
 
-/* Below the expanded post-it, so one opened from the trash shows on top of it. */
+/* Below the expanded card, so one opened from the trash shows on top of it. */
 .expanded.trash-window {
   z-index: 10;
 }
@@ -4680,21 +4681,21 @@ button.picker-color:hover,
   cursor: default;
 }
 
-.trash-canvas .post-it {
+.trash-canvas .card {
   cursor: grab;
 }
 
-.trash-canvas .leaving .post-it {
+.trash-canvas .leaving .card {
   opacity: 0.3;
 }
 
-/* Put back takes the place of the people button on a post-it in the trash. */
+/* Put back takes the place of the people button on a card in the trash. */
 .put-back-slot {
   align-items: center;
   gap: 4px;
 }
 
-.post-it-put-back {
+.card-put-back {
   display: grid;
   flex: none;
   place-items: center;
@@ -4707,12 +4708,12 @@ button.picker-color:hover,
   color: var(--ink);
 }
 
-.post-it-put-back:hover {
+.card-put-back:hover {
   background: rgba(23, 24, 27, 0.24);
 }
 
 /* Delete for good, next to put back: red once the pointer is on it. */
-.post-it-put-back.purge:hover {
+.card-put-back.purge:hover {
   background: var(--danger-strong);
   color: #ffffff;
 }

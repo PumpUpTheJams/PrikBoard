@@ -26,7 +26,7 @@ public static class BoardTransferEndpoints
             .WithName("exportBoard")
             .WithSummary("Export a board to a file")
             .WithDescription("Returns the board's content as one self-contained JSON file (sent as a download): name, description, agent rules, " +
-                             "buckets, tags, notes and images with their bytes as base64. Members, roles and user ids are not included. " +
+                             "buckets, tags, cards and images with their bytes as base64. Members, roles and user ids are not included. " +
                              "Pass the file to importBoard to make a new board from it.");
 
         boards.MapPost("/import", ImportBoard)
@@ -35,9 +35,9 @@ public static class BoardTransferEndpoints
             .WithName("importBoard")
             .WithSummary("Import a board from an export file")
             .WithDescription("Send the file from exportBoard as the request body. It always creates a new board, which you own, and never changes " +
-                             "an existing one. Ids and the short id are made new (notes keep their numbers), positions are snapped to the grid, " +
-                             "and each note's bucket follows from where it sits. " +
-                             "Notes are created by you and have no assignees. Tokens limited to chosen boards cannot import.")
+                             "an existing one. Ids and the short id are made new (cards keep their numbers), positions are snapped to the grid, " +
+                             "and each card's bucket follows from where it sits. " +
+                             "Cards are created by you and have no assignees. Tokens limited to chosen boards cannot import.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status403Forbidden);
 
@@ -49,7 +49,7 @@ public static class BoardTransferEndpoints
     {
         var board = await db.Boards.AsNoTracking()
             .Include(b => b.Buckets)
-            .Include(b => b.Notes)
+            .Include(b => b.Cards)
             .Include(b => b.Images).ThenInclude(i => i.File)
             .Include(b => b.Drawings).ThenInclude(d => d.Content)
             .Include(b => b.Tags)
@@ -57,17 +57,17 @@ public static class BoardTransferEndpoints
             .FirstOrDefaultAsync(b => b.Id == boardId, ct);
         if (board is null) return TypedResults.NotFound();
 
-        // Links to notes on this board point at them by id, the one thing the file keeps of them (see FollowLinks).
-        var ids = board.Notes.ToDictionary(n => n.Number, n => n.Id);
+        // Links to cards on this board point at them by id, the one thing the file keeps of them (see FollowLinks).
+        var ids = board.Cards.ToDictionary(n => n.Number, n => n.Id);
         string InFile(string url) =>
-            NoteLinks.TryParse(url, out var target) && target.BoardShortId == board.ShortId && ids.TryGetValue(target.Number, out var id)
-                ? NoteLinks.NotePath(board.Id, id)
+            CardLinks.TryParse(url, out var target) && target.BoardShortId == board.ShortId && ids.TryGetValue(target.Number, out var id)
+                ? CardLinks.CardPath(board.Id, id)
                 : url;
 
         var images = new List<ExportedImage>();
         foreach (var i in board.Images.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id))
         {
-            images.Add(new ExportedImage(i.NoteId, i.File!.FileName, i.Caption, i.X, i.Y, i.Width, await files.ReadAllBytesAsync(i.File, ct)));
+            images.Add(new ExportedImage(i.CardId, i.File!.FileName, i.Caption, i.X, i.Y, i.Width, await files.ReadAllBytesAsync(i.File, ct)));
         }
         var export = new BoardExport(
             BoardExport.FormatName, BoardExport.CurrentVersion, DateTimeOffset.UtcNow,
@@ -75,14 +75,14 @@ public static class BoardTransferEndpoints
             Layout.BackToFront(board.Buckets)
                 .Select(b => new ExportedBucket(b.Name, b.Color, b.X, b.Y, b.Width, b.Height, b.Collapsed)).ToList(),
             board.Tags.OrderBy(t => t.CreatedAt).ThenBy(t => t.Id).Select(t => t.Name).ToList(),
-            // Oldest edit first: the importer gives them rising timestamps, so the most recently edited note stays on top.
-            board.Notes.OrderBy(n => n.UpdatedAt).ThenBy(n => n.Id)
-                .Select(n => new ExportedNote(n.Id, n.Title, n.Color, n.Tags, n.X, n.Y, n.Blocks.Select(b => Exported(b, InFile)).ToList(),
+            // Oldest edit first: the importer gives them rising timestamps, so the most recently edited card stays on top.
+            board.Cards.OrderBy(n => n.UpdatedAt).ThenBy(n => n.Id)
+                .Select(n => new ExportedCard(n.Id, n.Title, n.Color, n.Tags, n.X, n.Y, n.Components.Select(b => Exported(b, InFile)).ToList(),
                     Number: n.Number)).ToList(),
             images,
             board.Tags.Where(t => t.Color != TagColor.Default).ToDictionary(t => t.Name, t => t.Color),
             board.Drawings.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id)
-                .Select(d => new ExportedDrawing(d.NoteId, d.X, d.Y, d.Color, d.StrokeWidth, [.. d.Content!.Points])).ToList(),
+                .Select(d => new ExportedDrawing(d.CardId, d.X, d.Y, d.Color, d.StrokeWidth, [.. d.Content!.Points])).ToList(),
             board.Key);
 
         var fileName = $"{CleanName(board.Name)}.prikboard.json";
@@ -106,7 +106,7 @@ public static class BoardTransferEndpoints
         {
             errors["version"] = [$"This file is version {file.Version}, but this server reads up to version {BoardExport.CurrentVersion}. Update PrikBoard to import it."];
         }
-        if (file.Notes.Select(n => n.Id).Distinct().Count() != file.Notes.Count) errors["notes"] = ["Note ids must be unique within the file."];
+        if (file.Cards.Select(n => n.Id).Distinct().Count() != file.Cards.Count) errors["cards"] = ["Card ids must be unique within the file."];
         if (errors.Count > 0) return TypedResults.ValidationProblem(errors);
 
         var key = file.Key is null ? null : Board.NormalizeKey(file.Key);
@@ -120,7 +120,7 @@ public static class BoardTransferEndpoints
         };
         if (board.Rules is not null) board.RulesUpdatedAt = board.CreatedAt;
 
-        // Distinct timestamps keep the stacking order of buckets and the drawing order of notes.
+        // Distinct timestamps keep the stacking order of buckets and the drawing order of cards.
         var clock = board.CreatedAt;
         foreach (var (bucket, i) in file.Buckets.Select((b, i) => (b, i)))
         {
@@ -137,47 +137,47 @@ public static class BoardTransferEndpoints
         }
 
         var tags = new List<string>();
-        var newIds = file.Notes.ToDictionary(n => n.Id, _ => Guid.CreateVersion7());
-        // The file's numbers when every note has its own, so MPCT-415 is 415 on the copy too; otherwise in file order.
-        var keepNumbers = file.Notes.All(n => n.Number is not null) && file.Notes.Select(n => n.Number).Distinct().Count() == file.Notes.Count;
-        var numbers = file.Notes.Select((n, i) => (n.Id, Number: keepNumbers ? n.Number!.Value : i + 1))
+        var newIds = file.Cards.ToDictionary(n => n.Id, _ => Guid.CreateVersion7());
+        // The file's numbers when every card has its own, so MPCT-415 is 415 on the copy too; otherwise in file order.
+        var keepNumbers = file.Cards.All(n => n.Number is not null) && file.Cards.Select(n => n.Number).Distinct().Count() == file.Cards.Count;
+        var numbers = file.Cards.Select((n, i) => (n.Id, Number: keepNumbers ? n.Number!.Value : i + 1))
             .ToDictionary(n => newIds[n.Id], n => n.Number);
-        board.NextNoteNumber = numbers.Values.DefaultIfEmpty(0).Max() + 1;
+        board.NextCardNumber = numbers.Values.DefaultIfEmpty(0).Max() + 1;
         var createdBy = principal.PrincipalId();
-        foreach (var (source, i) in file.Notes.Select((n, i) => (n, i)))
+        foreach (var (source, i) in file.Cards.Select((n, i) => (n, i)))
         {
-            var noteTags = NoteTags.Normalize(source.Tags);
-            if (noteTags.Any(t => t.Length > NoteTags.MaxLength))
+            var cardTags = CardTags.Normalize(source.Tags);
+            if (cardTags.Any(t => t.Length > CardTags.MaxLength))
             {
-                return Invalid($"notes[{i}].tags", $"A tag is at most {NoteTags.MaxLength} characters.");
+                return Invalid($"cards[{i}].tags", $"A tag is at most {CardTags.MaxLength} characters.");
             }
-            tags.AddRange(noteTags);
+            tags.AddRange(cardTags);
 
-            var note = new Note
+            var card = new Card
             {
                 Id = newIds[source.Id],
                 Number = numbers[newIds[source.Id]],
                 Title = source.Title,
                 Color = source.Color,
-                Tags = noteTags,
+                Tags = cardTags,
                 X = Layout.Snap(source.X),
                 Y = Layout.Snap(source.Y),
                 CreatedById = createdBy,
                 CreatedAt = clock.AddMilliseconds(i),
                 UpdatedAt = clock.AddMilliseconds(i),
             };
-            var blocks = (file.Version >= 2 ? source.Blocks ?? [] : Version1Blocks(source))
+            var components = (source.Components ?? [])
                 .Select(b => b with { Links = b.Links is null ? null : FollowLinks(b.Links, newIds, board.ShortId, numbers) }).ToList();
-            if (NoteBlockEndpoints.BuildAll(note, blocks, $"notes[{i}].") is { } invalidBlock) return invalidBlock;
-            board.Notes.Add(note);
+            if (CardComponentEndpoints.BuildAll(card, components, $"cards[{i}].") is { } invalidComponent) return invalidComponent;
+            board.Cards.Add(card);
         }
 
-        // The tags the file lists (also unused ones), then any a note uses that the list missed.
+        // The tags the file lists (also unused ones), then any a card uses that the list missed.
         var colors = new Dictionary<string, TagColor>();
-        foreach (var (name, color) in file.TagColors ?? []) colors[NoteTags.Normalize(name)] = color;
-        foreach (var (name, i) in NoteTags.Normalize(file.Tags).Concat(tags).Distinct().Select((t, i) => (t, i)))
+        foreach (var (name, color) in file.TagColors ?? []) colors[CardTags.Normalize(name)] = color;
+        foreach (var (name, i) in CardTags.Normalize(file.Tags).Concat(tags).Distinct().Select((t, i) => (t, i)))
         {
-            if (name.Length > NoteTags.MaxLength) return Invalid("tags", $"A tag is at most {NoteTags.MaxLength} characters.");
+            if (name.Length > CardTags.MaxLength) return Invalid("tags", $"A tag is at most {CardTags.MaxLength} characters.");
             board.Tags.Add(new BoardTag { Name = name, Color = colors.GetValueOrDefault(name), CreatedAt = clock.AddMilliseconds(i) });
         }
         if (board.Tags.Count > BoardTag.MaxPerBoard) return Invalid("tags", $"A board has at most {BoardTag.MaxPerBoard} tags.");
@@ -194,16 +194,16 @@ public static class BoardTransferEndpoints
             {
                 return Invalid($"images[{i}].data", "The file is not a PNG, JPEG, GIF or WebP image (or it is larger than 20000 pixels on a side).");
             }
-            Guid? noteId = null;
-            if (source.NoteId is { } sourceNote)
+            Guid? cardId = null;
+            if (source.CardId is { } sourceCard)
             {
-                if (!newIds.TryGetValue(sourceNote, out var mapped)) return Invalid($"images[{i}].noteId", "The note is not in this file.");
-                noteId = mapped;
+                if (!newIds.TryGetValue(sourceCard, out var mapped)) return Invalid($"images[{i}].cardId", "The card is not in this file.");
+                cardId = mapped;
             }
 
             var image = new BoardImage
             {
-                NoteId = noteId,
+                CardId = cardId,
                 PixelWidth = info.Width,
                 PixelHeight = info.Height,
                 Caption = PatchText.Apply(null, source.Caption),
@@ -213,32 +213,23 @@ public static class BoardTransferEndpoints
                 UpdatedAt = clock.AddMilliseconds(i),
             };
             image.Resize(source.Width);
-            if (noteId is null) (image.X, image.Y) = (Layout.Snap(source.X), Layout.Snap(source.Y));
-            else if (file.Version >= 2) (image.X, image.Y) = Layout.OnNoteCanvas(source.X, source.Y, image.Width, image.Height);
-            else
-            {
-                // Version 1 had no place for attached images on the note: like the NoteBlocks migration, a row left to right
-                // one grid step under the lowest block.
-                var note = board.Notes.First(n => n.Id == noteId);
-                var x = Layout.Grid + board.Images.Where(m => m.NoteId == noteId).Sum(m => m.Width + Layout.Grid);
-                var y = Layout.Grid + note.Blocks.Select(b => b.Y + b.Height).DefaultIfEmpty(0).Max();
-                (image.X, image.Y) = Layout.OnNoteCanvas(x, y, image.Width, image.Height);
-            }
+            if (cardId is null) (image.X, image.Y) = (Layout.Snap(source.X), Layout.Snap(source.Y));
+            else (image.X, image.Y) = Layout.OnCardCanvas(source.X, source.Y, image.Width, image.Height);
             board.Images.Add(image);
             contents.Add((image.File, source.Data));
         }
 
         foreach (var (source, i) in (file.Drawings ?? []).Select((d, i) => (d, i)))
         {
-            Guid? noteId = null;
-            if (source.NoteId is { } sourceNote)
+            Guid? cardId = null;
+            if (source.CardId is { } sourceCard)
             {
-                if (!newIds.TryGetValue(sourceNote, out var mapped)) return Invalid($"drawings[{i}].noteId", "The note is not in this file.");
-                noteId = mapped;
+                if (!newIds.TryGetValue(sourceCard, out var mapped)) return Invalid($"drawings[{i}].cardId", "The card is not in this file.");
+                cardId = mapped;
             }
             var drawing = new BoardDrawing
             {
-                NoteId = noteId,
+                CardId = cardId,
                 Color = source.Color,
                 StrokeWidth = source.StrokeWidth,
                 AddedById = createdBy,
@@ -249,8 +240,8 @@ public static class BoardTransferEndpoints
             board.Drawings.Add(drawing);
         }
 
-        Layout.PlaceAll(board.Notes, [.. board.Images, .. board.Drawings], board.Buckets);
-        // Folded up only now, so their notes, images and drawings joined them first.
+        Layout.PlaceAll(board.Cards, [.. board.Images, .. board.Drawings], board.Buckets);
+        // Folded up only now, so their cards, images and drawings joined them first.
         foreach (var (bucket, i) in board.Buckets.Select((b, i) => (b, i))) bucket.Collapsed = file.Buckets[i].Collapsed;
         // Like createBoard: a personal access token imports for its owner, who owns the board; the token keeps its capped role.
         board.Members.Add(new BoardMember { PrincipalId = caller.MemberId, Role = BoardRole.Owner });
@@ -259,7 +250,7 @@ public static class BoardTransferEndpoints
         db.Boards.Add(board);
         await db.SaveChangesAsync(ct);
 
-        var principals = await NoteEndpoints.PrincipalsOnAsync(db, board.Notes, ct);
+        var principals = await CardEndpoints.PrincipalsOnAsync(db, board.Cards, ct);
         var importer = await db.Principals.FindAsync([createdBy], ct);
         foreach (var image in board.Images) image.AddedBy = importer;
         foreach (var drawing in board.Drawings) drawing.AddedBy = importer;
@@ -269,50 +260,31 @@ public static class BoardTransferEndpoints
     }
 
     /// <summary>
-    /// A block as it goes in the file: like a new block, with its place and only the content of its kind, and each link's
+    /// A component as it goes in the file: like a new component, with its place and only the content of its kind, and each link's
     /// url through <paramref name="url"/>.
     /// </summary>
-    private static NewNoteBlock Exported(NoteBlock block, Func<string, string> url)
+    private static NewCardComponent Exported(CardComponent component, Func<string, string> url)
     {
-        var detail = NoteBlockDetail.From(block);
-        return new NewNoteBlock(block.Kind, block.Title, detail.Text, detail.Items?.ToList(),
+        var detail = CardComponentDetail.From(component);
+        return new NewCardComponent(component.Kind, component.Title, detail.Text, detail.Items?.ToList(),
             detail.Links?.Select(l => l with { Url = url(l.Url) }).ToList(),
-            block.X, block.Y, block.Width, block.Height);
+            component.X, component.Y, component.Width, component.Height);
     }
 
     /// <summary>
-    /// A version 1 note's body, checklist and links as a Text, a Checklist and a Links block, each only when there is
-    /// content, laid out side by side and sized like the NoteBlocks migration does for existing notes.
+    /// A link to another card in the file (by its id in the file) becomes that card's new path; web links stay (and invalid
+    /// ones are left for the component's own check); a path to a card outside the file is dropped, as it would dangle.
     /// </summary>
-    private static List<NewNoteBlock> Version1Blocks(ExportedNote note)
+    private static List<CardLink> FollowLinks(
+        IEnumerable<CardLink> links, Dictionary<Guid, Guid> newIds, string shortId, Dictionary<Guid, int> numbers)
     {
-        var blocks = new List<NewNoteBlock>();
-        if (!string.IsNullOrWhiteSpace(note.Body)) blocks.Add(new NewNoteBlock(NoteBlockKind.Text, Text: note.Body));
-        if (note.Checklist is { Count: > 0 } items)
-        {
-            blocks.Add(new NewNoteBlock(NoteBlockKind.Checklist, Items: items, Height: Math.Clamp(120 + 40 * items.Count, 200, 400)));
-        }
-        if (note.Links is { Count: > 0 } links)
-        {
-            blocks.Add(new NewNoteBlock(NoteBlockKind.Links, Links: links, Height: Math.Clamp(120 + 40 * links.Count, 160, 400)));
-        }
-        return blocks;
-    }
-
-    /// <summary>
-    /// A link to another note in the file (by its id in the file) becomes that note's new path; web links stay (and invalid
-    /// ones are left for the block's own check); a path to a note outside the file is dropped, as it would dangle.
-    /// </summary>
-    private static List<NoteLink> FollowLinks(
-        IEnumerable<NoteLink> links, Dictionary<Guid, Guid> newIds, string shortId, Dictionary<Guid, int> numbers)
-    {
-        var followed = new List<NoteLink>();
+        var followed = new List<CardLink>();
         foreach (var link in links)
         {
-            if (!NoteLinks.TryParse(link.Url, out var target)) followed.Add(link);
-            else if (!target.ByNumber && newIds.TryGetValue(target.NoteId, out var newTarget))
+            if (!CardLinks.TryParse(link.Url, out var target)) followed.Add(link);
+            else if (!target.ByNumber && newIds.TryGetValue(target.CardId, out var newTarget))
             {
-                followed.Add(link with { Url = NoteLinks.NotePath(shortId, numbers[newTarget]) });
+                followed.Add(link with { Url = CardLinks.CardPath(shortId, numbers[newTarget]) });
             }
         }
         return followed;

@@ -26,8 +26,8 @@ Every board has members, each with a role:
 
 | Role | Can |
 | --- | --- |
-| **Viewer** | Read the board, its notes and images. |
-| **Editor** | Also create, change and delete buckets, notes and images. |
+| **Viewer** | Read the board, its cards and images. |
+| **Editor** | Also create, change and delete buckets, cards and images. |
 | **Owner** | Also rename or delete the board, manage members and create invite links. |
 
 - listBoards and getBoard include `yourRole`. Whoever creates a board becomes its owner, and a board always keeps at least one owner (changing or removing the last one gives `409`).
@@ -87,52 +87,52 @@ claude mcp add --transport http prikboard http://localhost:5173/mcp --header "Au
 | Tool | What it does |
 | --- | --- |
 | `list_boards` | Your boards with your role on each |
-| `get_board` | Compact overview: the board's agent `rules`, buckets in order with their notes (title, tags, assignees, checklist progress, creator), plus loose notes, the board's `tags` and the `people` who can be assigned |
+| `get_board` | Compact overview: the board's agent `rules`, buckets in order with their cards (title, tags, assignees, checklist progress, creator), plus loose cards, the board's `tags` and the `people` who can be assigned |
 | `get_board_rules` | Just the board's agent rules and when they last changed |
-| `search_notes` | By bucket (name or id), `tags` (any of them), assignee (name or id) or text |
-| `get_note` | Everything about one note, with its content as `blocks` |
-| `create_note` | In a bucket by name or id (default: the first bucket). `assignees` are names or principal ids from `people`. `body`, `checklist` and `links` become its first Text, Checklist and Links blocks |
-| `update_note` | Same PATCH rules as updateNote; `assignees` by name or id |
-| `add_note_block`, `update_note_block`, `delete_note_block` | A note's content. A block is named by its id, its title, or its kind when the note has one block of that kind; `delete_note_block` is marked destructive |
-| `add_image` | Like uploadImage, with the file base64-encoded in `data` (a `data:` URL works too): attached to a note (`noteId`) or on the board (`boardId`), in a free spot unless `x` and `y` are given. Slow beyond a few KB, since the agent writes out every character |
+| `search_cards` | By bucket (name or id), `tags` (any of them), assignee (name or id) or text |
+| `get_card` | Everything about one card, with its content as `components` |
+| `create_card` | In a bucket by name or id (default: the first bucket). `assignees` are names or principal ids from `people`. `body`, `checklist` and `links` become its first Text, Checklist and Links components |
+| `update_card` | Same PATCH rules as updateCard; `assignees` by name or id |
+| `add_card_component`, `update_card_component`, `delete_card_component` | A card's content. A component is named by its id, its title, or its kind when the card has one component of that kind; `delete_card_component` is marked destructive |
+| `add_image` | Like uploadImage, with the file base64-encoded in `data` (a `data:` URL works too): attached to a card (`cardId`) or on the board (`boardId`), in a free spot unless `x` and `y` are given. Slow beyond a few KB, since the agent writes out every character |
 | `begin_image_upload` | Like createImageUpload, with the same targets as `add_image`: answers a one-time `uploadUrl` and a `curl -T` `command`, so an agent that can run commands sends the file from disk without it passing through the conversation |
-| `move_note` | To a bucket by name or id; the server finds a free spot |
-| `set_working` | Assign yourself and show (or hide) the working halo, like setNoteWorking |
-| `delete_note`, `restore_note`, `list_deleted_notes`, `purge_note`, `empty_trash` | `delete_note` is marked destructive, so clients ask first; `restore_note` brings a deleted note back within 7 days, at its old place or at `x`/`y`; `list_deleted_notes` shows what is in the trash; `purge_note` and `empty_trash` (also destructive) delete from the trash for good |
-| `collapse_bucket` | Folds a bucket up into a square on the board (its notes hidden there; `collapsed` in `get_board`), or opens it again |
+| `move_card` | To a bucket by name or id; the server finds a free spot |
+| `set_working` | Assign yourself and show (or hide) the working halo, like setCardWorking |
+| `delete_card`, `restore_card`, `list_deleted_cards`, `purge_card`, `empty_trash` | `delete_card` is marked destructive, so clients ask first; `restore_card` brings a deleted card back within 7 days, at its old place or at `x`/`y`; `list_deleted_cards` shows what is in the trash; `purge_card` and `empty_trash` (also destructive) delete from the trash for good |
+| `collapse_bucket` | Folds a bucket up into a square on the board (its cards hidden there; `collapsed` in `get_board`), or opens it again |
 | `create_bucket`, `rename_bucket` | Bucket housekeeping |
-| `create_tag`, `update_tag`, `delete_tag`, `restore_tag` | The board's tags, by name or id. `create_tag` and `update_tag` take a `color`; renaming and deleting change every note. `delete_tag` is marked destructive, and `restore_tag` puts a deleted tag back on its notes |
+| `create_tag`, `update_tag`, `delete_tag`, `restore_tag` | The board's tags, by name or id. `create_tag` and `update_tag` take a `color`; renaming and deleting change every card. `delete_tag` is marked destructive, and `restore_tag` puts a deleted tag back on its cards |
 
-The tools offer the same features as the REST endpoints. Where REST takes ids (`bucketId`, `assigneeIds`, a tag id), the tools also take names, resolved on the note's board.
+The tools offer the same features as the REST endpoints. Where REST takes ids (`bucketId`, `assigneeIds`, a tag id), the tools also take names, resolved on the card's board.
 
 The tools use the same access checks, validation and layout rules as the REST endpoints, and people watching the board see the changes live. There are no tools for members, invites, tokens or deleting boards. A request with a foreign `Origin` header gets `403`. Tool errors (no access, read-only token, an unknown bucket name) come back as tool results with `isError`, written for the model to act on.
 
-**Agent rules.** A board can have rules in Markdown (`rules` in getBoard): what the board is about and how agents should handle its notes. Only owners set them, through updateBoard; the web app opens them from the tool rail. Agents treat note text as data, but the rules as instructions to follow in every action on the board. The server instructions say so, get_board shows the rules first, and get_board_rules returns them on their own. After every successful write on a board with rules, the tool result gets a second text block: a short reminder with the time the rules last changed, so an agent notices when they change and re-reads them. The rules themselves are not repeated.
+**Agent rules.** A board can have rules in Markdown (`rules` in getBoard): what the board is about and how agents should handle its cards. Only owners set them, through updateBoard; the web app opens them from the tool rail. Agents treat card text as data, but the rules as instructions to follow in every action on the board. The server instructions say so, get_board shows the rules first, and get_board_rules returns them on their own. After every successful write on a board with rules, the tool result gets a second text component: a short reminder with the time the rules last changed, so an agent notices when they change and re-reads them. The rules themselves are not repeated.
 
 ## The board model
 
-A board is a freeform canvas. It holds **buckets**, named rectangles such as *To do*, *Doing* and *Done*, and **notes**, which are 200×120 px post-its. A note (or an image on the board) put somewhere joins the topmost bucket that contains its centre, and its `bucketId` says which one. It stays in that bucket while buckets move: a moved bucket carries exactly its own notes and images, also over or under another bucket, and takes nobody else's. A resized bucket lets go of its items now outside it and takes only loose ones it now covers; a new bucket takes what it is drawn around. A note outside every bucket is loose (`bucketId: null`). Buckets stack in creation order, with the newest on top.
+A board is a freeform canvas. It holds **buckets**, named rectangles such as *To do*, *Doing* and *Done*, and **cards**, which are 200×120 px cards. A card (or an image on the board) put somewhere joins the topmost bucket that contains its centre, and its `bucketId` says which one. It stays in that bucket while buckets move: a moved bucket carries exactly its own cards and images, also over or under another bucket, and takes nobody else's. A resized bucket lets go of its items now outside it and takes only loose ones it now covers; a new bucket takes what it is drawn around. A card outside every bucket is loose (`bucketId: null`). Buckets stack in creation order, with the newest on top.
 
-Coordinates are canvas pixels. The board has no edge at the origin: x and y run from -100000 to 100000, so things can go left of and above 0,0 too. The server snaps them to a 20 px grid, and it works out each note's bucket again whenever a note or bucket moves.
+Coordinates are canvas pixels. The board has no edge at the origin: x and y run from -100000 to 100000, so things can go left of and above 0,0 too. The server snaps them to a 20 px grid, and it works out each card's bucket again whenever a card or bucket moves.
 
-A note's title may be empty: the web app then shows no title on the post-it, and a greyed suggestion in the expanded post-it's title field. Besides a title, a note has a `color` (fill), `tags`, `assignees` (people and agents), an `agentWorking` flag, who created it (`createdBy`, `createdById`; null for notes from before this was recorded) and its content as `blocks`. The board shows the title, tags and assignees on the post-it. Everything else appears when the post-it is expanded.
+A card's title may be empty: the web app then shows no title on the card, and a greyed suggestion in the expanded card's title field. Besides a title, a card has a `color` (fill), `tags`, `assignees` (people and agents), an `agentWorking` flag, who created it (`createdBy`, `createdById`; null for cards from before this was recorded) and its content as `components`. The board shows the title, tags and assignees on the card. Everything else appears when the card is expanded.
 
-A note's content lives on its own small canvas, shown when the post-it is expanded. It holds any number of blocks: `Text` (free text), `Checklist` (`items`) and `Links` (titled `links`), each with an optional `title` and a place (`x`, `y`, `width`, `height` in note pixels, snapped to the 20 px grid). Images attached to the note sit on the same canvas. Change blocks one at a time with addNoteBlock, updateNoteBlock and deleteNoteBlock, so people editing different blocks of a note never overwrite each other. A note's `path` is its address in the web app: opening `/#/boards/{shortId}/notes/{number}` shows the board with that post-it expanded.
+A card's content lives on its own small canvas, shown when the card is expanded. It holds any number of components: `Text` (free text), `Checklist` (`items`) and `Links` (titled `links`), each with an optional `title` and a place (`x`, `y`, `width`, `height` in card pixels, snapped to the 20 px grid). Images attached to the card sit on the same canvas. Change components one at a time with addCardComponent, updateCardComponent and deleteCardComponent, so people editing different components of a card never overwrite each other. A card's `path` is its address in the web app: opening `/#/boards/{shortId}/cards/{number}` shows the board with that card expanded.
 
-**Readable ids.** Every board has a `shortId` (6 random characters, never changed) and a `key` (such as `MPCT`, shown before note numbers; owners change it with updateBoard, and it is not unique). Every note has a `number` on its board (1, 2, 3, …, never reused, not even after a delete) and a `readableId` such as `MPCT-415`. Paths use the short id and the number, so renaming a board or changing its key never breaks a link. getNoteByNumber looks up the note a path points at. The older form `/#/boards/{boardId}/notes/{noteId}` still works: the web app opens it, links in that form to notes on the same board are stored as the note's path, and MCP tools take it. MCP tools also take a board's short id and a note's readable id, which they look up among the boards you can reach (when several of them have a note with that readable id, the tool asks for the path).
+**Readable ids.** Every board has a `shortId` (6 random characters, never changed) and a `key` (such as `MPCT`, shown before card numbers; owners change it with updateBoard, and it is not unique). Every card has a `number` on its board (1, 2, 3, …, never reused, not even after a delete) and a `readableId` such as `MPCT-415`. Paths use the short id and the number, so renaming a board or changing its key never breaks a link. getCardByNumber looks up the card a path points at. The older form `/#/boards/{boardId}/cards/{cardId}` still works: the web app opens it, links in that form to cards on the same board are stored as the card's path, and MCP tools take it. MCP tools also take a board's short id and a card's readable id, which they look up among the boards you can reach (when several of them have a card with that readable id, the tool asks for the path).
 
-A board has its own list of **tags** (`tags` in getBoard, with how many notes use each). Notes pick their tags from it, and a new name on a note adds it to the list. A tag stays when no note uses it; renaming or deleting one changes every note on the board. Each tag has a `color`: `Default` shows it as a shade of the post-it's fill, while `Brick`, `Rust`, `Ochre`, `Moss`, `Pine`, `Teal`, `Ocean`, `Indigo`, `Violet`, `Berry` and `Ink` make it a solid chip of that colour on every post-it, for things that should stand out, such as priority. **Assignees** are the board's `people`: its members, and the agents of members' personal access tokens that reach the board.
+A board has its own list of **tags** (`tags` in getBoard, with how many cards use each). Cards pick their tags from it, and a new name on a card adds it to the list. A tag stays when no card uses it; renaming or deleting one changes every card on the board. Each tag has a `color`: `Default` shows it as a shade of the card's fill, while `Brick`, `Rust`, `Ochre`, `Moss`, `Pine`, `Teal`, `Ocean`, `Indigo`, `Violet`, `Berry` and `Ink` make it a solid chip of that color on every card, for things that should stand out, such as priority. **Assignees** are the board's `people`: its members, and the agents of members' personal access tokens that reach the board.
 
 ## Typical agent workflow
 
 1. `GET /api/boards` (listBoards): find the project.
-2. `GET /api/boards/{boardId}` (getBoard): get a full snapshot with every bucket and note.
+2. `GET /api/boards/{boardId}` (getBoard): get a full snapshot with every bucket and card.
 3. Act on it:
-   - `POST /api/boards/{boardId}/notes` (createNote) adds a task.
-   - `POST /api/notes/{noteId}/move` (moveNote) with a `bucketId` moves a task, for example from *Doing* to *Done*. The server picks a free spot inside the bucket, so you never need coordinates.
-   - `PATCH /api/notes/{noteId}` (updateNote) edits the title, fill, tags or assignees. Reuse the board's `tags`, and assign people by `principalId` from `people`.
-   - `POST /api/notes/{noteId}/blocks` (addNoteBlock) and `PATCH /api/notes/{noteId}/blocks/{blockId}` (updateNoteBlock) add and edit its content: text, checklists and links.
-4. When you start working on a note yourself, call `POST /api/notes/{noteId}/working` (setNoteWorking) with `{"working":true}`: it assigns you and people see a lilac halo around the post-it. Send `false` when you are done; you stay assigned.
+   - `POST /api/boards/{boardId}/cards` (createCard) adds a task.
+   - `POST /api/cards/{cardId}/move` (moveCard) with a `bucketId` moves a task, for example from *Doing* to *Done*. The server picks a free spot inside the bucket, so you never need coordinates.
+   - `PATCH /api/cards/{cardId}` (updateCard) edits the title, fill, tags or assignees. Reuse the board's `tags`, and assign people by `principalId` from `people`.
+   - `POST /api/cards/{cardId}/components` (addCardComponent) and `PATCH /api/cards/{cardId}/components/{componentId}` (updateCardComponent) add and edit its content: text, checklists and links.
+4. When you start working on a card yourself, call `POST /api/cards/{cardId}/working` (setCardWorking) with `{"working":true}`: it assigns you and people see a lilac halo around the card. Send `false` when you are done; you stay assigned.
 
 ```bash
 export TOKEN=...   # an access token from your identity provider (see docs/authentication.md)
@@ -142,29 +142,29 @@ alias pb='curl -H "Authorization: Bearer $TOKEN"'
 pb -X POST localhost:5080/api/boards -H "Content-Type: application/json" \
   -d '{"name":"Website relaunch"}'
 
-# Add a note (lands in the first bucket)
-pb -X POST localhost:5080/api/boards/{boardId}/notes -H "Content-Type: application/json" \
-  -d '{"title":"Pick a colour palette","color":"Coral","tags":["design"]}'
+# Add a card (lands in the first bucket)
+pb -X POST localhost:5080/api/boards/{boardId}/cards -H "Content-Type: application/json" \
+  -d '{"title":"Pick a color palette","color":"Coral","tags":["design"]}'
 
 # Claim it: assigns you (the token's agent) and shows the working halo
-pb -X POST localhost:5080/api/notes/{noteId}/working -H "Content-Type: application/json" -d '{"working":true}'
+pb -X POST localhost:5080/api/cards/{cardId}/working -H "Content-Type: application/json" -d '{"working":true}'
 
 # Assign a teammate (a principalId from people in getBoard)
-pb -X PATCH localhost:5080/api/notes/{noteId} -H "Content-Type: application/json" \
+pb -X PATCH localhost:5080/api/cards/{cardId} -H "Content-Type: application/json" \
   -d '{"assigneeIds":["{yourId}","{teammateId}"]}'
 
-# Add a checklist, then tick off part of it (blockId from the response, or from blocks in getNote)
-pb -X POST localhost:5080/api/notes/{noteId}/blocks -H "Content-Type: application/json" \
+# Add a checklist, then tick off part of it (componentId from the response, or from components in getCard)
+pb -X POST localhost:5080/api/cards/{cardId}/components -H "Content-Type: application/json" \
   -d '{"kind":"Checklist","title":"Done when","items":[{"text":"Three options"},{"text":"Team vote"}]}'
-pb -X PATCH localhost:5080/api/notes/{noteId}/blocks/{blockId} -H "Content-Type: application/json" \
+pb -X PATCH localhost:5080/api/cards/{cardId}/components/{componentId} -H "Content-Type: application/json" \
   -d '{"items":[{"text":"Three options","done":true},{"text":"Team vote","done":false}]}'
 
 # Move it into another bucket
-pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/json" \
+pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/json" \
   -d '{"bucketId":"{doneBucketId}"}'
 
 # Or put it at exact coordinates (its bucket follows from where it lands)
-pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/json" \
+pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/json" \
   -d '{"x":1400,"y":80}'
 ```
 
@@ -172,49 +172,49 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 
 | operationId | Method and path | Purpose |
 | --- | --- | --- |
-| listBoards | `GET /api/boards` | All boards, newest first, without buckets and notes |
+| listBoards | `GET /api/boards` | All boards, newest first, without buckets and cards |
 | createBoard | `POST /api/boards` | New board with the default buckets side by side |
-| getBoard | `GET /api/boards/{boardId}` | Full snapshot: agent `rules` and `rulesUpdatedAt`, buckets back to front, notes grouped by bucket, images, drawings (pen strokes, without their points), the board's `tags` and the `people` who can be assigned |
+| getBoard | `GET /api/boards/{boardId}` | Full snapshot: agent `rules` and `rulesUpdatedAt`, buckets back to front, cards grouped by bucket, images, drawings (pen strokes, without their points), the board's `tags` and the `people` who can be assigned |
 | updateBoard | `PATCH /api/boards/{boardId}` | Rename, change the `key` (a letter, then letters and digits, 2 to 10 in all; upper-cased), or edit the description or agent `rules` (Markdown, at most 20000 characters; an empty string clears them) |
-| deleteBoard | `DELETE /api/boards/{boardId}` | Delete the board with all buckets and notes |
-| exportBoard | `GET /api/boards/{boardId}/export` | The board as one downloadable JSON file (`format: "prikboard-board"`, `version: 2`): name, description, agent rules, buckets, tags (and `tagColors` for tags with a colour), notes with their blocks, and images (bytes as base64; attached ones keep their place on the note's canvas). No members, roles, user ids or assignees. Ids in the file are local to it |
-| importBoard | `POST /api/boards/import` | Send an export file as the body. Always makes a new board that you own (`201`), with new ids; positions snap to the grid and each note's bucket follows from where it sits. Notes are created by you. Version 1 files still import: a note's `body`, `checklist` and `links` become a Text, a Checklist and a Links block, and attached images go in a row under them. `400` for a file that is not valid or newer than the server reads; `403` for tokens limited to chosen boards. Body at most 64 MB |
-| createBucket | `POST /api/boards/{boardId}/buckets` | Draw a bucket at a rectangle, or to the right of the others. Loose notes it covers join it |
-| updateBucket | `PATCH /api/buckets/{bucketId}` | Rename, recolour, move or resize. Moving carries the bucket's own notes, images and drawings along (or exactly the ones in `carryNoteIds`, `carryImageIds` and `carryDrawingIds`, which undo uses) and changes no item's bucket, also over another bucket; a new `x`/`y` together with a new size is a resize from a top or left corner or edge: the notes and images stay put, ones now outside leave it, loose ones now inside join it. `collapsed: true` folds it into a 120 px square in its top-right corner, hiding its notes, images and drawings (they keep their places, and no other items join it) until `collapsed: false`; a collapsed bucket moves but can't be resized |
-| deleteBucket | `DELETE /api/buckets/{bucketId}` | Delete a bucket. Its notes stay where they are and become loose |
-| restoreBucket | `POST /api/buckets/{bucketId}/restore` | Bring back a deleted bucket with the same id and place in the stack; the notes it covers join it again |
-| listNotes | `GET /api/boards/{boardId}/notes?bucketId=&tag=&assignee=&search=` | Filter by bucket, tags (repeat `tag`; any of them matches), assignee (principal id or current name), or search the title and content: text, checklist items and links (all case-insensitive) |
-| createNote | `POST /api/boards/{boardId}/notes` | New note in a bucket's free spot (default: the first bucket), or at `x`/`y`. Butter by default. Can include tags, `assigneeIds` and `blocks` (laid out automatically without `x`/`y`). Records you as its creator |
-| getNote | `GET /api/notes/{noteId}` | A single note |
-| getNoteByNumber | `GET /api/boards/{shortId}/notes/{number}` | The note a path points at, by its board's short id and its number |
-| updateNote | `PATCH /api/notes/{noteId}` | Edit the title, fill, tags, `assigneeIds` or `agentWorking` |
-| setNoteWorking | `POST /api/notes/{noteId}/working` | `{"working":true}` assigns you and shows the halo; `false` takes the halo away (you stay assigned) |
-| moveNote | `POST /api/notes/{noteId}/move` | Move into a bucket (`bucketId`) or to coordinates (`x` and `y`) |
-| deleteNote | `DELETE /api/notes/{noteId}` | Delete a note (and the images attached to it) |
-| restoreNote | `POST /api/notes/{noteId}/restore` | Bring back a deleted note with the same id, content, creator and place, and the images deleted along with it; with `{"x","y"}` it goes there instead |
-| listDeletedNotes | `GET /api/boards/{boardId}/trash?search=` | The trash: notes deleted in the last 7 days (with `deletedAt`), most recently deleted first, optionally searched, with the images deleted along with them |
-| purgeNote | `DELETE /api/boards/{boardId}/trash/{noteId}` | Delete a note in the trash for good, with the images and drawings deleted along with it; `409` when it is not deleted |
-| emptyTrash | `DELETE /api/boards/{boardId}/trash` | Delete every note in the board's trash for good; returns `{"purged"}`, how many notes went |
-| addNoteBlock | `POST /api/notes/{noteId}/blocks` | Add a `Text`, `Checklist` or `Links` block to the note's content, in a free spot unless `x`/`y` are given (at most 30 blocks). `id` puts back a removed block with the id it had (`409` when the note has it) |
-| updateNoteBlock | `PATCH /api/notes/{noteId}/blocks/{blockId}` | Edit a block's `title`, content (`text`, `items` or `links`, whichever fits its kind), position or size |
-| deleteNoteBlock | `DELETE /api/notes/{noteId}/blocks/{blockId}` | Remove a block |
-| listBoardTags | `GET /api/boards/{boardId}/tags` | The board's tags by name, with how many notes use each |
-| createBoardTag | `POST /api/boards/{boardId}/tags` | Add a tag, optionally with a `color`, without putting it on a note (`409` when it exists or the board has 100) |
-| updateBoardTag | `PATCH /api/boards/{boardId}/tags/{tagId}` | Rename a tag (on the board and on every note; `409` when the new name is taken) and/or change its `color` |
-| deleteBoardTag | `DELETE /api/boards/{boardId}/tags/{tagId}` | Delete a tag from the board and from every note |
-| restoreBoardTag | `POST /api/boards/{boardId}/tags/{tagId}/restore` | Bring back a deleted tag and put it back (last) on the notes it was removed from (`409` when a tag has that name again) |
-| uploadImage | `POST /api/boards/{boardId}/images?fileName=&noteId=&x=&y=&width=&caption=` | Add an image or GIF: the file itself is the request body, with its content type. On the board at `x`/`y` (default: right of everything), or attached to a note with `noteId`, at `x`/`y` on its canvas (default: a free spot) |
-| createImageUpload | `POST /api/boards/{boardId}/image-uploads` | A one-time `uploadUrl` (and a `curl -T` `command`) for one image, placed as the body says (`noteId`, `x`, `y`, `width`, `caption`, `fileName`) and added by you. Expires after 15 minutes; at most 20 unused per caller (`409`) |
+| deleteBoard | `DELETE /api/boards/{boardId}` | Delete the board with all buckets and cards |
+| exportBoard | `GET /api/boards/{boardId}/export` | The board as one downloadable JSON file (`format: "prikboard-board"`, `version: 3`): name, description, agent rules, buckets, tags (and `tagColors` for tags with a color), cards with their components, and images (bytes as base64; attached ones keep their place on the card's canvas). No members, roles, user ids or assignees. Ids in the file are local to it |
+| importBoard | `POST /api/boards/import` | Send an export file as the body. Always makes a new board that you own (`201`), with new ids; positions snap to the grid and each card's bucket follows from where it sits. Cards are created by you. `400` for a file that is not valid, newer than the server reads, or from before notes were renamed cards (versions 1 and 2: export the board again); `403` for tokens limited to chosen boards. Body at most 64 MB |
+| createBucket | `POST /api/boards/{boardId}/buckets` | Draw a bucket at a rectangle, or to the right of the others. Loose cards it covers join it |
+| updateBucket | `PATCH /api/buckets/{bucketId}` | Rename, recolor, move or resize. Moving carries the bucket's own cards, images and drawings along (or exactly the ones in `carryCardIds`, `carryImageIds` and `carryDrawingIds`, which undo uses) and changes no item's bucket, also over another bucket; a new `x`/`y` together with a new size is a resize from a top or left corner or edge: the cards and images stay put, ones now outside leave it, loose ones now inside join it. `collapsed: true` folds it into a 120 px square in its top-right corner, hiding its cards, images and drawings (they keep their places, and no other items join it) until `collapsed: false`; a collapsed bucket moves but can't be resized |
+| deleteBucket | `DELETE /api/buckets/{bucketId}` | Delete a bucket. Its cards stay where they are and become loose |
+| restoreBucket | `POST /api/buckets/{bucketId}/restore` | Bring back a deleted bucket with the same id and place in the stack; the cards it covers join it again |
+| listCards | `GET /api/boards/{boardId}/cards?bucketId=&tag=&assignee=&search=` | Filter by bucket, tags (repeat `tag`; any of them matches), assignee (principal id or current name), or search the title and content: text, checklist items and links (all case-insensitive) |
+| createCard | `POST /api/boards/{boardId}/cards` | New card in a bucket's free spot (default: the first bucket), or at `x`/`y`. Butter by default. Can include tags, `assigneeIds` and `components` (laid out automatically without `x`/`y`). Records you as its creator |
+| getCard | `GET /api/cards/{cardId}` | A single card |
+| getCardByNumber | `GET /api/boards/{shortId}/cards/{number}` | The card a path points at, by its board's short id and its number |
+| updateCard | `PATCH /api/cards/{cardId}` | Edit the title, fill, tags, `assigneeIds` or `agentWorking` |
+| setCardWorking | `POST /api/cards/{cardId}/working` | `{"working":true}` assigns you and shows the halo; `false` takes the halo away (you stay assigned) |
+| moveCard | `POST /api/cards/{cardId}/move` | Move into a bucket (`bucketId`) or to coordinates (`x` and `y`) |
+| deleteCard | `DELETE /api/cards/{cardId}` | Delete a card (and the images attached to it) |
+| restoreCard | `POST /api/cards/{cardId}/restore` | Bring back a deleted card with the same id, content, creator and place, and the images deleted along with it; with `{"x","y"}` it goes there instead |
+| listDeletedCards | `GET /api/boards/{boardId}/trash?search=` | The trash: cards deleted in the last 7 days (with `deletedAt`), most recently deleted first, optionally searched, with the images deleted along with them |
+| purgeCard | `DELETE /api/boards/{boardId}/trash/{cardId}` | Delete a card in the trash for good, with the images and drawings deleted along with it; `409` when it is not deleted |
+| emptyTrash | `DELETE /api/boards/{boardId}/trash` | Delete every card in the board's trash for good; returns `{"purged"}`, how many cards went |
+| addCardComponent | `POST /api/cards/{cardId}/components` | Add a `Text`, `Checklist` or `Links` component to the card's content, in a free spot unless `x`/`y` are given (at most 30 components). `id` puts back a removed component with the id it had (`409` when the card has it) |
+| updateCardComponent | `PATCH /api/cards/{cardId}/components/{componentId}` | Edit a component's `title`, content (`text`, `items` or `links`, whichever fits its kind), position or size |
+| deleteCardComponent | `DELETE /api/cards/{cardId}/components/{componentId}` | Remove a component |
+| listBoardTags | `GET /api/boards/{boardId}/tags` | The board's tags by name, with how many cards use each |
+| createBoardTag | `POST /api/boards/{boardId}/tags` | Add a tag, optionally with a `color`, without putting it on a card (`409` when it exists or the board has 100) |
+| updateBoardTag | `PATCH /api/boards/{boardId}/tags/{tagId}` | Rename a tag (on the board and on every card; `409` when the new name is taken) and/or change its `color` |
+| deleteBoardTag | `DELETE /api/boards/{boardId}/tags/{tagId}` | Delete a tag from the board and from every card |
+| restoreBoardTag | `POST /api/boards/{boardId}/tags/{tagId}/restore` | Bring back a deleted tag and put it back (last) on the cards it was removed from (`409` when a tag has that name again) |
+| uploadImage | `POST /api/boards/{boardId}/images?fileName=&cardId=&x=&y=&width=&caption=` | Add an image or GIF: the file itself is the request body, with its content type. On the board at `x`/`y` (default: right of everything), or attached to a card with `cardId`, at `x`/`y` on its canvas (default: a free spot) |
+| createImageUpload | `POST /api/boards/{boardId}/image-uploads` | A one-time `uploadUrl` (and a `curl -T` `command`) for one image, placed as the body says (`cardId`, `x`, `y`, `width`, `caption`, `fileName`) and added by you. Expires after 15 minutes; at most 20 unused per caller (`409`) |
 | completeImageUpload | `PUT /api/image-uploads/{token}` | Send the file to an `uploadUrl`: the raw bytes as the body, no authentication (the URL is the key). `201` with the image; `404` when the URL is unknown, used or expired, or its creator lost Editor access (or revoked the token they used). After a `413` or `415` the URL still works |
 | getImageContent | `GET /api/images/{imageId}/content` | Download the image file: inline, under its own `fileName`. Cacheable for good (ETag, `304` on `If-None-Match`), with byte ranges |
-| updateImage | `PATCH /api/images/{imageId}` | Move (`x`, `y`), resize (`width`) or re-caption an image; attach it to a note (`noteId`) or put it back on the board (`detach: true`) |
+| updateImage | `PATCH /api/images/{imageId}` | Move (`x`, `y`), resize (`width`) or re-caption an image; attach it to a card (`cardId`) or put it back on the board (`detach: true`) |
 | deleteImage | `DELETE /api/images/{imageId}` | Delete an image |
-| restoreImage | `POST /api/images/{imageId}/restore` | Bring back a deleted image (`409` while the note it was attached to is deleted: restore the note) |
-| createDrawing | `POST /api/boards/{boardId}/drawings` | Add one pen stroke: `x`/`y` (snapped to the grid) and `points` `[x, y, pressure]` relative to them, with `color` (an ink, default `Chalk`) and `strokeWidth` (2, 4 or 8). On the board, or on a note's canvas with `noteId`. On the board it joins the bucket containing its centre. `409` past 5000 drawings on a board |
+| restoreImage | `POST /api/images/{imageId}/restore` | Bring back a deleted image (`409` while the card it was attached to is deleted: restore the card) |
+| createDrawing | `POST /api/boards/{boardId}/drawings` | Add one pen stroke: `x`/`y` (snapped to the grid) and `points` `[x, y, pressure]` relative to them, with `color` (an ink, default `Chalk`) and `strokeWidth` (2, 4 or 8). On the board, or on a card's canvas with `cardId`. On the board it joins the bucket containing its centre. `409` past 5000 drawings on a board |
 | getDrawingContent | `GET /api/drawings/{drawingId}/content` | The stroke's points (`x`/`y` to 0.1 px, pressure to 0.01). They never change, so this is cacheable for good |
-| updateDrawing | `PATCH /api/drawings/{drawingId}` | Move (`x`, `y`) or recolour (`color`) a drawing; put it on a note (`noteId`) or back on the board (`detach: true`), with both `x` and `y` there |
+| updateDrawing | `PATCH /api/drawings/{drawingId}` | Move (`x`, `y`) or recolor (`color`) a drawing; put it on a card (`cardId`) or back on the board (`detach: true`), with both `x` and `y` there |
 | deleteDrawing | `DELETE /api/drawings/{drawingId}` | Delete a drawing |
-| restoreDrawing | `POST /api/drawings/{drawingId}/restore` | Bring back a deleted drawing (`409` while its note is deleted: restore the note) |
+| restoreDrawing | `POST /api/drawings/{drawingId}/restore` | Bring back a deleted drawing (`409` while its card is deleted: restore the card) |
 | listAuthProviders | `GET /api/auth/providers` | Sign-in providers for the browser, the default first (public) |
 | logout | `POST /api/auth/logout` | End the browser session (public) |
 | listTokenIssuers | `GET /api/auth/token-issuers` | Ids of the configured token issuers, for adding agents |
@@ -249,7 +249,7 @@ pb -X POST localhost:5080/api/notes/{noteId}/move -H "Content-Type: application/
 | adminUpdateUser | `PATCH /api/admin/users/{userId}` | Make a user an admin or take it away; one admin always stays (admins, sessions only) |
 | adminDeleteUser | `DELETE /api/admin/users/{userId}` | Delete a user who owns no board alone; not yourself (admins, sessions only) |
 
-Board, bucket, note and image endpoints need the **Viewer** role to read and **Editor** to change anything; updateBoard and deleteBoard need **Owner**.
+Board, bucket, card and image endpoints need the **Viewer** role to read and **Editor** to change anything; updateBoard and deleteBoard need **Owner**.
 
 The browser starts sign-in by navigating to `GET /api/auth/login/{provider}?returnUrl=/...`. It is left out of the OpenAPI document because it is a redirect, not an API call, and so is the form post `POST /api/auth/link/{provider}` that connects another sign-in to the signed-in user. The provider redirects back to `/api/auth/callback/{provider}`.
 
@@ -263,7 +263,7 @@ Instead of polling getBoard, a client can follow a board live over **SignalR** a
 | --- | --- | --- |
 | `Join(boardId)` | Members | Follow one board (and stop following the previous one). Returns `{boardId, role, key, viewers}`; fails for boards you are not a member of |
 | `Leave()` | Anyone | Stop following the board |
-| `Drag({kind, id, dx, dy, handle, items})` | Editors (tokens need `boards:write`) | Show others a drag in progress: `kind` is `Note`, `Bucket`, `Resize`, `Image`, `ImageResize` or `Group`, `dx`/`dy` the pointer travel in canvas pixels, and for resizes `handle` the corner or edge dragged (`BottomRight`, the default, `BottomLeft`, `TopRight`, `TopLeft`, `Top`, `Right`, `Bottom` or `Left`; an edge resizes in its direction only). `Group` moves several selected items together: `items` lists them all (1 to 1000 notes, buckets, images and drawings, `id` the one held, not what a listed bucket carries); other kinds send no `items`. Send at most every 50 ms |
+| `Drag({kind, id, dx, dy, handle, items})` | Editors (tokens need `boards:write`) | Show others a drag in progress: `kind` is `Card`, `Bucket`, `Resize`, `Image`, `ImageResize` or `Group`, `dx`/`dy` the pointer travel in canvas pixels, and for resizes `handle` the corner or edge dragged (`BottomRight`, the default, `BottomLeft`, `TopRight`, `TopLeft`, `Top`, `Right`, `Bottom` or `Left`; an edge resizes in its direction only). `Group` moves several selected items together: `items` lists them all (1 to 1000 cards, buckets, images and drawings, `id` the one held, not what a listed bucket carries); other kinds send no `items`. Send at most every 50 ms |
 | `DragEnd()` | Editors | The drag is over |
 
 | Server message | Meaning |
@@ -281,10 +281,10 @@ Instead of polling getBoard, a client can follow a board live over **SignalR** a
 
 ## Images
 
-Images and GIFs live on the board or are attached to a note (`noteId`), and getBoard lists them all under `images`. An attached image's `x` and `y` are on the note's own canvas, next to its blocks. updateImage moves an image between the board and a note: `noteId` attaches it, `detach: true` puts it back on the board, each at `x`/`y` there or in a free spot. Upload the raw file as the request body, not as a form:
+Images and GIFs live on the board or are attached to a card (`cardId`), and getBoard lists them all under `images`. An attached image's `x` and `y` are on the card's own canvas, next to its components. updateImage moves an image between the board and a card: `cardId` attaches it, `detach: true` puts it back on the board, each at `x`/`y` there or in a free spot. Upload the raw file as the request body, not as a form:
 
 ```bash
-pb -X POST "localhost:5080/api/boards/{boardId}/images?fileName=ingest-errors.png&noteId={noteId}"   -H "Content-Type: image/png" --data-binary @ingest-errors.png
+pb -X POST "localhost:5080/api/boards/{boardId}/images?fileName=ingest-errors.png&cardId={cardId}"   -H "Content-Type: image/png" --data-binary @ingest-errors.png
 ```
 
 Agents that can run commands but have no token in their shell (an MCP client) get a one-time URL instead, with createImageUpload or the `begin_image_upload` tool, and send the file there; the URL needs no authentication, so nothing secret goes into the command:
@@ -299,13 +299,13 @@ curl -sS -T ingest-errors.png "https://prikboard.example/api/image-uploads/pb_up
 
 ## Conventions
 
-- **Placement.** createNote and moveNote take either a `bucketId` or both `x` and `y`, never both. With a `bucketId`, the note goes to the first free grid slot inside that bucket. A full bucket grows downwards to make room.
-- **Ordering.** getBoard and listNotes return notes bucket by bucket, in the order of `buckets`, with loose notes last. Each group runs top to bottom, then left to right. Clients draw notes in `updatedAt` order, so the most recently moved or edited note is on top.
-- **Sizes.** Buckets are at least 240×160 px, room for one note with a gap around it. Smaller sizes are raised to the minimum after snapping.
-- **PATCH** only changes the fields you send. Sending `""` for an optional text field (`description`, a block's `title` or `text`) clears it. A list you send (`tags`, `assigneeIds`, a block's `items` or `links`) replaces the whole list, and `[]` clears it. To tick off one checklist item, send the block's full `items` with that item changed.
-- **Tags** are trimmed, lower-cased and hyphenated (`"Back end"` becomes `"back-end"`), at most 10 per note and 30 characters each. Notes store the names of the board's tags; a new name joins the board's list, which holds at most 100.
-- **Assignees** are sent as `assigneeIds` (principal ids from `people` in getBoard) and come back as `{principalId, name, kind}` with the current display name; `kind` is `Person` or `Agent`. People show as initials, agents as a sparkle. At most 10 per note. Only people who can reach the board can be added; someone who loses access stays on the notes they had until they are taken off.
-- **Links** need an absolute `http` or `https` URL, or another note's `path` (`/#/boards/{boardId}/notes/{noteId}`, in every note) to link that note. The path has no host, so the link works wherever PrikBoard runs; the web app opens it in place and shows the linked note's current title.
-- **Colours.** Note fills are `Butter` (yellow), `Mint` (green), `Sky` (blue), `Coral` (salmon red) and `Lilac` (purple). Buckets also have a `color` (`Blue`, `Amber`, `Violet`, `Teal` or `Rose`); the web UI doesn't show it at the moment.
-- **Deleting and restoring.** Deleting a note, bucket, image or tag hides it at once, but it can be restored for 7 days with the same id (restoreNote, restoreBucket, restoreImage, restoreBoardTag; the web app's undo uses these). After that it is gone for good. Restoring something that is not deleted is a `409`; restoring something that never existed or is gone for good is a `404`. Deleted things can't be changed (`404`). Boards are deleted for good straight away. Deleted notes are listed by listDeletedNotes (the web app's trash window), and purgeNote or emptyTrash delete them for good before the 7 days are up.
-- **Errors** use `application/problem+json`. Validation errors (400) list the offending fields under `errors`, for example a `bucketId` that is not on the note's board. A 401 means the request is not signed in or the token is invalid. A 403 means your role or the token's scope is too low. A 404 means the resource does not exist or you are not a member of its board. A 429 means you hit a rate limit (email lookups and invite links).
+- **Placement.** createCard and moveCard take either a `bucketId` or both `x` and `y`, never both. With a `bucketId`, the card goes to the first free grid slot inside that bucket. A full bucket grows downwards to make room.
+- **Ordering.** getBoard and listCards return cards bucket by bucket, in the order of `buckets`, with loose cards last. Each group runs top to bottom, then left to right. Clients draw cards in `updatedAt` order, so the most recently moved or edited card is on top.
+- **Sizes.** Buckets are at least 240×160 px, room for one card with a gap around it. Smaller sizes are raised to the minimum after snapping.
+- **PATCH** only changes the fields you send. Sending `""` for an optional text field (`description`, a component's `title` or `text`) clears it. A list you send (`tags`, `assigneeIds`, a component's `items` or `links`) replaces the whole list, and `[]` clears it. To tick off one checklist item, send the component's full `items` with that item changed.
+- **Tags** are trimmed, lower-cased and hyphenated (`"Back end"` becomes `"back-end"`), at most 10 per card and 30 characters each. Cards store the names of the board's tags; a new name joins the board's list, which holds at most 100.
+- **Assignees** are sent as `assigneeIds` (principal ids from `people` in getBoard) and come back as `{principalId, name, kind}` with the current display name; `kind` is `Person` or `Agent`. People show as initials, agents as a sparkle. At most 10 per card. Only people who can reach the board can be added; someone who loses access stays on the cards they had until they are taken off.
+- **Links** need an absolute `http` or `https` URL, or another card's `path` (`/#/boards/{boardId}/cards/{cardId}`, in every card) to link that card. The path has no host, so the link works wherever PrikBoard runs; the web app opens it in place and shows the linked card's current title.
+- **Colors.** Card fills are `Butter` (yellow), `Mint` (green), `Sky` (blue), `Coral` (salmon red) and `Lilac` (purple). Buckets also have a `color` (`Blue`, `Amber`, `Violet`, `Teal` or `Rose`); the web UI doesn't show it at the moment.
+- **Deleting and restoring.** Deleting a card, bucket, image or tag hides it at once, but it can be restored for 7 days with the same id (restoreCard, restoreBucket, restoreImage, restoreBoardTag; the web app's undo uses these). After that it is gone for good. Restoring something that is not deleted is a `409`; restoring something that never existed or is gone for good is a `404`. Deleted things can't be changed (`404`). Boards are deleted for good straight away. Deleted cards are listed by listDeletedCards (the web app's trash window), and purgeCard or emptyTrash delete them for good before the 7 days are up.
+- **Errors** use `application/problem+json`. Validation errors (400) list the offending fields under `errors`, for example a `bucketId` that is not on the card's board. A 401 means the request is not signed in or the token is invalid. A 403 means your role or the token's scope is too low. A 404 means the resource does not exist or you are not a member of its board. A 429 means you hit a rate limit (email lookups and invite links).

@@ -14,7 +14,7 @@ const handles: { handle: ResizeHandle; className: string }[] = [
 
 /**
  * The resize controls of a selected item that can be resized: a square on each corner, which resizes both ways, and an
- * invisible strip along each edge, which resizes in that direction only. Items that can't be resized (post-its) don't
+ * invisible strip along each edge, which resizes in that direction only. Items that can't be resized (cards) don't
  * get them, only the selection outline.
  */
 export function ResizeHandles({ onPointerDown }: { onPointerDown: (e: PointerEvent<HTMLElement>, handle: ResizeHandle) => void }) {

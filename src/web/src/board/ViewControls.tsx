@@ -1,7 +1,7 @@
 import { type PointerEvent } from 'react'
-import type { BucketDetail, ImageDetail, NoteDetail, Point, Rect } from '../api/types'
+import type { BucketDetail, ImageDetail, CardDetail, Point, Rect } from '../api/types'
 import { MinusIcon, PlusIcon, RedoIcon, UndoIcon } from './icons'
-import { NOTE_HEIGHT, NOTE_WIDTH } from './layout'
+import { CARD_HEIGHT, CARD_WIDTH } from './layout'
 import { ZOOM_LEVELS } from './zoom'
 
 const MAP_WIDTH = 150
@@ -27,12 +27,12 @@ interface ViewControlsProps {
   /** The visible part of the canvas, in canvas pixels. */
   viewport: Rect
   buckets: BucketDetail[]
-  notes: NoteDetail[]
-  /** Post-its faded by the tag filter or the search. */
-  dimmed?: (note: NoteDetail) => boolean
+  cards: CardDetail[]
+  /** Cards faded by the tag filter or the search. */
+  dimmed?: (card: CardDetail) => boolean
   /** The search result being looked at. */
   current?: string | null
-  /** Images on the canvas (not the ones attached to notes). */
+  /** Images on the canvas (not the ones attached to cards). */
   images: ImageDetail[]
   /** Scroll so that this canvas point is in the middle of the view. */
   onNavigate: (center: Point) => void
@@ -43,7 +43,7 @@ const shortcuts = { undo: mac ? '⌘Z' : 'Ctrl+Z', redo: mac ? '⇧⌘Z' : 'Ctrl
 
 /** Undo and redo, and the minimap above the zoom buttons, in the bottom-right corner of the board. */
 export function ViewControls(props: ViewControlsProps) {
-  const { undo, redo, zoom, onZoom, onZoomReset, extent, viewport, buckets, notes, dimmed, current, images, onNavigate } = props
+  const { undo, redo, zoom, onZoom, onZoomReset, extent, viewport, buckets, cards, dimmed, current, images, onNavigate } = props
   // The map shows the canvas and the view, which can reach into the empty margin around it.
   const left = Math.min(extent.x, viewport.x)
   const top = Math.min(extent.y, viewport.y)
@@ -62,7 +62,7 @@ export function ViewControls(props: ViewControlsProps) {
     onNavigate({ x: left + (e.clientX - rect.left - MAP_PAD) / scale, y: top + (e.clientY - rect.top - MAP_PAD) / scale })
   }
 
-  /** "Undo move post-it (Ctrl+Z)", or just "Undo" when there is nothing to undo. */
+  /** "Undo move card (Ctrl+Z)", or just "Undo" when there is nothing to undo. */
   const title = (kind: 'undo' | 'redo', button: HistoryButton) =>
     button.label
       ? `${kind === 'undo' ? 'Undo' : 'Redo'} ${button.label.toLowerCase()} (${shortcuts[kind]})`
@@ -112,11 +112,11 @@ export function ViewControls(props: ViewControlsProps) {
           {images.map((i) => (
             <span key={i.id} className="minimap-image" style={toMap(i)} />
           ))}
-          {notes.map((n) => (
+          {cards.map((n) => (
             <span
               key={n.id}
-              className={`minimap-note fill-${n.color.toLowerCase()}${dimmed?.(n) ? ' dimmed' : ''}${n.id === current ? ' current' : ''}`}
-              style={toMap({ x: n.x, y: n.y, width: NOTE_WIDTH, height: NOTE_HEIGHT })}
+              className={`minimap-card fill-${n.color.toLowerCase()}${dimmed?.(n) ? ' dimmed' : ''}${n.id === current ? ' current' : ''}`}
+              style={toMap({ x: n.x, y: n.y, width: CARD_WIDTH, height: CARD_HEIGHT })}
             />
           ))}
           <span className="minimap-viewport" style={toMap(viewport)} />

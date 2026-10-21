@@ -1,7 +1,7 @@
 {
   "name": "prikboard-vscode",
   "displayName": "PrikBoard",
-  "description": "Your PrikBoard boards, buckets and notes in the VS Code side bar.",
+  "description": "Your PrikBoard boards, buckets and cards in the VS Code side bar.",
   "version": "0.0.1",
   "private": true,
   "publisher": "prikboard",
@@ -72,14 +72,14 @@
         "icon": "$(link-external)"
       },
       {
-        "command": "prikboard.newNote",
-        "title": "New Note",
+        "command": "prikboard.newCard",
+        "title": "New Card",
         "category": "PrikBoard",
         "icon": "$(add)"
       },
       {
-        "command": "prikboard.renameNote",
-        "title": "Rename Note",
+        "command": "prikboard.renameCard",
+        "title": "Rename Card",
         "category": "PrikBoard"
       },
       {
@@ -88,7 +88,7 @@
         "category": "PrikBoard"
       },
       {
-        "command": "prikboard.moveNote",
+        "command": "prikboard.moveCard",
         "title": "Move to Bucket",
         "category": "PrikBoard"
       },
@@ -104,8 +104,8 @@
         "icon": "$(sparkle)"
       },
       {
-        "command": "prikboard.deleteNote",
-        "title": "Delete Note",
+        "command": "prikboard.deleteCard",
+        "title": "Delete Card",
         "category": "PrikBoard"
       }
     ],
@@ -128,11 +128,11 @@
           "when": "false"
         },
         {
-          "command": "prikboard.newNote",
+          "command": "prikboard.newCard",
           "when": "false"
         },
         {
-          "command": "prikboard.renameNote",
+          "command": "prikboard.renameCard",
           "when": "false"
         },
         {
@@ -140,7 +140,7 @@
           "when": "false"
         },
         {
-          "command": "prikboard.moveNote",
+          "command": "prikboard.moveCard",
           "when": "false"
         },
         {
@@ -152,7 +152,7 @@
           "when": "false"
         },
         {
-          "command": "prikboard.deleteNote",
+          "command": "prikboard.deleteCard",
           "when": "false"
         }
       ],
@@ -176,37 +176,37 @@
       "view/item/context": [
         {
           "command": "prikboard.openInBrowser",
-          "when": "view == prikboard.boards && viewItem =~ /^(board|note)/",
+          "when": "view == prikboard.boards && viewItem =~ /^(board|card)/",
           "group": "inline"
         },
         {
-          "command": "prikboard.newNote",
+          "command": "prikboard.newCard",
           "when": "view == prikboard.boards && viewItem == bucket.edit",
           "group": "inline"
         },
         {
           "command": "prikboard.toggleAgentWorking",
-          "when": "view == prikboard.boards && viewItem == note.edit",
+          "when": "view == prikboard.boards && viewItem == card.edit",
           "group": "inline"
         },
         {
-          "command": "prikboard.renameNote",
-          "when": "view == prikboard.boards && viewItem == note.edit",
+          "command": "prikboard.renameCard",
+          "when": "view == prikboard.boards && viewItem == card.edit",
           "group": "1_edit@1"
         },
         {
           "command": "prikboard.editTags",
-          "when": "view == prikboard.boards && viewItem == note.edit",
+          "when": "view == prikboard.boards && viewItem == card.edit",
           "group": "1_edit@2"
         },
         {
-          "command": "prikboard.moveNote",
-          "when": "view == prikboard.boards && viewItem == note.edit",
+          "command": "prikboard.moveCard",
+          "when": "view == prikboard.boards && viewItem == card.edit",
           "group": "1_edit@3"
         },
         {
-          "command": "prikboard.deleteNote",
-          "when": "view == prikboard.boards && viewItem == note.edit",
+          "command": "prikboard.deleteCard",
+          "when": "view == prikboard.boards && viewItem == card.edit",
           "group": "2_danger"
         }
       ]

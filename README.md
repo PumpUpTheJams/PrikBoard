@@ -1,6 +1,6 @@
 # PrikBoard
 
-A post-it board for small project management. Stick notes anywhere on a board, draw buckets such as *To do* and *Done* around them, and drag notes from one bucket to the next.
+A board of cards for small project management. Stick cards anywhere on a board, draw buckets such as *To do* and *Done* around them, and drag cards from one bucket to the next.
 The web UI and AI agents use the same REST API, which is described by an OpenAPI document.
 
 ## Repository layout

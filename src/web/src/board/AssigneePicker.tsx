@@ -9,16 +9,16 @@ const SHOWN = 5
 
 interface AssigneePickerProps {
   anchor: DOMRect
-  /** Who is on the note now (people who left the board stay until they are removed). */
+  /** Who is on the card now (people who left the board stay until they are removed). */
   assignees: Assignee[]
   /** Who can be assigned on the board: you first. */
   people: BoardPerson[]
-  /** Saves the note's whole list of principal ids. */
+  /** Saves the card's whole list of principal ids. */
   onChange: (assigneeIds: string[]) => Promise<boolean>
   onClose: () => void
 }
 
-/** Picks a post-it's people and agents from the board's members, searchable by name. */
+/** Picks a card's people and agents from the board's members, searchable by name. */
 export function AssigneePicker({ anchor, assignees, people, onChange, onClose }: AssigneePickerProps) {
   const [draft, change] = useDraftList(
     assignees.map((a) => a.principalId),
@@ -26,7 +26,7 @@ export function AssigneePicker({ anchor, assignees, people, onChange, onClose }:
   )
   const [query, setQuery] = useState('')
 
-  // Everyone with a name: the board's people, plus anyone on the note who has since left the board.
+  // Everyone with a name: the board's people, plus anyone on the card who has since left the board.
   const known = new Map<string, Pick<Assignee, 'name' | 'kind' | 'avatarUrl'>>(people.map((p) => [p.principalId, p]))
   for (const a of assignees) if (!known.has(a.principalId)) known.set(a.principalId, a)
   const full = draft.length >= MAX_ASSIGNEES
@@ -72,7 +72,7 @@ export function AssigneePicker({ anchor, assignees, people, onChange, onClose }:
       empty={wanted ? 'No one on this board matches.' : 'No one to assign.'}
       footer={
         full
-          ? `A post-it has at most ${MAX_ASSIGNEES} people.`
+          ? `A card has at most ${MAX_ASSIGNEES} people.`
           : hidden > 0
             ? `${hidden} more: type a name to find them.`
             : undefined

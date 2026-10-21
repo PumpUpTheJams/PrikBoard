@@ -1,31 +1,31 @@
 namespace PrikBoard.Api.Domain;
 
 /// <summary>
-/// One freehand pen stroke. Without a <see cref="NoteId"/> it sits on the board at <see cref="X"/>, <see cref="Y"/>; with
-/// one it is drawn on that note's own canvas. The points live in <see cref="DrawingContent"/>, relative to X and Y, so
-/// board snapshots carry only the place, size and colour.
+/// One freehand pen stroke. Without a <see cref="CardId"/> it sits on the board at <see cref="X"/>, <see cref="Y"/>; with
+/// one it is drawn on that card's own canvas. The points live in <see cref="DrawingContent"/>, relative to X and Y, so
+/// board snapshots carry only the place, size and color.
 /// </summary>
 public class BoardDrawing : ICanvasItem
 {
     /// <summary>Most points one stroke can have.</summary>
     public const int MaxPoints = 5000;
-    /// <summary>Most drawings a board can hold, on its canvas and on its notes together.</summary>
+    /// <summary>Most drawings a board can hold, on its canvas and on its cards together.</summary>
     public const int MaxPerBoard = 5000;
     /// <summary>Points run from 0 to this, in both directions, from the drawing's X and Y.</summary>
-    public const int MaxSize = Layout.NoteCanvasMax;
+    public const int MaxSize = Layout.CardCanvasMax;
     /// <summary>The base line widths a stroke can have; pressure makes the line thinner or thicker around it.</summary>
     public static readonly int[] StrokeWidths = [2, 4, 8];
 
     public Guid Id { get; set; } = Guid.CreateVersion7();
     public Guid BoardId { get; set; }
     public Board? Board { get; set; }
-    public Guid? NoteId { get; set; }
+    public Guid? CardId { get; set; }
     /// <summary>
-    /// The bucket the drawing sits in on the board (it moves along with it), or null when it is loose or on a note.
-    /// Maintained by <see cref="Layout"/>, like <see cref="Note.BucketId"/>.
+    /// The bucket the drawing sits in on the board (it moves along with it), or null when it is loose or on a card.
+    /// Maintained by <see cref="Layout"/>, like <see cref="Card.BucketId"/>.
     /// </summary>
     public Guid? BucketId { get; set; }
-    /// <summary>Top-left, snapped to the grid: on the board, or on the note's canvas when attached.</summary>
+    /// <summary>Top-left, snapped to the grid: on the board, or on the card's canvas when attached.</summary>
     public int X { get; set; }
     public int Y { get; set; }
     /// <summary>The box from X and Y that holds every point plus half the line width, see <see cref="SetPoints"/>.</summary>
@@ -39,7 +39,7 @@ public class BoardDrawing : ICanvasItem
     public Principal? AddedBy { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
-    /// <summary>When it was deleted; it can be restored until <see cref="Data.Tombstones.Retention"/> has passed. Deleted with its note, it shares the note's stamp. Hidden by the query filter while set.</summary>
+    /// <summary>When it was deleted; it can be restored until <see cref="Data.Tombstones.Retention"/> has passed. Deleted with its card, it shares the card's stamp. Hidden by the query filter while set.</summary>
     public DateTimeOffset? DeletedAt { get; set; }
 
     public DrawingContent? Content { get; set; }

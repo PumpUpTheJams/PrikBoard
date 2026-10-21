@@ -1,6 +1,6 @@
 namespace PrikBoard.Api.Domain;
 
-/// <summary>A rectangle drawn on a board, e.g. "To do" or "Done". Post-its whose centre lies inside it belong to it.</summary>
+/// <summary>A rectangle drawn on a board, e.g. "To do" or "Done". Cards whose centre lies inside it belong to it.</summary>
 public class Bucket
 {
     public Guid Id { get; set; } = Guid.CreateVersion7();
@@ -13,8 +13,8 @@ public class Bucket
     public int Width { get; set; }
     public int Height { get; set; }
     /// <summary>
-    /// Folded up into a square (<see cref="Layout.CollapsedBucketSize"/>) in its top-right corner: its notes are hidden,
-    /// keeping their places for when it opens again. Notes elsewhere don't join it while it is collapsed.
+    /// Folded up into a square (<see cref="Layout.CollapsedBucketSize"/>) in its top-right corner: its cards are hidden,
+    /// keeping their places for when it opens again. Cards elsewhere don't join it while it is collapsed.
     /// </summary>
     public bool Collapsed { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

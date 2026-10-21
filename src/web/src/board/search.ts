@@ -1,9 +1,9 @@
-import type { NoteBlock, NoteDetail } from '../api/types'
-import { blockKinds } from './blockKinds'
+import type { CardComponent, CardDetail } from '../api/types'
+import { componentKinds } from './componentKinds'
 
 /*
- * Searching a board's post-its (BoardSearch). Case and accents don't matter, and with several words a post-it matches
- * when every word is found somewhere on it: its title, readable id (MPCT-415), tags, people, who created it, or its blocks.
+ * Searching a board's cards (BoardSearch). Case and accents don't matter, and with several words a card matches
+ * when every word is found somewhere on it: its title, readable id (MPCT-415), tags, people, who created it, or its components.
  */
 
 /** Lower case without accents, so "cafe" finds "café". */
@@ -17,42 +17,42 @@ export const textMatches = (text: string, terms: string[]) => {
   return terms.some((t) => folded.includes(t))
 }
 
-/** One searchable piece of a post-it. */
+/** One searchable piece of a card. */
 export interface SearchField {
-  /** The title and tags are on the post-it on the board, where their matches are marked already. */
-  kind: 'title' | 'id' | 'tag' | 'assignee' | 'creator' | 'block'
-  /** What it is, as shown under a result: "Tag", "Created by", or the block's title or kind. */
+  /** The title and tags are on the card on the board, where their matches are marked already. */
+  kind: 'title' | 'id' | 'tag' | 'assignee' | 'creator' | 'component'
+  /** What it is, as shown under a result: "Tag", "Created by", or the component's title or kind. */
   label: string
   text: string
 }
 
-/** The text in a block: its title, text, checklist items, and its links' titles and web addresses. */
-function blockTexts(block: NoteBlock): string[] {
-  const texts = [block.title, block.text, ...(block.items ?? []).map((i) => i.text)]
-  for (const link of block.links ?? []) texts.push(link.title, /^https?:/i.test(link.url) ? link.url : null)
+/** The text in a component: its title, text, checklist items, and its links' titles and web addresses. */
+function componentTexts(component: CardComponent): string[] {
+  const texts = [component.title, component.text, ...(component.items ?? []).map((i) => i.text)]
+  for (const link of component.links ?? []) texts.push(link.title, /^https?:/i.test(link.url) ? link.url : null)
   return texts.filter((t): t is string => !!t)
 }
 
-export const blockMatches = (block: NoteBlock, terms: string[]) => blockTexts(block).some((t) => textMatches(t, terms))
+export const componentMatches = (component: CardComponent, terms: string[]) => componentTexts(component).some((t) => textMatches(t, terms))
 
-function noteFields(note: NoteDetail): SearchField[] {
+function cardFields(card: CardDetail): SearchField[] {
   const fields: SearchField[] = [
-    { kind: 'title', label: 'Title', text: note.title },
-    { kind: 'id', label: 'ID', text: note.readableId },
+    { kind: 'title', label: 'Title', text: card.title },
+    { kind: 'id', label: 'ID', text: card.readableId },
   ]
-  for (const tag of note.tags) fields.push({ kind: 'tag', label: 'Tag', text: tag })
-  for (const a of note.assignees) fields.push({ kind: 'assignee', label: 'Assigned to', text: a.name })
-  if (note.createdBy) fields.push({ kind: 'creator', label: 'Created by', text: note.createdBy })
-  for (const block of note.blocks) {
-    const label = block.title ?? blockKinds[block.kind].label
-    for (const text of blockTexts(block)) fields.push({ kind: 'block', label, text })
+  for (const tag of card.tags) fields.push({ kind: 'tag', label: 'Tag', text: tag })
+  for (const a of card.assignees) fields.push({ kind: 'assignee', label: 'Assigned to', text: a.name })
+  if (card.createdBy) fields.push({ kind: 'creator', label: 'Created by', text: card.createdBy })
+  for (const component of card.components) {
+    const label = component.title ?? componentKinds[component.kind].label
+    for (const text of componentTexts(component)) fields.push({ kind: 'component', label, text })
   }
   return fields
 }
 
-/** The fields where any of the terms occur, or null when some term occurs nowhere on the post-it. */
-export function matchNote(note: NoteDetail, terms: string[]): SearchField[] | null {
-  const fields = noteFields(note).map((field) => ({ field, folded: fold(field.text) }))
+/** The fields where any of the terms occur, or null when some term occurs nowhere on the card. */
+export function matchCard(card: CardDetail, terms: string[]): SearchField[] | null {
+  const fields = cardFields(card).map((field) => ({ field, folded: fold(field.text) }))
   if (!terms.every((t) => fields.some((f) => f.folded.includes(t)))) return null
   return fields.filter((f) => terms.some((t) => f.folded.includes(t))).map((f) => f.field)
 }

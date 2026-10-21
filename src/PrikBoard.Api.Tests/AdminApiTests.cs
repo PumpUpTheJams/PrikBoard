@@ -59,7 +59,7 @@ public class AdminApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var seen = Assert.Single(boards, b => b.Id == board.Id);
         Assert.Equal(new AdminBoardMember(ownerId, PrincipalKind.User, "Lister", BoardRole.Owner, null), Assert.Single(seen.Members));
         using var raw = JsonDocument.Parse(await admin.GetStringAsync("/api/admin/boards"));
-        Assert.False(raw.RootElement[0].TryGetProperty("notes", out _));
+        Assert.False(raw.RootElement[0].TryGetProperty("cards", out _));
 
         var users = (await admin.GetFromJsonAsync<List<AdminUser>>("/api/admin/users"))!;
         var lister = Assert.Single(users, u => u.Id == ownerId);
@@ -102,7 +102,7 @@ public class AdminApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var admin = await Admin();
         var owner = await factory.CreateSignedInClientAsync("doomed-owner@example.com");
         var board = await owner.CreateBoardAsync("Doomed");
-        await owner.CreateNoteAsync(board.Id);
+        await owner.CreateCardAsync(board.Id);
 
         Assert.Equal(HttpStatusCode.Forbidden, (await owner.DeleteAsync($"/api/admin/boards/{board.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/admin/boards/{board.Id}")).StatusCode);
@@ -141,7 +141,7 @@ public class AdminApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var colleague = await factory.CreateSignedInClientAsync("colleague@example.com");
         var board = await leaving.CreateBoardAsync("Theirs");
         await leaving.ShareAsync(board.Id, colleague, BoardRole.Editor);
-        var note = await leaving.CreateNoteAsync(board.Id, "Stays");
+        var card = await leaving.CreateCardAsync(board.Id, "Stays");
         var (token, _) = await factory.TokenAsync(leaving, "Leaving's agent");
         Assert.Equal(HttpStatusCode.OK, (await token.GetAsync("/api/boards")).StatusCode);
         var leavingId = (await leaving.MeAsync()).Id;
@@ -162,7 +162,7 @@ public class AdminApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         Assert.Equal(HttpStatusCode.Unauthorized, (await token.GetAsync("/api/boards")).StatusCode);
         Assert.DoesNotContain((await admin.GetFromJsonAsync<List<AdminUser>>("/api/admin/users"))!, u => u.Id == leavingId);
 
-        var kept = (await colleague.GetFromJsonAsync<NoteDetail>($"/api/notes/{note.Id}"))!;
+        var kept = (await colleague.GetFromJsonAsync<CardDetail>($"/api/cards/{card.Id}"))!;
         Assert.Equal("Stays", kept.Title);
         Assert.Equal(HttpStatusCode.NotFound, (await admin.DeleteAsync($"/api/admin/users/{leavingId}")).StatusCode);
     }

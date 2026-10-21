@@ -8,7 +8,7 @@ using PrikBoard.Api.Domain;
 namespace PrikBoard.Api.Endpoints;
 
 /// <summary>
-/// A board's tags. Notes store the names of their tags, so renaming or deleting a tag here rewrites every note on the
+/// A board's tags. Cards store the names of their tags, so renaming or deleting a tag here rewrites every card on the
 /// board in the same transaction.
 /// </summary>
 public static class TagEndpoints
@@ -21,14 +21,14 @@ public static class TagEndpoints
             .RequireBoardRole(BoardRole.Viewer)
             .WithName("listBoardTags")
             .WithSummary("List a board's tags")
-            .WithDescription("Returns the tags defined on the board by name, with how many notes use each. " +
-                             "Prefer these over new names when tagging notes. getBoard includes the same list.");
+            .WithDescription("Returns the tags defined on the board by name, with how many cards use each. " +
+                             "Prefer these over new names when tagging cards. getBoard includes the same list.");
 
         tags.MapPost("/", CreateBoardTag)
             .RequireBoardRole(BoardRole.Editor)
             .WithName("createBoardTag")
             .WithSummary("Add a tag to a board")
-            .WithDescription($"Adds a tag, optionally with a colour, without putting it on a note. Using a new name in a note's tags (createNote, updateNote) " +
+            .WithDescription($"Adds a tag, optionally with a color, without putting it on a card. Using a new name in a card's tags (createCard, updateCard) " +
                              $"adds it too. A board has at most {BoardTag.MaxPerBoard} tags.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
@@ -36,8 +36,8 @@ public static class TagEndpoints
         tags.MapPatch("/{tagId:guid}", UpdateBoardTag)
             .RequireBoardRole(BoardRole.Editor)
             .WithName("updateBoardTag")
-            .WithSummary("Rename or recolour a tag")
-            .WithDescription("Changes the tag's name (on the board and on every note that has it) and/or its colour on post-its. " +
+            .WithSummary("Rename or recolor a tag")
+            .WithDescription("Changes the tag's name (on the board and on every card that has it) and/or its color on cards. " +
                              "Omitted fields stay unchanged.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
@@ -46,15 +46,15 @@ public static class TagEndpoints
             .RequireBoardRole(BoardRole.Editor)
             .WithName("deleteBoardTag")
             .WithSummary("Delete a tag")
-            .WithDescription("Deletes the tag from the board and removes it from every note that has it. The notes stay. " +
-                             $"restoreBoardTag puts it back on those notes within {Tombstones.RetentionText}.");
+            .WithDescription("Deletes the tag from the board and removes it from every card that has it. The cards stay. " +
+                             $"restoreBoardTag puts it back on those cards within {Tombstones.RetentionText}.");
 
         tags.MapPost("/{tagId:guid}/restore", RestoreBoardTag)
             .RequireBoardRole(BoardRole.Editor)
             .WithName("restoreBoardTag")
             .WithSummary("Restore a deleted tag")
             .WithDescription($"Brings back a tag deleted in the last {Tombstones.RetentionText}, with the same id, and puts it back " +
-                             "(at the end of their tag list) on the notes it was removed from, except notes that have 10 tags by now. " +
+                             "(at the end of their tag list) on the cards it was removed from, except cards that have 10 tags by now. " +
                              "409 when it is not deleted, when the board has a tag with that name again, or when the board is full.")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
@@ -64,8 +64,8 @@ public static class TagEndpoints
     internal static async Task<Ok<List<BoardTagDetail>>> ListBoardTags(Guid boardId, PrikBoardDbContext db, CancellationToken ct)
     {
         var tags = await db.BoardTags.AsNoTracking().Where(t => t.BoardId == boardId).ToListAsync(ct);
-        var notes = await db.Notes.AsNoTracking().Where(n => n.BoardId == boardId).ToListAsync(ct);
-        return TypedResults.Ok(BoardTagDetail.List(tags, notes));
+        var cards = await db.Cards.AsNoTracking().Where(n => n.BoardId == boardId).ToListAsync(ct);
+        return TypedResults.Ok(BoardTagDetail.List(tags, cards));
     }
 
     internal static async Task<Results<Created<BoardTagDetail>, ValidationProblem, ProblemHttpResult>> CreateBoardTag(
@@ -105,11 +105,11 @@ public static class TagEndpoints
         if (name != old)
         {
             await db.Database.ExecuteSqlAsync(
-                $"""UPDATE "Notes" SET "Tags" = array_replace("Tags", {old}, {name}) WHERE "BoardId" = {boardId}""", ct);
+                $"""UPDATE "Cards" SET "Tags" = array_replace("Tags", {old}, {name}) WHERE "BoardId" = {boardId}""", ct);
         }
         await transaction.CommitAsync(ct);
 
-        var count = await db.Notes.CountAsync(n => n.BoardId == boardId && n.Tags.Contains(name), ct);
+        var count = await db.Cards.CountAsync(n => n.BoardId == boardId && n.Tags.Contains(name), ct);
         return TypedResults.Ok(BoardTagDetail.From(tag, count));
     }
 
@@ -120,15 +120,15 @@ public static class TagEndpoints
         if (tag is null) return TypedResults.NotFound();
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        // Deleted notes count too: they get the tag back if they are restored before the tag is.
-        tag.RemovedFromNoteIds = await db.Notes.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+        // Deleted cards count too: they get the tag back if they are restored before the tag is.
+        tag.RemovedFromCardIds = await db.Cards.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
             .Where(n => n.BoardId == boardId && n.Tags.Contains(tag.Name))
             .Select(n => n.Id)
             .ToListAsync(ct);
         tag.DeletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         await db.Database.ExecuteSqlAsync(
-            $"""UPDATE "Notes" SET "Tags" = array_remove("Tags", {tag.Name}) WHERE "BoardId" = {boardId}""", ct);
+            $"""UPDATE "Cards" SET "Tags" = array_remove("Tags", {tag.Name}) WHERE "BoardId" = {boardId}""", ct);
         await transaction.CommitAsync(ct);
         return TypedResults.NoContent();
     }
@@ -145,31 +145,31 @@ public static class TagEndpoints
         if (existing.Contains(tag.Name)) return Exists(tag.Name);
         if (existing.Count >= BoardTag.MaxPerBoard) return TooMany();
 
-        var noteIds = tag.RemovedFromNoteIds ?? [];
+        var cardIds = tag.RemovedFromCardIds ?? [];
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         tag.DeletedAt = null;
-        tag.RemovedFromNoteIds = null;
+        tag.RemovedFromCardIds = null;
         await db.SaveChangesAsync(ct);
         await db.Database.ExecuteSqlAsync(
             $"""
-            UPDATE "Notes" SET "Tags" = array_append("Tags", {tag.Name})
-            WHERE "BoardId" = {boardId} AND "Id" = ANY({noteIds}) AND NOT ({tag.Name} = ANY("Tags")) AND cardinality("Tags") < {MaxTagsPerNote}
+            UPDATE "Cards" SET "Tags" = array_append("Tags", {tag.Name})
+            WHERE "BoardId" = {boardId} AND "Id" = ANY({cardIds}) AND NOT ({tag.Name} = ANY("Tags")) AND cardinality("Tags") < {MaxTagsPerCard}
             """, ct);
         await transaction.CommitAsync(ct);
 
-        var count = await db.Notes.CountAsync(n => n.BoardId == boardId && n.Tags.Contains(tag.Name), ct);
+        var count = await db.Cards.CountAsync(n => n.BoardId == boardId && n.Tags.Contains(tag.Name), ct);
         return TypedResults.Ok(BoardTagDetail.From(tag, count));
     }
 
-    /// <summary>The most tags on one note (the MaxLength on tags in createNote and updateNote).</summary>
-    private const int MaxTagsPerNote = 10;
+    /// <summary>The most tags on one card (the MaxLength on tags in createCard and updateCard).</summary>
+    private const int MaxTagsPerCard = 10;
 
     /// <summary>The 409 for restoring something that is not deleted.</summary>
     internal static ProblemHttpResult NotDeleted(string what) => TypedResults.Problem(
         statusCode: StatusCodes.Status409Conflict, title: "Not deleted", detail: $"The {what} is not deleted, so there is nothing to restore.");
 
     /// <summary>
-    /// Adds the names a note is about to get that the board does not have yet (saved with the note).
+    /// Adds the names a card is about to get that the board does not have yet (saved with the card).
     /// Returns a problem when that would take the board over <see cref="BoardTag.MaxPerBoard"/>.
     /// </summary>
     internal static async Task<ValidationProblem?> EnsureBoardTagsAsync(
@@ -191,11 +191,11 @@ public static class TagEndpoints
         return null;
     }
 
-    private static string? Normalized(string name) => NoteTags.Normalize(name) is { Length: > 0 and <= NoteTags.MaxLength } tag ? tag : null;
+    private static string? Normalized(string name) => CardTags.Normalize(name) is { Length: > 0 and <= CardTags.MaxLength } tag ? tag : null;
 
     private static ValidationProblem InvalidName(string name) => TypedResults.ValidationProblem(new Dictionary<string, string[]>
     {
-        ["name"] = [$"Tag \"{name.Trim()}\" must be 1 to {NoteTags.MaxLength} characters."],
+        ["name"] = [$"Tag \"{name.Trim()}\" must be 1 to {CardTags.MaxLength} characters."],
     });
 
     private static ProblemHttpResult Exists(string name) => TypedResults.Problem(

@@ -3,38 +3,38 @@ using System.Text.RegularExpressions;
 
 namespace PrikBoard.Api.Domain;
 
-/// <summary>A project board: a freeform canvas holding buckets, post-it notes, images and drawings.</summary>
+/// <summary>A project board: a freeform canvas holding buckets, cards, images and drawings.</summary>
 public partial class Board
 {
     public Guid Id { get; set; } = Guid.CreateVersion7();
     /// <summary>
-    /// The board in web addresses (/#/boards/{ShortId}/notes/{number}): random, unique and never changed, so links keep
+    /// The board in web addresses (/#/boards/{ShortId}/cards/{number}): random, unique and never changed, so links keep
     /// working however the board is renamed. See <see cref="NewShortId"/>.
     /// </summary>
     public string ShortId { get; set; } = NewShortId();
     public required string Name { get; set; }
     /// <summary>
-    /// Shown before note numbers, e.g. "MPCT" in MPCT-415. Owners may change it at any time: it is not unique and not part of
+    /// Shown before card numbers, e.g. "MPCT" in MPCT-415. Owners may change it at any time: it is not unique and not part of
     /// any address. New boards take it from their name (<see cref="KeyFrom"/>).
     /// </summary>
     public required string Key { get; set; }
-    /// <summary>The number the next note on the board gets. Numbers are never reused, not even those of deleted notes.</summary>
-    public int NextNoteNumber { get; set; } = 1;
+    /// <summary>The number the next card on the board gets. Numbers are never reused, not even those of deleted cards.</summary>
+    public int NextCardNumber { get; set; } = 1;
     public string? Description { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
-    /// <summary>Markdown written by the owners: what the board is about and how agents should handle its notes.</summary>
+    /// <summary>Markdown written by the owners: what the board is about and how agents should handle its cards.</summary>
     public string? Rules { get; set; }
     /// <summary>When <see cref="Rules"/> last changed, or null if they were never set.</summary>
     public DateTimeOffset? RulesUpdatedAt { get; set; }
 
     public List<Bucket> Buckets { get; set; } = [];
-    public List<Note> Notes { get; set; } = [];
-    /// <summary>Images on the canvas and images attached to notes.</summary>
+    public List<Card> Cards { get; set; } = [];
+    /// <summary>Images on the canvas and images attached to cards.</summary>
     public List<BoardImage> Images { get; set; } = [];
-    /// <summary>Freehand pen strokes on the canvas and on notes.</summary>
+    /// <summary>Freehand pen strokes on the canvas and on cards.</summary>
     public List<BoardDrawing> Drawings { get; set; } = [];
-    /// <summary>The tags notes on this board can have.</summary>
+    /// <summary>The tags cards on this board can have.</summary>
     public List<BoardTag> Tags { get; set; } = [];
     /// <summary>Who may see and change the board; there is always at least one owner.</summary>
     public List<BoardMember> Members { get; set; } = [];

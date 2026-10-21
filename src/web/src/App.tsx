@@ -8,7 +8,7 @@ import {
   DownloadIcon,
   ExternalIcon,
   PeopleIcon,
-  PostItIcon,
+  CardIcon,
   RulesIcon,
   ShieldIcon,
   SignOutIcon,
@@ -165,7 +165,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   useEffect(() => {
     refreshBoard.current = refresh
   }, [refresh])
-  // Your name shows on post-its (creator, assignee). Others hear about a rename live; this tab reloads itself.
+  // Your name shows on cards (creator, assignee). Others hear about a rename live; this tab reloads itself.
   const shownName = useRef(user.displayName)
   useEffect(() => {
     if (shownName.current === user.displayName) return
@@ -220,7 +220,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
     try {
       const updated = await api.updateBoard(target.id, changes)
       setBoards((current) => current?.map((b) => (b.id === updated.id ? updated : b)) ?? null)
-      // Post-its show the key in their readable ids (MPCT-415).
+      // Cards show the key in their readable ids (MPCT-415).
       if (changes.key !== undefined) refresh()
       return true
     } catch (e) {
@@ -287,7 +287,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
             className="board-tile"
             title={serverVersion ? `PrikBoard server ${serverVersion}` : undefined}
           >
-            <PostItIcon size={16} />
+            <CardIcon size={16} />
           </span>
           <h1 className="visually-hidden">{activeBoard?.name ?? 'PrikBoard'}</h1>
           <Menu
@@ -299,7 +299,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
                   {activeBoard?.name ?? 'PrikBoard'}
                 </span>
                 {activeBoard && (
-                  <span className="board-key" title={`Post-its on this board are numbered ${activeBoard.key}-1, ${activeBoard.key}-2, …`}>
+                  <span className="board-key" title={`Cards on this board are numbered ${activeBoard.key}-1, ${activeBoard.key}-2, …`}>
                     {activeBoard.key}
                   </span>
                 )}
@@ -340,7 +340,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
                   <QuickAdd label="Rename board" placeholder={activeBoard.name} onAdd={(name) => updateBoard(activeBoard, { name })} />
                 )}
                 {activeBoard && isOwner && (
-                  // The key goes before post-it numbers (MPCT-415); addresses use the short id, so links keep working.
+                  // The key goes before card numbers (MPCT-415); addresses use the short id, so links keep working.
                   <QuickAdd
                     label="Change key"
                     placeholder={`${activeBoard.key}, as in ${activeBoard.key}-1`}
@@ -352,7 +352,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
                     type="button"
                     role="menuitem"
                     className="menu-item"
-                    title="What this board is about and how agents should handle its notes"
+                    title="What this board is about and how agents should handle its cards"
                     onClick={() => {
                       close()
                       setDialog('rules')
@@ -367,7 +367,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
                     type="button"
                     role="menuitem"
                     className="menu-item"
-                    title="Post-its deleted in the last 7 days"
+                    title="Cards deleted in the last 7 days"
                     onClick={() => {
                       close()
                       // The board opens its trash window from the address.
@@ -562,10 +562,10 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
         ) : (
           <div className="empty">
             <span className="board-tile large" aria-hidden="true">
-              <PostItIcon size={28} />
+              <CardIcon size={28} />
             </span>
             <h2>No boards yet</h2>
-            <p>Create a board for your project, then start sticking post-its on it.</p>
+            <p>Create a board for your project, then start sticking cards on it.</p>
             <QuickAdd label="Create a board" placeholder="Project name" onAdd={createBoard} />
           </div>
         )}
@@ -598,7 +598,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
       {boardToDelete && (
         <ConfirmDialog
           title="Delete this board?"
-          message={`"${boardToDelete.name}" and all of its buckets and post-its will be deleted. This can't be undone.`}
+          message={`"${boardToDelete.name}" and all of its buckets and cards will be deleted. This can't be undone.`}
           confirmLabel="Delete board"
           onConfirm={() => void deleteBoard(boardToDelete)}
           onCancel={() => setBoardToDelete(null)}

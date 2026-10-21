@@ -36,7 +36,7 @@ export function useSpaceHeld(): boolean {
       if (e.code !== 'Space' || e.ctrlKey || e.metaKey || e.altKey) return
       const target = e.target instanceof Element ? e.target : null
       if (target?.closest('input, textarea, select, button, a, [contenteditable="true"], [role="menu"], [role="dialog"]:not(.expanded), [role="alertdialog"]')) return
-      // Space would scroll the board or the post-it otherwise.
+      // Space would scroll the board or the card otherwise.
       e.preventDefault()
       setHeld(true)
     }

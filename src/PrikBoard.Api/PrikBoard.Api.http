@@ -32,14 +32,14 @@ Content-Type: application/json
 GET {{host}}/api/boards/{{boardId}}
 Authorization: Bearer {{token}}
 
-### Stick a note on the board (lands in a free spot in the first bucket)
-# @name createNote
-POST {{host}}/api/boards/{{boardId}}/notes
+### Stick a card on the board (lands in a free spot in the first bucket)
+# @name createCard
+POST {{host}}/api/boards/{{boardId}}/cards
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "title": "Pick a colour palette",
+  "title": "Pick a color palette",
   "body": "Three options for the team to vote on",
   "color": "Coral",
   "tags": ["design"],
@@ -48,10 +48,10 @@ Content-Type: application/json
 }
 
 ###
-@noteId = {{createNote.response.body.$.id}}
+@cardId = {{createCard.response.body.$.id}}
 
-### An agent picks the note up: assign it and show the "agent working" halo
-PATCH {{host}}/api/notes/{{noteId}}
+### An agent picks the card up: assign it and show the "agent working" halo
+PATCH {{host}}/api/cards/{{cardId}}
 Content-Type: application/json
 
 {
@@ -59,8 +59,8 @@ Content-Type: application/json
   "agentWorking": true
 }
 
-### Move the note into Done (the server picks a free spot)
-POST {{host}}/api/notes/{{noteId}}/move
+### Move the card into Done (the server picks a free spot)
+POST {{host}}/api/cards/{{cardId}}/move
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
@@ -68,8 +68,8 @@ Content-Type: application/json
   "bucketId": "{{doneBucketId}}"
 }
 
-### Move the note to exact coordinates (its bucket follows from where it lands)
-POST {{host}}/api/notes/{{noteId}}/move
+### Move the card to exact coordinates (its bucket follows from where it lands)
+POST {{host}}/api/cards/{{cardId}}/move
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
@@ -92,8 +92,8 @@ Content-Type: application/json
   "height": 300
 }
 
-### Search notes
-GET {{host}}/api/boards/{{boardId}}/notes?search=palette
+### Search cards
+GET {{host}}/api/boards/{{boardId}}/cards?search=palette
 Authorization: Bearer {{token}}
 
 ### Add an image to the board (the file itself is the body; right of everything unless x and y are given)
