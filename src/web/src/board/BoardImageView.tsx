@@ -7,11 +7,16 @@ import { ResizeHandles } from './ResizeHandles'
 
 interface BoardImageViewProps {
   image: ImageDetail
-  /** Where to draw it: the server geometry, or the live geometry while moving or resizing. */
-  rect: Rect
+  /**
+   * Where to draw it on a canvas: the server geometry, or the live geometry while moving or resizing. Without one it is
+   * part of a list (the mobile layout), as wide as the list at its own aspect ratio, and a tap opens it (`onOpen`).
+   */
+  rect?: Rect
   selected: boolean
   lifted: boolean
-  onPointerDown: (e: PointerEvent<HTMLElement>) => void
+  onPointerDown?: (e: PointerEvent<HTMLElement>) => void
+  /** In a list: shows the image on its own. */
+  onOpen?: () => void
   /** A press on a corner or edge handle (shown while selected, for editors) starts resizing from there. */
   onResizePointerDown?: (e: PointerEvent<HTMLElement>, handle: ResizeHandle) => void
   /** Asks to delete the image (the caller confirms first); without it there is no trash button (viewers). */
@@ -19,8 +24,9 @@ interface BoardImageViewProps {
 }
 
 /** An image or GIF on the canvas, with its file name (or caption) and who added it underneath. */
-export function BoardImageView({ image, rect, selected, lifted, onPointerDown, onResizePointerDown, onDelete }: BoardImageViewProps) {
+export function BoardImageView({ image, rect, selected, lifted, onPointerDown, onOpen, onResizePointerDown, onDelete }: BoardImageViewProps) {
   const classes = ['board-image']
+  if (!rect) classes.push('in-list')
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
   const label = image.caption ?? image.fileName
@@ -28,15 +34,17 @@ export function BoardImageView({ image, rect, selected, lifted, onPointerDown, o
   return (
     <figure
       className={classes.join(' ')}
-      style={{ left: rect.x, top: rect.y, width: rect.width }}
+      style={rect ? { left: rect.x, top: rect.y, width: rect.width } : undefined}
       role="group"
       data-image={image.id}
       aria-label={label}
       tabIndex={0}
       onPointerDown={onPointerDown}
-      onDoubleClick={() => window.open(image.contentUrl, '_blank', 'noopener')}
+      onDoubleClick={rect ? () => window.open(image.contentUrl, '_blank', 'noopener') : undefined}
+      onClick={rect ? undefined : onOpen}
+      onKeyDown={(e) => !rect && e.key === 'Enter' && e.target === e.currentTarget && onOpen?.()}
     >
-      <div className="board-image-frame" style={{ height: rect.height }}>
+      <div className="board-image-frame" style={rect ? { height: rect.height } : { aspectRatio: `${image.pixelWidth} / ${image.pixelHeight}` }}>
         <img src={image.contentUrl} alt={label} draggable={false} />
         {image.contentType === 'image/gif' && <span className="gif-badge">GIF</span>}
         {onDelete && (

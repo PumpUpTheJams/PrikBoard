@@ -60,6 +60,26 @@ export const trashPath = (boardRef: string) => `/#/boards/${boardRef}/trash`
 /** Whether the address has the trash open. */
 export const trashInHash = () => TRASH_HASH.test(window.location.hash)
 
+/**
+ * The mobile layout shows one bucket's cards at a time, and an image on its own; both keep their place in the address,
+ * so the back button and a reload return there: /#/boards/{shortId}/buckets/{bucketId} (`loose` for the cards in no
+ * bucket) and /#/boards/{shortId}/images/{imageId}. The desktop shows the board for either.
+ */
+const BUCKET_HASH = new RegExp(`^#/boards/(?:${BOARD_REF})/buckets/([0-9a-f-]{36}|loose)$`, 'i')
+const IMAGE_HASH = new RegExp(`^#/boards/(?:${BOARD_REF})/images/([0-9a-f-]{36})$`, 'i')
+
+/** What stands for "in no bucket" where a bucket id goes in an address. */
+export const LOOSE = 'loose'
+
+export const bucketPath = (boardRef: string, bucketId: string | null) => `/#/boards/${boardRef}/buckets/${bucketId ?? LOOSE}`
+export const imagePath = (boardRef: string, imageId: string) => `/#/boards/${boardRef}/images/${imageId}`
+
+/** The bucket open in the address (LOOSE for the cards in none), if any. */
+export const bucketInHash = () => window.location.hash.match(BUCKET_HASH)?.[1]?.toLowerCase() ?? null
+
+/** The image open in the address, if any. */
+export const imageInHash = () => window.location.hash.match(IMAGE_HASH)?.[1]?.toLowerCase() ?? null
+
 /** The card a link points at: a card's path, or its full address on this site. Null for anything else. */
 export function cardRoute(url: string): CardRoute | null {
   let hash: string
