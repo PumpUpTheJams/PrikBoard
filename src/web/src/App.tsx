@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { api, errorMessage, setUnauthorizedHandler } from './api/client'
+import { api, ApiError, errorMessage, setUnauthorizedHandler } from './api/client'
 import type { BoardSummary, Caller } from './api/types'
 import { BoardCanvas } from './board/BoardCanvas'
 import {
@@ -24,6 +24,7 @@ import { useLive } from './live/useLive'
 import { AccountDialog, DisplayNameDialog } from './components/AccountDialogs'
 import { AdminPage } from './components/AdminPage'
 import { ConfirmDialog } from './components/ConfirmDialog'
+import { NoticeDialog } from './components/NoticeDialog'
 import { ConnectPage, connectFromHash } from './components/ConnectPage'
 import { Face } from './components/Avatar'
 import { InvitePage } from './components/InvitePage'
@@ -117,6 +118,8 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   // A board in the hash that isn't in your list is looked up once more (you may just have joined) before the sad page.
   const [recheckedId, setRecheckedId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /** Why an import was refused, one message each. */
+  const [importRefused, setImportRefused] = useState<string[] | null>(null)
   const [serverVersion, setServerVersion] = useState<string | null>(null)
   useEffect(() => {
     api.getVersion().then((v) => setServerVersion(v.version), () => {})
@@ -247,7 +250,9 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
       setBoards((current) => [created, ...(current ?? [])])
       selectBoard(created.shortId)
     } catch (e) {
-      setError(errorMessage(e))
+      // A refused file says why (a newer PrikBoard made it, it isn't an export, ...): a dialog, so it isn't missed.
+      if (e instanceof ApiError && e.status === 400) setImportRefused([...new Set(Object.values(e.errors).flat())].slice(0, 5))
+      else setError(errorMessage(e))
     }
   }
 
@@ -604,6 +609,8 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
           onCancel={() => setBoardToDelete(null)}
         />
       )}
+
+      {importRefused && <NoticeDialog title="Can't import this board" messages={importRefused} onClose={() => setImportRefused(null)} />}
     </div>
   )
 }

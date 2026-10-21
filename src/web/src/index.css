@@ -2282,6 +2282,12 @@ li:hover .row-remove,
   overflow-wrap: anywhere;
 }
 
+.notice-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .confirm-actions {
   display: flex;
   justify-content: flex-end;
@@ -2293,6 +2299,7 @@ li:hover .row-remove,
 .dialog-actions .ghost,
 .dialog-actions .primary,
 .confirm-actions .ghost,
+.confirm-actions .primary,
 .rules-footer .ghost {
   height: 34px;
   padding: 0 14px;

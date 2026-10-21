@@ -105,15 +105,7 @@ public static class AuthEndpoints
         return TypedResults.Ok(providers);
     }
 
-    private static readonly string Version =
-        typeof(AuthEndpoints).Assembly
-            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
-            .Cast<System.Reflection.AssemblyInformationalVersionAttribute>()
-            .FirstOrDefault()?.InformationalVersion
-        ?? typeof(AuthEndpoints).Assembly.GetName().Version?.ToString()
-        ?? "unknown";
-
-    private static Ok<ServerVersion> GetVersion() => TypedResults.Ok(new ServerVersion(Version));
+    private static Ok<ServerVersion> GetVersion() => TypedResults.Ok(new ServerVersion(AppVersion.Current));
 
     private static Ok<List<TokenIssuer>> ListTokenIssuers(IOptions<AuthOptions> options) =>
         TypedResults.Ok(options.Value.Tokens.Issuers

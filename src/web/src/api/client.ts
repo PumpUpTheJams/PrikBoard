@@ -48,10 +48,13 @@ import type {
 
 export class ApiError extends Error {
   readonly status: number
+  /** A validation problem's messages by field (the message is the first of them). */
+  readonly errors: Record<string, string[]>
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, errors: Record<string, string[]> = {}) {
     super(message)
     this.status = status
+    this.errors = errors
   }
 }
 
@@ -126,7 +129,7 @@ async function send(method: string, path: string, body?: unknown): Promise<Respo
   if (!response.ok) {
     const problem = (await response.json().catch(() => null)) as ProblemDetails | null
     const firstError = problem?.errors && Object.values(problem.errors)[0]?.[0]
-    throw new ApiError(response.status, firstError ?? problem?.detail ?? problem?.title ?? response.statusText)
+    throw new ApiError(response.status, firstError ?? problem?.detail ?? problem?.title ?? response.statusText, problem?.errors)
   }
 
   return response
