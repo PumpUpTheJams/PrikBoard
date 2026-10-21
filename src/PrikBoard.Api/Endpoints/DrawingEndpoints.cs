@@ -170,11 +170,19 @@ public static class DrawingEndpoints
         return TypedResults.Ok(DrawingDetail.From(drawing));
     }
 
-    internal static async Task<Results<NoContent, NotFound>> DeleteDrawing(Guid drawingId, PrikBoardDbContext db, CancellationToken ct)
+    internal static async Task<Results<NoContent, NotFound>> DeleteDrawing(
+        Guid drawingId, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
     {
+        var drawing = await db.Drawings.AsNoTracking().Where(d => d.Id == drawingId).Select(d => new { d.BoardId, d.CardId }).FirstOrDefaultAsync(ct);
         var deleted = await db.Drawings.Where(d => d.Id == drawingId)
             .ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, DateTimeOffset.UtcNow), ct);
-        return deleted == 0 ? TypedResults.NotFound() : TypedResults.NoContent();
+        if (deleted == 0) return TypedResults.NotFound();
+        if (drawing?.CardId is { } cardId)
+        {
+            CardHistory.Record(db, principal, cardId, drawing.BoardId, new(CardChangeKind.DrawingRemoved, Ref: drawingId));
+            await db.SaveChangesAsync(ct);
+        }
+        return TypedResults.NoContent();
     }
 
     internal static async Task<Results<Ok<DrawingDetail>, NotFound, ProblemHttpResult>> RestoreDrawing(

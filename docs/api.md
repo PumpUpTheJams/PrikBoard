@@ -198,6 +198,7 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | moveCard | `POST /api/cards/{cardId}/move` | Move into a bucket (`bucketId`) or to coordinates (`x` and `y`) |
 | deleteCard | `DELETE /api/cards/{cardId}` | Delete a card (and the images attached to it) |
 | restoreCard | `POST /api/cards/{cardId}/restore` | Bring back a deleted card with the same id, content, creator and place, and the images deleted along with it; with `{"x","y"}` it goes there instead |
+| listCardHistory | `GET /api/cards/{cardId}/history?limit=` | Who changed what on a card and when, newest first (title, color, tags, assignees, agent flag, bucket moves, components, images, drawings, delete/restore); quick edits by one caller merged; also for deleted cards; members only |
 | listDeletedCards | `GET /api/boards/{boardId}/trash?search=` | The trash: cards deleted in the last 7 days (with `deletedAt`), most recently deleted first, optionally searched, with the images deleted along with them |
 | purgeCard | `DELETE /api/boards/{boardId}/trash/{cardId}` | Delete a card in the trash for good, with the images and drawings deleted along with it; `409` when it is not deleted |
 | emptyTrash | `DELETE /api/boards/{boardId}/trash` | Delete every card in the board's trash for good; returns `{"purged"}`, how many cards went |

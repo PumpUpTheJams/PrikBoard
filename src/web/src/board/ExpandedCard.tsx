@@ -15,6 +15,8 @@ import {
 } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { AssigneePicker } from './AssigneePicker'
+import { CardHistory } from './CardHistory'
+import { shortDate } from './dates'
 import { EditableText } from './EditableText'
 import { draggingFiles, imageFiles } from './files'
 import { Highlight } from './Highlight'
@@ -68,6 +70,8 @@ interface ExpandedCardProps {
   onClose: () => void
   /** Viewers see the card without any way to change it (the API refuses changes anyway). */
   readOnly?: boolean
+  /** A visitor of a public board: the history is for members only, so it isn't shown. */
+  visiting?: boolean
   /** Words the board search found on it, to mark (opened from the search results). */
   highlight?: string[]
   handle: RefObject<ExpandedCardHandle | null>
@@ -95,7 +99,7 @@ interface ExpandedCardProps {
 export function ExpandedCard(props: ExpandedCardProps) {
   const { card, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onClose, readOnly, highlight } = props
   const { boardTags, tagColors, people, cards, onRenameTag, onRecolorTag, onPreviewTagColor, onDeleteTag, handle, run, onBusy, incoming, linking, boardPoint, boardZoom, deleted } = props
-  const { drawings = [], incomingDrawing = null } = props
+  const { drawings = [], incomingDrawing = null, visiting = false } = props
   /** The tag or people window, opened from its button in the band. */
   const [picking, setPicking] = useState<{ kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
   const [fileOver, setFileOver] = useState(false)
@@ -252,13 +256,16 @@ export function ExpandedCard(props: ExpandedCardProps) {
             />
           </div>
           <div className="band-row band-meta">
-            {card.createdBy ? (
-              <span title={new Date(card.createdAt).toLocaleString()}>
-                Created by <Highlight text={card.createdBy} terms={highlight} />
-              </span>
-            ) : (
-              <span />
-            )}
+            <span title={new Date(card.createdAt).toLocaleString()}>
+              {card.createdBy ? (
+                <>
+                  Created by <Highlight text={card.createdBy} terms={highlight} /> ·{' '}
+                </>
+              ) : (
+                'Created '
+              )}
+              <time dateTime={card.createdAt}>{shortDate(card.createdAt)}</time>
+            </span>
             <CardIdButton card={card} />
           </div>
         </header>
@@ -281,6 +288,8 @@ export function ExpandedCard(props: ExpandedCardProps) {
           boardZoom={boardZoom}
           onDeleteCard={onDelete}
         />
+
+        {!visiting && <CardHistory card={card} attached={images.length + drawings.length} />}
 
         <span className="window-resize e" aria-hidden="true" onPointerDown={startResize('e')} />
         <span className="window-resize s" aria-hidden="true" onPointerDown={startResize('s')} />

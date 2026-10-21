@@ -28,6 +28,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
     public DbSet<BoardDrawing> Drawings => Set<BoardDrawing>();
     public DbSet<DrawingContent> DrawingContents => Set<DrawingContent>();
+    public DbSet<CardChange> CardChanges => Set<CardChange>();
     public DbSet<DiscordGuild> DiscordGuilds => Set<DiscordGuild>();
     public DbSet<DiscordBoardChannels> DiscordBoardChannels => Set<DiscordBoardChannels>();
     public DbSet<DiscordConnectGrant> DiscordConnectGrants => Set<DiscordConnectGrant>();
@@ -92,6 +93,15 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             card.HasIndex(n => new { n.BoardId, n.Number }).IsUnique();
             card.HasQueryFilter(SoftDelete, n => n.DeletedAt == null);
             card.HasOne(n => n.CreatedBy).WithMany().HasForeignKey(n => n.CreatedById).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<CardChange>(change =>
+        {
+            change.Property(c => c.Entries).HasColumnType("jsonb").HasConversion(CardChangesJson.Converter, CardChangesJson.Comparer);
+            // The history goes when its card is purged; the name on it goes when its author does.
+            change.HasOne<Card>().WithMany().HasForeignKey(c => c.CardId).OnDelete(DeleteBehavior.Cascade);
+            change.HasOne(c => c.By).WithMany().HasForeignKey(c => c.ById).OnDelete(DeleteBehavior.SetNull);
+            change.HasIndex(c => new { c.CardId, c.At });
         });
 
         modelBuilder.Entity<BoardImage>(image =>

@@ -24,7 +24,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         var tools = (await mcp.ListToolsAsync()).ToDictionary(t => t.Name, t => t.ProtocolTool);
         Assert.Equal(
             ["add_card_component", "add_image", "begin_image_upload", "collapse_bucket", "create_bucket", "create_card", "create_tag", "delete_card", "delete_card_component", "delete_tag", "empty_trash", "get_board",
-             "get_board_rules", "get_card", "list_boards", "list_deleted_cards", "move_card", "place_cards_in_bucket", "purge_card", "rename_bucket", "restore_card", "restore_tag",
+             "get_board_rules", "get_card", "get_card_history", "list_boards", "list_deleted_cards", "move_card", "place_cards_in_bucket", "purge_card", "rename_bucket", "restore_card", "restore_tag",
              "search_cards", "set_working", "update_card", "update_card_component", "update_tag"],
             tools.Keys.Order());
         Assert.True(tools["get_board"].Annotations!.ReadOnlyHint);
@@ -99,6 +99,13 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
             .Single(p => p.GetProperty("name").GetString() == "Claude Code").GetProperty("principalId").GetGuid();
         Assert.Contains(saved.Assignees, a => a == new Assignee(agentId, "Claude Code", AssigneeKind.Agent, null));
         Assert.Equal(saved.CreatedBy, overview.GetProperty("buckets")[0].GetProperty("cards")[0].GetProperty("createdBy").GetString());
+
+        // Its history says the agent did it.
+        var history = await CallAsync(mcp, "get_card_history", new() { ["card"] = card.Id });
+        var move = history[0];
+        Assert.Equal("Claude Code", move.GetProperty("by").GetProperty("name").GetString());
+        Assert.Equal("Bucket", move.GetProperty("entries")[0].GetProperty("kind").GetString());
+        Assert.Equal("Doing", move.GetProperty("entries")[0].GetProperty("after").GetString());
 
         var created = await CallAsync(mcp, "create_card", new()
         {

@@ -164,6 +164,23 @@ public sealed class BoardTools
         return McpCall.Value<CardDetail>(await CardEndpoints.GetCard(cardId, db, ct));
     }
 
+    [McpServerTool(Name = "get_card_history", Title = "Get a card's history", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [Description("Who changed what on a card and when, newest first: title, color, tags, assignees, the agent-working flag, " +
+                 "moves between buckets, components, images and drawings added, edited or removed, and deleting and restoring it. " +
+                 "Works for cards in the trash too." + UntrustedText)]
+    public static async Task<List<CardChangeDetail>> GetCardHistory(
+        IHttpContextAccessor accessor,
+        [Description(CardHelp)] string card,
+        [Description("At most this many changes (default 100, at most 500).")] int? limit = null,
+        CancellationToken ct = default)
+    {
+        var http = McpCall.Http(accessor);
+        var cardId = await ResolveCardAsync(http, card, ct);
+        await McpCall.AuthorizeAsync(http, BoardScope.Card, cardId, BoardRole.Viewer);
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        return McpCall.Value<List<CardChangeDetail>>(await CardEndpoints.ListCardHistory(cardId, limit, db, ct));
+    }
+
     [McpServerTool(Name = "create_card", Title = "Create a card", OpenWorld = false)]
     [Description("Adds a card (card) to a board, in a free spot of a bucket (default: the first bucket, usually \"To do\"). " +
                  "body, checklist and links become its first components; add more with add_card_component. Needs the Editor role.")]
@@ -460,7 +477,7 @@ public sealed class BoardTools
         var cardId = await ResolveCardAsync(http, card, ct);
         var boardId = await McpCall.AuthorizeAsync(http, BoardScope.Card, cardId, BoardRole.Editor);
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
-        McpCall.Succeeded(await CardEndpoints.DeleteCard(cardId, db, ct));
+        McpCall.Succeeded(await CardEndpoints.DeleteCard(cardId, http.User, db, ct));
         await McpCall.AnnounceAsync(http, boardId);
         return $"Deleted. restore_card brings it back within {Tombstones.RetentionText}.";
     }
