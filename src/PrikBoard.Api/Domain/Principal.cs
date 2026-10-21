@@ -64,7 +64,10 @@ public class Agent : Principal
     /// <summary>Issuer id for personal access tokens.</summary>
     public const string AccessTokenIssuer = "pat";
 
-    /// <summary>Id of the configured token issuer (<c>Auth:Tokens:Issuers</c>), or <see cref="AccessTokenIssuer"/>.</summary>
+    /// <summary>Issuer id of Discord servers connected for link previews (<see cref="DiscordGuild"/>); the client id is the guild id.</summary>
+    public const string DiscordIssuer = "discord";
+
+    /// <summary>Id of the configured token issuer (<c>Auth:Tokens:Issuers</c>), <see cref="AccessTokenIssuer"/> or <see cref="DiscordIssuer"/>.</summary>
     public required string Issuer { get; set; }
 
     /// <summary>The client id in its tokens (azp, client_id or appid), or the access token's id: an app registration, not personal data.</summary>

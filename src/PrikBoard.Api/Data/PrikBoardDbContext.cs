@@ -28,6 +28,9 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
     public DbSet<BoardDrawing> Drawings => Set<BoardDrawing>();
     public DbSet<DrawingContent> DrawingContents => Set<DrawingContent>();
+    public DbSet<DiscordGuild> DiscordGuilds => Set<DiscordGuild>();
+    public DbSet<DiscordBoardChannels> DiscordBoardChannels => Set<DiscordBoardChannels>();
+    public DbSet<DiscordConnectGrant> DiscordConnectGrants => Set<DiscordConnectGrant>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -180,6 +183,36 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             grant.HasIndex(g => g.CodeHash).IsUnique();
             grant.Property(g => g.CodeChallenge).HasMaxLength(64);
             grant.Property(g => g.Name).HasMaxLength(100);
+            grant.HasOne(g => g.Owner).WithMany().HasForeignKey(g => g.OwnerId).OnDelete(DeleteBehavior.Cascade);
+            grant.HasIndex(g => g.OwnerId);
+        });
+
+        modelBuilder.Entity<DiscordGuild>(guild =>
+        {
+            guild.HasKey(g => g.GuildId);
+            guild.Property(g => g.GuildId).HasMaxLength(DiscordGuild.IdMaxLength);
+            guild.HasOne(g => g.Agent).WithOne().HasForeignKey<DiscordGuild>(g => g.AgentId).OnDelete(DeleteBehavior.Cascade);
+            guild.HasOne<User>().WithMany().HasForeignKey(g => g.ConnectedById).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // Gone with the board or the server; a removed membership leaves it behind, and connecting again replaces it.
+        modelBuilder.Entity<DiscordBoardChannels>(channels =>
+        {
+            channels.HasKey(c => new { c.GuildId, c.BoardId });
+            channels.Property(c => c.GuildId).HasMaxLength(DiscordGuild.IdMaxLength);
+            channels.Property(c => c.Channels).HasColumnType("jsonb").HasConversion(DiscordChannelsJson.Converter, DiscordChannelsJson.Comparer);
+            channels.HasOne<DiscordGuild>().WithMany().HasForeignKey(c => c.GuildId).OnDelete(DeleteBehavior.Cascade);
+            channels.HasOne<Board>().WithMany().HasForeignKey(c => c.BoardId).OnDelete(DeleteBehavior.Cascade);
+            channels.HasIndex(c => c.BoardId);
+        });
+
+        modelBuilder.Entity<DiscordConnectGrant>(grant =>
+        {
+            grant.Property(g => g.CodeHash).HasMaxLength(32);
+            grant.HasIndex(g => g.CodeHash).IsUnique();
+            grant.Property(g => g.CodeChallenge).HasMaxLength(64);
+            grant.PrimitiveCollection(g => g.ChannelBoardIds).IsRequired();
+            grant.PrimitiveCollection(g => g.WholeServerBoardIds).IsRequired();
             grant.HasOne(g => g.Owner).WithMany().HasForeignKey(g => g.OwnerId).OnDelete(DeleteBehavior.Cascade);
             grant.HasIndex(g => g.OwnerId);
         });

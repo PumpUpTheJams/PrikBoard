@@ -5,6 +5,7 @@ import { BoardCanvas } from './board/BoardCanvas'
 import {
   CheckIcon,
   ChevronDownIcon,
+  ChatIcon,
   DownloadIcon,
   ExternalIcon,
   PeopleIcon,
@@ -27,6 +28,9 @@ import { AccountDialog, DisplayNameDialog } from './components/AccountDialogs'
 import { AdminPage } from './components/AdminPage'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { ConnectPage, connectFromHash } from './components/ConnectPage'
+import { DiscordConnectPage } from './components/DiscordConnectPage'
+import { DiscordDialog } from './components/DiscordDialog'
+import { discordConnectFromHash } from './components/discord'
 import { Face } from './components/Avatar'
 import { InvitePage } from './components/InvitePage'
 import { Menu } from './components/Menu'
@@ -50,6 +54,7 @@ export default function App() {
   const [user, setUser] = useState<Caller | null | undefined>(undefined)
   const [invite, setInvite] = useState(inviteFromHash)
   const [connect, setConnect] = useState(connectFromHash)
+  const [discordConnect, setDiscordConnect] = useState(discordConnectFromHash)
 
   useEffect(() => {
     // Any 401, such as an expired session, drops back to the sign-in screen.
@@ -59,6 +64,7 @@ export default function App() {
     const onHashChange = () => {
       setInvite(inviteFromHash())
       setConnect(connectFromHash())
+      setDiscordConnect(discordConnectFromHash())
     }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
@@ -77,6 +83,16 @@ export default function App() {
       <ConnectPage
         request={connect}
         user={user}
+        onDone={() => {
+          window.location.hash = ''
+        }}
+      />
+    )
+  }
+  if (discordConnect) {
+    return (
+      <DiscordConnectPage
+        request={discordConnect}
         onDone={() => {
           window.location.hash = ''
         }}
@@ -125,7 +141,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   }, [])
   const [boardToDelete, setBoardToDelete] = useState<BoardSummary | null>(null)
   const [boardToLeave, setBoardToLeave] = useState<BoardSummary | null>(null)
-  const [dialog, setDialog] = useState<'share' | 'account' | 'rules' | null>(null)
+  const [dialog, setDialog] = useState<'share' | 'account' | 'rules' | 'discord' | null>(null)
   /** Phones get the mobile layout (lists, a screen at a time); touch devices can switch in the settings menu. */
   const layout = useLayoutMode()
   const mobile = layout.mode === 'mobile' && !adminView
@@ -300,6 +316,9 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
           />
         </Suspense>
       )}
+      {dialog === 'discord' && activeBoard && isOwner && (
+        <DiscordDialog key={activeBoard.id} board={activeBoard} onClose={() => setDialog(null)} />
+      )}
       {dialog === 'account' && <AccountDialog user={user} boards={boards ?? []} onChange={onUserChange} onClose={() => setDialog(null)} />}
 
       {boardToLeave && (
@@ -439,6 +458,21 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
                   >
                     <RulesIcon />
                     Agent rules
+                  </button>
+                )}
+                {activeBoard && isOwner && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="menu-item"
+                    title="Discord servers that preview this board's links"
+                    onClick={() => {
+                      close()
+                      setDialog('discord')
+                    }}
+                  >
+                    <ChatIcon />
+                    Discord
                   </button>
                 )}
                 {board && (

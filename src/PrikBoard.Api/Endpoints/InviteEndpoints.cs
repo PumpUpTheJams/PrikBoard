@@ -98,15 +98,24 @@ public static class InviteEndpoints
     {
         if (principal.IsToken()) return TypedResults.Forbid();
 
-        var hash = KeyedHasher.InviteToken(request.Token);
+        if (await FindOpenAsync(db, request.Token, ct) is not { } found) return TypedResults.NotFound();
+        var (invite, board) = found;
+        var yourRole = await BoardAccess.RoleOnBoardAsync(db, invite.BoardId, principal.UserId(), ct);
+        return TypedResults.Ok(new InvitePreview(board.Id, board.Name, invite.Role, invite.CreatedBy?.ShownName, invite.ExpiresAt, yourRole));
+    }
+
+    /// <summary>
+    /// The open invite (neither used nor expired) with this token, and its board; null for anything else. Never spends
+    /// it. Also used by the Discord bot's link previews.
+    /// </summary>
+    internal static async Task<(BoardInvite Invite, Board Board)?> FindOpenAsync(PrikBoardDbContext db, string token, CancellationToken ct)
+    {
+        var hash = KeyedHasher.InviteToken(token);
         var now = DateTimeOffset.UtcNow;
         var invite = await db.BoardInvites.AsNoTracking().Include(i => i.CreatedBy)
             .FirstOrDefaultAsync(i => i.TokenHash == hash && i.AcceptedAt == null && i.ExpiresAt > now, ct);
-        if (invite is null) return TypedResults.NotFound();
-
-        var board = await db.Boards.AsNoTracking().FirstAsync(b => b.Id == invite.BoardId, ct);
-        var yourRole = await BoardAccess.RoleOnBoardAsync(db, invite.BoardId, principal.UserId(), ct);
-        return TypedResults.Ok(new InvitePreview(board.Id, board.Name, invite.Role, invite.CreatedBy?.ShownName, invite.ExpiresAt, yourRole));
+        if (invite is null) return null;
+        return (invite, await db.Boards.AsNoTracking().FirstAsync(b => b.Id == invite.BoardId, ct));
     }
 
     private static async Task<Results<Ok<AcceptedInvite>, NotFound, ForbidHttpResult>> AcceptInvite(
