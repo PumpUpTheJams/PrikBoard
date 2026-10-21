@@ -1,6 +1,8 @@
 # Design: Discord link previews
 
-Status: proposal, nothing built.
+Status: built (PRIK-142). Part 1 is the meta tags in `src/web/index.html` and the PNGs in `src/web/public` (sources in `src/web/icons`); Part 2 is `Endpoints/DiscordEndpoints.cs` in the API, `components/DiscordConnectPage.tsx` and `DiscordDialog.tsx` in the web app, and the bot in `src/PrikBoard.Discord`. Not tried against Discord yet: that needs a public host (open question 10).
+
+Where the build differs from the text below: the connect page is `/#/connect/discord?code_challenge=…`; owners can also remove one channel (removeDiscordChannel); getLinkPreview has its own rate limit per server (`RateLimits:LinkPreviewsPerMinute`, 60) rather than `InviteEndpoints.InviteLimit`; and connected servers are left out of the people cards can be assigned to.
 
 ## Goal
 
@@ -57,7 +59,7 @@ The text is the same everywhere it appears: the home page, a board, a card, an i
 ### Checklist
 
 - Meta tags in `index.html`; `og-signed-out.png`, `icon-512.png` and `apple-touch-icon.png` in `src/web/public`.
-- Check that nginx serves `index.html` for `/` with the tags (it does today) and that the PNGs are reachable without signing in.
+- Check that nginx serves `index.html` for `/` with the tags (it does today) and that the PNGs are reachable without signing in (they are: nginx serves `public` files before falling back to `index.html`).
 - Try it with a public host (see Hosting): crawlers can't reach `localhost`.
 
 ## Part 2: the Discord integration

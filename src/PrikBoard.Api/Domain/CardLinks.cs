@@ -49,6 +49,28 @@ public static class CardLinks
         return false;
     }
 
+    /// <summary>Where the web app shows a board: /#/boards/{shortId}.</summary>
+    public static string BoardPath(string boardShortId) => BoardsPrefix + boardShortId;
+
+    /// <summary>
+    /// Whether the link is a board's path, /#/boards/{shortId} or the older /#/boards/{boardId} (a trailing slash is
+    /// fine), and which board: its short id, or its id. Card paths are not board paths; see <see cref="TryParse"/>.
+    /// </summary>
+    public static bool TryParseBoard(string url, out string? shortId, out Guid boardId)
+    {
+        (shortId, boardId) = (null, Guid.Empty);
+        url = url.Trim();
+        if (!url.StartsWith(BoardsPrefix, StringComparison.Ordinal)) return false;
+        var board = url[BoardsPrefix.Length..];
+        if (board.EndsWith('/')) board = board[..^1];
+        if (Board.IsShortId(board))
+        {
+            shortId = board;
+            return true;
+        }
+        return Guid.TryParseExact(board, "D", out boardId);
+    }
+
     /// <summary>A card number as written in a path or readable id: digits without a leading zero.</summary>
     public static bool TryParseNumber(string value, out int number) =>
         int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out number) && number > 0

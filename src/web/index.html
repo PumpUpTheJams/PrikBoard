@@ -11,6 +11,23 @@
       href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap"
     />
     <title>PrikBoard</title>
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!--
+      Link previews in chat apps. Crawlers fetch links anonymously and never send the part after #, so every PrikBoard
+      link (board, card, invite) looks like / to them and gets this same preview, which therefore names nothing. No
+      og:url, so the preview links to what was pasted. See docs/discord.md.
+    -->
+    <meta name="description" content="Neither you nor a PrikBoard integration is signed in here. Open the link to sign in and see it." />
+    <meta property="og:site_name" content="PrikBoard" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="PrikBoard link" />
+    <meta property="og:description" content="Neither you nor a PrikBoard integration is signed in here. Open the link to sign in and see it." />
+    <meta property="og:image" content="/og-signed-out.png" />
+    <meta property="og:image:width" content="256" />
+    <meta property="og:image:height" content="256" />
+    <meta property="og:image:alt" content="The PrikBoard card with a not-signed-in badge" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="theme-color" content="#ffd54f" />
   </head>
   <body>
     <div id="root"></div>

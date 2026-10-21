@@ -22,6 +22,8 @@ dotnet ef migrations add <Name> --project src/PrikBoard.Api --output-dir Data/Mi
 
 No local Node here: run web checks in Docker, e.g. `sg docker -c 'docker run --rm -u "$(id -u):$(id -g)" -e npm_config_cache=/tmp/.npm -v "$PWD/src/web":/app -w /app node:22 sh -c "npm run lint && npm run build"'` (the `web-docker` launch config runs the dev server the same way).
 
+`dotnet run --project src/PrikBoard.Discord` runs the Discord bot (needs `Discord:BotToken`, `PrikBoard:ApiUrl`, `PrikBoard:PublicUrl`; or `docker compose --profile discord up -d`). The link-preview PNGs in `src/web/public` are rendered from `src/web/icons` (see its README).
+
 `.claude/launch.json` defines `api` and `web` preview servers. The frontend has no test suite. Set `PRIKBOARD_API_URL` to point the Vite proxy at a different API.
 
 ## Architecture
@@ -63,6 +65,7 @@ Domain: a board is a freeform canvas. `Board 1──* Bucket` (named rectangles)
   - Tool errors are `McpException`s.
   - MCP tools need `JsonSerializerOptions` with a `TypeInfoResolver` (`McpCall.Json`).
   - Tests: `AccessTokenTests`, and `McpTests` with the official MCP client over the test server.
+- **Discord link previews** (`docs/discord.md`, `Endpoints/DiscordEndpoints.cs`, bot in `src/PrikBoard.Discord`). A connected Discord server is an `Agent` (issuer `Agent.DiscordIssuer`, client id the guild id, row `DiscordGuild`) that is a Viewer member of each connected board; `DiscordBoardChannels` narrows where (channels, or null for the whole server). Its token is `AccessTokenKind.Discord`: the agent's own memberships, `boards:read` only, a `KindClaim` that `AuthSetup.DiscordPolicy` requires on the bot's endpoints (getLinkPreview, getDiscordStatus, revokeDiscordToken). Connecting is the App sign-in paste flow (approveDiscordConnect from `#/connect/discord`, exchangeDiscordConnect from the bot). getLinkPreview answers the same 404 for everything it won't preview, and matches links against `Discord:PublicUrl`; `CardPreview.Describe` builds descriptions. Discord servers are never assignees (`AssignableIds`). The bot talks to the API over HTTP only and keeps each server's token encrypted (Data Protection) under its own `Storage:Path`.
 - **Live updates** (`Live/`, SignalR hub `BoardHub` at `/api/live`, policy `AuthSetup.LivePolicy`, which also checks the Origin of cookie connections):
   - The `RequireBoardRole` filter announces successful board-scoped writes (`BoardChanged`) itself. Mark board-scoped POSTs that change nothing with `.Quiet()`. Changes to board lists, roles or names call `BoardEvents` explicitly (`BoardsChangedAsync`, `AccessChangedAsync`, `RenamedAsync`).
   - Presence and roles of open connections live in the `LiveViewers` singleton (one instance only). SignalR user ids are principal ids (`PrincipalUserIds`).

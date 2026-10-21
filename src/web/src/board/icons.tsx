@@ -159,6 +159,14 @@ export const TextIcon = ({ size = 16 }: IconProps) => (
   </Icon>
 )
 
+/** A speech bubble: chat servers (Discord) that preview the board's links. */
+export const ChatIcon = ({ size = 16 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M4 5h16v11H9l-5 4z" />
+    <path d="M9 10h.01M12 10h.01M15 10h.01" />
+  </Icon>
+)
+
 /** A page with a small sparkle: the board's agent rules. */
 export const RulesIcon = ({ size = 18 }: IconProps) => (
   <Icon size={size}>

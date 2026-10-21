@@ -19,6 +19,7 @@ const expiryOptions: SelectOption<string>[] = [
 
 const describeAccess = (token: AccessToken, boards: BoardSummary[]) => {
   if (token.kind === 'App') return 'Acts as you · signed in from VS Code'
+  if (token.kind === 'Discord') return 'Discord server · previews links to the boards it is connected to'
   const what = token.access === 'Editor' ? 'Can edit' : 'Read only'
   if (!token.boardIds) return `${what} · all your boards`
   const names = token.boardIds.map((id) => boards.find((b) => b.id === id)?.name ?? 'a board you left')
@@ -124,7 +125,9 @@ export function AccessTokens({ boards }: { boards: BoardSummary[] }) {
           message={
             revoking.kind === 'App'
               ? 'The app is signed out at once. What you did with it stays on the boards.'
-              : 'Anything using this token stops working at once. What its agent already did stays on the boards.'
+              : revoking.kind === 'Discord'
+                ? 'The PrikBoard bot stops previewing links in this Discord server until it is connected again. Previews already posted stay in Discord.'
+                : 'Anything using this token stops working at once. What its agent already did stays on the boards.'
           }
           confirmLabel="Revoke"
           onConfirm={() => void revoke(revoking)}

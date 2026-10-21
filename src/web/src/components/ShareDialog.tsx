@@ -4,6 +4,7 @@ import type { BoardInvite, BoardMember, BoardRole, BoardSummary, CreatedInvite }
 import { SparkleIcon } from '../board/icons'
 import { Dialog } from './Dialog'
 import { Face } from './Avatar'
+import { DISCORD_ISSUER } from './discord'
 import { RoleSelect } from './RoleSelect'
 
 interface ShareDialogProps {
@@ -74,7 +75,13 @@ export function ShareDialog({ board, onClose, onLeft, onChanged }: ShareDialogPr
                   <span className="row-main">
                     {m.displayName}
                     {m.isYou && <span className="badge">you</span>}
-                    {m.kind === 'Agent' && <span className="badge agent" title={`${m.issuer} · ${m.clientId}`}>agent</span>}
+                    {m.issuer === DISCORD_ISSUER ? (
+                      <span className="badge discord" title={`Discord server ${m.clientId}: previews this board's links`}>
+                        Discord
+                      </span>
+                    ) : (
+                      m.kind === 'Agent' && <span className="badge agent" title={`${m.issuer} · ${m.clientId}`}>agent</span>
+                    )}
                   </span>
                   <span className="member-actions">
                     {owner ? (

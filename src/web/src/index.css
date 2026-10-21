@@ -3271,6 +3271,95 @@ a.button.primary:hover {
   color: #d9c9ff;
 }
 
+/* A Discord server connected for link previews; Discord's own blurple. */
+.badge.discord {
+  background: #262a52;
+  color: #c9cdff;
+}
+
+.discord-channels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.discord-channel {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 2px 1px 8px;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--text-2);
+  font: 12px var(--mono);
+}
+
+.discord-channel .icon-button {
+  width: 20px;
+  height: 20px;
+}
+
+.sign-in-card.discord-connect {
+  width: min(100%, 440px);
+}
+
+.discord-command {
+  align-self: stretch;
+  align-items: center;
+}
+
+.discord-command code {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: 12px var(--mono);
+  text-align: left;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.discord-connect-boards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-height: 40dvh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.discord-connect-boards li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 36px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.discord-connect-boards label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.discord-connect-boards label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .primary.small,
 .ghost.small {
   height: 28px;

@@ -49,6 +49,12 @@ public static partial class AuthSetup
     public const string LivePolicy = "Live";
 
     /// <summary>
+    /// The endpoints for the PrikBoard Discord bot: a connected server's <see cref="Domain.AccessTokenKind.Discord"/>
+    /// token, which is read-only, also for the POST and DELETE among them. See docs/discord.md.
+    /// </summary>
+    public const string DiscordPolicy = "Discord";
+
+    /// <summary>
     /// The reads visitors of a public board may make (<see cref="BoardAccess.AllowVisitors"/>): anyone without credentials,
     /// or a signed-in caller with the scope a read needs. Credentials that don't sign in (a wrong token) still get 401.
     /// </summary>
@@ -131,9 +137,9 @@ public static partial class AuthSetup
             {
                 throw new InvalidOperationException($"Token issuer id '{id}' must use lowercase letters, digits and dashes.");
             }
-            if (id == Agent.AccessTokenIssuer)
+            if (id is Agent.AccessTokenIssuer or Agent.DiscordIssuer)
             {
-                throw new InvalidOperationException($"Token issuer id '{id}' is reserved for personal access tokens.");
+                throw new InvalidOperationException($"Token issuer id '{id}' is reserved for PrikBoard's own tokens.");
             }
 
             AddTokenIssuer(auth, id, issuer, config.Tokens.Audience);
@@ -160,6 +166,7 @@ public static partial class AuthSetup
                 context.User.Identity?.IsAuthenticated == true
                     ? ApiScopes.Of(context.User) is var granted && (granted.Contains(ApiScopes.Read) || granted.Contains(ApiScopes.Write))
                     : context.Resource is not HttpContext http || !HasCredentials(http.Request, context.User)))
+            .AddPolicy(DiscordPolicy, policy => policy.RequireAuthenticatedUser().RequireAssertion(context => context.User.IsDiscordToken()))
             // Every endpoint without its own authorization metadata gets the API policy.
             .SetFallbackPolicy(apiPolicy);
 
