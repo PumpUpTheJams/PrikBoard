@@ -36,6 +36,9 @@ public sealed record CardSummary(
 }
 
 /// <summary>A bucket (column) with its cards, top to bottom.</summary>
+/// <param name="Id">The bucket id.</param>
+/// <param name="Name">The bucket name; tools take it as the bucket too.</param>
+/// <param name="Cards">Its cards, top to bottom.</param>
 /// <param name="Collapsed">Folded up on the board: its cards are hidden there until someone opens it (they are listed here all the same).</param>
 public sealed record BucketOverview(Guid Id, string Name, IReadOnlyList<CardSummary> Cards, bool Collapsed);
 

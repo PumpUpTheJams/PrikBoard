@@ -164,8 +164,11 @@ public class MeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardAp
         // Nothing anywhere in the database holds the email or the provider's subject.
         foreach (var (table, column) in await TextColumns(db))
         {
+            // Table and column names can't be parameters; these come from the database's own catalog, not from input.
+#pragma warning disable EF1002
             var hits = await db.Database.SqlQueryRaw<int>(
                 $"""SELECT count(*)::int AS "Value" FROM "{table}" WHERE "{column}"::text ILIKE '%private%'""").SingleAsync();
+#pragma warning restore EF1002
             Assert.True(hits == 0, $"{table}.{column} contains personal data");
         }
     }

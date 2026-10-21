@@ -130,7 +130,7 @@ public static class BoardAccess
         return db.Principals.AsNoTracking().Where(p => ids.Contains(p.Id)).ToListAsync(ct);
     }
 
-    /// <summary>The outcome of <see cref="AuthorizeAsync(HttpContext, BoardScope, Guid, BoardRole)"/>: the board and role, or the response to send instead.</summary>
+    /// <summary>The outcome of <see cref="AuthorizeAsync(HttpContext, BoardScope, Guid, BoardRole, bool)"/>: the board and role, or the response to send instead.</summary>
     public sealed record Authorization(Guid BoardId, BoardRole Role, IResult? Failure);
 
     /// <summary>
