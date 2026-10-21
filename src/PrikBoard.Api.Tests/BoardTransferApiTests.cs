@@ -54,7 +54,7 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         Assert.Equal("Release 2.0.prikboard.json", exported.Content.Headers.ContentDisposition?.FileNameStar);
         var file = await exported.Content.ReadAsStringAsync();
         Assert.Contains("\"format\":\"prikboard-board\"", file);
-        Assert.Contains("\"version\":4", file);
+        Assert.Contains("\"version\":5", file);
         Assert.DoesNotContain("export-owner@example.com", file);
 
         // Someone else imports it: a new board they own, and nothing changes on the original.
@@ -204,13 +204,14 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         var file = JsonNode.Parse(await (await client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync())!;
 
         Assert.Equal(BoardExport.CurrentVersion, file["version"]!.GetValue<int>());
-        Assert.Equal(4, BoardExport.CurrentVersion);
+        Assert.Equal(5, BoardExport.CurrentVersion);
         Assert.False(string.IsNullOrEmpty(file["appVersion"]!.GetValue<string>()));
         Assert.DoesNotContain("+", file["appVersion"]!.GetValue<string>());
 
-        // As 0.0.27 wrote them: version 3, without appVersion.
+        // As 0.0.27 wrote them: version 3, without appVersion or the buckets' places in the stack.
         file["version"] = 3;
         file.AsObject().Remove("appVersion");
+        foreach (var bucket in file["buckets"]!.AsArray()) bucket!.AsObject().Remove("stack");
         Assert.Equal(HttpStatusCode.Created, (await Import(client, file.ToJsonString())).StatusCode);
     }
 

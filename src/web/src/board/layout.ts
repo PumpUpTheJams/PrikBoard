@@ -40,8 +40,14 @@ export function imageSize(image: { pixelWidth: number; pixelHeight: number }, wi
 export const snapPoint = ({ x, y }: Point): Point => ({ x: onBoard(snap(x)), y: onBoard(snap(y)) })
 
 /**
+ * Buckets in stacking order, back to front (Layout.BackToFront on the server): by `stackedAt`, then in list order, as
+ * the API lists them. How they are drawn, and which one an item put where they overlap joins.
+ */
+export const backToFront = (buckets: BucketDetail[]) => buckets.toSorted((a, b) => Date.parse(a.stackedAt) - Date.parse(b.stackedAt))
+
+/**
  * The topmost bucket containing a card's centre: the bucket a card dropped there joins (Layout.Place on the server). It
- * stays in that bucket while buckets move around it. `buckets` is back to front, as the API returns them. A collapsed
+ * stays in that bucket while buckets move around it. `buckets` is back to front (`backToFront`). A collapsed
  * bucket only keeps the cards it has (`own`): others don't join it, as on the server. The bucket this screen shows in
  * `front` wins where it covers the card's centre: a drop there names it (`bucketId` with `x` and `y`), so the card joins it.
  */

@@ -541,7 +541,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         Assert.Superset(
             new HashSet<string?>
             {
-                "listBoards", "getBoard", "createBucket", "updateBucket", "deleteBucket",
+                "listBoards", "getBoard", "createBucket", "updateBucket", "bringBucketToFront", "deleteBucket",
                 "createCard", "getCardByNumber", "moveCard", "updateCard", "deleteCard", "restoreCard", "purgeCard", "emptyTrash", "setCardWorking", "restoreBucket", "listCardHistory",
                 "addCardComponent", "updateCardComponent", "deleteCardComponent",
                 "listBoardTags", "createBoardTag", "updateBoardTag", "deleteBoardTag", "restoreBoardTag",

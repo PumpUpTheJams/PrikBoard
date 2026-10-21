@@ -13,10 +13,12 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Width">Width in pixels, a multiple of 20 and at least 200.</param>
 /// <param name="Height">Height in pixels, a multiple of 20 and at least 200.</param>
 /// <param name="Collapsed">Folded up into a 120 px square in its top-right corner: its cards are hidden on the board (they keep their places, and still belong to it) until it is opened again.</param>
-public record BucketDetail(Guid Id, Guid BoardId, string Name, BucketColor Color, int X, int Y, int Width, int Height, bool Collapsed)
+/// <param name="StackedAt">Its place in the stack, the same for everyone: the later, the higher. Where buckets overlap, the topmost is drawn above the others and an item put there joins it. Drawing, moving, resizing, opening or filling a bucket puts it on top, and so does bringBucketToFront.</param>
+public record BucketDetail(
+    Guid Id, Guid BoardId, string Name, BucketColor Color, int X, int Y, int Width, int Height, bool Collapsed, DateTimeOffset StackedAt)
 {
     public static BucketDetail From(Bucket bucket) =>
-        new(bucket.Id, bucket.BoardId, bucket.Name, bucket.Color, bucket.X, bucket.Y, bucket.Width, bucket.Height, bucket.Collapsed);
+        new(bucket.Id, bucket.BoardId, bucket.Name, bucket.Color, bucket.X, bucket.Y, bucket.Width, bucket.Height, bucket.Collapsed, bucket.StackedAt);
 }
 
 /// <summary>Draws a bucket on a board. Loose cards it covers join it. Coordinates snap to the 20 px grid.</summary>

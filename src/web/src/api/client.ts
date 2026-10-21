@@ -191,6 +191,8 @@ export const api = {
     request<BucketDetail>('POST', `/boards/${boardId}/buckets`, bucket),
   updateBucket: (bucketId: string, changes: BucketChanges) =>
     request<BucketDetail>('PATCH', `/buckets/${bucketId}`, changes),
+  /** Puts a bucket on top of the others, for everyone (no item changes bucket). */
+  bringBucketToFront: (bucketId: string) => request<BucketDetail>('POST', `/buckets/${bucketId}/front`),
   /** Puts cards into free slots of a bucket, in order, growing it towards `grow` when they don't fit. */
   placeCardsInBucket: (bucketId: string, placement: PlaceCardsRequest) =>
     request<PlacedCards>('POST', `/buckets/${bucketId}/cards`, placement),

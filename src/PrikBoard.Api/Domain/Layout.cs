@@ -4,7 +4,7 @@ namespace PrikBoard.Api.Domain;
 /// The geometry rules of a board. Coordinates are canvas pixels, snapped to a grid. The board has no edge: things can go
 /// left of and above the origin (negative coordinates) as well as right of and below it.
 /// A card, image or drawing put somewhere joins the topmost bucket containing its centre, and stays in it while buckets move (see
-/// the membership rules below); buckets stack in creation order, newest on top.
+/// the membership rules below); buckets stack by <see cref="Bucket.StackedAt"/>, the one put on top last on top.
 /// </summary>
 public static class Layout
 {
@@ -43,8 +43,12 @@ public static class Layout
 
     public static int SnapSize(int value, int min) => Math.Max(min, Snap(value));
 
-    /// <summary>Buckets in stacking order, back to front.</summary>
+    /// <summary>Buckets in stacking order, back to front (<see cref="Bucket.StackedAt"/>).</summary>
     public static List<Bucket> BackToFront(IEnumerable<Bucket> buckets) =>
+        buckets.OrderBy(b => b.StackedAt).ThenBy(b => b.CreatedAt).ThenBy(b => b.Id).ToList();
+
+    /// <summary>Buckets in the order lists show them, oldest first (To do, Doing, Done), however they are stacked.</summary>
+    public static List<Bucket> InListOrder(IEnumerable<Bucket> buckets) =>
         buckets.OrderBy(b => b.CreatedAt).ThenBy(b => b.Id).ToList();
 
     // Bucket membership. A card, image or drawing on the board keeps the bucket it is in (BucketId) until it moves itself: then
@@ -139,10 +143,10 @@ public static class Layout
     private static Bucket? TopmostAt(IReadOnlyList<Bucket> stacked, (int X, int Y) point) =>
         stacked.LastOrDefault(b => !b.Collapsed && b.Contains(point.X, point.Y));
 
-    /// <summary>Cards bucket by bucket (in stacking order, loose cards last), then top to bottom and left to right.</summary>
+    /// <summary>Cards bucket by bucket (in list order, loose cards last), then top to bottom and left to right.</summary>
     public static List<Card> ReadingOrder(IEnumerable<Card> cards, IEnumerable<Bucket> buckets)
     {
-        var rank = BackToFront(buckets).Select((b, i) => (b.Id, i)).ToDictionary(p => p.Id, p => p.i);
+        var rank = InListOrder(buckets).Select((b, i) => (b.Id, i)).ToDictionary(p => p.Id, p => p.i);
         return cards
             .OrderBy(n => n.BucketId is { } id && rank.TryGetValue(id, out var r) ? r : int.MaxValue)
             .ThenBy(n => n.Y).ThenBy(n => n.X)

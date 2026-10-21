@@ -23,7 +23,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
 
         var tools = (await mcp.ListToolsAsync()).ToDictionary(t => t.Name, t => t.ProtocolTool);
         Assert.Equal(
-            ["add_card_component", "add_image", "begin_image_upload", "collapse_bucket", "create_bucket", "create_card", "create_tag", "delete_card", "delete_card_component", "delete_tag", "empty_trash", "get_board",
+            ["add_card_component", "add_image", "begin_image_upload", "bring_bucket_to_front", "collapse_bucket", "create_bucket", "create_card", "create_tag", "delete_card", "delete_card_component", "delete_tag", "empty_trash", "get_board",
              "get_board_rules", "get_card", "get_card_history", "list_boards", "list_deleted_cards", "move_card", "place_cards_in_bucket", "purge_card", "rename_bucket", "restore_card", "restore_tag",
              "search_cards", "set_working", "update_card", "update_card_component", "update_tag"],
             tools.Keys.Order());
