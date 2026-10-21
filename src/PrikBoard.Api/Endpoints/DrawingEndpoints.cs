@@ -28,6 +28,7 @@ public static class DrawingEndpoints
 
         drawings.MapGet("/drawings/{drawingId:guid}/content", GetDrawingContent)
             .RequireBoardRole(BoardRole.Viewer, BoardScope.Drawing)
+            .AllowVisitors()
             .WithName("getDrawingContent")
             .WithSummary("Get a drawing's points")
             .WithDescription("Returns the stroke's points as [x, y, pressure], relative to the drawing's x and y. " +

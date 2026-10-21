@@ -286,9 +286,48 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
     }
 
     [Fact]
-    public async Task Anonymous_callers_cannot_connect()
+    public async Task Anonymous_callers_only_follow_public_boards_and_see_who_is_there_as_the_board_allows()
     {
-        await Assert.ThrowsAnyAsync<Exception>(() => ConnectAsync(new Session(factory.CreateAnonymousClient(), "")));
+        var owner = await SessionAsync("live-public-owner@example.com");
+        var board = await owner.Http.CreateBoardAsync("Live public");
+        var guest = await ConnectAsync(new Session(factory.CreateAnonymousClient(), ""));
+        await Assert.ThrowsAnyAsync<HubException>(() => guest.Connection.InvokeAsync<JoinedBoard>("Join", board.Id));
+
+        (await owner.Http.PatchAsJsonAsync($"/api/boards/{board.Id}", new { isPublic = true })).EnsureSuccessStatusCode();
+        var member = await ConnectAsync(owner);
+        var memberPresence = member.Inbox<BoardPresence>("Presence");
+        await member.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+
+        // People hidden: the guest counts heads; the members see one guest.
+        var joined = await guest.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+        Assert.Equal((true, BoardRole.Viewer, 0, 2), (joined.Visiting, joined.Role, joined.Viewers.Count, joined.Guests));
+        var seen = await memberPresence.NextMatchingAsync(p => p.Guests == 1);
+        Assert.Single(seen.Viewers);
+
+        // Changes reach the guest, without who made them; drags are for editors.
+        var changes = guest.Inbox<BoardChange>("BoardChanged");
+        await owner.Http.CreateCardAsync(board.Id);
+        var change = await changes.NextAsync();
+        Assert.Equal((board.Id, Guid.Empty), (change.BoardId, change.By));
+        await Assert.ThrowsAnyAsync<HubException>(() => guest.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Card, Guid.NewGuid(), 20, 20)));
+
+        // Showing people: the guest is asked to look again and then sees the members by name.
+        var access = guest.Inbox<Guid>("AccessChanged");
+        (await owner.Http.PatchAsJsonAsync($"/api/boards/{board.Id}", new { publicShowsPeople = true })).EnsureSuccessStatusCode();
+        Assert.Equal(board.Id, await access.NextAsync());
+        var rejoined = await guest.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+        Assert.Equal(((await owner.Http.MeAsync()).DisplayName, 1), (Assert.Single(rejoined.Viewers).DisplayName, rejoined.Guests));
+
+        // Members-only again: the guest is told and can't join.
+        (await owner.Http.PatchAsJsonAsync($"/api/boards/{board.Id}", new { isPublic = false })).EnsureSuccessStatusCode();
+        Assert.Equal(board.Id, await access.NextAsync());
+        await Assert.ThrowsAnyAsync<HubException>(() => guest.Connection.InvokeAsync<JoinedBoard>("Join", board.Id));
+    }
+
+    [Fact]
+    public async Task A_wrong_token_cannot_connect()
+    {
+        await Assert.ThrowsAnyAsync<Exception>(() => ConnectAsync(new Session(factory.CreateAnonymousClient(), ""), bearer: "pb_pat_not-a-token"));
     }
 
     public async ValueTask DisposeAsync()
@@ -310,7 +349,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         return new Session(http, cookie);
     }
 
-    private async Task<Live> ConnectAsync(Session session, string origin = "http://localhost")
+    private async Task<Live> ConnectAsync(Session session, string origin = "http://localhost", string? bearer = null)
     {
         var connection = new HubConnectionBuilder()
             .WithUrl(new Uri(factory.Server.BaseAddress, "/api/live"), options =>
@@ -319,6 +358,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
                 options.Transports = HttpTransportType.LongPolling;
                 options.HttpMessageHandlerFactory = _ => factory.Server.CreateHandler();
                 if (session.Cookie.Length > 0) options.Headers["Cookie"] = session.Cookie;
+                if (bearer is not null) options.Headers["Authorization"] = $"Bearer {bearer}";
                 options.Headers["Origin"] = origin;
             })
             .AddJsonProtocol(options => options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()))

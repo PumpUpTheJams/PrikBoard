@@ -31,6 +31,17 @@ public static class BucketEndpoints
                              "items now outside it and takes loose ones it now covers.")
             .ProducesValidationProblem();
 
+        buckets.MapPost("/buckets/{bucketId:guid}/cards", PlaceCardsInBucket)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Bucket)
+            .WithName("placeCardsInBucket")
+            .WithSummary("Put several cards into a bucket")
+            .WithDescription("Moves the cards into the free room of the bucket (on the 20 px grid, row by row in the order given), a " +
+                             "grid step clear of the cards and images in it (also a collapsed bucket); other buckets' items don't count. " +
+                             "When they don't fit, the bucket grows towards grow (Down, Right, Left or Up) by whole rows or columns, " +
+                             "only as far as they need, also over neighbouring buckets (the cards still belong to this one). " +
+                             "Returns the bucket and the cards.")
+            .ProducesValidationProblem();
+
         buckets.MapDelete("/buckets/{bucketId:guid}", DeleteBucket)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Bucket)
             .WithName("deleteBucket")
@@ -157,6 +168,59 @@ public static class BucketEndpoints
 
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok(BucketDetail.From(bucket));
+    }
+
+    internal static async Task<Results<Ok<PlacedCards>, NotFound, ValidationProblem>> PlaceCardsInBucket(
+        Guid bucketId, PlaceCardsRequest request, PrikBoardDbContext db, CancellationToken ct)
+    {
+        // One at a time per bucket, so two drops into it don't take the same free slots.
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""SELECT 1 FROM "Buckets" WHERE "Id" = {bucketId} FOR UPDATE""", ct);
+        var bucket = await db.Buckets.FirstOrDefaultAsync(b => b.Id == bucketId, ct);
+        if (bucket is null) return TypedResults.NotFound();
+
+        var ids = request.CardIds.Distinct().ToList();
+        var boardCards = await db.Cards.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);
+        var found = ids.Select(id => boardCards.Find(n => n.Id == id)).ToList();
+        if (found.Any(n => n is null))
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["cardIds"] = ["Every card must be on the bucket's board."],
+            });
+        }
+        var cards = found.OfType<Card>().ToList();
+
+        var buckets = await db.Buckets.Where(b => b.BoardId == bucket.BoardId).ToListAsync(ct);
+        var images = await db.Images.Where(i => i.BoardId == bucket.BoardId && i.CardId == null).ToListAsync(ct);
+        var others = boardCards.Where(n => !ids.Contains(n.Id)).ToList();
+        // They join the bucket by id, so only its own items (and loose ones) are in the way, not its neighbours': it may
+        // grow over those, only as far as needed.
+        bool InTheWay(Guid? owner) => owner is null || owner == bucket.Id;
+        List<(int X, int Y, int Width, int Height)> taken =
+        [
+            .. others.Where(n => InTheWay(n.BucketId)).Select(n => (n.X, n.Y, Layout.CardWidth, Layout.CardHeight)),
+            .. images.Where(i => InTheWay(i.BucketId)).Select(i => (i.X, i.Y, i.Width, i.Height)),
+        ];
+        var spots = Layout.PackIn(bucket, cards.Count, taken, request.Grow ?? GrowSide.Down);
+
+        var now = DateTimeOffset.UtcNow;
+        foreach (var (card, (x, y)) in cards.Zip(spots))
+        {
+            (card.X, card.Y) = (x, y);
+            // Asked for by name, so they join even a collapsed bucket (which other cards don't).
+            card.BucketId = bucket.Id;
+            card.UpdatedAt = now;
+        }
+        // A bucket that grew can now cover loose items too.
+        var drawings = await db.Drawings.Where(d => d.BoardId == bucket.BoardId && d.CardId == null).ToListAsync(ct);
+        Layout.Adopt(bucket, Layout.BackToFront(buckets), others, [.. images, .. drawings], looseOnly: true);
+
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        var board = (await CardEndpoints.BoardRefAsync(db, bucket.BoardId, ct))!;
+        var principals = await CardEndpoints.PrincipalsOnAsync(db, cards, ct);
+        return TypedResults.Ok(new PlacedCards(BucketDetail.From(bucket), [.. cards.Select(n => CardDetail.From(n, board, principals))]));
     }
 
     private static async Task<Results<NoContent, NotFound>> DeleteBucket(

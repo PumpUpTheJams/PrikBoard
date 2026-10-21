@@ -1,9 +1,13 @@
 using System.Security.Claims;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
+using HttpJsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
@@ -31,13 +35,15 @@ public static class BoardTransferEndpoints
 
         boards.MapPost("/import", ImportBoard)
             .NoBoardScope()
-            .WithMetadata(new RequestSizeLimitAttribute(MaxImportBytes))
+            .WithMetadata(new RequestSizeLimitAttribute(MaxImportBytes), new BufferedBody())
             .WithName("importBoard")
             .WithSummary("Import a board from an export file")
             .WithDescription("Send the file from exportBoard as the request body. It always creates a new board, which you own, and never changes " +
                              "an existing one. Ids and the short id are made new (cards keep their numbers), positions are snapped to the grid, " +
                              "and each card's bucket follows from where it sits. " +
-                             "Cards are created by you and have no assignees. Tokens limited to chosen boards cannot import.")
+                             "Cards are created by you and have no assignees. Tokens limited to chosen boards cannot import. " +
+                             "A file from a newer PrikBoard (a newer version, or fields this server doesn't know) is refused with a 400 " +
+                             "keyed on version, rather than imported without what it can't read.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status403Forbidden);
 
@@ -83,7 +89,8 @@ public static class BoardTransferEndpoints
             board.Tags.Where(t => t.Color != TagColor.Default).ToDictionary(t => t.Name, t => t.Color),
             board.Drawings.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id)
                 .Select(d => new ExportedDrawing(d.CardId, d.X, d.Y, d.Color, d.StrokeWidth, [.. d.Content!.Points])).ToList(),
-            board.Key);
+            board.Key,
+            AppVersion.Short(AppVersion.Current));
 
         var fileName = $"{CleanName(board.Name)}.prikboard.json";
         response.Headers[HeaderNames.ContentDisposition] = new ContentDispositionHeaderValue("attachment") { FileNameStar = fileName }.ToString();
@@ -91,7 +98,8 @@ public static class BoardTransferEndpoints
     }
 
     private static async Task<Results<Created<BoardDetail>, ValidationProblem, ProblemHttpResult>> ImportBoard(
-        BoardExport file, ClaimsPrincipal principal, PrikBoardDbContext db, FileStore files, CancellationToken ct)
+        BoardExport file, HttpRequest request, IOptions<HttpJsonOptions> json, ClaimsPrincipal principal, PrikBoardDbContext db, FileStore files,
+        CancellationToken ct)
     {
         var caller = BoardCaller.Of(principal);
         if (caller.Boards is not null)
@@ -100,12 +108,22 @@ public static class BoardTransferEndpoints
                 detail: "This access token is limited to chosen boards, so it cannot import new ones.");
         }
 
+        // A file from a newer PrikBoard is refused rather than imported without what this server can't read. The version
+        // comes first: the web app shows the first error.
         var errors = new Dictionary<string, string[]>();
-        if (file.Format != BoardExport.FormatName) errors["format"] = [$"This is not a PrikBoard export: format must be \"{BoardExport.FormatName}\"."];
+        var madeWith = file.AppVersion is { } made
+            ? $"It was made with PrikBoard {made}, and this server runs {AppVersion.Short(AppVersion.Current)}."
+            : "It was made with a newer PrikBoard than this server runs.";
         if (file.Version > BoardExport.CurrentVersion)
         {
-            errors["version"] = [$"This file is version {file.Version}, but this server reads up to version {BoardExport.CurrentVersion}. Update PrikBoard to import it."];
+            errors["version"] = [$"This file is version {file.Version}, but this server reads up to version {BoardExport.CurrentVersion}. {madeWith} Update PrikBoard to import it."];
         }
+        else if (await UnknownFieldsAsync(request, json.Value.SerializerOptions, ct) is { Count: > 0 } unknown)
+        {
+            var fields = string.Join(", ", unknown.Take(5)) + (unknown.Count > 5 ? $" and {unknown.Count - 5} more" : "");
+            errors["version"] = [$"This file has fields this server doesn't know ({fields}). {madeWith} Update PrikBoard to import it without losing them."];
+        }
+        if (file.Format != BoardExport.FormatName) errors["format"] = [$"This is not a PrikBoard export: format must be \"{BoardExport.FormatName}\"."];
         if (file.Cards.Select(n => n.Id).Distinct().Count() != file.Cards.Count) errors["cards"] = ["Card ids must be unique within the file."];
         if (errors.Count > 0) return TypedResults.ValidationProblem(errors);
 
@@ -300,4 +318,42 @@ public static class BoardTransferEndpoints
         var clean = new string(name.Where(c => !char.IsControl(c) && !invalid.Contains(c)).ToArray()).Trim();
         return clean.Length > 0 ? clean : "board";
     }
+
+    /// <summary>
+    /// The fields in the request body (an export file) that BoardExport doesn't have, as paths (drawings,
+    /// cards[3].priority): a newer PrikBoard wrote them, and binding the file would quietly leave them out. The body is
+    /// read again for this (BufferedBody keeps it).
+    /// </summary>
+    private static async Task<List<string>> UnknownFieldsAsync(HttpRequest request, JsonSerializerOptions options, CancellationToken ct)
+    {
+        if (!request.Body.CanSeek) return [];
+        request.Body.Position = 0;
+        using var document = await JsonDocument.ParseAsync(request.Body, cancellationToken: ct);
+        var unknown = new List<string>();
+        Collect(document.RootElement, options.GetTypeInfo(typeof(BoardExport)), "");
+        return unknown;
+
+        void Collect(JsonElement element, JsonTypeInfo info, string path)
+        {
+            if (info.Kind == JsonTypeInfoKind.Object && element.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var field in element.EnumerateObject())
+                {
+                    var property = info.Properties.FirstOrDefault(p => string.Equals(p.Name, field.Name, StringComparison.OrdinalIgnoreCase));
+                    var at = path.Length == 0 ? field.Name : $"{path}.{field.Name}";
+                    if (property is null) unknown.Add(at);
+                    else Collect(field.Value, options.GetTypeInfo(property.PropertyType), at);
+                }
+            }
+            else if (info is { Kind: JsonTypeInfoKind.Enumerable, ElementType: { } elementType } && element.ValueKind == JsonValueKind.Array)
+            {
+                var elementInfo = options.GetTypeInfo(elementType);
+                var i = 0;
+                foreach (var item in element.EnumerateArray()) Collect(item, elementInfo, $"{path}[{i++}]");
+            }
+        }
+    }
 }
+
+/// <summary>Marks an endpoint whose request body can be read again after binding (importBoard's check for unknown fields).</summary>
+public sealed class BufferedBody;

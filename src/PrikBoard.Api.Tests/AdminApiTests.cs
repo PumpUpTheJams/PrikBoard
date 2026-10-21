@@ -158,7 +158,8 @@ public class AdminApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/admin/users/{leavingId}")).StatusCode);
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await leaving.GetAsync("/api/me")).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await leaving.GetAsync($"/api/boards/{board.Id}")).StatusCode);
+        // Signed out, the board reads like to anyone: not found, as it isn't public.
+        Assert.Equal(HttpStatusCode.NotFound, (await leaving.GetAsync($"/api/boards/{board.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await token.GetAsync("/api/boards")).StatusCode);
         Assert.DoesNotContain((await admin.GetFromJsonAsync<List<AdminUser>>("/api/admin/users"))!, u => u.Id == leavingId);
 

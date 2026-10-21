@@ -69,3 +69,18 @@ public record UpdateBucketRequest(
     [property: MaxLength(2000)] List<Guid>? CarryImageIds = null,
     [property: MaxLength(2000)] List<Guid>? CarryDrawingIds = null,
     bool? Collapsed = null);
+
+/// <summary>
+/// Puts cards into a bucket, in its free room row by row (in the order given), a grid step clear of the cards and images
+/// already in it. When they don't fit, the bucket grows towards <c>grow</c> by whole rows or columns, over its neighbours too.
+/// </summary>
+/// <param name="CardIds">The cards, all on the bucket's board, in the order they fill the free slots.</param>
+/// <param name="Grow">The side the bucket grows towards when it is full: Down (default), Right, Left or Up. Left and Up move its left or top edge out; what is in it stays.</param>
+public record PlaceCardsRequest(
+    [property: Required, MinLength(1), MaxLength(2000)] List<Guid> CardIds,
+    GrowSide? Grow = null);
+
+/// <summary>The bucket (possibly grown) and the cards put into it.</summary>
+/// <param name="Bucket">The bucket after the cards went in.</param>
+/// <param name="Cards">The cards in their new places, in the order given.</param>
+public record PlacedCards(BucketDetail Bucket, List<CardDetail> Cards);

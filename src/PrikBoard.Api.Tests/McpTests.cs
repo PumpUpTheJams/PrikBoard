@@ -24,7 +24,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         var tools = (await mcp.ListToolsAsync()).ToDictionary(t => t.Name, t => t.ProtocolTool);
         Assert.Equal(
             ["add_card_component", "add_image", "begin_image_upload", "collapse_bucket", "create_bucket", "create_card", "create_tag", "delete_card", "delete_card_component", "delete_tag", "empty_trash", "get_board",
-             "get_board_rules", "get_card", "list_boards", "list_deleted_cards", "move_card", "purge_card", "rename_bucket", "restore_card", "restore_tag",
+             "get_board_rules", "get_card", "list_boards", "list_deleted_cards", "move_card", "place_cards_in_bucket", "purge_card", "rename_bucket", "restore_card", "restore_tag",
              "search_cards", "set_working", "update_card", "update_card_component", "update_tag"],
             tools.Keys.Order());
         Assert.True(tools["get_board"].Annotations!.ReadOnlyHint);
@@ -112,6 +112,26 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         var unknown = await CallRawAsync(mcp, "move_card", new() { ["card"] = card.Id, ["bucket"] = "Someday" });
         Assert.True(unknown.IsError);
         Assert.Contains("\"To do\", \"Doing\", \"Done\"", Text(unknown));
+    }
+
+    [Fact]
+    public async Task An_agent_puts_several_cards_into_a_bucket_by_name()
+    {
+        var owner = await factory.CreateSignedInClientAsync("mcp-place@example.com");
+        var board = await owner.CreateBoardAsync("MCP place");
+        var first = await owner.CreateCardAsync(board.Id, "First");
+        var second = await owner.CreateCardAsync(board.Id, "Second");
+        var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor));
+
+        var placed = await CallAsync(mcp, "place_cards_in_bucket", new()
+        {
+            ["board"] = board.ShortId, ["bucket"] = "done", ["cards"] = new[] { first.ReadableId, second.Path }, ["grow"] = "Right",
+        });
+
+        var done = board.Buckets.Single(b => b.Name == "Done");
+        Assert.Equal(done.Id, placed.GetProperty("bucket").GetProperty("id").GetGuid());
+        Assert.Equal([first.Id, second.Id], placed.GetProperty("cards").EnumerateArray().Select(n => n.GetProperty("id").GetGuid()));
+        Assert.All(placed.GetProperty("cards").EnumerateArray(), n => Assert.Equal(done.Id, n.GetProperty("bucketId").GetGuid()));
     }
 
     [Fact]

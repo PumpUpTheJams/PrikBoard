@@ -139,6 +139,9 @@ namespace PrikBoard.Api.Data.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.Property<bool>("IsPublic")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Key")
                         .IsRequired()
                         .HasMaxLength(10)
@@ -151,6 +154,9 @@ namespace PrikBoard.Api.Data.Migrations
 
                     b.Property<int>("NextCardNumber")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("PublicShowsPeople")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Rules")
                         .HasMaxLength(20000)

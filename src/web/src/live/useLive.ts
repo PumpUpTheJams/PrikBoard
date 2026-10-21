@@ -20,8 +20,10 @@ export interface LiveHandlers {
 
 export interface LiveState {
   connected: boolean
-  /** Everyone on the open board, including you. */
+  /** Everyone on the open board, including you (members only; see guests). */
   viewers: LiveViewer[]
+  /** How many visitors of a public board look at it (for visitors of one that hides people: everyone, you too). */
+  guests: number
   /** Drags by others (and your other tabs) on the open board. */
   drags: LiveDrag[]
   /** Sends your drag in progress (throttled), or null when it ends. */
@@ -47,7 +49,7 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
     handlersRef.current = handlers
   })
 
-  // One connection for as long as someone is signed in.
+  // One connection for as long as the board view is open (signed in, or visiting a public board).
   useEffect(() => {
     const hub = new HubConnectionBuilder()
       .withUrl('/api/live')
@@ -118,7 +120,7 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
     if (hub.state !== HubConnectionState.Connected) return
     try {
       const joined = await hub.invoke<JoinedBoard>('Join', id)
-      if (boardRef.current === id) setPresence({ boardId: id, viewers: joined.viewers })
+      if (boardRef.current === id) setPresence({ boardId: id, viewers: joined.viewers, guests: joined.guests })
     } catch {
       // Not a member (any more): the board itself will say so.
     }
@@ -195,6 +197,7 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
   return {
     connected,
     viewers: presence?.boardId === boardId ? presence.viewers : [],
+    guests: presence?.boardId === boardId ? presence.guests : 0,
     drags: drags.boardId === boardId ? drags.list : [],
     sendDrag,
     boardLoaded,

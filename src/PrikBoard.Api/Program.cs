@@ -155,6 +155,12 @@ app.UseStatusCodePages();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
+// importBoard reads its body twice: bound to the file, and again as plain JSON for fields this server doesn't know.
+app.Use((context, next) =>
+{
+    if (context.GetEndpoint()?.Metadata.GetMetadata<BufferedBody>() is not null) context.Request.EnableBuffering();
+    return next(context);
+});
 
 // The OpenAPI document is the contract for AI agents and generated clients, so it is served in every environment
 // and without signing in.

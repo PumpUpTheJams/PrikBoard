@@ -60,6 +60,7 @@ public static class ImageEndpoints
 
         images.MapGet("/images/{imageId:guid}/content", GetImageContent)
             .RequireBoardRole(BoardRole.Viewer, BoardScope.Image)
+            .AllowVisitors()
             .WithName("getImageContent")
             .WithSummary("Download an image")
             .WithDescription("Returns the image file with its content type, inline but with its own name for saving. An image's content " +

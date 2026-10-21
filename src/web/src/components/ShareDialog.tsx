@@ -12,13 +12,15 @@ interface ShareDialogProps {
   onClose: () => void
   /** You removed yourself from the board. */
   onLeft: () => void
+  /** An owner made the board public or members-only, or changed what its visitors see. */
+  onChanged: (board: BoardSummary) => void
 }
 
 /**
  * Who is on the board, and (for owners) invite links. Each member's role and button sit in fixed columns, so they line up
  * whatever the names. Agents and people found by email are added through the API (addBoardAgent, findUserByEmail).
  */
-export function ShareDialog({ board, onClose, onLeft }: ShareDialogProps) {
+export function ShareDialog({ board, onClose, onLeft, onChanged }: ShareDialogProps) {
   const owner = board.yourRole === 'Owner'
   const [members, setMembers] = useState<BoardMember[] | null>(null)
   const [invites, setInvites] = useState<BoardInvite[]>([])
@@ -106,9 +108,69 @@ export function ShareDialog({ board, onClose, onLeft }: ShareDialogProps) {
         </section>
 
         {owner && <InviteLinks boardId={board.id} invites={invites} attempt={attempt} />}
+        {owner && <PublicLink board={board} attempt={attempt} onChanged={onChanged} />}
         {error && <p className="widget-error" role="alert">{error}</p>}
       </div>
     </Dialog>
+  )
+}
+
+/**
+ * For owners: whether anyone with the board's link can view it (read only, signed in or not), and whether those
+ * visitors see who is on it or anonymous circles and a count.
+ */
+function PublicLink({
+  board,
+  attempt,
+  onChanged,
+}: {
+  board: BoardSummary
+  attempt: (action: () => Promise<unknown>) => Promise<boolean>
+  onChanged: (board: BoardSummary) => void
+}) {
+  const [copied, setCopied] = useState(false)
+  const link = `${window.location.origin}/#/boards/${board.shortId}`
+
+  const change = (changes: { isPublic?: boolean; publicShowsPeople?: boolean }) =>
+    void attempt(async () => onChanged(await api.updateBoard(board.id, changes)))
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(link)
+      setCopied(true)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <section className="dialog-section">
+      <h3>Public link</h3>
+      <label className="check-row">
+        <input type="checkbox" checked={board.isPublic} onChange={(e) => change({ isPublic: e.target.checked })} />
+        Anyone with the link can view this board
+      </label>
+      <label className={`check-row${board.isPublic ? '' : ' disabled'}`}>
+        <input
+          type="checkbox"
+          checked={board.publicShowsPeople}
+          disabled={!board.isPublic}
+          onChange={(e) => change({ publicShowsPeople: e.target.checked })}
+        />
+        Show who is on it (names and pictures)
+      </label>
+      <p className="dialog-hint">
+        Visitors don't need an account. They can look, search and open cards, but not change anything or see deleted items.
+      </p>
+      {board.isPublic && (
+        <div className="copy-field">
+          <input readOnly aria-label="Public link" value={link} onFocus={(e) => e.target.select()} />
+          <button type="button" className="ghost small" onClick={() => void copy()}>
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+      )}
+    </section>
   )
 }
 

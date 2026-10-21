@@ -37,6 +37,12 @@ public sealed class NoBoardScopeMarker
     public static readonly NoBoardScopeMarker Instance = new();
 }
 
+/// <summary>Endpoint metadata: a read that visitors of a public board may make too (see <see cref="BoardAccess.AllowVisitors"/>).</summary>
+public sealed class VisitorsMarker
+{
+    public static readonly VisitorsMarker Instance = new();
+}
+
 /// <summary>Endpoint metadata: a board-scoped POST that changes nothing on the board (such as a lookup), so live clients are not told to reload.</summary>
 public sealed class QuietMarker
 {
@@ -46,13 +52,16 @@ public sealed class QuietMarker
 /// <summary>
 /// Boards are members-only. Every /api endpoint declares either <see cref="RequireBoardRole"/> or
 /// <see cref="NoBoardScope{TBuilder}"/> (a test enforces this). Non-members get 404, so a board's existence does not leak;
-/// members whose role is too low get 403. Token scopes are checked before this, by the fallback policy.
+/// members whose role is too low get 403. Token scopes are checked before this, by the fallback policy. The one exception
+/// is a public board: the reads marked <see cref="AllowVisitors"/> are open to anyone without membership, signed in or not
+/// (but not to tokens), as a Viewer that is a visitor (<see cref="IsBoardVisitor"/>).
 /// After a successful write (anything but GET and HEAD) the filter tells the board's live viewers to reload, so endpoints
 /// don't have to.
 /// </summary>
 public static class BoardAccess
 {
     private const string RoleItem = "prikboard_board_role";
+    private const string VisitorItem = "prikboard_board_visitor";
 
     public static RouteHandlerBuilder RequireBoardRole(this RouteHandlerBuilder builder, BoardRole minimum, BoardScope scope = BoardScope.Board) =>
         builder
@@ -67,8 +76,18 @@ public static class BoardAccess
     /// <summary>Marks a board-scoped write that changes nothing visible on the board, so no live update is sent.</summary>
     public static RouteHandlerBuilder Quiet(this RouteHandlerBuilder builder) => builder.WithMetadata(QuietMarker.Instance);
 
+    /// <summary>
+    /// Opens a Viewer read to visitors of public boards: anyone with the link, signed in or not. Signed-in callers still
+    /// need read scope (<see cref="AuthSetup.PublicReadPolicy"/>), and tokens still need membership.
+    /// </summary>
+    public static RouteHandlerBuilder AllowVisitors(this RouteHandlerBuilder builder) =>
+        builder.WithMetadata(VisitorsMarker.Instance).RequireAuthorization(AuthSetup.PublicReadPolicy);
+
     /// <summary>The caller's role on the board in scope, as established by <see cref="RequireBoardRole"/>.</summary>
     public static BoardRole BoardRole(this HttpContext context) => (BoardRole)context.Items[RoleItem]!;
+
+    /// <summary>Whether the caller reads the board in scope as a visitor of a public board, not as a member.</summary>
+    public static bool IsBoardVisitor(this HttpContext context) => context.Items.ContainsKey(VisitorItem);
 
     /// <summary>The caller's role on a board, or null when they are not a member (or the board does not exist).</summary>
     public static Task<BoardRole?> RoleOnBoardAsync(PrikBoardDbContext db, Guid boardId, Guid principalId, CancellationToken ct) =>
@@ -81,6 +100,7 @@ public static class BoardAccess
     /// </summary>
     public static async Task<BoardRole?> RoleOnBoardAsync(PrikBoardDbContext db, Guid boardId, ClaimsPrincipal principal, CancellationToken ct)
     {
+        if (principal.Identity?.IsAuthenticated != true) return null;
         var caller = BoardCaller.Of(principal);
         return caller.Apply(boardId, await RoleOnBoardAsync(db, boardId, caller.MemberId, ct));
     }
@@ -118,7 +138,7 @@ public static class BoardAccess
     /// 404 when the caller has no access (so existence does not leak), 403 when the role is too low. On success the role
     /// is available through <see cref="BoardRole(HttpContext)"/>. Used by the endpoint filter and by MCP tools.
     /// </summary>
-    public static Task<Authorization> AuthorizeAsync(HttpContext http, BoardScope scope, Guid id, BoardRole minimum)
+    public static Task<Authorization> AuthorizeAsync(HttpContext http, BoardScope scope, Guid id, BoardRole minimum, bool visitors = false)
     {
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
         // Deleted items still belong to their board, so restoring them is authorized like any other write; the handlers
@@ -133,27 +153,38 @@ public static class BoardAccess
             BoardScope.Drawing => db.Drawings.IgnoreQueryFilters(deleted).Where(d => d.Id == id).Select(d => d.BoardId),
             _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, "This scope does not take an id."),
         };
-        return AuthorizeAsync(http, boardIds, minimum);
+        return AuthorizeAsync(http, boardIds, minimum, visitors);
     }
 
     /// <summary>Like the overload with an id, for the board with this short id.</summary>
-    public static Task<Authorization> AuthorizeAsync(HttpContext http, string shortId, BoardRole minimum)
+    public static Task<Authorization> AuthorizeAsync(HttpContext http, string shortId, BoardRole minimum, bool visitors = false)
     {
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
-        return AuthorizeAsync(http, db.Boards.Where(b => b.ShortId == shortId).Select(b => b.Id), minimum);
+        return AuthorizeAsync(http, db.Boards.Where(b => b.ShortId == shortId).Select(b => b.Id), minimum, visitors);
     }
 
-    private static async Task<Authorization> AuthorizeAsync(HttpContext http, IQueryable<Guid> boardIds, BoardRole minimum)
+    private static async Task<Authorization> AuthorizeAsync(HttpContext http, IQueryable<Guid> boardIds, BoardRole minimum, bool visitors)
     {
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
-        var caller = BoardCaller.Of(http.User);
-        var membership = await db.BoardMembers
-            .Where(m => m.PrincipalId == caller.MemberId && boardIds.Contains(m.BoardId))
-            .Select(m => new { m.BoardId, m.Role })
-            .FirstOrDefaultAsync(http.RequestAborted);
+        var caller = http.User.Identity?.IsAuthenticated == true ? BoardCaller.Of(http.User) : null;
+        var membership = caller is null
+            ? null
+            : await db.BoardMembers
+                .Where(m => m.PrincipalId == caller.MemberId && boardIds.Contains(m.BoardId))
+                .Select(m => new { m.BoardId, m.Role })
+                .FirstOrDefaultAsync(http.RequestAborted);
 
-        if (membership is null || caller.Apply(membership.BoardId, membership.Role) is not { } role)
+        if (caller is null || membership is null || caller.Apply(membership.BoardId, membership.Role) is not { } role)
         {
+            // Not a member: a public board can still be read by anyone with the link, signed in or not. Tokens need membership.
+            if (visitors && minimum == Domain.BoardRole.Viewer && !http.User.IsToken()
+                && await db.Boards.Where(b => boardIds.Contains(b.Id) && b.IsPublic).Select(b => (Guid?)b.Id)
+                    .FirstOrDefaultAsync(http.RequestAborted) is { } publicBoard)
+            {
+                http.Items[RoleItem] = Domain.BoardRole.Viewer;
+                http.Items[VisitorItem] = true;
+                return new Authorization(publicBoard, Domain.BoardRole.Viewer, null);
+            }
             return new Authorization(Guid.Empty, default, TypedResults.NotFound());
         }
         if (role < minimum)
@@ -173,11 +204,12 @@ public static class BoardAccess
         EndpointFilterInvocationContext context, EndpointFilterDelegate next, BoardRole minimum, BoardScope scope)
     {
         var http = context.HttpContext;
+        var visitors = http.GetEndpoint()?.Metadata.GetMetadata<VisitorsMarker>() is not null;
         Authorization access;
         if (scope == BoardScope.ShortBoard)
         {
             if (http.Request.RouteValues["shortId"]?.ToString() is not { } shortId) return TypedResults.NotFound();
-            access = await AuthorizeAsync(http, shortId, minimum);
+            access = await AuthorizeAsync(http, shortId, minimum, visitors);
         }
         else
         {
@@ -190,7 +222,7 @@ public static class BoardAccess
                 _ => "drawingId",
             };
             if (!Guid.TryParse(http.Request.RouteValues[routeValue]?.ToString(), out var id)) return TypedResults.NotFound();
-            access = await AuthorizeAsync(http, scope, id, minimum);
+            access = await AuthorizeAsync(http, scope, id, minimum, visitors);
         }
         if (access.Failure is not null) return access.Failure;
 

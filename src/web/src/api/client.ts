@@ -41,6 +41,8 @@ import type {
   CardComponentChanges,
   CardChanges,
   CardDetail,
+  PlaceCardsRequest,
+  PlacedCards,
   Point,
   Rect,
   TagChanges,
@@ -49,10 +51,13 @@ import type {
 
 export class ApiError extends Error {
   readonly status: number
+  /** A validation problem's messages by field (the message is the first of them). */
+  readonly errors: Record<string, string[]>
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, errors: Record<string, string[]> = {}) {
     super(message)
     this.status = status
+    this.errors = errors
   }
 }
 
@@ -127,7 +132,7 @@ async function send(method: string, path: string, body?: unknown): Promise<Respo
   if (!response.ok) {
     const problem = (await response.json().catch(() => null)) as ProblemDetails | null
     const firstError = problem?.errors && Object.values(problem.errors)[0]?.[0]
-    throw new ApiError(response.status, firstError ?? problem?.detail ?? problem?.title ?? response.statusText)
+    throw new ApiError(response.status, firstError ?? problem?.detail ?? problem?.title ?? response.statusText, problem?.errors)
   }
 
   return response
@@ -164,8 +169,12 @@ export const api = {
   createBoard: (name: string, description?: string) =>
     request<BoardDetail>('POST', '/boards', { name, description }),
   getBoard: (boardId: string) => request<BoardDetail>('GET', `/boards/${boardId}`),
-  updateBoard: (boardId: string, changes: { name?: string; key?: string; description?: string; rules?: string }) =>
-    request<BoardSummary>('PATCH', `/boards/${boardId}`, changes),
+  /** A board by the short id in its address; public boards answer anyone, signed in or not. */
+  getBoardByShortId: (shortId: string) => request<BoardDetail>('GET', `/boards/${shortId}`),
+  updateBoard: (
+    boardId: string,
+    changes: { name?: string; key?: string; description?: string; rules?: string; isPublic?: boolean; publicShowsPeople?: boolean },
+  ) => request<BoardSummary>('PATCH', `/boards/${boardId}`, changes),
   deleteBoard: (boardId: string) => request<void>('DELETE', `/boards/${boardId}`),
   /** The board as one file to save: its content with images, but no people. */
   exportBoard: async (boardId: string) => {
@@ -181,6 +190,9 @@ export const api = {
     request<BucketDetail>('POST', `/boards/${boardId}/buckets`, bucket),
   updateBucket: (bucketId: string, changes: BucketChanges) =>
     request<BucketDetail>('PATCH', `/buckets/${bucketId}`, changes),
+  /** Puts cards into free slots of a bucket, in order, growing it towards `grow` when they don't fit. */
+  placeCardsInBucket: (bucketId: string, placement: PlaceCardsRequest) =>
+    request<PlacedCards>('POST', `/buckets/${bucketId}/cards`, placement),
   deleteBucket: (bucketId: string) => request<void>('DELETE', `/buckets/${bucketId}`),
   /** Brings back a bucket deleted in the last 7 days, with the same id. */
   restoreBucket: (bucketId: string) => request<BucketDetail>('POST', `/buckets/${bucketId}/restore`),

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
@@ -43,10 +44,28 @@ public sealed class BoardHub(LiveViewers viewers, PrikBoardDbContext db) : Hub<I
 
     public static string Group(Guid boardId) => $"board:{boardId}";
 
+    /// <summary>Visitors of a public board: they hear about saved changes and presence, never drags.</summary>
+    public static string VisitorGroup(Guid boardId) => $"board:{boardId}:visitors";
+
+    /// <summary>Tells a board's members and its visitors who is there, each as they may see it, but not <paramref name="except"/>.</summary>
+    public static async Task SendPresenceAsync(IHubClients<IBoardClient> clients, LiveViewers viewers, Guid boardId, string? except = null)
+    {
+        string[] skip = except is null ? [] : [except];
+        await clients.GroupExcept(Group(boardId), skip).Presence(viewers.Presence(boardId, forVisitors: false));
+        await clients.GroupExcept(VisitorGroup(boardId), skip).Presence(viewers.Presence(boardId, forVisitors: true));
+    }
+
     public override async Task OnConnectedAsync()
     {
-        // AuthSetup.LivePolicy has already checked the scopes, or that a cookie comes from PrikBoard's own pages.
+        // AuthSetup.LivePolicy has already checked the scopes, or that the connection comes from PrikBoard's own pages.
         var user = Context.User!;
+        if (user.Identity?.IsAuthenticated != true)
+        {
+            // Not signed in: only public boards can be joined, as a guest.
+            viewers.Add(new LiveViewers.Entry(Context.ConnectionId, Guid.NewGuid(), Guid.NewGuid(), PrincipalKind.User, "Guest", null, false));
+            await base.OnConnectedAsync();
+            return;
+        }
         var principal = await db.Principals.FindAsync([user.PrincipalId()], Context.ConnectionAborted)
                         ?? throw new HubException("Unknown user.");
         viewers.Add(new LiveViewers.Entry(
@@ -65,25 +84,42 @@ public sealed class BoardHub(LiveViewers viewers, PrikBoardDbContext db) : Hub<I
         if (viewers.Remove(Context.ConnectionId) is { BoardId: { } boardId } entry)
         {
             await Clients.Group(Group(boardId)).DragEnded(entry.Key);
-            await Clients.Group(Group(boardId)).Presence(new BoardPresence(boardId, viewers.On(boardId)));
+            await SendPresenceAsync(Clients, viewers, boardId);
         }
         await base.OnDisconnectedAsync(exception);
     }
 
-    /// <summary>Starts following a board (and stops following the previous one). Fails for boards you are not a member of.</summary>
+    /// <summary>
+    /// Starts following a board (and stops following the previous one). Members join as such; anyone else (but tokens) can
+    /// join a public board as a visitor. Fails for other boards.
+    /// </summary>
     public async Task<JoinedBoard> Join(Guid boardId)
     {
         var entry = Current();
-        var role = await BoardAccess.RoleOnBoardAsync(db, boardId, Context.User!, Context.ConnectionAborted)
-                   ?? throw new HubException("Board not found, or you are not a member.");
+        var user = Context.User!;
+        var role = await BoardAccess.RoleOnBoardAsync(db, boardId, user, Context.ConnectionAborted);
+        var visitor = role is null;
+        var showsPeople = false;
+        if (visitor)
+        {
+            var board = user.IsToken()
+                ? null
+                : await db.Boards.Where(b => b.Id == boardId && b.IsPublic).Select(b => new { b.PublicShowsPeople }).FirstOrDefaultAsync(Context.ConnectionAborted);
+            if (board is null) throw new HubException("Board not found, or you are not a member.");
+            showsPeople = board.PublicShowsPeople;
+        }
 
-        if (entry.BoardId is { } previous && previous != boardId) await LeaveBoard(entry, previous);
-        await Groups.AddToGroupAsync(Context.ConnectionId, Group(boardId));
-        entry = viewers.Update(Context.ConnectionId, e => e with { BoardId = boardId, Role = role }) ?? entry;
+        // Also when only the way in changed (a visitor who became a member, or the other way round).
+        if (entry.BoardId is { } previous && (previous != boardId || entry.Visitor != visitor)) await LeaveBoard(entry, previous);
+        await Groups.AddToGroupAsync(Context.ConnectionId, visitor ? VisitorGroup(boardId) : Group(boardId));
+        entry = viewers.Update(Context.ConnectionId, e => e with
+        {
+            BoardId = boardId, Role = role ?? BoardRole.Viewer, Visitor = visitor, ShowsPeople = showsPeople,
+        }) ?? entry;
 
-        var present = viewers.On(boardId);
-        await Clients.OthersInGroup(Group(boardId)).Presence(new BoardPresence(boardId, present));
-        return new JoinedBoard(boardId, role, entry.Key, present);
+        await SendPresenceAsync(Clients, viewers, boardId, except: Context.ConnectionId);
+        var present = viewers.Presence(boardId, forVisitors: visitor);
+        return new JoinedBoard(boardId, entry.Role, entry.Key, present.Viewers, present.Guests, visitor);
     }
 
     /// <summary>Stops following the current board.</summary>
@@ -129,9 +165,9 @@ public sealed class BoardHub(LiveViewers viewers, PrikBoardDbContext db) : Hub<I
 
     private async Task LeaveBoard(LiveViewers.Entry entry, Guid boardId)
     {
-        await Groups.RemoveFromGroupAsync(Context.ConnectionId, Group(boardId));
-        viewers.Update(Context.ConnectionId, e => e with { BoardId = null, Role = BoardRole.Viewer });
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, entry.Visitor ? VisitorGroup(boardId) : Group(boardId));
+        viewers.Update(Context.ConnectionId, e => e with { BoardId = null, Role = BoardRole.Viewer, Visitor = false, ShowsPeople = false });
         await Clients.Group(Group(boardId)).DragEnded(entry.Key);
-        await Clients.Group(Group(boardId)).Presence(new BoardPresence(boardId, viewers.On(boardId)));
+        await SendPresenceAsync(Clients, viewers, boardId);
     }
 }

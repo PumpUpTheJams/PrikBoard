@@ -408,6 +408,31 @@ public sealed class BoardTools
         return result;
     }
 
+    [McpServerTool(Name = "place_cards_in_bucket", Title = "Put several cards into a bucket", OpenWorld = false)]
+    [Description("Moves several cards into a bucket at once, into free spots row by row in the order given, around what is " +
+                 "already there. When they don't fit, the bucket grows (down unless grow says otherwise). Needs the Editor role.")]
+    public static async Task<PlacedCards> PlaceCardsInBucket(
+        IHttpContextAccessor accessor,
+        [Description(BoardHelp)] string board,
+        [Description("The bucket to put them in: its name (for example \"Done\") or id.")] string bucket,
+        [Description("The cards, in the order they fill the free spots, each: " + CardForms)] List<string> cards,
+        [Description("The side the bucket grows towards when it is full: Down (default), Right, Left or Up.")] GrowSide? grow = null,
+        CancellationToken ct = default)
+    {
+        var http = McpCall.Http(accessor);
+        var boardId = await ResolveBoardAsync(http, board, ct);
+        await McpCall.AuthorizeAsync(http, BoardScope.Board, boardId, BoardRole.Editor);
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var bucketId = await ResolveBucketAsync(db, boardId, bucket, ct);
+        var cardIds = new List<Guid>();
+        foreach (var card in cards) cardIds.Add(await ResolveCardAsync(http, card, ct));
+        var request = new PlaceCardsRequest(cardIds, grow);
+        McpCall.Validate(request);
+        var result = McpCall.Value<PlacedCards>(await BucketEndpoints.PlaceCardsInBucket(bucketId, request, db, ct));
+        await McpCall.AnnounceAsync(http, boardId);
+        return result;
+    }
+
     [McpServerTool(Name = "set_working", Title = "Mark a card as being worked on", Idempotent = true, OpenWorld = false)]
     [Description("Say you are (or are no longer) working on a card: assigns you and shows a halo around the card " +
                  "while working is true. Call it with false when you are done; you stay assigned. Needs the Editor role.")]
