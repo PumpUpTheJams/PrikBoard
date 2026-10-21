@@ -323,7 +323,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
    * over others isn't a tangle of cards. Only on this screen; which bucket an item is in doesn't change.
    */
   const [frontBucket, setFrontBucket] = useState<string | null>(null)
-  const front = board.buckets.find((b) => b.id === frontBucket && !b.collapsed)?.id ?? null
+  // While selected cards are dragged into a bucket, that one is in front, so how it would grow over its neighbours shows.
+  const front = board.buckets.find((b) => b.id === (arrangeDrop?.bucket.id ?? frontBucket) && !b.collapsed)?.id ?? null
   /** Whether an item is drawn in front, with its bucket. */
   const inFront = (item: { bucketId: string | null }) => front !== null && item.bucketId === front
   /** Cards in a collapsed bucket are folded away with it: not on the board until it opens again. */
@@ -1205,7 +1206,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       ...board.cards.filter((n) => !ids.has(n.id)).map((n) => ({ x: n.x, y: n.y, width: CARD_WIDTH, height: CARD_HEIGHT })),
       ...board.images.filter((i) => i.cardId === null).map((i) => (ids.has(i.id) ? imageRect(i) : i)),
     ]
-    const { bucket: grown, spots } = freeSpotsIn(bucket, cards.length, taken, board.buckets.slice(index + 1), side)
+    // They join it by id, so it grows only as much as they need, over neighbouring buckets too (as on the server).
+    const { bucket: grown, spots } = freeSpotsIn(bucket, cards.length, taken, [], side)
     return { bucket, side, grown, spots: Object.fromEntries(cards.map((n, i) => [n.id, spots[i]])) }
   }
 
@@ -1622,8 +1624,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     }
     if (arrange) {
       // Into a bucket they aren't all in: the cards take its free spots (it grows towards the side asked when they don't
-      // fit); images and drawings dropped with them land where they are dropped.
+      // fit, over its neighbours too, so it comes to the front); images and drawings dropped with them land where they are dropped.
       setGesture({ ...g, done: true })
+      setFrontBucket(arrange.bucket.id)
       const ordered = cards.toSorted((a, b) => arrange.spots[a.id].y - arrange.spots[b.id].y || arrange.spots[a.id].x - arrange.spots[b.id].x)
       void putCards(arrange.bucket, ordered, arrange.side, g.members.filter((m) => m.kind === 'image' || m.kind === 'drawing'))
       return

@@ -37,7 +37,8 @@ public static class BucketEndpoints
             .WithSummary("Put several cards into a bucket")
             .WithDescription("Moves the cards into free grid slots of the bucket, row by row in the order given, around the cards " +
                              "and images already in it (also a collapsed bucket). When they don't fit, the bucket grows towards " +
-                             "grow (Down, Right, Left or Up) by whole rows or columns. Returns the bucket and the cards.")
+                             "grow (Down, Right, Left or Up) by whole rows or columns, only as far as they need, also over " +
+                             "neighbouring buckets (the cards still belong to this one). Returns the bucket and the cards.")
             .ProducesValidationProblem();
 
         buckets.MapDelete("/buckets/{bucketId:guid}", DeleteBucket)
@@ -194,7 +195,8 @@ public static class BucketEndpoints
         var others = boardCards.Where(n => !ids.Contains(n.Id)).ToList();
         List<(int X, int Y, int Width, int Height)> taken =
             [.. others.Select(n => (n.X, n.Y, Layout.CardWidth, Layout.CardHeight)), .. images.Select(i => (i.X, i.Y, i.Width, i.Height))];
-        var spots = Layout.FreeSpotsIn(bucket, cards.Count, taken, buckets, request.Grow ?? GrowSide.Down);
+        // They join the bucket by id, so it only grows as much as they need, over neighbouring buckets too.
+        var spots = Layout.FreeSpotsIn(bucket, cards.Count, taken, buckets, request.Grow ?? GrowSide.Down, overBuckets: true);
 
         var now = DateTimeOffset.UtcNow;
         foreach (var (card, (x, y)) in cards.Zip(spots))

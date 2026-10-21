@@ -148,15 +148,18 @@ public static class Layout
 
     /// <summary>
     /// The first <paramref name="count"/> grid slots for cards inside <paramref name="bucket"/>, row by row, clear of what
-    /// is <paramref name="taken"/> (cards and images there) and of buckets stacked above it (a card there would belong to
-    /// that one). When there aren't enough, the bucket grows by a row or column at a time towards <paramref name="grow"/>
-    /// until they fit (left and up move its edge out; what is in it stays put), downwards once that side reaches the size
-    /// or coordinate limit. Slots that can't be found at all are the top-left one.
+    /// is <paramref name="taken"/> (cards and images there) and, unless <paramref name="overBuckets"/>, of buckets stacked
+    /// above it (a card placed there by position would belong to that one). When there aren't enough, the bucket grows by
+    /// a row or column at a time towards <paramref name="grow"/> until they fit (left and up move its edge out; what is in
+    /// it stays put), downwards once that side reaches the size or coordinate limit. Slots that can't be found at all are
+    /// the top-left one. Cards put in by id (placeCardsInBucket) belong to the bucket wherever they sit, so it grows only
+    /// as much as they need, over neighbouring buckets too (<paramref name="overBuckets"/>).
     /// </summary>
     public static List<(int X, int Y)> FreeSpotsIn(
-        Bucket bucket, int count, IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, IEnumerable<Bucket> buckets, GrowSide grow)
+        Bucket bucket, int count, IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, IEnumerable<Bucket> buckets, GrowSide grow,
+        bool overBuckets = false)
     {
-        var above = BackToFront(buckets).SkipWhile(b => b.Id != bucket.Id).Skip(1).ToList();
+        List<Bucket> above = overBuckets ? [] : BackToFront(buckets).SkipWhile(b => b.Id != bucket.Id).Skip(1).ToList();
         var spots = SlotsIn(bucket, count, taken, above);
         while (spots.Count < count && (Grow(bucket, grow) || Grow(bucket, GrowSide.Down)))
         {

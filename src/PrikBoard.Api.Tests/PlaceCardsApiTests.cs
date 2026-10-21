@@ -34,8 +34,7 @@ public class PlaceCardsApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
         Assert.Equal((todo.X, todo.Y, todo.Width, todo.Height), (placed.Bucket.X, placed.Bucket.Y, placed.Bucket.Width, placed.Bucket.Height));
     }
 
-    // To do grows left, up and down; Done, with nothing to its right, grows right (towards Doing, stacked above To do,
-    // it would have to grow past it).
+    // To do grows left, up and down; Done, with nothing to its right, grows right.
     [Theory]
     [InlineData("Down", 0, 40, 40, 240, 720)]
     [InlineData("Right", 2, 600, 40, 460, 600)]
@@ -58,6 +57,23 @@ public class PlaceCardsApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
             Assert.InRange(n.X, x, x + width - Layout.CardWidth);
             Assert.InRange(n.Y, y, y + height - Layout.CardHeight);
         });
+    }
+
+    [Fact]
+    public async Task A_full_bucket_grows_only_as_far_as_needed_over_its_neighbour()
+    {
+        var board = await _client.CreateBoardAsync("Over the neighbour");
+        var todo = board.Buckets[0];
+        for (var i = 0; i < 4; i++) await CreateCard(board.Id, new { title = $"Full {i}", bucketId = todo.Id });
+        var extra = await CreateCard(board.Id, new { title = "Extra", x = 1000, y = 1000 });
+
+        var placed = await Place(todo.Id, new { cardIds = new[] { extra.Id }, grow = "Right" });
+
+        // One column more, over Doing (stacked above it), and the card is To do's all the same.
+        Assert.Equal((40, 460), (placed.Bucket.X, placed.Bucket.Width));
+        Assert.Equal((280, 60, todo.Id), (placed.Cards[0].X, placed.Cards[0].Y, placed.Cards[0].BucketId));
+        var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
+        Assert.Equal(todo.Id, snapshot!.Cards.Single(n => n.Id == extra.Id).BucketId);
     }
 
     [Fact]
