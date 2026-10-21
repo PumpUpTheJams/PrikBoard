@@ -176,6 +176,24 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
+    public async Task A_collapsed_bucket_over_another_only_takes_the_room_of_its_square()
+    {
+        var board = await CreateBoard("Folded over");
+        var (doing, done) = (board.Buckets[1], board.Buckets[2]);
+        await CreateCard(board.Id, new { title = "First", bucketId = doing.Id });
+        await CreateCard(board.Id, new { title = "Done's", bucketId = done.Id });
+        // Done (stacked on top) lies over Doing below its first row, folded into a square over its second slot.
+        (await _client.PatchAsJsonAsync($"/api/buckets/{done.Id}", new { x = doing.X, y = doing.Y + 140 })).EnsureSuccessStatusCode();
+        (await _client.PatchAsJsonAsync($"/api/buckets/{done.Id}", new { collapsed = true })).EnsureSuccessStatusCode();
+
+        var next = await CreateCard(board.Id, new { title = "Next", bucketId = doing.Id });
+        var after = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Buckets.Single(b => b.Id == doing.Id);
+
+        Assert.Equal((doing.X + 20, doing.Y + 300, doing.Id), (next.X, next.Y, next.BucketId));
+        Assert.Equal(doing.Height, after.Height);
+    }
+
+    [Fact]
     public async Task A_card_dropped_where_buckets_overlap_joins_the_bucket_named_with_its_position()
     {
         var board = await CreateBoard("Drop in front");

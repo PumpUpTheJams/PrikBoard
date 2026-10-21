@@ -153,22 +153,31 @@ public static class Layout
     /// The first grid slot inside <paramref name="bucket"/>, row by row, not covered by another card. When the bucket is
     /// full it grows downwards by a row to make room, so a bucket always fits its cards. Slots
     /// under a bucket stacked above it are skipped (the card would belong to that one), so a bucket growing towards
-    /// another one continues below it.
+    /// another one continues below it. Cards folded away in another collapsed bucket take no room.
     /// </summary>
-    public static (int X, int Y) MakeRoomIn(Bucket bucket, IReadOnlyCollection<Card> cards, IEnumerable<Bucket> buckets) =>
-        FreeSpotsIn(bucket, 1, [.. cards.Select(n => (n.X, n.Y, CardWidth, CardHeight))], buckets, GrowSide.Down)[0];
+    public static (int X, int Y) MakeRoomIn(Bucket bucket, IReadOnlyCollection<Card> cards, IReadOnlyCollection<Bucket> buckets)
+    {
+        var folded = buckets.Where(b => b.Collapsed && b.Id != bucket.Id).Select(b => b.Id).ToHashSet();
+        var shown = cards.Where(n => n.BucketId is not { } id || !folded.Contains(id));
+        return FreeSpotsIn(bucket, 1, [.. shown.Select(n => (n.X, n.Y, CardWidth, CardHeight))], buckets, GrowSide.Down)[0];
+    }
 
     /// <summary>
     /// The first <paramref name="count"/> slots of a card-sized grid inside <paramref name="bucket"/>, row by row, clear
     /// of what is <paramref name="taken"/> and of buckets stacked above it (a card placed there by position would belong to
-    /// that one). When there aren't enough, the bucket grows by a row or column at a time towards <paramref name="grow"/>
-    /// (left and up move its edge out; what is in it stays put), downwards once that side reaches the size or coordinate
-    /// limit. Slots that can't be found at all are the top-left one.
+    /// that one; of a collapsed one only its square, as the rest of it takes no cards). When there aren't enough, the
+    /// bucket grows by a row or column at a time towards <paramref name="grow"/> (left and up move its edge out; what is
+    /// in it stays put), downwards once that side reaches the size or coordinate limit. Slots that can't be found at all
+    /// are the top-left one.
     /// </summary>
     public static List<(int X, int Y)> FreeSpotsIn(
         Bucket bucket, int count, IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, IEnumerable<Bucket> buckets, GrowSide grow)
     {
-        var above = BackToFront(buckets).SkipWhile(b => b.Id != bucket.Id).Skip(1).ToList();
+        var above = BackToFront(buckets).SkipWhile(b => b.Id != bucket.Id).Skip(1)
+            .Select(b => b.Collapsed
+                ? (X: b.X + b.Width - CollapsedBucketSize, b.Y, Width: CollapsedBucketSize, Height: CollapsedBucketSize)
+                : (b.X, b.Y, b.Width, b.Height))
+            .ToList();
         var spots = SlotsIn(bucket, count, taken, above);
         while (spots.Count < count && (Grow(bucket, grow) || Grow(bucket, GrowSide.Down)))
         {
@@ -216,7 +225,7 @@ public static class Layout
 
     /// <summary>The free card slots inside a bucket as it is now, row by row, at most <paramref name="count"/>.</summary>
     private static List<(int X, int Y)> SlotsIn(
-        Bucket bucket, int count, IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, List<Bucket> above)
+        Bucket bucket, int count, IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, List<(int X, int Y, int Width, int Height)> above)
     {
         var spots = new List<(int X, int Y)>();
         var right = bucket.X + Math.Max(bucket.Width, MinBucketWidth) - Gap;
