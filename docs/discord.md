@@ -111,7 +111,7 @@ For previews the bot makes one call per link, to a new endpoint that does the pa
 
 Everything else is a 404: a link to another host, a board or card the guild can't see or that doesn't exist, a used, revoked or expired invite. The four look the same, so the bot can't be used to find out which boards exist.
 
-- **Card description.** Cards have no description field, so it is the first text component on the card's canvas (top to bottom, then left to right), Markdown reduced to plain text and cut to 300 characters at a word, with an ellipsis. A card without text components has none, and a card whose content is a checklist gets `3/7 done` instead. Built by a `CardPreview.Describe(card)` helper so the rule can be tested on its own.
+- **Card description.** Cards have no description field, so it is the first note (Text component) on the card's canvas (top to bottom, then left to right), Markdown reduced to plain text and cut to 300 characters at a word, with an ellipsis. A card without notes has none, and a card whose content is a checklist gets `3/7 done` instead. Built by a `CardPreview.Describe(card)` helper so the rule can be tested on its own.
 - **Board description.** `Board.Description`, cut the same way, or null.
 - **Invites** reuse `previewInvite`'s lookup and never spend the token. They need no membership, since anyone holding the link is meant to see the board's name, but the guild must be connected to at least one board, so the bot's credential alone can't be used to test tokens. Rate limited with `InviteEndpoints.InviteLimit`, keyed per guild.
 - The invite response has no `yourRole`: the bot can't tell who will click.

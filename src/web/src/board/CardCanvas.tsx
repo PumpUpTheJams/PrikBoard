@@ -698,7 +698,7 @@ export function CardCanvas(props: CardCanvasProps) {
 
       {card.components.length === 0 && images.length === 0 && drawings.length === 0 && !incoming && !incomingDrawing && !drawingOn && (
         <p className="card-empty">
-          {readOnly ? 'Nothing here yet.' : 'Add text, a checklist or links from the bar below, draw with the pen, or paste or drop an image.'}
+          {readOnly ? 'Nothing here yet.' : 'Add a note, a checklist or links from the bar below, draw with the pen, or paste or drop an image.'}
         </p>
       )}
 

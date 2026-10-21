@@ -11,11 +11,11 @@ import { useCopyLink } from './useCopyLink'
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
 
-/** What the card holds inside, by kind, e.g. "2 texts, 1 checklist, 1 image". */
+/** What the card holds inside, by kind, e.g. "2 notes, 1 checklist, 1 image". */
 function contentSummary(card: CardDetail, images: number) {
   const count = (kind: string) => card.components.filter((b) => b.kind === kind).length
   const parts = [
-    [count('Text'), 'text', 'texts'],
+    [count('Text'), 'note', 'notes'],
     [count('Checklist'), 'checklist', 'checklists'],
     [count('Links'), 'link list', 'link lists'],
     [images, 'image', 'images'],

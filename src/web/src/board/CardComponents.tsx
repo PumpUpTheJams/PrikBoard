@@ -121,7 +121,7 @@ interface TextComponentProps {
 }
 
 /**
- * Text in Markdown: rendered while it isn't being edited, and a plain text area while it is. A click on the rendered
+ * A note, in Markdown: rendered while it isn't being edited, and a plain text area while it is. A click on the rendered
  * text edits it (unless it lands on a link or ends a text selection); an empty component is always the text area.
  */
 export function TextComponent({ text, autoFocus, readOnly, onChange }: TextComponentProps) {
@@ -146,7 +146,7 @@ export function TextComponent({ text, autoFocus, readOnly, onChange }: TextCompo
     return (
       <EditableText
         className="component-text"
-        label="Text"
+        label="Note"
         value={text}
         maxLength={4000}
         multiline
