@@ -43,5 +43,5 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: VERSION=${{ steps.meta.outputs.version }}
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          # No build cache: exporting it to the GitHub Actions cache took 2-3 minutes per image, longer than the build
+          # itself, and builds never hit it.

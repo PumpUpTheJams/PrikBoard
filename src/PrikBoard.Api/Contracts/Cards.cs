@@ -95,7 +95,7 @@ public record CardLink(
 /// </summary>
 /// <param name="Title">Short title shown on the card; trimmed. May be empty: a card without a title shows none.</param>
 /// <param name="Color">Card fill; defaults to Butter.</param>
-/// <param name="BucketId">Bucket to put the card in. Do not combine with X and Y.</param>
+/// <param name="BucketId">Bucket to put the card in, in a free spot. With X and Y: the bucket it joins where buckets overlap there, which must contain the card's centre (without it, the topmost one does).</param>
 /// <param name="X">Left edge in canvas pixels; snapped to the 20 px grid. Give it together with Y.</param>
 /// <param name="Y">Top edge in canvas pixels; snapped to the 20 px grid. Give it together with X.</param>
 /// <param name="Tags">Tag names; trimmed, lower-cased, hyphenated and de-duplicated, each at most 30 characters. Prefer the board's tags (tags in getBoard); new names are added to the board.</param>
@@ -134,10 +134,11 @@ public record UpdateCardRequest(
 public record SetWorkingRequest(bool Working);
 
 /// <summary>
-/// Moves a card. Give either a bucketId (the card lands in a free spot inside that bucket, which grows when full)
-/// or X and Y (the card goes exactly there and belongs to whichever bucket contains its centre, or none).
+/// Moves a card. Give a bucketId (the card lands in a free spot inside that bucket, which grows when full) or X and Y
+/// (the card goes exactly there and belongs to the topmost bucket containing its centre, or none). Give both to put it
+/// exactly there in that bucket, where buckets overlap: the bucket must contain the card's centre.
 /// </summary>
-/// <param name="BucketId">Destination bucket on the same board.</param>
+/// <param name="BucketId">Destination bucket on the same board; with X and Y, the one of the buckets there it joins.</param>
 /// <param name="X">New left edge in canvas pixels; snapped to the 20 px grid.</param>
 /// <param name="Y">New top edge in canvas pixels; snapped to the 20 px grid.</param>
 public record MoveCardRequest(

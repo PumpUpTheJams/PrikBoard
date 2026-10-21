@@ -42,12 +42,14 @@ export const snapPoint = ({ x, y }: Point): Point => ({ x: onBoard(snap(x)), y: 
 /**
  * The topmost bucket containing a card's centre: the bucket a card dropped there joins (Layout.Place on the server). It
  * stays in that bucket while buckets move around it. `buckets` is back to front, as the API returns them. A collapsed
- * bucket only keeps the cards it has (`own`): others don't join it, as on the server.
+ * bucket only keeps the cards it has (`own`): others don't join it, as on the server. The bucket this screen shows in
+ * `front` wins where it covers the card's centre: a drop there names it (`bucketId` with `x` and `y`), so the card joins it.
  */
-export function bucketUnderCard(buckets: BucketDetail[], card: Point, own?: string | null): BucketDetail | undefined {
+export function bucketUnderCard(buckets: BucketDetail[], card: Point, own?: string | null, front?: string | null): BucketDetail | undefined {
   const cx = card.x + CARD_WIDTH / 2
   const cy = card.y + CARD_HEIGHT / 2
-  return buckets.findLast((b) => cx >= b.x && cx < b.x + b.width && cy >= b.y && cy < b.y + b.height && (!b.collapsed || b.id === own))
+  const under = buckets.filter((b) => cx >= b.x && cx < b.x + b.width && cy >= b.y && cy < b.y + b.height && (!b.collapsed || b.id === own))
+  return under.find((b) => b.id === front) ?? under.at(-1)
 }
 
 const COLUMN_STEP = CARD_WIDTH + GRID

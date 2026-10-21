@@ -200,13 +200,16 @@ export const api = {
 
   createCard: (
     boardId: string,
-    card: Omit<CardChanges, 'title'> & { title: string; components?: NewCardComponent[] } & ({ bucketId?: string } | Point),
+    card: Omit<CardChanges, 'title'> & { title: string; components?: NewCardComponent[] } & ({ bucketId?: string } | (Point & { bucketId?: string })),
   ) => request<CardDetail>('POST', `/boards/${boardId}/cards`, card),
   /** The card at a path's board short id and number (#/boards/{shortId}/cards/{number}). */
   getCardByNumber: (shortId: string, number: number) => request<CardDetail>('GET', `/boards/${shortId}/cards/${number}`),
   updateCard: (cardId: string, changes: CardChanges) => request<CardDetail>('PATCH', `/cards/${cardId}`, changes),
-  /** Into a free spot inside a bucket, or exactly to a point (the server then works out the bucket). */
-  moveCard: (cardId: string, to: { bucketId: string } | Point) =>
+  /**
+   * Into a free spot inside a bucket, or exactly to a point (the server then works out the bucket; with a `bucketId` too,
+   * it joins that one, which must contain the card's centre: the bucket shown in front where buckets overlap).
+   */
+  moveCard: (cardId: string, to: { bucketId: string } | (Point & { bucketId?: string })) =>
     request<CardDetail>('POST', `/cards/${cardId}/move`, to),
   deleteCard: (cardId: string) => request<void>('DELETE', `/cards/${cardId}`),
   /**

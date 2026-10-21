@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.AspNetCore.Mvc;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Domain;
 
@@ -47,12 +48,12 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         // The board has no edge at the origin, but it does end somewhere.
         var negative = await _client.PostAsJsonAsync(cardsUrl, new { title = "Ok", x = -100_020, y = 0 });
         var onlyX = await _client.PostAsJsonAsync(cardsUrl, new { title = "Ok", x = 100 });
-        var both = await _client.PostAsJsonAsync(cardsUrl, new { title = "Ok", bucketId = board.Buckets[0].Id, x = 0, y = 0 });
+        var outsideBucket = await _client.PostAsJsonAsync(cardsUrl, new { title = "Ok", bucketId = board.Buckets[0].Id, x = -1000, y = 0 });
 
         Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, negative.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, onlyX.StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, both.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, outsideBucket.StatusCode);
     }
 
     [Fact]
@@ -190,6 +191,33 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
 
         Assert.Equal((doing.X + 20, doing.Y + 300, doing.Id), (next.X, next.Y, next.BucketId));
         Assert.Equal(doing.Height, after.Height);
+    }
+
+    [Fact]
+    public async Task A_card_dropped_where_buckets_overlap_joins_the_bucket_named_with_its_position()
+    {
+        var board = await CreateBoard("Drop in front");
+        var (todo, doing, done) = (board.Buckets[0], board.Buckets[1], board.Buckets[2]);
+        // Doing (stacked on top) moves onto To do, which a screen may still show in front.
+        (await _client.PatchAsJsonAsync($"/api/buckets/{doing.Id}", new { x = todo.X, y = todo.Y })).EnsureSuccessStatusCode();
+        var (x, y) = (todo.X + 20, todo.Y + 20);
+        var card = await CreateCard(board.Id, new { title = "Dropped", x = 0, y = 0 });
+
+        var byPosition = await MoveCard(card.Id, new { x, y });
+        var named = await MoveCard(card.Id, new { x, y, bucketId = todo.Id });
+        var created = await CreateCard(board.Id, new { title = "New", x, y, bucketId = todo.Id });
+        var elsewhere = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/move", new { x, y, bucketId = done.Id });
+        // Named, it joins a collapsed bucket too (as by bucketId alone), as a redo of a drop on one does.
+        (await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { collapsed = true })).EnsureSuccessStatusCode();
+        await MoveCard(card.Id, new { x, y });
+        var collapsed = await MoveCard(card.Id, new { x, y, bucketId = todo.Id });
+
+        Assert.Equal(doing.Id, byPosition.BucketId);
+        Assert.Equal((x, y, todo.Id), (named.X, named.Y, named.BucketId));
+        Assert.Equal((x, y, todo.Id), (created.X, created.Y, created.BucketId));
+        Assert.Equal(HttpStatusCode.BadRequest, elsewhere.StatusCode);
+        Assert.Contains("bucketId", (await elsewhere.Content.ReadFromJsonAsync<ValidationProblemDetails>())!.Errors.Keys);
+        Assert.Equal(todo.Id, collapsed.BucketId);
     }
 
     [Fact]

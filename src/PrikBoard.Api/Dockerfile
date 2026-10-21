@@ -15,7 +15,9 @@ RUN dotnet publish --no-restore -a $TARGETARCH -c Release -o /app -p:Version=$VE
 # other platforms.
 RUN mkdir -p /home-app/.aspnet/DataProtection-Keys /home-app/files
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+# Chiseled: only the .NET runtime and its dependencies, no shell or package manager, about 70 MB smaller than aspnet:10.0.
+# The -extra variant keeps ICU and time zone data, which Npgsql and culture-aware string handling need.
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra
 WORKDIR /app
 COPY --from=build /app ./
 COPY --from=build --chown=app:app /home-app/.aspnet /home/app/.aspnet
