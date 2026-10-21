@@ -183,6 +183,27 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
     setSelectedId(shortId)
   }
 
+  /** The board open before the admin page, to go back to from there. */
+  const lastBoard = useRef<string | null>(null)
+  useEffect(() => {
+    if (activeBoard) lastBoard.current = activeBoard.shortId
+  }, [activeBoard])
+
+  /**
+   * Leaves the admin page for the board that was open before it. The list is loaded again first, since boards and roles
+   * may have changed there; when that board is gone, the newest one opens.
+   */
+  function leaveAdmin() {
+    const last = lastBoard.current
+    api.listBoards().then(
+      (list) => {
+        setBoards(list)
+        selectBoard(last && list.some((b) => b.shortId === last) ? last : null)
+      },
+      () => selectBoard(last),
+    )
+  }
+
   async function createBoard(name: string) {
     try {
       const created = await api.createBoard(name)
@@ -511,13 +532,13 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
           user.isAdmin ? (
             <AdminPage
               onYouChanged={() => void api.whoAmI().then(onUserChange)}
-              onBack={() => selectBoard(null)}
+              onBack={leaveAdmin}
             />
           ) : (
             <NoAccess
               title="This page is for admins"
               message="Only admins of this PrikBoard can see it."
-              onBack={() => selectBoard(null)}
+              onBack={leaveAdmin}
             />
           )
         ) : boards === null ? (
