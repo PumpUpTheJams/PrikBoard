@@ -50,13 +50,63 @@ public class TrashAndCollapseApiTests(PrikBoardApiFactory factory) : IClassFixtu
 
         var half = await _client.PostAsJsonAsync($"/api/notes/{dropped.Id}/restore", new { x = 10 });
         var back = await Ok<NoteDetail>(await _client.PostAsync($"/api/notes/{note.Id}/restore", null));
-        var elsewhere = await Ok<NoteDetail>(await _client.PostAsJsonAsync($"/api/notes/{dropped.Id}/restore", new { x = 3011, y = 409 }));
+        // Left of and above the origin too: the board has no edge there.
+        var elsewhere = await Ok<NoteDetail>(await _client.PostAsJsonAsync($"/api/notes/{dropped.Id}/restore", new { x = -3011, y = -409 }));
 
         Assert.Equal(HttpStatusCode.BadRequest, half.StatusCode);
         Assert.Equal((note.X, note.Y, note.BucketId), (back.X, back.Y, back.BucketId));
-        Assert.Equal((3020, 400, (Guid?)null), (elsewhere.X, elsewhere.Y, elsewhere.BucketId));
+        Assert.Equal((-3020, -400, (Guid?)null), (elsewhere.X, elsewhere.Y, elsewhere.BucketId));
         Assert.True(elsewhere.UpdatedAt > dropped.UpdatedAt);
         Assert.Empty((await Trash(board.Id)).Notes);
+    }
+
+    [Fact]
+    public async Task A_note_in_the_trash_is_deleted_for_good_with_its_images()
+    {
+        var board = await _client.CreateBoardAsync("Purge");
+        var other = await _client.CreateBoardAsync("Purge elsewhere");
+        var note = await _client.CreateNoteAsync(board.Id, "Gone for good");
+        var live = await _client.CreateNoteAsync(board.Id, "Still on the board");
+        var image = await Upload(board.Id, $"?noteId={note.Id}");
+        (await _client.DeleteAsync($"/api/notes/{note.Id}")).EnsureSuccessStatusCode();
+
+        var notInTrash = await _client.DeleteAsync($"/api/boards/{board.Id}/trash/{live.Id}");
+        var wrongBoard = await _client.DeleteAsync($"/api/boards/{other.Id}/trash/{note.Id}");
+        var purged = await _client.DeleteAsync($"/api/boards/{board.Id}/trash/{note.Id}");
+
+        Assert.Equal(HttpStatusCode.Conflict, notInTrash.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, wrongBoard.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, purged.StatusCode);
+        Assert.Empty((await Trash(board.Id)).Notes);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.PostAsync($"/api/notes/{note.Id}/restore", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.PostAsync($"/api/images/{image.Id}/restore", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/notes/{live.Id}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Emptying_the_trash_deletes_only_this_boards_deleted_notes_and_needs_an_editor()
+    {
+        var board = await _client.CreateBoardAsync("Empty trash");
+        var other = await _client.CreateBoardAsync("Keeps its trash");
+        var viewer = await factory.CreateSignedInClientAsync("empty-trash-viewer@example.com");
+        await _client.ShareAsync(board.Id, viewer, BoardRole.Viewer);
+        var live = await _client.CreateNoteAsync(board.Id, "Stays");
+        foreach (var title in new[] { "One", "Two" })
+        {
+            var note = await _client.CreateNoteAsync(board.Id, title);
+            (await _client.DeleteAsync($"/api/notes/{note.Id}")).EnsureSuccessStatusCode();
+        }
+        var elsewhere = await _client.CreateNoteAsync(other.Id, "Other board");
+        (await _client.DeleteAsync($"/api/notes/{elsewhere.Id}")).EnsureSuccessStatusCode();
+
+        var forbidden = await viewer.DeleteAsync($"/api/boards/{board.Id}/trash");
+        var result = await Ok<EmptyTrashResult>(await _client.DeleteAsync($"/api/boards/{board.Id}/trash"));
+
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+        Assert.Equal(2, result.Purged);
+        Assert.Empty((await Trash(board.Id)).Notes);
+        Assert.Equal(elsewhere.Id, Assert.Single((await Trash(other.Id)).Notes).Id);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/notes/{live.Id}")).StatusCode);
     }
 
     [Fact]

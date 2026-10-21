@@ -11,6 +11,10 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Images">Images deleted along with those notes. Download them from contentUrl.</param>
 public record TrashContents(IReadOnlyList<NoteDetail> Notes, IReadOnlyList<ImageDetail> Images);
 
+/// <summary>What emptyTrash did.</summary>
+/// <param name="Purged">How many notes were deleted for good (their images and drawings went with them).</param>
+public record EmptyTrashResult(int Purged);
+
 /// <summary>
 /// Where to put a deleted note back. Without X and Y it goes back where it was; with both it goes there (a note dragged
 /// out of the trash onto the board).
@@ -18,5 +22,5 @@ public record TrashContents(IReadOnlyList<NoteDetail> Notes, IReadOnlyList<Image
 /// <param name="X">Left edge in canvas pixels; snapped to the 20 px grid. Give it together with Y.</param>
 /// <param name="Y">Top edge in canvas pixels; snapped to the 20 px grid. Give it together with X.</param>
 public record RestoreNoteRequest(
-    [property: Range(0, Layout.MaxCoordinate)] int? X = null,
-    [property: Range(0, Layout.MaxCoordinate)] int? Y = null);
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X = null,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null);

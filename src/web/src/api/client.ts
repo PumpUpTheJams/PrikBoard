@@ -22,6 +22,7 @@ import type {
   InvitePreview,
   TokenIssuer,
   TrashContents,
+  EmptyTrashResult,
   UserMatch,
   DrawingChanges,
   DrawingContent,
@@ -192,6 +193,10 @@ export const api = {
   restoreNote: (noteId: string, at?: Point) => request<NoteDetail>('POST', `/notes/${noteId}/restore`, at),
   /** The post-its deleted in the last 7 days, most recently deleted first. */
   listDeletedNotes: (boardId: string) => request<TrashContents>('GET', `/boards/${boardId}/trash`),
+  /** Deletes a post-it in the trash for good, with its images and drawings. */
+  purgeNote: (boardId: string, noteId: string) => request<void>('DELETE', `/boards/${boardId}/trash/${noteId}`),
+  /** Deletes everything in the board's trash for good. */
+  emptyTrash: (boardId: string) => request<EmptyTrashResult>('DELETE', `/boards/${boardId}/trash`),
   addNoteBlock: (noteId: string, block: NewNoteBlock) => request<NoteBlock>('POST', `/notes/${noteId}/blocks`, block),
   updateNoteBlock: (noteId: string, blockId: string, changes: NoteBlockChanges) =>
     request<NoteBlock>('PATCH', `/notes/${noteId}/blocks/${blockId}`, changes),

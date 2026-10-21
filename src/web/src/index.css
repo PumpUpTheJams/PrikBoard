@@ -928,7 +928,7 @@ main {
 /*
  * The corner stack: how many blocks and images the post-it holds, in a circle the size of an assignee and in line with
  * them. On hover (or focus, or when selected) the count becomes the expand button, with copy link below it in one
- * pill. An empty post-it shows the expand button in the circle instead. No transitions: it changes at once.
+ * pill. An empty post-it shows nothing there until it is hovered. No transitions: it changes at once.
  */
 .post-it-corner {
   position: absolute;
@@ -977,7 +977,6 @@ main {
   display: none;
 }
 
-.post-it-corner.no-count .expand,
 .post-it:hover .post-it-corner button,
 .post-it:focus-within .post-it-corner button,
 .post-it.selected .post-it-corner button,
@@ -989,26 +988,6 @@ main {
 .post-it-corner button:focus-visible,
 .post-it-corner button.copied {
   background: rgba(23, 24, 27, 0.12);
-}
-
-/* The readable id (MPCT-415), on a tab above the top-left corner while the post-it is hovered, focused or selected. */
-.post-it-id {
-  position: absolute;
-  bottom: 100%;
-  left: 8px;
-  display: none;
-  padding: 2px 6px 1px;
-  border-radius: 3px 3px 0 0;
-  background: var(--fill);
-  color: var(--ink-soft);
-  font: 10px/1.4 var(--mono);
-  pointer-events: none;
-}
-
-.post-it:hover .post-it-id,
-.post-it:focus-within .post-it-id,
-.post-it.selected .post-it-id {
-  display: block;
 }
 
 /* "Link copied" for a moment, above the post-it's corner. */
@@ -1057,8 +1036,9 @@ main {
   white-space: nowrap;
 }
 
+/* Outlined in the shade of the fill that tags and the corner count use, which also parts overlapping avatars. */
 .post-it .avatar {
-  border: 2px solid var(--fill);
+  border: 2px solid color-mix(in srgb, var(--fill), #17181b 12%);
 }
 
 .avatar-slot {
@@ -1324,6 +1304,11 @@ main {
   width: min(520px, calc(100% - 200px));
   transform: translateX(-50%);
   pointer-events: none;
+}
+
+/* The search and its results stay usable above the open post-it and the trash window. */
+.board-top.searching {
+  z-index: 12;
 }
 
 .canvas-hint {
@@ -2049,11 +2034,12 @@ input.editable {
   display: flex;
 }
 
-.note-pen-button {
+/* The pen, in the tool rail and in the post-it's bar: its ink shows in a dot in the corner. */
+.pen-button {
   position: relative;
 }
 
-.note-pen-button::after {
+.pen-button::after {
   content: '';
   position: absolute;
   right: 7px;
@@ -4617,6 +4603,11 @@ button.picker-color:hover,
 
 /* The trash window: an expanded post-it's frame with a dark band and a search that is always there */
 
+/* Below the expanded post-it, so one opened from the trash shows on top of it. */
+.expanded.trash-window {
+  z-index: 10;
+}
+
 .trash-window .band.trash-band {
   --fill: var(--panel-2);
   gap: 12px;
@@ -4718,4 +4709,16 @@ button.picker-color:hover,
 
 .post-it-put-back:hover {
   background: rgba(23, 24, 27, 0.24);
+}
+
+/* Delete for good, next to put back: red once the pointer is on it. */
+.post-it-put-back.purge:hover {
+  background: var(--danger-strong);
+  color: #ffffff;
+}
+
+/* Empty the trash: a quiet button in the band, red once the pointer is on it. */
+.trash-band .band-button.empty-trash:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
 }

@@ -1,4 +1,4 @@
-import type { ComponentType, PointerEvent, Ref } from 'react'
+import type { ComponentType, CSSProperties, PointerEvent, Ref } from 'react'
 import { noteColors, type InkColor, type NoteColor } from '../api/types'
 import { inkHex } from './drawings'
 import { PenOptions } from './DrawingView'
@@ -53,7 +53,7 @@ export function ToolRail(props: ToolRailProps) {
     className = '',
     onPointerDown?: (e: PointerEvent<HTMLButtonElement>) => void,
     ref?: Ref<HTMLButtonElement>,
-    color?: string,
+    style?: CSSProperties,
   ) => (
     <button
       key={t}
@@ -63,9 +63,10 @@ export function ToolRail(props: ToolRailProps) {
       aria-label={label}
       title={title ?? `${label} (${shortcut})`}
       aria-pressed={tool === t}
-      style={color ? { color } : undefined}
+      style={style}
       onPointerDown={onPointerDown}
-      onClick={() => onToolChange(t)}
+      // A second click on the tool you are in puts it away again (as Escape does).
+      onClick={() => onToolChange(tool === t && t !== 'select' ? 'select' : t)}
     >
       <Icon />
     </button>
@@ -112,7 +113,7 @@ export function ToolRail(props: ToolRailProps) {
             <ImageIcon />
           </button>
           <div className="rail-note">
-            {button({ tool: 'pen', label: 'Pen', shortcut: 'P', Icon: PenIcon }, '', undefined, undefined, inkHex[ink])}
+            {button({ tool: 'pen', label: 'Pen', shortcut: 'P', Icon: PenIcon }, 'pen-button', undefined, undefined, { '--pen-ink': inkHex[ink] } as CSSProperties)}
             {tool === 'pen' && (
               <div className="fill-flyout pen-flyout" role="group" aria-label="Pen colour and size">
                 <PenOptions ink={ink} onInkChange={onInkChange} width={strokeWidth} onWidthChange={onStrokeWidthChange} />

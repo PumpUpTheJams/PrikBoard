@@ -307,6 +307,11 @@ export interface TrashContents {
   images: ImageDetail[]
 }
 
+/** What emptyTrash did: how many post-its were deleted for good. */
+export interface EmptyTrashResult {
+  purged: number
+}
+
 export interface Point {
   x: number
   y: number
