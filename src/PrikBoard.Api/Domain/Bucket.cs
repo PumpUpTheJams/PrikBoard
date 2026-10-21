@@ -17,9 +17,19 @@ public class Bucket
     /// keeping their places for when it opens again. Cards elsewhere don't join it while it is collapsed.
     /// </summary>
     public bool Collapsed { get; set; }
+    /// <summary>Its place in lists (To do, Doing, Done): oldest first.</summary>
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    /// <summary>
+    /// Its place in the stack, the same for everyone: the bucket put on top last is drawn above the others, and an item
+    /// put where buckets overlap joins the topmost (<see cref="Layout.BackToFront"/>). Drawing, moving, resizing, opening
+    /// or filling a bucket puts it on top (<see cref="ToFront"/>).
+    /// </summary>
+    public DateTimeOffset StackedAt { get; set; } = DateTimeOffset.UtcNow;
     /// <summary>When it was deleted; it can be restored until <see cref="Data.Tombstones.Retention"/> has passed. Hidden by the query filter while set.</summary>
     public DateTimeOffset? DeletedAt { get; set; }
 
     public bool Contains(int x, int y) => x >= X && x < X + Width && y >= Y && y < Y + Height;
+
+    /// <summary>Puts it on top of the stack.</summary>
+    public void ToFront() => StackedAt = DateTimeOffset.UtcNow;
 }

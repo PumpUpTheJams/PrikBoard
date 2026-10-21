@@ -117,8 +117,9 @@ public static class BoardEndpoints
                 Y = y,
                 Width = Layout.DefaultBucketWidth,
                 Height = Layout.DefaultBucketHeight,
-                // Distinct timestamps keep the stacking order of the defaults well defined.
+                // Distinct timestamps keep the list and stacking order of the defaults well defined.
                 CreatedAt = board.CreatedAt.AddMilliseconds(board.Buckets.Count),
+                StackedAt = board.CreatedAt.AddMilliseconds(board.Buckets.Count),
             });
         }
 

@@ -9,12 +9,12 @@ namespace PrikBoard.Api.Contracts;
 /// local to it; importing makes new ones.
 /// </summary>
 /// <param name="Format">Always "prikboard-board". Marks the file as a PrikBoard export.</param>
-/// <param name="Version">Version of this file format, currently 4 (3 still imports). Files from before notes were renamed cards (versions 1 and 2) are refused, and so is a file with a newer version than the server knows, or with fields it doesn't know.</param>
+/// <param name="Version">Version of this file format, currently 5 (3 and 4 still import). Files from before notes were renamed cards (versions 1 and 2) are refused, and so is a file with a newer version than the server knows, or with fields it doesn't know.</param>
 /// <param name="ExportedAt">When the file was made (UTC).</param>
 /// <param name="Name">Board name.</param>
 /// <param name="Description">Board description, or null.</param>
 /// <param name="Rules">The board's agent rules in Markdown, or null. Importing makes the importer the owner, who may change them.</param>
-/// <param name="Buckets">Buckets in stacking order, back to front.</param>
+/// <param name="Buckets">Buckets in list order (To do, Doing, Done), each with its place in the stack. Files before version 5 list them back to front, and that is their list order too.</param>
 /// <param name="Tags">Names of the board's tags, including ones no card uses.</param>
 /// <param name="Cards">Cards, the most recently edited last (they are drawn on top). A card's bucket follows from where it sits.</param>
 /// <param name="Images">Images on the canvas and attached to cards, with their bytes.</param>
@@ -40,7 +40,7 @@ public record BoardExport(
 {
     public const string FormatName = "prikboard-board";
     /// <summary>Raise it with every change to the file's fields, so an older server refuses a file it can't fully read.</summary>
-    public const int CurrentVersion = 4;
+    public const int CurrentVersion = 5;
     public const int OldestVersion = 3;
     public const string TooOldMessage =
         "This file is from before notes were renamed cards (version 1 or 2), and this server reads version 3 and later. " +
@@ -58,6 +58,7 @@ public record BoardExport(
 /// <param name="Width">Width in pixels.</param>
 /// <param name="Height">Height in pixels.</param>
 /// <param name="Collapsed">Folded up on the board, hiding its cards. Optional.</param>
+/// <param name="Stack">Its place in the stack where buckets overlap, 0 at the back. Optional; without it buckets stack in file order.</param>
 public record ExportedBucket(
     [property: Required, StringLength(100, MinimumLength = 1)] string Name,
     BucketColor Color,
@@ -65,7 +66,8 @@ public record ExportedBucket(
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int Y,
     [property: Range(Layout.MinBucketWidth, Layout.MaxBucketSize)] int Width,
     [property: Range(Layout.MinBucketHeight, Layout.MaxBucketSize)] int Height,
-    bool Collapsed = false);
+    bool Collapsed = false,
+    [property: Range(0, BoardExport.MaxBuckets - 1)] int? Stack = null);
 
 /// <summary>A card in an export. Who created it and who is assigned are not part of the file.</summary>
 /// <param name="Id">An id that is only meaningful inside this file: images refer to their card by it, and links to other cards in the file are kept pointing at the right card.</param>

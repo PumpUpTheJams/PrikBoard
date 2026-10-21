@@ -213,6 +213,11 @@ export interface BucketDetail {
   height: number
   /** Folded up into a square in its top-right corner: its cards are hidden (keeping their places) until it opens again. */
   collapsed: boolean
+  /**
+   * Its place in the stack, the same for everyone (ISO time, the later the higher): the topmost is drawn above the
+   * buckets it overlaps, and an item put there joins it. Moving, resizing, opening or filling a bucket puts it on top.
+   */
+  stackedAt: string
 }
 
 /** The side a bucket grows towards when cards put into it don't fit; Left and Up move its edge out. */

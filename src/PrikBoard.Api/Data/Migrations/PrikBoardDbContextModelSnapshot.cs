@@ -448,6 +448,9 @@ namespace PrikBoard.Api.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<DateTimeOffset>("StackedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("Width")
                         .HasColumnType("integer");
 

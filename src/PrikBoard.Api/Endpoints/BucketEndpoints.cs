@@ -28,8 +28,17 @@ public static class BucketEndpoints
             .WithDescription("Changes any of name, color, position and size. Omitted fields stay unchanged. " +
                              "Moving a bucket carries its cards and images along (or exactly carryCardIds and carryImageIds) " +
                              "and changes no item's bucket, also where it overlaps another bucket. A resize lets go of " +
-                             "items now outside it and takes loose ones it now covers.")
+                             "items now outside it and takes loose ones it now covers. Moving, resizing and opening it put it " +
+                             "on top of the other buckets.")
             .ProducesValidationProblem();
+
+        buckets.MapPost("/buckets/{bucketId:guid}/front", BringBucketToFront)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Bucket)
+            .WithName("bringBucketToFront")
+            .WithSummary("Put a bucket on top of the others")
+            .WithDescription("Puts the bucket on top of the stack, for everyone: where buckets overlap, it is drawn above the " +
+                             "others and items put there join it. No item changes bucket. Moving, resizing, opening and filling a " +
+                             "bucket do this too.");
 
         buckets.MapPost("/buckets/{bucketId:guid}/cards", PlaceCardsInBucket)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Bucket)
@@ -39,7 +48,7 @@ public static class BucketEndpoints
                              "grid step clear of the cards and images in it (also a collapsed bucket); other buckets' items don't count. " +
                              "When they don't fit, the bucket grows towards grow (Down, Right, Left or Up) by whole rows or columns, " +
                              "only as far as they need, also over neighbouring buckets (the cards still belong to this one). " +
-                             "Returns the bucket and the cards.")
+                             "The bucket goes on top of the others. Returns the bucket and the cards.")
             .ProducesValidationProblem();
 
         buckets.MapDelete("/buckets/{bucketId:guid}", DeleteBucket)
@@ -148,6 +157,8 @@ public static class BucketEndpoints
             }
         }
 
+        // What someone moves, resizes or opens comes to the top, for everyone (before the stack below decides what it lets go).
+        if (resizing || moving || (bucket.Collapsed && request.Collapsed == false)) bucket.ToFront();
         bucket.Name = request.Name ?? bucket.Name;
         bucket.Color = request.Color ?? bucket.Color;
         bucket.Collapsed = request.Collapsed ?? bucket.Collapsed;
@@ -166,6 +177,17 @@ public static class BucketEndpoints
             if (resizing) Layout.Adopt(bucket, stacked, cards, items, looseOnly: true);
         }
 
+        await db.SaveChangesAsync(ct);
+        return TypedResults.Ok(BucketDetail.From(bucket));
+    }
+
+    internal static async Task<Results<Ok<BucketDetail>, NotFound>> BringBucketToFront(
+        Guid bucketId, PrikBoardDbContext db, CancellationToken ct)
+    {
+        var bucket = await db.Buckets.FindAsync([bucketId], ct);
+        if (bucket is null) return TypedResults.NotFound();
+
+        bucket.ToFront();
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok(BucketDetail.From(bucket));
     }
@@ -190,6 +212,8 @@ public static class BucketEndpoints
             });
         }
         var cards = found.OfType<Card>().ToList();
+        // It may grow over its neighbours, so it comes on top of them, with the cards it takes.
+        bucket.ToFront();
 
         var buckets = await db.Buckets.Where(b => b.BoardId == bucket.BoardId).ToListAsync(ct);
         var images = await db.Images.Where(i => i.BoardId == bucket.BoardId && i.CardId == null).ToListAsync(ct);
@@ -245,7 +269,7 @@ public static class BucketEndpoints
         if (bucket is null) return TypedResults.NotFound();
         if (bucket.DeletedAt is null) return TagEndpoints.NotDeleted("bucket");
 
-        // CreatedAt stays, so it goes back to its place in the stack and takes back the cards, images and drawings it covers.
+        // StackedAt stays, so it goes back to its place in the stack and takes back the cards, images and drawings it covers.
         bucket.DeletedAt = null;
         var others = await db.Buckets.Where(b => b.BoardId == bucket.BoardId && b.Id != bucketId).ToListAsync(ct);
         var cards = await db.Cards.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);

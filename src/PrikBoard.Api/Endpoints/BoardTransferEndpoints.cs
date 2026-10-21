@@ -70,6 +70,7 @@ public static class BoardTransferEndpoints
                 ? CardLinks.CardPath(board.Id, id)
                 : url;
 
+        var stack = Layout.BackToFront(board.Buckets).Select((b, i) => (b.Id, i)).ToDictionary(p => p.Id, p => p.i);
         var images = new List<ExportedImage>();
         foreach (var i in board.Images.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id))
         {
@@ -78,8 +79,8 @@ public static class BoardTransferEndpoints
         var export = new BoardExport(
             BoardExport.FormatName, BoardExport.CurrentVersion, DateTimeOffset.UtcNow,
             board.Name, board.Description, board.Rules,
-            Layout.BackToFront(board.Buckets)
-                .Select(b => new ExportedBucket(b.Name, b.Color, b.X, b.Y, b.Width, b.Height, b.Collapsed)).ToList(),
+            Layout.InListOrder(board.Buckets)
+                .Select(b => new ExportedBucket(b.Name, b.Color, b.X, b.Y, b.Width, b.Height, b.Collapsed, stack[b.Id])).ToList(),
             board.Tags.OrderBy(t => t.CreatedAt).ThenBy(t => t.Id).Select(t => t.Name).ToList(),
             // Oldest edit first: the importer gives them rising timestamps, so the most recently edited card stays on top.
             board.Cards.OrderBy(n => n.UpdatedAt).ThenBy(n => n.Id)
@@ -151,6 +152,7 @@ public static class BoardTransferEndpoints
                 Width = Math.Min(Layout.MaxBucketSize, Layout.SnapSize(bucket.Width, Layout.MinBucketWidth)),
                 Height = Math.Min(Layout.MaxBucketSize, Layout.SnapSize(bucket.Height, Layout.MinBucketHeight)),
                 CreatedAt = clock.AddMilliseconds(i),
+                StackedAt = clock.AddMilliseconds(bucket.Stack ?? i),
             });
         }
 

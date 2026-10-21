@@ -179,7 +179,7 @@ public static class CardEndpoints
 
         var buckets = await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct);
         var others = await db.Cards.Where(n => n.BoardId == boardId).ToListAsync(ct);
-        var bucketId = request.BucketId ?? (request.X is null && request.Y is null ? Layout.BackToFront(buckets).FirstOrDefault()?.Id : null);
+        var bucketId = request.BucketId ?? (request.X is null && request.Y is null ? Layout.InListOrder(buckets).FirstOrDefault()?.Id : null);
         if (Place(card, bucketId, request.X, request.Y, buckets, others) is { } problem) return problem;
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);

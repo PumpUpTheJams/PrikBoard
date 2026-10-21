@@ -43,6 +43,7 @@ import {
   CARD_HEIGHT,
   CARD_WIDTH,
   bucketSize,
+  backToFront,
   bucketUnderCard,
   collapsedRect,
   defaultComponentSize,
@@ -319,13 +320,33 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [deletedBusy, setDeletedBusy] = useState(false)
   /** The collapsed bucket a card (or several selected cards) being dragged would go into on release. */
   const [foldDrop, setFoldDrop] = useState<string | null>(null)
+  /** Buckets as they stack, the same for everyone (`stackedAt`): drawn in this order, the last one on top. */
+  const stacked = backToFront(board.buckets)
   /**
-   * The bucket last opened, pressed or moved: it and what is in it are drawn above everything else, so a bucket opened
-   * over others isn't a tangle of cards. Only on this screen; which bucket an item is in doesn't change.
+   * A bucket just opened, pressed or moved here, shown in front before the server has put it on top for everyone (and
+   * for viewers, who can't, only here). `over` is the bucket on top when it was picked: once that changes, the server's
+   * order says what is in front again.
    */
-  const [frontBucket, setFrontBucket] = useState<string | null>(null)
-  // While selected cards are dragged into a bucket, that one is in front, so how it would grow over its neighbours shows.
-  const front = board.buckets.find((b) => b.id === (arrangeDrop?.bucket.id ?? frontBucket) && !b.collapsed)?.id ?? null
+  const [picked, setPicked] = useState<{ id: string; over: string | undefined } | null>(null)
+  const top = stacked.at(-1)?.id
+  /**
+   * The bucket drawn above the others with what is in it, so a bucket over others isn't a tangle of cards: the topmost
+   * open one. While selected cards are dragged into a bucket, that one, so how it would grow over its neighbours shows.
+   */
+  const front =
+    board.buckets.find((b) => b.id === (arrangeDrop?.bucket.id ?? (picked?.over === top ? picked?.id : undefined)) && !b.collapsed)?.id ??
+    stacked.findLast((b) => !b.collapsed)?.id ??
+    null
+  /**
+   * Brings a bucket to the front: here at once, and for everyone through the server unless `server` says it does that
+   * itself (moving, opening or filling it) or it is on top already.
+   */
+  function toFront(id: string, server = true) {
+    // A press and the click after it ask once.
+    const asked = picked?.id === id && picked.over === top
+    setPicked({ id, over: top })
+    if (server && !readOnly && top !== id && !asked) void run(() => api.bringBucketToFront(id))
+  }
   /** Whether an item is drawn in front, with its bucket. */
   const inFront = (item: { bucketId: string | null }) => front !== null && item.bucketId === front
   /**
@@ -333,7 +354,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
    * server would put it in the bucket stacked on top, which this screen may show behind the front one.
    */
   const cardPlace = (at: Point): Point & { bucketId?: string } =>
-    front && bucketUnderCard(board.buckets.map((b) => ({ ...b, ...bucketRect(b) })), at, null, front)?.id === front
+    front && bucketUnderCard(stacked.map((b) => ({ ...b, ...bucketRect(b) })), at, null, front)?.id === front
       ? { ...at, bucketId: front }
       : at
   /** Cards in a collapsed bucket are folded away with it: not on the board until it opens again. */
@@ -628,9 +649,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   /** Folds a bucket up into a square in its top-right corner, hiding its cards, or opens it again with them where they were. */
   function toggleCollapsed(bucket: BucketDetail) {
     const collapsed = !bucket.collapsed
-    // What folds away with it is no longer selected. Opened, it comes to the front with its cards.
+    // What folds away with it is no longer selected. Opened, it comes to the front with its cards (the server puts it on top).
     if (collapsed) setSelected((list) => list.filter((s) => s.kind === 'bucket' || bucketOf(s) !== bucket.id))
-    else setFrontBucket(bucket.id)
+    else toFront(bucket.id, false)
     void settle(
       () => api.updateBucket(bucket.id, { collapsed }),
       (after) => step(collapsed ? 'Collapse bucket' : 'Open bucket', [patched(target.bucket(bucket.id), snap.bucket(bucket), snap.bucket(after), ['collapsed'])]),
@@ -639,7 +660,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
   /** The collapsed bucket whose square is under a canvas point. */
   function foldAt(p: Point): BucketDetail | undefined {
-    return board.buckets.findLast((b) => {
+    return stacked.findLast((b) => {
       if (!b.collapsed) return false
       const r = collapsedRect(bucketRect(b))
       return p.x >= r.x && p.x < r.x + r.width && p.y >= r.y && p.y < r.y + r.height
@@ -1180,8 +1201,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       .flatMap((m) => (m.kind === 'card' ? board.cards.filter((n) => n.id === m.id) : []))
       .toSorted((a, b) => a.y - b.y || a.x - b.x)
     const p = g.current
-    const index = board.buckets.findLastIndex((b) => !b.collapsed && p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height)
-    const bucket = board.buckets[index]
+    const bucket = stacked.findLast((b) => !b.collapsed && p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height)
     // Moved around inside the bucket they are all in already, they go where they are dropped.
     if (cards.length === 0 || !bucket || cards.every((n) => n.bucketId === bucket.id)) return null
     const edges: [GrowSide, number][] = [
@@ -1387,7 +1407,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     const onTitle = e.target instanceof Element && e.target.closest('.card-title') !== null
     titlePress.current = kind === 'card' && onTitle ? id : null
     const item: Selection = { kind: kind === 'card' || kind === 'drawing' ? kind : kind === 'image' || kind === 'image-resize' ? 'image' : 'bucket', id }
-    if (item.kind === 'bucket') setFrontBucket(id)
+    if (item.kind === 'bucket') toFront(id)
     const resize = kind === 'resize' || kind === 'image-resize'
     if (!resize && adds(e)) {
       titlePress.current = null
@@ -1410,7 +1430,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     if (e.target !== e.currentTarget || e.button !== 0 || tool !== 'select' || spaceHeld || readOnly) return
     e.stopPropagation()
     e.preventDefault()
-    setFrontBucket(bucket.id)
+    toFront(bucket.id)
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
     cardPresses.current = [cardPresses.current[1], null]
     beginGesture(e, { kind: 'select', bucketId: bucket.id, base: adds(e) ? selected : [] })
@@ -1619,9 +1639,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     }
     if (arrange) {
       // Into a bucket they aren't all in: the cards take its free spots (it grows towards the side asked when they don't
-      // fit, over its neighbours too, so it comes to the front); images and drawings dropped with them land where they are dropped.
+      // fit, over its neighbours too, so the server puts it on top); images and drawings dropped with them land where they are dropped.
       setGesture({ ...g, done: true })
-      setFrontBucket(arrange.bucket.id)
+      toFront(arrange.bucket.id, false)
       const ordered = cards.toSorted((a, b) => arrange.spots[a.id].y - arrange.spots[b.id].y || arrange.spots[a.id].x - arrange.spots[b.id].x)
       void putCards(arrange.bucket, ordered, arrange.side, g.members.filter((m) => m.kind === 'image' || m.kind === 'drawing'))
       return
@@ -1883,7 +1903,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }
 
   // What was dropped on the trash is gone at once.
-  const buckets = board.buckets.filter((b) => !binned.includes(b.id)).map((bucket) => ({ bucket, rect: bucketRect(bucket) }))
+  // Drawn as they stack, so where buckets overlap the one on top covers the others.
+  const buckets = stacked.filter((b) => !binned.includes(b.id)).map((bucket) => ({ bucket, rect: bucketRect(bucket) }))
   // Images in a collapsed bucket fold away with its cards.
   const images = board.images
     .filter((i) => i.cardId === null && !(i.bucketId && collapsedIds.has(i.bucketId)) && !binned.includes(i.id))
@@ -1924,9 +1945,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const newCardSpot = newCardAt ? cardSpot(newCardAt) : null
   const dropTarget =
     draggedCard && !linkDrop && !overTrash && !deletedDrop && !foldDrop
-      ? bucketUnderCard(board.buckets, draggedCard.point, draggedCard.card.bucketId, front)
+      ? bucketUnderCard(stacked, draggedCard.point, draggedCard.card.bucketId, front)
       : newCardSpot
-        ? bucketUnderCard(board.buckets, newCardSpot, null, front)
+        ? bucketUnderCard(stacked, newCardSpot, null, front)
         : undefined
   const draft =
     gesture?.kind === 'draw' && !gesture.done ? spanRect(snapPoint(gesture.start), snapPoint(gesture.current)) : null
@@ -2180,7 +2201,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                     onClick={(e) => {
                       if (adds(e)) return
                       setSelection({ kind: 'bucket', id: bucket.id })
-                      setFrontBucket(bucket.id)
+                      toFront(bucket.id)
                     }}
                   >
                     <span className="bucket-name">{bucket.name}</span>

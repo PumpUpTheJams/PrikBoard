@@ -605,6 +605,22 @@ public sealed class BoardTools
         return bucket;
     }
 
+    [McpServerTool(Name = "bring_bucket_to_front", Title = "Put a bucket on top of the others", Idempotent = true, OpenWorld = false)]
+    [Description("Puts a bucket on top of the buckets it overlaps, for everyone looking at the board: it is drawn above them, and " +
+                 "cards put where they overlap join it. No card changes bucket. Needs the Editor role.")]
+    public static async Task<BucketDetail> BringBucketToFront(
+        IHttpContextAccessor accessor,
+        [Description("The bucket id.")] Guid bucketId,
+        CancellationToken ct)
+    {
+        var http = McpCall.Http(accessor);
+        var boardId = await McpCall.AuthorizeAsync(http, BoardScope.Bucket, bucketId, BoardRole.Editor);
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var bucket = McpCall.Value<BucketDetail>(await BucketEndpoints.BringBucketToFront(bucketId, db, ct));
+        await McpCall.AnnounceAsync(http, boardId);
+        return bucket;
+    }
+
     [McpServerTool(Name = "create_tag", Title = "Create a tag", OpenWorld = false)]
     [Description("Adds a tag to a board without putting it on a card (tagging a card with a new name adds it too). Needs the Editor role.")]
     public static async Task<BoardTagDetail> CreateTag(
