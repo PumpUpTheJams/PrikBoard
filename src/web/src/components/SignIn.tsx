@@ -3,26 +3,10 @@ import { api, errorMessage, loginUrl } from '../api/client'
 import type { AuthProvider } from '../api/types'
 import { CardIcon } from '../board/icons'
 
-const authErrors: Record<string, string> = {
-  failed: 'Signing in did not work. Please try again.',
-  invite_required: 'PrikBoard is invite-only. Open an invite link from a board owner to join.',
-  identity_in_use: 'That sign-in already belongs to another PrikBoard account, so it was not connected.',
-  link_failed: 'Connecting that sign-in did not work. Sign in again and retry from your account.',
-}
-
-/** Reads and removes ?authError=… which the API adds when it sends a failed sign-in back here. */
-function takeAuthError(): string | null {
-  const url = new URL(window.location.href)
-  const code = url.searchParams.get('authError')
-  if (code === null) return null
-  url.searchParams.delete('authError')
-  window.history.replaceState(null, '', url)
-  return authErrors[code] ?? authErrors.failed
-}
-
-export function SignIn() {
+/** authError: why the last sign-in failed, from takeAuthError. */
+export function SignIn({ authError }: { authError: string | null }) {
   const [providers, setProviders] = useState<AuthProvider[] | null>(null)
-  const [error, setError] = useState(takeAuthError)
+  const [error, setError] = useState(authError)
 
   useEffect(() => {
     api.listAuthProviders().then(setProviders, (e) => setError(errorMessage(e)))

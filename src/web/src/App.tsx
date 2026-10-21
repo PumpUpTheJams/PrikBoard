@@ -40,6 +40,7 @@ import { Presence } from './components/Presence'
 import { QuickAdd } from './components/QuickAdd'
 import { ShareDialog } from './components/ShareDialog'
 import { SignIn } from './components/SignIn'
+import { takeAuthError } from './components/authError'
 import { VisitorPage } from './components/VisitorPage'
 
 const BoardRulesDialog = lazy(() => import('./components/BoardRulesDialog').then((m) => ({ default: m.BoardRulesDialog })))
@@ -61,6 +62,8 @@ export default function App() {
   const [boardRef, setBoardRef] = useState(boardRefFromHash)
   const [notVisible, setNotVisible] = useState<string | null>(null)
   const [signingIn, setSigningIn] = useState(false)
+  // Read before the session check: a failed sign-in shows on the sign-in screen, a failed link over the workspace.
+  const [authError, setAuthError] = useState(takeAuthError)
 
   useEffect(() => {
     // Any 401, such as an expired session, drops back to the sign-in screen.
@@ -88,7 +91,7 @@ export default function App() {
     if (boardRef && !signingIn && !invite && !connect && notVisible !== boardRef) {
       return <VisitorPage key={boardRef} boardRef={boardRef} onMissing={() => setNotVisible(boardRef)} onSignIn={() => setSigningIn(true)} />
     }
-    return <SignIn />
+    return <SignIn authError={authError} />
   }
   if (connect) {
     return (
@@ -130,6 +133,7 @@ export default function App() {
       {user.kind === 'Session' && user.chosenDisplayName === null && user.suggestedDisplayName !== null && (
         <DisplayNameDialog user={user} onSaved={setUser} />
       )}
+      {authError && <NoticeDialog title="Sign-in not connected" messages={[authError]} onClose={() => setAuthError(null)} />}
     </>
   )
 }
