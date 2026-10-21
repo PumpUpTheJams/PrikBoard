@@ -83,6 +83,10 @@ public static class Avatars
     /// </summary>
     public static string? UrlOf(Principal? principal) =>
         principal is User { AvatarUpdatedAt: { } at } ? $"/api/avatars/{principal.Id}?v={at.ToUnixTimeMilliseconds()}" : null;
+
+    /// <summary>The same picture served for one board (getBoardAvatar), which its visitors may load; null stays null.</summary>
+    public static string? OnBoard(string? url, Guid boardId) =>
+        url?.StartsWith("/api/avatars/", StringComparison.Ordinal) == true ? $"/api/boards/{boardId}/avatars/{url["/api/avatars/".Length..]}" : url;
 }
 
 /// <summary>A trusted token issuer, needed to add an agent to a board.</summary>

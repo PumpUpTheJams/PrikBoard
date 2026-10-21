@@ -27,6 +27,13 @@ public partial class Board
     public string? Rules { get; set; }
     /// <summary>When <see cref="Rules"/> last changed, or null if they were never set.</summary>
     public DateTimeOffset? RulesUpdatedAt { get; set; }
+    /// <summary>
+    /// Anyone with the link can view the board without being a member, signed in or not (a visitor). Tokens still need
+    /// membership. Only owners change it.
+    /// </summary>
+    public bool IsPublic { get; set; }
+    /// <summary>Whether visitors of a public board see who is on it (names and pictures), or only anonymous circles and a count.</summary>
+    public bool PublicShowsPeople { get; set; }
 
     public List<Bucket> Buckets { get; set; } = [];
     public List<Card> Cards { get; set; } = [];

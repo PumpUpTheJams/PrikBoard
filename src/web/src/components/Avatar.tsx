@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { AssigneeKind } from '../api/types'
-import { SparkleIcon } from '../board/icons'
+import { SparkleIcon, UserIcon } from '../board/icons'
 import { initials } from './initials'
 
 type Size = 'sm' | 'md' | 'lg'
@@ -25,12 +25,23 @@ export function Face({ name, avatarUrl }: { name: string; avatarUrl: string | nu
   return initials(name)
 }
 
-/** People show their picture or initials on graphite; agents show a sparkle on dark lilac. */
+/**
+ * People show their picture or initials on graphite; agents show a sparkle on dark lilac. Without a name (a public
+ * board that hides its people from visitors) it is an anonymous circle.
+ */
 export function Avatar({ assignee, size = 'sm' }: { assignee: Who; size?: Size }) {
   const agent = assignee.kind === 'Agent'
+  const anonymous = assignee.name === ''
+  const title = anonymous ? (agent ? 'An agent' : 'Someone') : agent ? `${assignee.name} (agent)` : assignee.name
   return (
-    <span className={`avatar avatar-${size}${agent ? ' agent' : ''}`} title={agent ? `${assignee.name} (agent)` : assignee.name}>
-      {agent ? <SparkleIcon size={sparkleSize[size]} /> : <Face name={assignee.name} avatarUrl={assignee.avatarUrl} />}
+    <span className={`avatar avatar-${size}${agent ? ' agent' : ''}${anonymous ? ' anonymous' : ''}`} title={title}>
+      {agent ? (
+        <SparkleIcon size={sparkleSize[size]} />
+      ) : anonymous ? (
+        <UserIcon size={sparkleSize[size]} />
+      ) : (
+        <Face name={assignee.name} avatarUrl={assignee.avatarUrl} />
+      )}
     </span>
   )
 }
@@ -41,11 +52,12 @@ export function AvatarStack({ assignees, max = 2, size = 'sm' }: { assignees: (W
   const rest = assignees.length - shown.length
   return (
     <span className="avatar-stack">
-      {shown.map((a) => (
-        <Avatar key={a.principalId} assignee={a} size={size} />
+      {/* Anonymous assignees share an empty id, so the place keeps them apart. */}
+      {shown.map((a, i) => (
+        <Avatar key={`${a.principalId}-${i}`} assignee={a} size={size} />
       ))}
       {rest > 0 && (
-        <span className={`avatar avatar-${size} more`} title={assignees.slice(max).map((a) => a.name).join(', ')}>
+        <span className={`avatar avatar-${size} more`} title={assignees.slice(max).map((a) => a.name || 'Someone').join(', ')}>
           +{rest}
         </span>
       )}

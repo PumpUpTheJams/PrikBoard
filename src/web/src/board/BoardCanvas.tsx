@@ -13,6 +13,7 @@ import type {
   CardChanges,
   CardColor,
   CardDetail,
+  GrowSide,
   Point,
   Rect,
   ResizeHandle,
@@ -31,7 +32,7 @@ import { TrashWindow, type OutgoingCard, type TrashWindowHandle } from './TrashW
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
 import { delta, isDrag } from './gesture'
 import { boardRefFromHash, isBoard, linksTo, cardInHash, cardLabel, trashInHash, trashPath } from './links'
-import { ChevronDownIcon, ChevronUpIcon } from './icons'
+import { CardIcon, ChevronDownIcon, ChevronUpIcon, ImageIcon } from './icons'
 import { pop, reducedMotion } from './motion'
 import { BucketInspector, ImageInspector } from './Inspector'
 import {
@@ -46,6 +47,7 @@ import {
   collapsedRect,
   defaultComponentSize,
   onBoard,
+  packIn,
   onCardCanvas,
   resizeFrom,
   resizeImage,
@@ -57,6 +59,7 @@ import { resizeCursor } from './resizeCursor'
 import { ResizeHandles } from './ResizeHandles'
 import { ops } from './ops'
 import { matchCard, searchTerms, type SearchField } from './search'
+import { SelectionToolbar, type CardSort } from './SelectionToolbar'
 import { adds, isPicked, mergePicked, togglePicked, touches, useSpaceHeld } from './selection'
 import { shakeDetector } from './shake'
 import { tagColorsOf, type TagColorPreview } from './tagColors'
@@ -112,6 +115,28 @@ interface LinkDrop {
   at?: Point
   /** The pointer, in screen pixels. */
   client: Point
+}
+
+/**
+ * Where several dragged images and drawings would be attached on release: the open card's window (`window`) or a card
+ * on the board.
+ */
+interface AttachDrop {
+  card: CardDetail
+  window: boolean
+}
+
+/**
+ * Several selected cards dragged over a bucket they aren't all in: on release they go into its free spots, and it grows
+ * towards `side` (the edge nearest the pointer) when they don't fit.
+ */
+interface ArrangeDrop {
+  bucket: BucketDetail
+  side: GrowSide
+  /** Where each of the group's cards goes. */
+  spots: Record<string, Point>
+  /** The bucket as it would be after growing. */
+  grown: Rect
 }
 
 /** A pan in progress: where the pointer went down and the scroll position at that moment, in screen pixels. */
@@ -260,21 +285,29 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [incoming, setIncoming] = useState<IncomingImage | null>(null)
   /** Likewise a board drawing, to put it on the card's canvas. */
   const [incomingDrawing, setIncomingDrawing] = useState<IncomingDrawing | null>(null)
-  /** Where a card being dragged would be linked, instead of moved. */
+  /** Where a card (or several selected cards) being dragged would be linked, instead of moved. */
   const [linkDrop, setLinkDrop] = useState<LinkDrop | null>(null)
+  /** Where several selected images and drawings being dragged would be attached, instead of moved. */
+  const [attachDrop, setAttachDrop] = useState<AttachDrop | null>(null)
+  /**
+   * Where several selected cards being dragged over a bucket would go into it. Kept after the drop until the gesture
+   * ends, so they don't jump back while the request is in flight.
+   */
+  const [arrangeState, setArrangeDrop] = useState<ArrangeDrop | null>(null)
+  const arrangeDrop = gesture?.kind === 'group' ? arrangeState : null
   /** A new card being dragged from the tool rail: the pointer, in screen pixels. */
   const [newCard, setNewCard] = useState<Point | null>(null)
   /**
-   * While a card is dragged (or a new one carried), the rail's card button is a trash can: dropping a card on it
-   * deletes it, dropping a new one there puts it back. Whether the pointer is over it, and the card dropped there,
-   * hidden until the reload takes it away.
+   * While a card or several selected items are dragged (or a new card carried), the rail's card button is a trash
+   * can: dropping them on it deletes them, dropping a new one there puts it back. Whether the pointer is over it, and
+   * what was dropped there, hidden until the reload takes it away.
    */
   const trashRef = useRef<HTMLButtonElement>(null)
   const [overTrash, setOverTrash] = useState(false)
-  const [binned, setBinned] = useState<string | null>(null)
+  const [binned, setBinned] = useState<string[]>([])
   const expandedRef = useRef<ExpandedCardHandle>(null)
   /** The trash window: cards deleted in the last 7 days (opened from the board menu, through the address). */
-  const [deletedOpen, setDeletedOpen] = useState(() => trashInHash())
+  const [deletedOpen, setDeletedOpen] = useState(() => !board.visiting && trashInHash())
   const deletedRef = useRef<TrashWindowHandle>(null)
   /** A card in the trash shown as it is inside, read only. */
   const [deletedPreview, setDeletedPreview] = useState<{ card: CardDetail; images: ImageDetail[] } | null>(null)
@@ -284,8 +317,17 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [deletedDrop, setDeletedDrop] = useState<Point | null>(null)
   /** A drag in progress in the trash window. */
   const [deletedBusy, setDeletedBusy] = useState(false)
-  /** The collapsed bucket a card being dragged would go into on release. */
+  /** The collapsed bucket a card (or several selected cards) being dragged would go into on release. */
   const [foldDrop, setFoldDrop] = useState<string | null>(null)
+  /**
+   * The bucket last opened, pressed or moved: it and what is in it are drawn above everything else, so a bucket opened
+   * over others isn't a tangle of cards. Only on this screen; which bucket an item is in doesn't change.
+   */
+  const [frontBucket, setFrontBucket] = useState<string | null>(null)
+  // While selected cards are dragged into a bucket, that one is in front, so how it would grow over its neighbours shows.
+  const front = board.buckets.find((b) => b.id === (arrangeDrop?.bucket.id ?? frontBucket) && !b.collapsed)?.id ?? null
+  /** Whether an item is drawn in front, with its bucket. */
+  const inFront = (item: { bucketId: string | null }) => front !== null && item.bucketId === front
   /** Cards in a collapsed bucket are folded away with it: not on the board until it opens again. */
   const collapsedIds = new Set(board.buckets.filter((b) => b.collapsed).map((b) => b.id))
   const visibleCards = board.cards.filter((n) => !n.bucketId || !collapsedIds.has(n.bucketId))
@@ -369,7 +411,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       setQuickEdit(null)
       setExpanded(id ? { id, fresh: false } : null)
       if (id) setSelection({ kind: 'card', id })
-      if (trashInHash()) setDeletedOpen(true)
+      // The trash is for members; visitors of a public board don't see it.
+      if (trashInHash() && !board.visiting) setDeletedOpen(true)
     }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
@@ -417,7 +460,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && selected.length > 1) {
         // Several at once: buckets too (what is in them stays). The toast's Undo puts them all back.
         e.preventDefault()
-        if (!e.repeat && !gesture) deleteSelected()
+        if (!e.repeat && !gesture) void deleteSelected()
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && selection && selection.kind !== 'bucket') {
         // No question first: the toast that follows has an Undo button, and Ctrl/Cmd+Z works too.
         e.preventDefault()
@@ -577,8 +620,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   /** Folds a bucket up into a square in its top-right corner, hiding its cards, or opens it again with them where they were. */
   function toggleCollapsed(bucket: BucketDetail) {
     const collapsed = !bucket.collapsed
-    // What folds away with it is no longer selected.
+    // What folds away with it is no longer selected. Opened, it comes to the front with its cards.
     if (collapsed) setSelected((list) => list.filter((s) => s.kind === 'bucket' || bucketOf(s) !== bucket.id))
+    else setFrontBucket(bucket.id)
     void settle(
       () => api.updateBucket(bucket.id, { collapsed }),
       (after) => step(collapsed ? 'Collapse bucket' : 'Open bucket', [patched(target.bucket(bucket.id), snap.bucket(bucket), snap.bucket(after), ['collapsed'])]),
@@ -696,7 +740,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     const items = selected
     if (items.some((s) => s.kind === 'card' && s.id === expanded?.id)) setExpanded(null)
     setSelected([])
-    void runAll(`Delete ${count(items.length, 'item', 'items')}`, `${count(items.length, 'item', 'items')} deleted`, (changes) =>
+    return runAll(`Delete ${count(items.length, 'item', 'items')}`, `${count(items.length, 'item', 'items')} deleted`, (changes) =>
       allOf(
         items.map(async ({ kind, id }) => {
           if (kind === 'card') {
@@ -799,6 +843,74 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }
 
   /**
+   * Puts cards into a bucket's free spots in one request (the server finds them, growing the bucket towards `grow` when
+   * they don't fit), after moving the images and drawings that came along to where they were dropped. One step.
+   */
+  function putCards(bucket: BucketDetail, cards: CardDetail[], grow: GrowSide, along: Selection[]) {
+    const alongImages = along.flatMap((m) => (m.kind === 'image' ? board.images.filter((i) => i.id === m.id) : []))
+    const alongDrawings = along.flatMap((m) => (m.kind === 'drawing' ? board.drawings.filter((d) => d.id === m.id) : []))
+    const spots = new Map<string, Point>([
+      ...alongImages.map((i) => [i.id, imageRect(i)] as const),
+      ...alongDrawings.map((d) => [d.id, drawingRect(d)] as const),
+    ])
+    const to = (id: string) => ({ x: spots.get(id)!.x, y: spots.get(id)!.y })
+    return runAll(`Put ${count(cards.length, 'card', 'cards')} in ${bucket.name}`, undefined, async (changes) => {
+      await allOf([
+        ...alongImages.map(async (i) => {
+          const moved = await api.updateImage(i.id, to(i.id))
+          changes.push(patched(target.image(i.id), snap.image(i), snap.image(moved), ['x', 'y']))
+        }),
+        ...alongDrawings.map(async (d) => {
+          const moved = await api.updateDrawing(d.id, to(d.id))
+          changes.push(patched(target.drawing(d.id), snap.drawing(d), snap.drawing(moved), ['x', 'y']))
+        }),
+      ])
+      const placed = await api.placeCardsInBucket(bucket.id, { cardIds: cards.map((n) => n.id), grow })
+      // Undone, the cards go back first, then the bucket shrinks to its old size.
+      changes.push(patched(target.bucket(bucket.id), snap.bucket(bucket), snap.bucket(placed.bucket), ['x', 'y', 'width', 'height']))
+      for (const after of placed.cards) {
+        const before = cards.find((n) => n.id === after.id)
+        if (before) changes.push(patched(target.card(after.id), snap.card(before), snap.card(after), ['x', 'y']))
+      }
+    })
+  }
+
+  /**
+   * Lays several selected cards out as a grid where they are, in the order asked: from the selection's top-left, as
+   * many columns as fit its width. One step.
+   */
+  function sortCards(sort: CardSort) {
+    const cards = selected.flatMap((s) => (s.kind === 'card' ? board.cards.filter((n) => n.id === s.id) : []))
+    if (cards.length < 2) return
+    const tagRank = (card: CardDetail) => {
+      const names = board.tags.map((t) => t.name)
+      const ranks = card.tags.map((t) => names.indexOf(t)).filter((i) => i >= 0)
+      return ranks.length > 0 ? Math.min(...ranks) : Number.MAX_SAFE_INTEGER
+    }
+    const order: Record<CardSort, (a: CardDetail, b: CardDetail) => number> = {
+      number: (a, b) => a.number - b.number,
+      // Untitled cards last.
+      title: (a, b) => Number(!a.title.trim()) - Number(!b.title.trim()) || a.title.localeCompare(b.title) || a.number - b.number,
+      tag: (a, b) => tagRank(a) - tagRank(b) || a.number - b.number,
+      edited: (a, b) => b.updatedAt.localeCompare(a.updatedAt),
+    }
+    const sorted = cards.toSorted(order[sort])
+    const left = Math.min(...cards.map((n) => n.x))
+    const top = Math.min(...cards.map((n) => n.y))
+    const right = Math.max(...cards.map((n) => n.x + CARD_WIDTH))
+    const columns = Math.max(1, Math.floor((right - left + GRID) / (CARD_WIDTH + GRID)))
+    const spot = (i: number) => snapPoint({ x: left + (i % columns) * (CARD_WIDTH + GRID), y: top + Math.floor(i / columns) * (CARD_HEIGHT + GRID) })
+    void runAll(`Sort ${count(cards.length, 'card', 'cards')}`, undefined, (changes) =>
+      allOf(
+        sorted.map(async (card, i) => {
+          const moved = await api.moveCard(card.id, spot(i))
+          changes.push(patched(target.card(card.id), snap.card(card), snap.card(moved), ['x', 'y']))
+        }),
+      ),
+    )
+  }
+
+  /**
    * What the selection rectangle takes: over the board, the buckets and loose items it touches; inside a bucket, that
    * bucket's own items it touches. Folded-away items aren't on the board to take.
    */
@@ -861,18 +973,23 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
   // Live geometry: the server's layout, with the drags in progress applied on top (yours wins over someone else's).
   const dragging = gesture && gesture.kind !== 'draw' && gesture.kind !== 'select' && isDrag(gesture) ? gesture : null
-  /** Several items moving together each move by the same distance; cards lined up in a grid go to their place in it. */
-  const groupDrags = (members: Selection[], d: Point, grid?: Record<string, Point>): ActiveDrag[] =>
+  /**
+   * Several items moving together each move by the same distance; cards lined up in a grid go to their place in it,
+   * moving on with the pointer, and cards going into a bucket (`spots`) wait in theirs.
+   */
+  const groupDrags = (members: Selection[], d: Point, grid?: Record<string, Point>, spots?: Record<string, Point>): ActiveDrag[] =>
     members.map(({ kind, id }) => {
-      const cell = grid?.[id]
+      const spot = spots?.[id]
+      const cell = spot ?? grid?.[id]
       const card = cell && board.cards.find((n) => n.id === id)
-      return { kind, id, d: card ? { x: cell.x - card.x + d.x, y: cell.y - card.y + d.y } : d, handle: 'BottomRight' }
+      const along = spot ? { x: 0, y: 0 } : d
+      return { kind, id, d: card ? { x: cell.x - card.x + along.x, y: cell.y - card.y + along.y } : d, handle: 'BottomRight' }
     })
   const drags: ActiveDrag[] = [
     ...(!dragging
       ? []
       : dragging.kind === 'group'
-        ? groupDrags(dragging.members, delta(dragging), dragging.grid)
+        ? groupDrags(dragging.members, delta(dragging), dragging.grid, arrangeDrop?.spots)
         : [{ kind: dragging.kind, id: dragging.id, d: delta(dragging), handle: dragging.handle ?? 'BottomRight' }]),
     ...remoteDrags.flatMap((r): ActiveDrag[] => {
       const d = { x: r.dx, y: r.dy }
@@ -896,6 +1013,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   useEffect(() => onDrag?.(sentDrag ? (JSON.parse(sentDrag) as DragUpdate) : null), [sentDrag, onDrag])
 
   function bucketRect(bucket: BucketDetail): Rect {
+    // Cards going into it show how it would grow to fit them.
+    if (arrangeDrop?.bucket.id === bucket.id && dragging) return arrangeDrop.grown
     const drag = dragOf(bucket.id)
     if (!drag) return bucket
     const { d } = drag
@@ -989,46 +1108,105 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     return inside ? toCanvas({ clientX: client.x, clientY: client.y }) : null
   }
 
-  /** The topmost card on the board under a canvas point, other than `except`. */
-  function cardAt(p: Point, except?: string): CardDetail | undefined {
+  /** Cards in the order they are drawn: the front bucket's above the rest, then the most recently updated on top. */
+  const drawOrder = (a: CardDetail, b: CardDetail) => Number(inFront(a)) - Number(inFront(b)) || a.updatedAt.localeCompare(b.updatedAt)
+
+  /** The topmost card on the board under a canvas point, other than `except` (one id, or the ids of a group). */
+  function cardAt(p: Point, except?: string | Set<string>): CardDetail | undefined {
+    const skip = (id: string) => (typeof except === 'string' ? id === except : !!except?.has(id))
     return visibleCards
-      .toSorted((a, b) => a.updatedAt.localeCompare(b.updatedAt))
-      .findLast((n) => n.id !== except && p.x >= n.x && p.x < n.x + CARD_WIDTH && p.y >= n.y && p.y < n.y + CARD_HEIGHT)
+      .toSorted(drawOrder)
+      .findLast((n) => !skip(n.id) && p.x >= n.x && p.x < n.x + CARD_WIDTH && p.y >= n.y && p.y < n.y + CARD_HEIGHT)
   }
 
   /**
    * Where a card being dragged would be linked when released at a screen point: the open card (anywhere over its
-   * window), or the card under the pointer on the board. Null for other drags, or over nothing to link to.
+   * window), or the card under the pointer on the board. Several selected cards dragged together link the same way,
+   * to a card that isn't one of them. Null for other drags, or over nothing to link to.
    */
   function linkDropFor(g: Gesture, client: Point): LinkDrop | null {
-    if (g.kind !== 'card') return null
+    const dragged =
+      g.kind === 'card' ? new Set([g.id]) : g.kind === 'group' && g.members.every((m) => m.kind === 'card') ? new Set(g.members.map((m) => m.id)) : null
+    if (!dragged) return null
     const win = expandedRef.current
     if (expanded && win?.contains(client)) {
-      const open = expanded.id !== g.id ? board.cards.find((n) => n.id === expanded.id) : undefined
+      const open = !dragged.has(expanded.id) ? board.cards.find((n) => n.id === expanded.id) : undefined
       return open ? { card: open, window: true, at: win.hits(client) ? win.toCard(client) : undefined, client } : null
     }
-    const under = cardAt(toCanvas({ clientX: client.x, clientY: client.y }), g.id)
+    const under = cardAt(toCanvas({ clientX: client.x, clientY: client.y }), dragged)
     return under ? { card: under, window: false, client } : null
   }
 
   /**
-   * Adds a link to `linked` on a card: into the links component at `at` on its canvas, else its first links component; only a
-   * card without one gets a new links component (at `at`, or in a free spot). Nothing changes (false) when it already
-   * links there; otherwise the undo step.
+   * Adds links to `linked` cards on a card: into the links component at `at` on its canvas, else its first links
+   * component; only a card without one gets a new links component (at `at`, or in a free spot). Cards it already links
+   * to are left out; the undo step (null when nothing changed) and how many links were added.
    */
-  async function linkCard({ card, at }: LinkDrop, linked: CardDetail): Promise<UndoEntry | null | false> {
-    if (card.components.some((b) => b.links?.some((l) => linksTo(l.url, linked)))) return false
-    const link = { title: cardLabel(linked), url: linked.path }
+  async function linkCards({ card, at }: LinkDrop, linked: CardDetail[]): Promise<{ entry: UndoEntry | null; added: number }> {
+    const links = linked
+      .filter((l) => l.id !== card.id && !card.components.some((b) => b.links?.some((x) => linksTo(x.url, l))))
+      .map((l) => ({ title: cardLabel(l), url: l.path }))
+    if (links.length === 0) return { entry: null, added: 0 }
+    const label = links.length === 1 ? 'Link card' : 'Link cards'
     const lists = card.components.filter((b) => b.kind === 'Links')
     const component =
       (at && lists.find((b) => at.x >= b.x && at.x < b.x + b.width && at.y >= b.y && at.y < b.y + b.height)) ?? lists[0]
     if (component) {
-      const updated = await api.updateCardComponent(card.id, component.id, { links: [...(component.links ?? []), link] })
-      return step('Link card', [patched(target.component(card.id, component.id), snap.component(component), snap.component(updated), ['links'])])
+      const updated = await api.updateCardComponent(card.id, component.id, { links: [...(component.links ?? []), ...links] })
+      const entry = step(label, [patched(target.component(card.id, component.id), snap.component(component), snap.component(updated), ['links'])])
+      return { entry, added: links.length }
     }
     const place = at ? onCardCanvas({ x: at.x - GRID, y: at.y - GRID }, defaultComponentSize('Links')) : {}
-    const added = await api.addCardComponent(card.id, { kind: 'Links', links: [link], ...place })
-    return step('Link card', [created(target.component(card.id, added.id), snap.component(added))])
+    const added = await api.addCardComponent(card.id, { kind: 'Links', links, ...place })
+    return { entry: step(label, [created(target.component(card.id, added.id), snap.component(added))]), added: links.length }
+  }
+
+  /**
+   * Where several selected images and drawings being dragged would be attached when released at a screen point: the
+   * open card (over its canvas) or the card under the pointer on the board. Null unless the group is only images and
+   * drawings.
+   */
+  function arrangeFor(g: Gesture): ArrangeDrop | null {
+    if (g.kind !== 'group' || g.members.some((m) => m.kind === 'bucket')) return null
+    const cards = g.members
+      .flatMap((m) => (m.kind === 'card' ? board.cards.filter((n) => n.id === m.id) : []))
+      .toSorted((a, b) => a.y - b.y || a.x - b.x)
+    const p = g.current
+    const index = board.buckets.findLastIndex((b) => !b.collapsed && p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height)
+    const bucket = board.buckets[index]
+    // Moved around inside the bucket they are all in already, they go where they are dropped.
+    if (cards.length === 0 || !bucket || cards.every((n) => n.bucketId === bucket.id)) return null
+    const edges: [GrowSide, number][] = [
+      ['Left', p.x - bucket.x],
+      ['Right', bucket.x + bucket.width - p.x],
+      ['Up', p.y - bucket.y],
+      ['Down', bucket.y + bucket.height - p.y],
+    ]
+    const side = edges.reduce((a, b) => (b[1] < a[1] ? b : a))[0]
+    // What is in the way: the bucket's own cards and images and loose ones, not its neighbours' (they join it by id, so
+    // it may grow over those, only as far as needed), and the group's images where they are dropped (they move first).
+    const ids = new Set(g.members.map((m) => m.id))
+    const inTheWay = (owner: string | null) => owner === null || owner === bucket.id
+    const taken = [
+      ...board.cards
+        .filter((n) => !ids.has(n.id) && inTheWay(n.bucketId))
+        .map((n) => ({ x: n.x, y: n.y, width: CARD_WIDTH, height: CARD_HEIGHT })),
+      ...board.images.filter((i) => i.cardId === null && !ids.has(i.id) && inTheWay(i.bucketId)),
+      ...board.images.filter((i) => ids.has(i.id)).map(imageRect),
+    ]
+    const { bucket: grown, spots } = packIn(bucket, cards.length, taken, side)
+    return { bucket, side, grown, spots: Object.fromEntries(cards.map((n, i) => [n.id, spots[i]])) }
+  }
+
+  function attachDropFor(g: Gesture, client: Point): AttachDrop | null {
+    if (g.kind !== 'group' || !g.members.every((m) => m.kind === 'image' || m.kind === 'drawing')) return null
+    const win = expandedRef.current
+    if (expanded && win?.contains(client)) {
+      const open = board.cards.find((n) => n.id === expanded.id)
+      return open && win.hits(client) ? { card: open, window: true } : null
+    }
+    const under = cardAt(toCanvas({ clientX: client.x, clientY: client.y }))
+    return under ? { card: under, window: false } : null
   }
 
   const cardElement = (id: string) => canvasRef.current?.querySelector(`[data-card="${id}"]`)
@@ -1201,6 +1379,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     const onTitle = e.target instanceof Element && e.target.closest('.card-title') !== null
     titlePress.current = kind === 'card' && onTitle ? id : null
     const item: Selection = { kind: kind === 'card' || kind === 'drawing' ? kind : kind === 'image' || kind === 'image-resize' ? 'image' : 'bucket', id }
+    if (item.kind === 'bucket') setFrontBucket(id)
     const resize = kind === 'resize' || kind === 'image-resize'
     if (!resize && adds(e)) {
       titlePress.current = null
@@ -1223,6 +1402,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     if (e.target !== e.currentTarget || e.button !== 0 || tool !== 'select' || spaceHeld || readOnly) return
     e.stopPropagation()
     e.preventDefault()
+    setFrontBucket(bucket.id)
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
     cardPresses.current = [cardPresses.current[1], null]
     beginGesture(e, { kind: 'select', bucketId: bucket.id, base: adds(e) ? selected : [] })
@@ -1358,7 +1538,26 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       if (next.kind === 'group') {
         // Cards shaken together line up in a grid around the one held, which then moves with the pointer.
         const shake = !next.grid && shaken.current(e.clientX, e.clientY, e.timeStamp)
-        setGesture(shake ? { ...next, grid: gridFor(next.id, next.members) } : next)
+        const moved = shake ? { ...next, grid: gridFor(next.id, next.members) } : next
+        setGesture(moved)
+        // Over the trash or the open deleted items they would be deleted; cards over a collapsed bucket go in, over
+        // another card (or the open one) they link there; images and drawings over a card are attached to it.
+        const client = { x: e.clientX, y: e.clientY }
+        const dragged = isDrag(moved)
+        const trash = dragged && onTrash(client)
+        const intoDeleted = dragged && !trash && deletedOpen && !!deletedRef.current?.contains(client)
+        const cardsOnly = moved.members.every((m) => m.kind === 'card')
+        const fold = dragged && cardsOnly && !trash && !intoDeleted && !expandedRef.current?.contains(client) ? foldAt(moved.current) : undefined
+        const free = dragged && !trash && !intoDeleted && !fold
+        const link = free ? linkDropFor(moved, client) : null
+        // Cards over a bucket they aren't all in go into its free spots (over the open card, they stay on the board).
+        const arrange = free && !link && !expandedRef.current?.contains(client) ? arrangeFor(moved) : null
+        setOverTrash(trash)
+        setDeletedDrop(intoDeleted ? client : null)
+        setFoldDrop(fold?.id ?? null)
+        setLinkDrop(link)
+        setAttachDrop(free ? attachDropFor(moved, client) : null)
+        setArrangeDrop(arrange)
         return
       }
       const client = { x: e.clientX, y: e.clientY }
@@ -1375,6 +1574,121 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       setIncomingDrawing(isDrag(next) ? drawingOnCard(next, client) : null)
       setLinkDrop(isDrag(next) && !trash && !intoDeleted && !fold ? linkDropFor(next, client) : null)
     }
+  }
+
+  /**
+   * Drops several selected items dragged together. On the trash can or the open deleted items they are deleted, as
+   * Delete does. Cards go into a collapsed bucket, or link from another card (or the open one) to each of them, and
+   * stay where they were; images and drawings over a card are attached to it. Anywhere else they move.
+   */
+  function dropGroup(g: Extract<Gesture, { kind: 'group' }>, client: Point) {
+    const intoDeleted = deletedDrop !== null
+    const fold = foldDrop ? board.buckets.find((b) => b.id === foldDrop) : undefined
+    const arrange = arrangeDrop
+    setOverTrash(false)
+    setDeletedDrop(null)
+    setFoldDrop(null)
+    setLinkDrop(null)
+    setAttachDrop(null)
+    if (onTrash(client) || intoDeleted) {
+      setArrangeDrop(null)
+      // Gone at once rather than back in their places; the toast's Undo puts them all back.
+      if (intoDeleted) deletedRef.current?.pop()
+      setGesture({ ...g, done: true })
+      setBinned(selected.map((s) => s.id))
+      void deleteSelected().then(() => setBinned([]))
+      return
+    }
+    const cards = g.members
+      .flatMap((m) => (m.kind === 'card' ? board.cards.filter((n) => n.id === m.id) : []))
+      .toSorted((a, b) => a.y - b.y || a.x - b.x)
+    if (fold && cards.length === g.members.length) {
+      // Into a collapsed bucket, out of sight with the others, each in a free spot the server finds.
+      setGesture({ ...g, done: true })
+      setSelected([])
+      void putCards(fold, cards, 'Down', []).then((ok) => ok && pop(canvasRef.current?.querySelector(`[data-fold="${fold.id}"]`), 1.08))
+      return
+    }
+    if (arrange) {
+      // Into a bucket they aren't all in: the cards take its free spots (it grows towards the side asked when they don't
+      // fit, over its neighbours too, so it comes to the front); images and drawings dropped with them land where they are dropped.
+      setGesture({ ...g, done: true })
+      setFrontBucket(arrange.bucket.id)
+      const ordered = cards.toSorted((a, b) => arrange.spots[a.id].y - arrange.spots[b.id].y || arrange.spots[a.id].x - arrange.spots[b.id].x)
+      void putCards(arrange.bucket, ordered, arrange.side, g.members.filter((m) => m.kind === 'image' || m.kind === 'drawing'))
+      return
+    }
+    const link = linkDropFor(g, client)
+    if (link) {
+      // The cards dragged go back to their places; the card they were dropped on links to each of them.
+      setGesture(null)
+      let added = 0
+      void runRec(
+        () => linkCards(link, cards),
+        (result) => {
+          added = result.added
+          return result.entry
+        },
+      ).then((ok) => {
+        if (!ok) return
+        if (added === 0) return notify('Already linked')
+        for (const card of cards) pop(cardElement(card.id))
+        if (link.window) expandedRef.current?.pop()
+        else pop(cardElement(link.card.id))
+        notify(added === 1 ? 'Link created' : `${added} links created`)
+      })
+      return
+    }
+    const attach = attachDropFor(g, client)
+    if (attach) {
+      attachGroup(g, attach, client)
+      return
+    }
+    setGesture({ ...g, done: true })
+    moveGroup(g.members, g.grid ? 'Line up cards' : undefined)
+  }
+
+  /**
+   * Attaches several images and drawings dragged together to a card. On the open card they land where the drag shows
+   * them; on a card on the board the images are sucked in and the server finds each a free spot, and the drawings keep
+   * how they lie together, from the canvas's top-left.
+   */
+  function attachGroup(g: Extract<Gesture, { kind: 'group' }>, { card, window: onWindow }: AttachDrop, client: Point) {
+    const groupImages = g.members.flatMap((m) => (m.kind === 'image' ? board.images.filter((i) => i.id === m.id) : []))
+    const groupDrawings = g.members.flatMap((m) => (m.kind === 'drawing' ? board.drawings.filter((d) => d.id === m.id) : []))
+    const rects = new Map<string, Rect>([
+      ...groupImages.map((i) => [i.id, imageRect(i)] as const),
+      ...groupDrawings.map((d) => [d.id, drawingRect(d)] as const),
+    ])
+    const at = onWindow ? expandedRef.current!.toCard(client) : null
+    const drawn = groupDrawings.map((d) => rects.get(d.id)!)
+    const left = Math.min(...drawn.map((r) => r.x))
+    const top = Math.min(...drawn.map((r) => r.y))
+    const spot = (id: string) => {
+      const r = rects.get(id)!
+      const p = at ? { x: at.x + r.x - g.current.x, y: at.y + r.y - g.current.y } : { x: GRID + r.x - left, y: GRID + r.y - top }
+      return onCardCanvas(p, r)
+    }
+    const animations = onWindow ? [] : groupImages.map((i) => suckInto(i.id, card))
+    const n = groupImages.length + groupDrawings.length
+    setGesture({ ...g, done: true })
+    setSelected([])
+    void runAll(`Attach ${count(n, 'item', 'items')}`, undefined, async (changes) => {
+      await Promise.all(animations.map((a) => a?.finished.catch(() => {})))
+      // One after another: on a card on the board each image's free spot is next to the ones before.
+      for (const image of groupImages) {
+        const after = await api.updateImage(image.id, onWindow ? { cardId: card.id, ...spot(image.id) } : { cardId: card.id })
+        changes.push(patched(target.image(image.id), snap.image(image), snap.image(after), ['cardId', 'x', 'y']))
+      }
+      for (const drawing of groupDrawings) {
+        const after = await api.updateDrawing(drawing.id, { cardId: card.id, ...spot(drawing.id) })
+        changes.push(patched(target.drawing(drawing.id), snap.drawing(drawing), snap.drawing(after), ['cardId', 'x', 'y']))
+      }
+    }).then((ok) => {
+      if (!ok) return animations.forEach((a) => a?.cancel())
+      if (onWindow) expandedRef.current?.pop()
+      notify(`${count(n, 'item', 'items')} embedded`)
+    })
   }
 
   function onCanvasPointerUp(e: PointerEvent) {
@@ -1402,8 +1716,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         if (gesture.held === 'card' && titlePress.current === gesture.id) setTitleEdit({ id: gesture.id, caret: caretAt(e.clientX, e.clientY) })
         return
       }
-      setGesture({ ...gesture, done: true })
-      moveGroup(gesture.members, gesture.grid ? 'Line up cards' : undefined)
+      dropGroup(gesture, { x: e.clientX, y: e.clientY })
       return
     }
     if (gesture.kind === 'draw') {
@@ -1446,8 +1759,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       setIncoming(null)
       setIncomingDrawing(null)
       setGesture({ ...gesture, done: true })
-      setBinned(gesture.id)
-      void deleteCard(gesture.id).then(() => setBinned(null))
+      setBinned([gesture.id])
+      void deleteCard(gesture.id).then(() => setBinned([]))
       return
     }
     if (fold) {
@@ -1466,10 +1779,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       const linked = board.cards.find((n) => n.id === gesture.id)!
       let added = false
       void runRec(
-        () => linkCard(link, linked),
-        (entry) => {
-          added = entry !== false
-          return entry || null
+        () => linkCards(link, [linked]),
+        (result) => {
+          added = result.added > 0
+          return result.entry
         },
       ).then((ok) => {
         if (!ok) return
@@ -1561,29 +1874,41 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     }
   }
 
-  const buckets = board.buckets.map((bucket) => ({ bucket, rect: bucketRect(bucket) }))
+  // What was dropped on the trash is gone at once.
+  const buckets = board.buckets.filter((b) => !binned.includes(b.id)).map((bucket) => ({ bucket, rect: bucketRect(bucket) }))
   // Images in a collapsed bucket fold away with its cards.
   const images = board.images
-    .filter((i) => i.cardId === null && !(i.bucketId && collapsedIds.has(i.bucketId)))
+    .filter((i) => i.cardId === null && !(i.bucketId && collapsedIds.has(i.bucketId)) && !binned.includes(i.id))
     .map((image) => ({ image, rect: imageRect(image) }))
   // Drawings in a collapsed bucket fold away too.
   const drawings = board.drawings
-    .filter((d) => d.cardId === null && !(d.bucketId && collapsedIds.has(d.bucketId)))
+    .filter((d) => d.cardId === null && !(d.bucketId && collapsedIds.has(d.bucketId)) && !binned.includes(d.id))
     .map((drawing) => ({ drawing, rect: drawingRect(drawing) }))
   /** How each tag shows: its saved color, or one being saved or previewed. */
   const tagColors = tagColorsOf(board.tags, tagSaving, tagPreview)
   /** How many images are attached to each card. */
   const attached = new Map<string, number>()
   for (const image of board.images) if (image.cardId) attached.set(image.cardId, (attached.get(image.cardId) ?? 0) + 1)
-  // Most recently updated on top, the card being dragged above everything.
+  // The front bucket's cards above the rest, most recently updated on top, the card being dragged above everything.
   const cards = visibleCards
-    .filter((n) => n.id !== binned)
-    .toSorted((a, b) => a.updatedAt.localeCompare(b.updatedAt))
+    .filter((n) => !binned.includes(n.id))
+    .toSorted(drawOrder)
     .map((card) => ({ card, point: cardPoint(card) }))
   /** Where a card dragged out of the trash window would land. */
   const outgoingPlace = outgoing ? outgoingSpot(outgoing) : null
   const resizing = gesture && (gesture.kind === 'resize' || gesture.kind === 'image-resize') && !gesture.done ? gesture : null
   const draggedCard = dragging?.kind === 'card' ? cards.find((n) => n.card.id === dragging.id) : undefined
+  /** Several selected items being dragged together (the trash can shows for them too). */
+  const draggedGroup = dragging?.kind === 'group' && !dragging.done
+  /** Around several selected cards, for the toolbar above them; null with fewer than two. */
+  const selectedCards = cards.filter(({ card }) => isSelected('card', card.id))
+  const selectedCardsRect =
+    selectedCards.length >= 2
+      ? spanRect(
+          { x: Math.min(...selectedCards.map((n) => n.point.x)), y: Math.min(...selectedCards.map((n) => n.point.y)) },
+          { x: Math.max(...selectedCards.map((n) => n.point.x + CARD_WIDTH)), y: Math.max(...selectedCards.map((n) => n.point.y + CARD_HEIGHT)) },
+        )
+      : null
   /** The card a dragged image would be attached to (not while it is over the open card's window). */
   const imageTarget = dragging?.kind === 'image' && !dragging.done && !incoming ? cardAt(dragging.current) : undefined
   /** Where a new card carried from the rail would land, on the canvas. */
@@ -1644,6 +1969,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const selectedDrawing = selection?.kind === 'drawing' ? drawings.find((d) => d.drawing.id === selection.id) : undefined
   const expandedCard = expanded && board.cards.find((n) => n.id === expanded.id)
   const countIn = (bucketId: string) => board.cards.filter((n) => n.bucketId === bucketId).length
+  const imagesIn = (bucketId: string) => board.images.filter((i) => i.bucketId === bucketId && !i.cardId).length
   // Filter on tags that still exist (one may have been renamed or deleted meanwhile); any of them matches.
   const filter = tagFilter.filter((t) => board.tags.some((bt) => bt.name === t))
   const tagFaded = (card: CardDetail) => filter.length > 0 && !card.tags.some((t) => filter.includes(t))
@@ -1736,6 +2062,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               setIncoming(null)
               setIncomingDrawing(null)
               setLinkDrop(null)
+              setAttachDrop(null)
+              setArrangeDrop(null)
+              setFoldDrop(null)
+              setDeletedDrop(null)
               setOverTrash(false)
             }}
             // Losing the pointer without a release ends a pan or an unfinished drag, so nothing stays stuck mid-air.
@@ -1746,19 +2076,42 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               setIncoming(null)
               setIncomingDrawing(null)
               setLinkDrop(null)
+              setAttachDrop(null)
+              setFoldDrop(null)
+              setDeletedDrop(null)
               setOverTrash(false)
             }}
           >
             {buckets.map(({ bucket, rect }) => {
               const count = countIn(bucket.id)
               const countLabel = count === 1 ? '1 card' : `${count} cards`
+              const images = imagesIn(bucket.id)
+              const imagesLabel = images === 1 ? '1 image' : `${images} images`
+              const contents = `${countLabel}${images > 0 ? `, ${imagesLabel}` : ''}`
+              // How many cards and images are in it, each with its icon: a zero is left out, but an empty bucket shows 0 cards.
+              const counts = (className: string) => (
+                <>
+                  {(count > 0 || images === 0) && (
+                    <span className={className} title={countLabel}>
+                      <CardIcon size={12} />
+                      {count}
+                    </span>
+                  )}
+                  {images > 0 && (
+                    <span className={className} title={imagesLabel}>
+                      <ImageIcon size={12} />
+                      {images}
+                    </span>
+                  )}
+                </>
+              )
               if (bucket.collapsed) {
-                // Folded up: a square in its middle with its name and how many cards are inside.
+                // Folded up: a square in its top-right corner with its name and what is inside.
                 const square = collapsedRect(rect)
                 return (
                   <section
                     key={bucket.id}
-                    aria-label={`${bucket.name} (collapsed, ${countLabel})`}
+                    aria-label={`${bucket.name} (collapsed, ${contents})`}
                     data-fold={bucket.id}
                     className={['bucket-collapsed', foldDrop === bucket.id && 'drop-target', isSelected('bucket', bucket.id) && 'selected']
                       .filter(Boolean)
@@ -1767,7 +2120,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                     title="Drag to move the bucket"
                     onPointerDown={(e) => onItemPointerDown(e, 'bucket', bucket.id)}
                   >
-                    <span className="bucket-collapsed-count">{count}</span>
+                    <span className={`bucket-collapsed-counts${count > 0 && images > 0 ? ' both' : ''}`} aria-hidden>
+                      {counts('bucket-collapsed-count')}
+                    </span>
                     <span className="bucket-collapsed-name">{bucket.name}</span>
                     {!readOnly && (
                       <button
@@ -1790,7 +2145,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                   aria-label={bucket.name}
                   className={[
                     'bucket',
-                    dropTarget?.id === bucket.id && 'drop-target',
+                    front === bucket.id && 'in-front',
+                    (dropTarget?.id === bucket.id || (arrangeDrop?.bucket.id === bucket.id && !dragging?.done)) && 'drop-target',
                     isSelected('bucket', bucket.id) && 'selected',
                   ]
                     .filter(Boolean)
@@ -1813,11 +2169,15 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                     title="Drag to move the bucket and its cards"
                     onPointerDown={(e) => onItemPointerDown(e, 'bucket', bucket.id)}
                     // Enter or Space on the name. A press that added to the selection is a click here too: leave it be.
-                    onClick={(e) => !adds(e) && setSelection({ kind: 'bucket', id: bucket.id })}
+                    onClick={(e) => {
+                      if (adds(e)) return
+                      setSelection({ kind: 'bucket', id: bucket.id })
+                      setFrontBucket(bucket.id)
+                    }}
                   >
                     <span className="bucket-name">{bucket.name}</span>
-                    <span className="count" aria-label={countLabel}>
-                      {count}
+                    <span className="bucket-counts" aria-label={contents}>
+                      {counts('count')}
                     </span>
                   </button>
                   {!readOnly && (
@@ -1853,6 +2213,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                 rect={rect}
                 selected={isSelected('image', image.id)}
                 lifted={lifting(image.id)}
+                front={inFront(image)}
                 onPointerDown={(e) => onItemPointerDown(e, 'image', image.id)}
                 // One of several selected has no handles: they move together, but resize one at a time.
                 onResizePointerDown={
@@ -1895,10 +2256,15 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                 tagColors={tagColors}
                 selected={isSelected('card', card.id)}
                 lifted={lifting(card.id) || remoteMoving(card.id)}
+                front={inFront(card)}
                 dimmed={dimmed(card)}
                 highlight={matches.has(card.id) ? terms : undefined}
                 current={card.id === current}
-                dropTarget={imageTarget?.id === card.id || (linkDrop?.window === false && linkDrop.card.id === card.id)}
+                dropTarget={
+                  imageTarget?.id === card.id ||
+                  (linkDrop?.window === false && linkDrop.card.id === card.id) ||
+                  (attachDrop?.window === false && attachDrop.card.id === card.id)
+                }
                 onPointerDown={(e) => onItemPointerDown(e, 'card', card.id)}
                 onExpand={() => expand(card.id)}
                 editingTitle={titleEdit?.id === card.id}
@@ -1917,6 +2283,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                 rect={rect}
                 selected={isSelected('drawing', drawing.id)}
                 lifted={lifting(drawing.id)}
+                front={inFront(drawing)}
                 onPointerDown={(e) => onItemPointerDown(e as PointerEvent<HTMLElement>, 'drawing', drawing.id)}
               />
             ))}
@@ -1924,6 +2291,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             {stroke && <StrokeSvg points={stroke.points} color={inkHex[stroke.color]} strokeWidth={stroke.width} at={{ x: 0, y: 0 }} />}
 
             {tool === 'pen' && !readOnly && <PenRing ringRef={penRing} width={strokeWidth} zoom={zoom} />}
+
+            {selectedCardsRect && !readOnly && !gesture && <SelectionToolbar rect={selectedCardsRect} zoom={zoom} onSort={sortCards} />}
 
             {selectedDrawing && !readOnly && !(dragging?.id === selectedDrawing.drawing.id && !dragging.done) && (
               <DrawingToolbar
@@ -1966,7 +2335,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         strokeWidth={strokeWidth}
         onStrokeWidthChange={setStrokeWidth}
         onCardPointerDown={onCardPointerDown}
-        trash={(draggedCard && !dragging?.done) || newCard ? (overTrash ? 'over' : 'shown') : undefined}
+        trash={(draggedCard && !dragging?.done) || draggedGroup || newCard ? (overTrash ? 'over' : 'shown') : undefined}
         trashRef={trashRef}
         onAddImage={() => void addImagesFromPicker()}
         readOnly={readOnly}
@@ -2104,7 +2473,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
           incoming={incoming}
           drawings={board.drawings.filter((d) => d.cardId === expandedCard.id)}
           incomingDrawing={incomingDrawing}
-          linking={!!linkDrop?.window}
+          linking={!!linkDrop?.window || !!attachDrop?.window}
           boardPoint={boardPoint}
           boardZoom={zoom}
           focusTitle={expanded?.fresh ?? false}

@@ -325,7 +325,8 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var image = await Upload(board.Id, TestImages.Png(10, 10), "image/png");
         var anonymous = factory.CreateAnonymousClient();
 
-        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(image.ContentUrl)).StatusCode);
+        // Only a public board's images are there for anyone; this one's are not found.
+        Assert.Equal(HttpStatusCode.NotFound, (await anonymous.GetAsync(image.ContentUrl)).StatusCode);
         var upload = new ByteArrayContent(TestImages.Png(10, 10)) { Headers = { ContentType = new MediaTypeHeaderValue("image/png") } };
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsync($"/api/boards/{board.Id}/images", upload)).StatusCode);
     }

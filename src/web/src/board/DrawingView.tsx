@@ -23,15 +23,18 @@ interface DrawingViewProps {
   rect: Rect
   selected: boolean
   lifted: boolean
+  /** Drawn above the rest, with the bucket that was opened or pressed last. */
+  front?: boolean
   onPointerDown: (e: PointerEvent<Element>) => void
 }
 
 /** A pen stroke on the board; pressing its line selects and moves it. */
-export function DrawingView({ drawing, rect, selected, lifted, onPointerDown }: DrawingViewProps) {
+export function DrawingView({ drawing, rect, selected, lifted, front, onPointerDown }: DrawingViewProps) {
   const points = useDrawingPoints(drawing)
   const classes = ['drawing']
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
+  if (front) classes.push('in-front')
   return (
     <div className={classes.join(' ')} data-drawing={drawing.id} onPointerDown={onPointerDown}>
       {points && <StrokeSvg points={points} color={inkHex[drawing.color]} strokeWidth={drawing.strokeWidth} at={rect} hit />}

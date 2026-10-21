@@ -54,7 +54,7 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         Assert.Equal("Release 2.0.prikboard.json", exported.Content.Headers.ContentDisposition?.FileNameStar);
         var file = await exported.Content.ReadAsStringAsync();
         Assert.Contains("\"format\":\"prikboard-board\"", file);
-        Assert.Contains("\"version\":3", file);
+        Assert.Contains("\"version\":4", file);
         Assert.DoesNotContain("export-owner@example.com", file);
 
         // Someone else imports it: a new board they own, and nothing changes on the original.
@@ -193,6 +193,66 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         var problem = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
         Assert.Contains(problem["errors"]!.AsObject().Select(e => e.Key), key => key.Equals(errorKey, StringComparison.OrdinalIgnoreCase));
         Assert.Equal(before, await BoardCount(client));
+    }
+
+    [Fact]
+    public async Task An_export_names_its_format_and_app_version_and_a_version_3_file_still_imports()
+    {
+        var client = await factory.CreateSignedInClientAsync("export-appversion@example.com");
+        var board = await client.CreateBoardAsync("Versions");
+        await client.CreateCardAsync(board.Id);
+        var file = JsonNode.Parse(await (await client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync())!;
+
+        Assert.Equal(BoardExport.CurrentVersion, file["version"]!.GetValue<int>());
+        Assert.Equal(4, BoardExport.CurrentVersion);
+        Assert.False(string.IsNullOrEmpty(file["appVersion"]!.GetValue<string>()));
+        Assert.DoesNotContain("+", file["appVersion"]!.GetValue<string>());
+
+        // As 0.0.27 wrote them: version 3, without appVersion.
+        file["version"] = 3;
+        file.AsObject().Remove("appVersion");
+        Assert.Equal(HttpStatusCode.Created, (await Import(client, file.ToJsonString())).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_file_with_fields_this_server_does_not_know_is_refused_naming_them_and_the_versions()
+    {
+        var client = await factory.CreateSignedInClientAsync("export-unknown@example.com");
+        var board = await client.CreateBoardAsync("Newer");
+        await client.CreateCardAsync(board.Id);
+        var file = JsonNode.Parse(await (await client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync())!;
+        file["appVersion"] = "9.1.0";
+        file["stickers"] = new JsonArray();
+        file["cards"]![0]!["priority"] = "high";
+        var before = await BoardCount(client);
+
+        var response = await Import(client, file.ToJsonString());
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var (key, messages) = (await response.Content.ReadFromJsonAsync<JsonObject>())!["errors"]!.AsObject().First();
+        Assert.Equal("version", key);
+        var message = messages![0]!.GetValue<string>();
+        Assert.Contains("stickers", message);
+        Assert.Contains("cards[0].priority", message);
+        Assert.Contains("PrikBoard 9.1.0", message);
+        Assert.Equal(before, await BoardCount(client));
+    }
+
+    [Fact]
+    public async Task A_newer_file_version_names_the_app_version_it_came_from()
+    {
+        var client = await factory.CreateSignedInClientAsync("export-newer@example.com");
+        var board = await client.CreateBoardAsync("Future");
+        var file = JsonNode.Parse(await (await client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync())!;
+        file["version"] = BoardExport.CurrentVersion + 1;
+        file["appVersion"] = "9.1.0";
+
+        var response = await Import(client, file.ToJsonString());
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var (key, messages) = (await response.Content.ReadFromJsonAsync<JsonObject>())!["errors"]!.AsObject().First();
+        Assert.Equal("version", key);
+        Assert.Contains("PrikBoard 9.1.0", messages![0]!.GetValue<string>());
     }
 
     [Fact]

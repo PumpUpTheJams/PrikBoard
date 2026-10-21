@@ -1,6 +1,6 @@
 // Client copy of the server's geometry rules (src/PrikBoard.Api/Domain/Layout.cs), used for live feedback while dragging.
 // The server snaps and assigns buckets again on every change, so it stays the source of truth.
-import type { BucketDetail, ImageDetail, CardComponentKind, Point, Rect, ResizeHandle } from '../api/types'
+import type { BucketDetail, ImageDetail, CardComponentKind, GrowSide, Point, Rect, ResizeHandle } from '../api/types'
 
 export const GRID = 20
 export const CARD_WIDTH = 200
@@ -23,6 +23,7 @@ export const MAX_COMPONENT_SIZE = 2000
 /** The board has no edge at the origin: positions run from MIN_COORDINATE to MAX_COORDINATE, both ways. */
 export const MIN_COORDINATE = -100_000
 export const MAX_COORDINATE = 100_000
+export const MAX_BUCKET_SIZE = 10_000
 
 export const snap = (value: number) => Math.round(value / GRID) * GRID
 
@@ -47,6 +48,56 @@ export function bucketUnderCard(buckets: BucketDetail[], card: Point, own?: stri
   const cx = card.x + CARD_WIDTH / 2
   const cy = card.y + CARD_HEIGHT / 2
   return buckets.findLast((b) => cx >= b.x && cx < b.x + b.width && cy >= b.y && cy < b.y + b.height && (!b.collapsed || b.id === own))
+}
+
+const COLUMN_STEP = CARD_WIDTH + GRID
+const ROW_STEP = CARD_HEIGHT + GRID
+
+/**
+ * Where cards put into a bucket by id go (Layout.PackIn on the server): the first `count` places on the 20 px grid
+ * inside it, row by row, a grid step clear of `taken` (the bucket's own cards and images, and loose ones) and of each
+ * other. When there aren't enough, the bucket grows a row or column at a time towards `grow` (left and up move its edge
+ * out), over its neighbours too, downwards once that side reaches the limit. The bucket as it would be, and the places.
+ */
+export function packIn(bucket: Rect, count: number, taken: Rect[], grow: GrowSide): { bucket: Rect; spots: Point[] } {
+  let rect = { x: bucket.x, y: bucket.y, width: bucket.width, height: bucket.height }
+  // The room it has is used first; what it grows by only takes the rest.
+  const spots: Point[] = []
+  const pack = () => {
+    const right = rect.x + Math.max(rect.width, MIN_BUCKET_WIDTH) - GRID
+    const bottom = rect.y + Math.max(rect.height, MIN_BUCKET_HEIGHT) - GRID
+    for (let y = rect.y + GRID; y + CARD_HEIGHT <= bottom && spots.length < count; y += GRID) {
+      for (let x = rect.x + GRID; x + CARD_WIDTH <= right && spots.length < count; x += GRID) {
+        const around = { x: x - GRID, y: y - GRID, width: CARD_WIDTH + 2 * GRID, height: CARD_HEIGHT + 2 * GRID }
+        const placed = spots.map((s) => ({ ...s, width: CARD_WIDTH, height: CARD_HEIGHT }))
+        if (!taken.some((t) => intersects(t, around)) && !placed.some((p) => intersects(p, around))) spots.push({ x, y })
+      }
+    }
+  }
+  const grown = (side: GrowSide): Rect | null => {
+    const columns = Math.floor((Math.max(rect.width, MIN_BUCKET_WIDTH) - GRID) / COLUMN_STEP)
+    const rows = Math.floor((Math.max(rect.height, MIN_BUCKET_HEIGHT) - GRID) / ROW_STEP)
+    const width = GRID + (columns + 1) * COLUMN_STEP
+    const height = GRID + (rows + 1) * ROW_STEP
+    if (side === 'Right') return width <= MAX_BUCKET_SIZE && rect.x + width <= MAX_COORDINATE ? { ...rect, width: Math.max(rect.width, width) } : null
+    if (side === 'Down') return height <= MAX_BUCKET_SIZE && rect.y + height <= MAX_COORDINATE ? { ...rect, height: Math.max(rect.height, height) } : null
+    if (side === 'Left')
+      return rect.width + COLUMN_STEP <= MAX_BUCKET_SIZE && rect.x - COLUMN_STEP >= MIN_COORDINATE
+        ? { ...rect, x: rect.x - COLUMN_STEP, width: rect.width + COLUMN_STEP }
+        : null
+    return rect.height + ROW_STEP <= MAX_BUCKET_SIZE && rect.y - ROW_STEP >= MIN_COORDINATE
+      ? { ...rect, y: rect.y - ROW_STEP, height: rect.height + ROW_STEP }
+      : null
+  }
+  pack()
+  while (spots.length < count) {
+    const next = grown(grow) ?? grown('Down')
+    if (!next) break
+    rect = next
+    pack()
+  }
+  while (spots.length < count) spots.push({ x: rect.x + GRID, y: rect.y + GRID })
+  return { bucket: rect, spots }
 }
 
 /** The square a collapsed bucket folds up into: in its top-right corner (of `rect`, where the bucket is now, mid-drag too). */

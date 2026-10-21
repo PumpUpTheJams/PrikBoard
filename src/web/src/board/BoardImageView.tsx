@@ -14,6 +14,8 @@ interface BoardImageViewProps {
   rect?: Rect
   selected: boolean
   lifted: boolean
+  /** Drawn above the rest, with the bucket that was opened or pressed last. */
+  front?: boolean
   onPointerDown?: (e: PointerEvent<HTMLElement>) => void
   /** In a list: shows the image on its own. */
   onOpen?: () => void
@@ -24,11 +26,12 @@ interface BoardImageViewProps {
 }
 
 /** An image or GIF on the canvas, with its file name (or caption) and who added it underneath. */
-export function BoardImageView({ image, rect, selected, lifted, onPointerDown, onOpen, onResizePointerDown, onDelete }: BoardImageViewProps) {
+export function BoardImageView({ image, rect, selected, lifted, front, onPointerDown, onOpen, onResizePointerDown, onDelete }: BoardImageViewProps) {
   const classes = ['board-image']
   if (!rect) classes.push('in-list')
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
+  if (front) classes.push('in-front')
   const label = image.caption ?? image.fileName
 
   return (
@@ -64,7 +67,8 @@ export function BoardImageView({ image, rect, selected, lifted, onPointerDown, o
       </div>
       <figcaption>
         <span className="board-image-name">{label}</span>
-        <span title={`Added by ${image.addedBy}`}>added by {initials(image.addedBy)}</span>
+        {/* Unnamed on a public board that hides its people. */}
+        {image.addedBy && <span title={`Added by ${image.addedBy}`}>added by {initials(image.addedBy)}</span>}
       </figcaption>
     </figure>
   )

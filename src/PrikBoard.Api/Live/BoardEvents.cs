@@ -19,20 +19,39 @@ public sealed class BoardEvents(IHubContext<BoardHub, IBoardClient> hub, LiveVie
     /// </summary>
     public const string ConnectionHeader = "X-PrikBoard-Live";
 
-    /// <summary>Something on the board was saved.</summary>
-    public Task ChangedAsync(Guid boardId, HttpContext http) => Safely(() =>
+    /// <summary>Something on the board was saved. Its visitors hear about it too, but not who saved it.</summary>
+    public Task ChangedAsync(Guid boardId, HttpContext http) => Safely(async () =>
     {
         var by = http.User.PrincipalId();
         var skip = http.Request.Headers[ConnectionHeader]
             .Where(id => id is not null && viewers.Get(id)?.PrincipalId == by)
             .Select(id => id!)
             .ToList();
-        return hub.Clients.GroupExcept(BoardHub.Group(boardId), skip).BoardChanged(new BoardChange(boardId, by));
+        await hub.Clients.GroupExcept(BoardHub.Group(boardId), skip).BoardChanged(new BoardChange(boardId, by));
+        await hub.Clients.Group(BoardHub.VisitorGroup(boardId)).BoardChanged(new BoardChange(boardId, Guid.Empty));
     });
 
     /// <summary>Something on the board was saved by <paramref name="by"/> outside their own request (an image upload URL), so no connection is skipped.</summary>
-    public Task ChangedAsync(Guid boardId, Guid by) => Safely(() =>
-        hub.Clients.Group(BoardHub.Group(boardId)).BoardChanged(new BoardChange(boardId, by)));
+    public Task ChangedAsync(Guid boardId, Guid by) => Safely(async () =>
+    {
+        await hub.Clients.Group(BoardHub.Group(boardId)).BoardChanged(new BoardChange(boardId, by));
+        await hub.Clients.Group(BoardHub.VisitorGroup(boardId)).BoardChanged(new BoardChange(boardId, Guid.Empty));
+    });
+
+    /// <summary>
+    /// A board became members-only, or shows people to its visitors or no longer does: its visitors stop following it
+    /// and are told to look again (join anew, or lose access).
+    /// </summary>
+    public Task VisitorsChangedAsync(Guid boardId) => Safely(async () =>
+    {
+        foreach (var entry in viewers.VisitorsOn(boardId))
+        {
+            await hub.Groups.RemoveFromGroupAsync(entry.ConnectionId, BoardHub.VisitorGroup(boardId));
+            viewers.Update(entry.ConnectionId, e => e with { BoardId = null, Role = BoardRole.Viewer, Visitor = false, ShowsPeople = false });
+            await hub.Clients.Client(entry.ConnectionId).AccessChanged(boardId);
+        }
+        await PresenceAsync(boardId);
+    });
 
     /// <summary>These users' or agents' board lists changed.</summary>
     public Task BoardsChangedAsync(IEnumerable<Guid> principalIds) => Safely(() =>
@@ -93,8 +112,7 @@ public sealed class BoardEvents(IHubContext<BoardHub, IBoardClient> hub, LiveVie
         }
     }
 
-    private Task PresenceAsync(Guid boardId) =>
-        hub.Clients.Group(BoardHub.Group(boardId)).Presence(new BoardPresence(boardId, viewers.On(boardId)));
+    private Task PresenceAsync(Guid boardId) => BoardHub.SendPresenceAsync(hub.Clients, viewers, boardId);
 
     private async Task Safely(Func<Task> send)
     {

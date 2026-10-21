@@ -9,7 +9,7 @@ namespace PrikBoard.Api.Contracts;
 /// local to it; importing makes new ones.
 /// </summary>
 /// <param name="Format">Always "prikboard-board". Marks the file as a PrikBoard export.</param>
-/// <param name="Version">Version of this file format, currently 3. Files from before notes were renamed cards (versions 1 and 2) are refused, and so is a file with a newer version than the server knows.</param>
+/// <param name="Version">Version of this file format, currently 4 (3 still imports). Files from before notes were renamed cards (versions 1 and 2) are refused, and so is a file with a newer version than the server knows, or with fields it doesn't know.</param>
 /// <param name="ExportedAt">When the file was made (UTC).</param>
 /// <param name="Name">Board name.</param>
 /// <param name="Description">Board description, or null.</param>
@@ -21,9 +21,10 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="TagColors">Colors of the tags that have one (not Default), by tag name. Optional; files without it import with default colors.</param>
 /// <param name="Drawings">Freehand pen strokes on the canvas and on cards, with their points, oldest first. Optional; files without it import without drawings.</param>
 /// <param name="Key">The board's key, shown before card numbers (MPCT-415). Optional; without a valid one the new board takes one from its name.</param>
+/// <param name="AppVersion">The PrikBoard version that made the file (e.g. 0.0.27), named when another server can't read it. Optional.</param>
 public record BoardExport(
     [property: Required] string Format,
-    [property: Range(BoardExport.CurrentVersion, int.MaxValue, ErrorMessage = BoardExport.TooOldMessage)] int Version,
+    [property: Range(BoardExport.OldestVersion, int.MaxValue, ErrorMessage = BoardExport.TooOldMessage)] int Version,
     DateTimeOffset ExportedAt,
     [property: Required, StringLength(100, MinimumLength = 1)] string Name,
     [property: StringLength(1000)] string? Description,
@@ -34,12 +35,15 @@ public record BoardExport(
     [property: Required, MaxLength(BoardExport.MaxImages)] List<ExportedImage> Images,
     Dictionary<string, TagColor>? TagColors = null,
     [property: MaxLength(BoardDrawing.MaxPerBoard)] List<ExportedDrawing>? Drawings = null,
-    [property: StringLength(Board.KeyMaxLength)] string? Key = null)
+    [property: StringLength(Board.KeyMaxLength)] string? Key = null,
+    [property: StringLength(100)] string? AppVersion = null)
 {
     public const string FormatName = "prikboard-board";
-    public const int CurrentVersion = 3;
+    /// <summary>Raise it with every change to the file's fields, so an older server refuses a file it can't fully read.</summary>
+    public const int CurrentVersion = 4;
+    public const int OldestVersion = 3;
     public const string TooOldMessage =
-        "This file is from before notes were renamed cards (version 1 or 2), and this server only reads version 3. " +
+        "This file is from before notes were renamed cards (version 1 or 2), and this server reads version 3 and later. " +
         "Export the board again from this server to get a file it can import.";
     public const int MaxBuckets = 100;
     public const int MaxCards = 2000;

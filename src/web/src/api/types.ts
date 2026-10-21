@@ -31,9 +31,15 @@ export interface BoardSummary {
   createdAt: string
   updatedAt: string
   yourRole: BoardRole
+  /** Anyone with the link can view it, without being a member or signed in. */
+  isPublic: boolean
+  /** Whether those visitors see who is on the board (names and pictures), or anonymous circles. */
+  publicShowsPeople: boolean
 }
 
 export interface BoardDetail extends BoardSummary {
+  /** You see it because it is public, not as a member: read only, and without people when the board hides them. */
+  visiting: boolean
   /** Agent rules in Markdown, written by the owners; null when none are set. */
   rules: string | null
   rulesUpdatedAt: string | null
@@ -207,6 +213,21 @@ export interface BucketDetail {
   height: number
   /** Folded up into a square in its top-right corner: its cards are hidden (keeping their places) until it opens again. */
   collapsed: boolean
+}
+
+/** The side a bucket grows towards when cards put into it don't fit; Left and Up move its edge out. */
+export type GrowSide = 'Down' | 'Right' | 'Left' | 'Up'
+
+/** placeCardsInBucket: cards to put into free slots, in order, and where the bucket grows when full (default Down). */
+export interface PlaceCardsRequest {
+  cardIds: string[]
+  grow?: GrowSide
+}
+
+/** The bucket (possibly grown) and the cards put into it, in the order given. */
+export interface PlacedCards {
+  bucket: BucketDetail
+  cards: CardDetail[]
 }
 
 export type AssigneeKind = 'Person' | 'Agent'
@@ -500,7 +521,10 @@ export interface LiveViewer {
 
 export interface BoardPresence {
   boardId: string
+  /** Members looking at the board; none for visitors of a board that hides people. */
   viewers: LiveViewer[]
+  /** Visitors (not members) of a public board looking at it; for visitors of a board that hides people, everyone looking. */
+  guests: number
 }
 
 export interface JoinedBoard {
@@ -509,6 +533,9 @@ export interface JoinedBoard {
   /** This connection's key in drag messages. */
   key: string
   viewers: LiveViewer[]
+  guests: number
+  /** Joined as a visitor of a public board: changes and presence, no drags. */
+  visiting: boolean
 }
 
 export interface BoardChange {

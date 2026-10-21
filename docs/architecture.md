@@ -35,7 +35,7 @@ User 1──* UserIdentity
 - **Principal.** Anyone who can be a board member: a GUID plus an optional display name they chose. Stored in one `Principals` table (TPH, discriminator `Kind`):
   - a **User** is a person. Each of their sign-ins is a **UserIdentity** holding the provider and keyed hashes of the subject id and verified email (`Auth/KeyedHasher.cs`), never the raw values;
   - an **Agent** is a token client, identified by issuer id and client id, and created the first time its token is seen (`Auth/AgentRegistry.cs`).
-- **BoardMember.** A principal's role on a board: `Viewer`, `Editor` or `Owner`. Boards are members-only.
+- **BoardMember.** A principal's role on a board: `Viewer`, `Editor` or `Owner`. Boards are members-only, unless an owner makes one public: then anyone with the link reads it as a visitor (see `docs/authentication.md`).
 - **BoardInvite.** A single-use, expiring invite link with a role. Only the SHA-256 of its token is stored.
 
 Assignees are principals, stored by id and shown with their current name. Who can be added is the board's members plus the agents of members' personal access tokens that reach the board (`BoardAccess.AssignableIds`). Someone who loses access stays on the cards they had until they are taken off.
