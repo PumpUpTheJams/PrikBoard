@@ -32,7 +32,7 @@ public class MigrationTests : IAsyncLifetime
     {
         var (board, other) = (Guid.NewGuid(), Guid.NewGuid());
         var (mila, unnamed, outsider, agent) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
-        var (note, untouched) = (Guid.NewGuid(), Guid.NewGuid());
+        var (card, untouched) = (Guid.NewGuid(), Guid.NewGuid());
         var fallback = $"User {unnamed.ToString("N")[^4..]}";
         var assignees = $$"""
             [{"Name": "mila v.", "Kind": "Person"}, {"Name": "Outsider", "Kind": "Person"}, {"Name": "Claude Code", "Kind": "Agent"},
@@ -59,7 +59,7 @@ public class MigrationTests : IAsyncLifetime
             """);
         await db.Database.ExecuteSqlAsync($"""
             INSERT INTO "Notes" ("Id", "BoardId", "Title", "Color", "Tags", "Assignees", "Checklist", "Links", "AgentWorking", "X", "Y", "CreatedAt", "UpdatedAt")
-            VALUES ({note}, {board}, 'Tagged', 'Butter', ARRAY['ui', 'backend'], {assignees}::jsonb, '[]', '[]', false, 0, 0, now(), now()),
+            VALUES ({card}, {board}, 'Tagged', 'Butter', ARRAY['ui', 'backend'], {assignees}::jsonb, '[]', '[]', false, 0, 0, now(), now()),
                    ({untouched}, {other}, 'Plain', 'Butter', ARRAY['ui'], '[]', '[]', '[]', false, 0, 0, now(), now());
             """);
 
@@ -68,9 +68,9 @@ public class MigrationTests : IAsyncLifetime
         var tags = await db.BoardTags.OrderBy(t => t.BoardId == board ? 0 : 1).ThenBy(t => t.Name).Select(t => new { t.BoardId, t.Name }).ToListAsync();
         Assert.Equal([(board, "backend"), (board, "ui"), (other, "ui")], tags.Select(t => (t.BoardId, t.Name)));
 
-        var linked = await db.Notes.Where(n => n.Id == note).Select(n => n.AssigneeIds).SingleAsync();
+        var linked = await db.Cards.Where(n => n.Id == card).Select(n => n.AssigneeIds).SingleAsync();
         // The duplicate "Mila V." keeps its first place; the outsider (not on this board) and "Nobody" are dropped.
         Assert.Equal([mila, agent, unnamed], linked);
-        Assert.Empty(await db.Notes.Where(n => n.Id == untouched).Select(n => n.AssigneeIds).SingleAsync());
+        Assert.Empty(await db.Cards.Where(n => n.Id == untouched).Select(n => n.AssigneeIds).SingleAsync());
     }
 }

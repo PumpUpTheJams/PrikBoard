@@ -35,7 +35,7 @@ public class InviteApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoa
 
         var accepted = await Accept(guest, invite.Token);
         Assert.Equal((board.Id, BoardRole.Editor), (accepted.BoardId, accepted.Role));
-        Assert.Equal(HttpStatusCode.Created, (await guest.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "Joined" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await guest.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Joined" })).StatusCode);
 
         Assert.Equal(HttpStatusCode.NotFound, (await late.PostAsJsonAsync("/api/invites/accept", new { token = invite.Token })).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await late.PostAsJsonAsync("/api/invites/preview", new { token = invite.Token })).StatusCode);

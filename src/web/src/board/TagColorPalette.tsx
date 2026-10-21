@@ -2,19 +2,19 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { tagColors, type TagColor } from '../api/types'
 
 interface TagColorPaletteProps {
-  /** Screen rectangle of the colour circle that opened it; it opens below (or above) it, right-aligned. */
+  /** Screen rectangle of the color circle that opened it; it opens below (or above) it, right-aligned. */
   anchor: DOMRect
   tagId: string
   tagName: string
   value: TagColor
-  /** The colour under the pointer, shown on the tag everywhere before it is picked; null when the pointer leaves. */
+  /** The color under the pointer, shown on the tag everywhere before it is picked; null when the pointer leaves. */
   onPreview: (color: TagColor | null) => void
   onPick: (color: TagColor) => void
   onClose: () => void
 }
 
 /**
- * The 12 tag colours, styled like the tool rail's fill flyout. It is fixed to the screen, so the scrolling list it
+ * The 12 tag colors, styled like the tool rail's fill flyout. It is fixed to the screen, so the scrolling list it
  * opens from doesn't clip it. Escape closes only the palette, not the window around it; so does a press elsewhere.
  * Its swatches don't take focus, so typing still goes to the window's search field.
  */
@@ -69,7 +69,7 @@ export function TagColorPalette({ anchor, tagId, tagName, value, onPreview, onPi
       ref={panel}
       className="tag-palette"
       role="group"
-      aria-label={`Colour of ${tagName}`}
+      aria-label={`Color of ${tagName}`}
       style={place ?? { visibility: 'hidden' }}
       onPointerLeave={() => onPreview(null)}
     >
@@ -79,7 +79,7 @@ export function TagColorPalette({ anchor, tagId, tagName, value, onPreview, onPi
           type="button"
           className={`swatch tag-swatch tag-color-${color.toLowerCase()}`}
           tabIndex={-1}
-          title={color === 'Default' ? 'Default: a shade of the post-it' : color}
+          title={color === 'Default' ? 'Default: a shade of the card' : color}
           aria-label={color}
           aria-pressed={color === value}
           onPointerDown={(e) => e.preventDefault()}

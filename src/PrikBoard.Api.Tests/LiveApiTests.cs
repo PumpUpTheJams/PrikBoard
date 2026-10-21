@@ -30,7 +30,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var joined = await live.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
         Assert.Equal(BoardRole.Owner, joined.Role);
 
-        await editor.Http.CreateNoteAsync(board.Id);
+        await editor.Http.CreateCardAsync(board.Id);
 
         var change = await changes.NextAsync();
         Assert.Equal(board.Id, change.BoardId);
@@ -44,13 +44,13 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var editor = await SessionAsync("live-restore-editor@example.com");
         var board = await owner.Http.CreateBoardAsync();
         await owner.Http.ShareAsync(board.Id, editor.Http, BoardRole.Editor);
-        var note = await editor.Http.CreateNoteAsync(board.Id);
-        (await editor.Http.DeleteAsync($"/api/notes/{note.Id}")).EnsureSuccessStatusCode();
+        var card = await editor.Http.CreateCardAsync(board.Id);
+        (await editor.Http.DeleteAsync($"/api/cards/{card.Id}")).EnsureSuccessStatusCode();
 
         var live = await ConnectAsync(owner);
         var changes = live.Inbox<BoardChange>("BoardChanged");
         await live.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
-        (await editor.Http.PostAsync($"/api/notes/{note.Id}/restore", null)).EnsureSuccessStatusCode();
+        (await editor.Http.PostAsync($"/api/cards/{card.Id}/restore", null)).EnsureSuccessStatusCode();
 
         Assert.Equal(board.Id, (await changes.NextAsync()).BoardId);
     }
@@ -67,7 +67,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         await tab1.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
         await tab2.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
 
-        var request = new HttpRequestMessage(HttpMethod.Post, $"/api/boards/{board.Id}/notes") { Content = JsonContent.Create(new { title = "From tab 1" }) };
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/api/boards/{board.Id}/cards") { Content = JsonContent.Create(new { title = "From tab 1" }) };
         request.Headers.Add("X-PrikBoard-Live", tab1.Connection.ConnectionId);
         Assert.Equal(HttpStatusCode.Created, (await owner.Http.SendAsync(request)).StatusCode);
 
@@ -86,7 +86,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var changes = live.Inbox<BoardChange>("BoardChanged");
         await live.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
 
-        var request = new HttpRequestMessage(HttpMethod.Post, $"/api/boards/{board.Id}/notes") { Content = JsonContent.Create(new { title = "Sneaky" }) };
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/api/boards/{board.Id}/cards") { Content = JsonContent.Create(new { title = "Sneaky" }) };
         request.Headers.Add("X-PrikBoard-Live", live.Connection.ConnectionId);
         await editor.Http.SendAsync(request);
 
@@ -158,7 +158,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var owner = await SessionAsync("live-drag-owner@example.com");
         var viewer = await SessionAsync("live-drag-viewer@example.com");
         var board = await owner.Http.CreateBoardAsync();
-        var note = await owner.Http.CreateNoteAsync(board.Id);
+        var card = await owner.Http.CreateCardAsync(board.Id);
         await owner.Http.ShareAsync(board.Id, viewer.Http, BoardRole.Viewer);
 
         var ownerLive = await ConnectAsync(owner);
@@ -169,9 +169,9 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var joined = await ownerLive.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
         await viewerLive.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
 
-        await ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Note, note.Id, 42, -7));
+        await ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Card, card.Id, 42, -7));
         var drag = await viewerDrags.NextAsync();
-        Assert.Equal((DragKind.Note, note.Id, 42d, -7d, joined.Key), (drag.Kind, drag.Id, drag.Dx, drag.Dy, drag.Key));
+        Assert.Equal((DragKind.Card, card.Id, 42d, -7d, joined.Key), (drag.Kind, drag.Id, drag.Dx, drag.Dy, drag.Key));
 
         // A resize names its corner or edge; past the hub's throttle, so it isn't dropped.
         await Task.Delay(60);
@@ -182,12 +182,12 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
 
         // Several selected items moving together list them all; a group of none is no drag.
         await Task.Delay(60);
-        await ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Group, note.Id, 20, 20, Items: [note.Id, bucketId]));
+        await ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Group, card.Id, 20, 20, Items: [card.Id, bucketId]));
         var group = await viewerDrags.NextAsync();
-        Assert.Equal((DragKind.Group, note.Id), (group.Kind, group.Id));
-        Assert.Equal([note.Id, bucketId], group.Items);
+        Assert.Equal((DragKind.Group, card.Id), (group.Kind, group.Id));
+        Assert.Equal([card.Id, bucketId], group.Items);
         var empty = await Assert.ThrowsAsync<HubException>(() =>
-            ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Group, note.Id, 20, 20, Items: [])));
+            ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Group, card.Id, 20, 20, Items: [])));
         Assert.Contains("Group", empty.Message);
 
         await ownerLive.Connection.InvokeAsync("DragEnd");
@@ -195,7 +195,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         Assert.False(await ownerDrags.AnyWithinAsync(TimeSpan.FromMilliseconds(200)));
 
         var refused = await Assert.ThrowsAsync<HubException>(() =>
-            viewerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Note, note.Id, 1, 1)));
+            viewerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Card, card.Id, 1, 1)));
         Assert.Contains("Editor", refused.Message);
     }
 
@@ -219,7 +219,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         await lists.NextAsync();
         await changes.DrainAsync();
 
-        await owner.Http.CreateNoteAsync(board.Id);
+        await owner.Http.CreateCardAsync(board.Id);
         Assert.False(await changes.AnyWithinAsync(TimeSpan.FromMilliseconds(500)));
         await Assert.ThrowsAsync<HubException>(() => live.Connection.InvokeAsync<JoinedBoard>("Join", board.Id));
     }
@@ -236,12 +236,12 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var live = await ConnectAsync(editor);
         var access = live.Inbox<Guid>("AccessChanged");
         await live.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
-        await live.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Note, Guid.NewGuid(), 1, 1));
+        await live.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Card, Guid.NewGuid(), 1, 1));
 
         await owner.Http.PatchAsJsonAsync($"/api/boards/{board.Id}/members/{editorId}", new { role = BoardRole.Viewer });
         await access.NextAsync();
 
-        await Assert.ThrowsAsync<HubException>(() => live.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Note, Guid.NewGuid(), 2, 2)));
+        await Assert.ThrowsAsync<HubException>(() => live.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Card, Guid.NewGuid(), 2, 2)));
     }
 
     [Fact]
@@ -274,7 +274,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var changes = live.Inbox<BoardChange>("BoardChanged");
         await live.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
 
-        (await owner.Http.PatchAsJsonAsync($"/api/boards/{board.Id}", new { rules = "Keep notes short." })).EnsureSuccessStatusCode();
+        (await owner.Http.PatchAsJsonAsync($"/api/boards/{board.Id}", new { rules = "Keep cards short." })).EnsureSuccessStatusCode();
         Assert.Equal(board.Id, (await changes.NextAsync()).BoardId);
     }
 

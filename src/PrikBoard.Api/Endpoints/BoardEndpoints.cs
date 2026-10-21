@@ -19,7 +19,7 @@ public static class BoardEndpoints
             .NoBoardScope()
             .WithName("listBoards")
             .WithSummary("List your boards")
-            .WithDescription("Returns the boards you are a member of, without their buckets and notes, newest first, with your role on each.");
+            .WithDescription("Returns the boards you are a member of, without their buckets and cards, newest first, with your role on each.");
 
         boards.MapPost("/", CreateBoard)
             .NoBoardScope()
@@ -34,7 +34,7 @@ public static class BoardEndpoints
             .RequireBoardRole(BoardRole.Viewer)
             .WithName("getBoard")
             .WithSummary("Get a full board snapshot")
-            .WithDescription("Returns the board with every bucket and note and where they sit on the canvas. " +
+            .WithDescription("Returns the board with every bucket and card and where they sit on the canvas. " +
                              "This is the best single call to understand the current state of a project.");
 
         boards.MapPatch("/{boardId:guid}", UpdateBoard)
@@ -49,7 +49,7 @@ public static class BoardEndpoints
             .RequireBoardRole(BoardRole.Owner)
             .WithName("deleteBoard")
             .WithSummary("Delete a board")
-            .WithDescription("Permanently deletes the board including all of its buckets, notes, images, members and invites.");
+            .WithDescription("Permanently deletes the board including all of its buckets, cards, images, members and invites.");
 
         return api;
     }
@@ -118,7 +118,7 @@ public static class BoardEndpoints
     {
         var board = await db.Boards.AsNoTracking()
             .Include(b => b.Buckets)
-            .Include(b => b.Notes)
+            .Include(b => b.Cards)
             .Include(b => b.Images).ThenInclude(i => i.AddedBy)
             .Include(b => b.Images).ThenInclude(i => i.File)
             .Include(b => b.Drawings).ThenInclude(d => d.AddedBy)
@@ -127,7 +127,7 @@ public static class BoardEndpoints
             .FirstOrDefaultAsync(b => b.Id == boardId, ct);
 
         if (board is null) return TypedResults.NotFound();
-        var principals = await NoteEndpoints.PrincipalsOnAsync(db, board.Notes, ct);
+        var principals = await CardEndpoints.PrincipalsOnAsync(db, board.Cards, ct);
         var people = await BoardAccess.PeopleAsync(db, boardId, ct);
         return TypedResults.Ok(BoardDetail.From(board, http.BoardRole(), principals, people, http.User.PrincipalId()));
     }

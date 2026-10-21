@@ -80,7 +80,7 @@ public sealed class BoardEvents(IHubContext<BoardHub, IBoardClient> hub, LiveVie
     });
 
     /// <summary>
-    /// The caller picked a new display name or avatar, which notes show (creator, assignee): every board they can reach reloads.
+    /// The caller picked a new display name or avatar, which cards show (creator, assignee): every board they can reach reloads.
     /// </summary>
     public async Task ProfileShownOnBoardsAsync(PrikBoardDbContext db, HttpContext http, CancellationToken ct)
     {

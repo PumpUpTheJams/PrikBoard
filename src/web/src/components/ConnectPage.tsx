@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { api, errorMessage } from '../api/client'
 import type { Caller } from '../api/types'
-import { PostItIcon } from '../board/icons'
+import { CardIcon } from '../board/icons'
 
 /** What an app (the VS Code extension) put in the link it opened: #/connect?state=…&code_challenge=…&name=…[&redirect_uri=…]. */
 export interface ConnectRequest {
@@ -106,7 +106,7 @@ export function ConnectPage({ request, user, onDone }: ConnectPageProps) {
     <div className="sign-in">
       <div className="sign-in-card">
         <span className="board-tile large" aria-hidden="true">
-          <PostItIcon size={28} />
+          <CardIcon size={28} />
         </span>
         {!complete ? (
           <>

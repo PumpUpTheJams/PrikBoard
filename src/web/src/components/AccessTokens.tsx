@@ -6,7 +6,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { Select, type SelectOption } from './Select'
 
 const accessOptions: SelectOption<BoardRole>[] = [
-  { value: 'Editor', label: 'Can edit', description: 'Change post-its, buckets and images (never members or boards)' },
+  { value: 'Editor', label: 'Can edit', description: 'Change cards, buckets and images (never members or boards)' },
   { value: 'Viewer', label: 'Read only', description: 'Look, but not change anything' },
 ]
 

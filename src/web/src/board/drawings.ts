@@ -4,7 +4,7 @@ import { api } from '../api/client'
 import { inkColors, type DrawingDetail, type InkColor, type Point, type StrokePoint } from '../api/types'
 import { GRID, MAX_COORDINATE, MIN_COORDINATE } from './layout'
 
-/** The inks' colours, as the `--ink-*` tokens in index.css. */
+/** The inks' colors, as the `--ink-*` tokens in index.css. */
 export const inkHex: Record<InkColor, string> = {
   Chalk: '#e6e8ec',
   Butter: '#f3d77a',
@@ -27,10 +27,10 @@ export const strokeSizes = [
   { width: 8, name: 'Bold', dot: 12 },
 ] as const
 
-/** Where the board's pen and the post-its' pen keep their ink and size in this browser. */
+/** Where the board's pen and the cards' pen keep their ink and size in this browser. */
 export const BOARD_PEN = { key: 'prikboard.pen', ink: 'Chalk' } as const
-/** The post-its' pen keeps its own ink and size. The inside of an open post-it is dark like the board, so it starts light too. */
-export const NOTE_PEN = { key: 'prikboard.notePen', ink: 'Chalk' } as const
+/** The cards' pen keeps its own ink and size. The inside of an open card is dark like the board, so it starts light too. */
+export const CARD_PEN = { key: 'prikboard.cardPen', ink: 'Chalk' } as const
 
 function storedPen({ key, ink }: { key: string; ink: InkColor }): { ink: InkColor; width: number } {
   try {
@@ -91,7 +91,7 @@ export function addPoint(points: StrokePoint[], p: Point, pressure: number): Str
 
 /**
  * A finished stroke as the API takes it: its top-left on the grid, at least half a (thickest) line clear of every point,
- * and the points measured from there. `min` is where the canvas starts: 0 on a post-it, where a line drawn right at
+ * and the points measured from there. `min` is where the canvas starts: 0 on a card, where a line drawn right at
  * the edge is pushed in a little. The server snaps x/y, so they are on the grid already and the line stays put.
  */
 export function strokeToDrawing(points: StrokePoint[], strokeWidth: number, min = MIN_COORDINATE) {

@@ -1,19 +1,19 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
-import type { NoteDetail, Point } from '../api/types'
+import type { CardDetail, Point } from '../api/types'
 import { AvatarStack } from '../components/Avatar'
 import { Highlight } from './Highlight'
 import { CheckIcon, ExpandIcon, LinkIcon, PutBackIcon, TrashIcon } from './icons'
-import { noteLabel } from './links'
-import { NOTE_HEIGHT, NOTE_WIDTH } from './layout'
+import { cardLabel } from './links'
+import { CARD_HEIGHT, CARD_WIDTH } from './layout'
 import { keepPress } from './gesture'
 import { tagColorClass, type TagColors } from './tagColors'
 import { useCopyLink } from './useCopyLink'
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
 
-/** What the post-it holds inside, by kind, e.g. "2 texts, 1 checklist, 1 image". */
-function contentSummary(note: NoteDetail, images: number) {
-  const count = (kind: string) => note.blocks.filter((b) => b.kind === kind).length
+/** What the card holds inside, by kind, e.g. "2 texts, 1 checklist, 1 image". */
+function contentSummary(card: CardDetail, images: number) {
+  const count = (kind: string) => card.components.filter((b) => b.kind === kind).length
   const parts = [
     [count('Text'), 'text', 'texts'],
     [count('Checklist'), 'checklist', 'checklists'],
@@ -30,19 +30,19 @@ function contentSummary(note: NoteDetail, images: number) {
 const tagWidth = (tag: string) => tag.length * 6.6 + 16
 
 /** Title lines that fit: three, or two when the tags wrap to a second row. */
-function titleLines(note: NoteDetail) {
-  const avatars = Math.min(note.assignees.length, 3)
-  const room = NOTE_WIDTH - 24 - (avatars > 0 ? 24 + (avatars - 1) * 18 + 8 : 0)
-  return note.tags.reduce((sum, tag) => sum + tagWidth(tag), 0) > room ? 2 : 3
+function titleLines(card: CardDetail) {
+  const avatars = Math.min(card.assignees.length, 3)
+  const room = CARD_WIDTH - 24 - (avatars > 0 ? 24 + (avatars - 1) * 18 + 8 : 0)
+  return card.tags.reduce((sum, tag) => sum + tagWidth(tag), 0) > room ? 2 : 3
 }
 
-interface PostItProps {
-  note: NoteDetail
+interface CardProps {
+  card: CardDetail
   /** Where to draw it: the server position, or the live position while dragging. */
   point: Point
-  /** How many images are attached to it (they count with its blocks in the content badge). */
+  /** How many images are attached to it (they count with its components in the content badge). */
   images?: number
-  /** The board's tag colours; tags without one are a shade of the fill. */
+  /** The board's tag colors; tags without one are a shade of the fill. */
   tagColors?: TagColors
   selected: boolean
   lifted: boolean
@@ -52,11 +52,11 @@ interface PostItProps {
   highlight?: string[]
   /** The search result being looked at. */
   current?: boolean
-  /** An image being dragged would be attached to this post-it on release. */
+  /** An image being dragged would be attached to this card on release. */
   dropTarget?: boolean
   onPointerDown: (e: PointerEvent<HTMLDivElement>) => void
   onExpand: () => void
-  /** For editors: open the tag or people window next to this part of the post-it (a screen rectangle). */
+  /** For editors: open the tag or people window next to this part of the card (a screen rectangle). */
   onEditTags?: (anchor: DOMRect) => void
   onEditAssignees?: (anchor: DOMRect) => void
   /** The title is being edited in place (the board starts this on a click on the title). */
@@ -68,82 +68,82 @@ interface PostItProps {
   /** Editing the title ended (saved or cancelled). */
   onTitleDone?: () => void
   /**
-   * For a post-it in the trash: puts it back where it was on the board. Its button takes the place of the people button
+   * For a card in the trash: puts it back where it was on the board. Its button takes the place of the people button
    * (the people still show, but can't be changed there).
    */
   onPutBack?: () => void
-  /** For a post-it in the trash: deletes it for good. Its button sits next to put back. */
+  /** For a card in the trash: deletes it for good. Its button sits next to put back. */
   onPurge?: () => void
 }
 
 /**
- * On the board a post-it shows its title, tags, assignees and how many things it holds. Everything else lives inside
- * (see ExpandedNote). The count sits in the top-right corner when there is anything inside; on hover it becomes the
+ * On the board a card shows its title, tags, assignees and how many things it holds. Everything else lives inside
+ * (see ExpandedCard). The count sits in the top-right corner when there is anything inside; on hover it becomes the
  * expand button, with copy link (its tooltip names the readable id) below it.
  */
-export function PostIt(props: PostItProps) {
-  const { note, point, images = 0, tagColors, selected, lifted, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
+export function Card(props: CardProps) {
+  const { card, point, images = 0, tagColors, selected, lifted, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
   const { editingTitle, titleCaret, onRenameTitle, onTitleDone, onPutBack, onPurge } = props
   /** A saved title, shown until the reload brings it (while the server still has `from`). */
   const [saved, setSaved] = useState<{ title: string; from: string } | null>(null)
-  const title = saved && saved.from === note.title ? saved.title : note.title
+  const title = saved && saved.from === card.title ? saved.title : card.title
   /** The title in labels, with a stand-in when it is empty. */
-  const name = noteLabel({ title })
-  const { copied, copy } = useCopyLink(note)
+  const name = cardLabel({ title })
+  const { copied, copy } = useCopyLink(card)
 
   function rename(next: string) {
     onTitleDone?.()
-    if (!onRenameTitle || next === note.title) return
-    setSaved({ title: next, from: note.title })
+    if (!onRenameTitle || next === card.title) return
+    setSaved({ title: next, from: card.title })
     void onRenameTitle(next).then((ok) => ok || setSaved(null))
   }
 
-  const classes = ['post-it', `fill-${note.color.toLowerCase()}`]
+  const classes = ['card', `fill-${card.color.toLowerCase()}`]
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
-  if (note.agentWorking) classes.push('agent-working')
+  if (card.agentWorking) classes.push('agent-working')
   if (dimmed) classes.push('dimmed')
   if (current) classes.push('search-current')
   if (dropTarget) classes.push('drop-target')
   if (copied !== null) classes.push('link-copied')
 
-  const tags = note.tags.map((tag) => (
+  const tags = card.tags.map((tag) => (
     <span key={tag} className={`tag${tagColorClass(tagColors, tag)}`}>
       <Highlight text={tag} terms={highlight} />
     </span>
   ))
   const people =
-    note.assignees.length > 0 ? <AvatarStack assignees={note.assignees} /> : <span className="avatar-slot" aria-hidden="true" />
-  const contents = note.blocks.length + images
-  const summary = contentSummary(note, images)
+    card.assignees.length > 0 ? <AvatarStack assignees={card.assignees} /> : <span className="avatar-slot" aria-hidden="true" />
+  const contents = card.components.length + images
+  const summary = contentSummary(card, images)
   // The corner's buttons work on a click of their own: no drag (keepPress, which lets the middle button pan), and a
-  // double-click doesn't expand the post-it twice.
+  // double-click doesn't expand the card twice.
   const stop = (e: PointerEvent | MouseEvent) => e.stopPropagation()
 
   return (
     <div
       className={classes.join(' ')}
-      style={{ left: point.x, top: point.y, width: NOTE_WIDTH, height: NOTE_HEIGHT, '--title-lines': titleLines(note) } as CSSProperties}
+      style={{ left: point.x, top: point.y, width: CARD_WIDTH, height: CARD_HEIGHT, '--title-lines': titleLines(card) } as CSSProperties}
       role="group"
-      data-note={note.id}
-      aria-label={note.agentWorking ? `${name} (agent working)` : name}
+      data-card={card.id}
+      aria-label={card.agentWorking ? `${name} (agent working)` : name}
       tabIndex={0}
       onPointerDown={onPointerDown}
       onDoubleClick={onExpand}
       onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && onExpand()}
     >
-      <div className="post-it-head">
+      <div className="card-head">
         {editingTitle && onRenameTitle ? (
           <TitleInput value={title} caret={titleCaret} onSave={rename} onCancel={() => onTitleDone?.()} />
         ) : (
-          <span className={`post-it-title${onRenameTitle ? ' editable-title' : ''}`}>
+          <span className={`card-title${onRenameTitle ? ' editable-title' : ''}`}>
             <Highlight text={title} terms={highlight} />
           </span>
         )}
       </div>
-      <div className="post-it-corner">
+      <div className="card-corner">
         {contents > 0 && (
-          <span className="post-it-count" role="img" title={summary} aria-label={summary}>
+          <span className="card-count" role="img" title={summary} aria-label={summary}>
             {contents}
           </span>
         )}
@@ -153,8 +153,8 @@ export function PostIt(props: PostItProps) {
         <button
           type="button"
           className={copied ? 'copied' : undefined}
-          aria-label={`Copy a link to ${name} (${note.readableId})`}
-          title={`Copy link to ${note.readableId}`}
+          aria-label={`Copy a link to ${name} (${card.readableId})`}
+          title={`Copy link to ${card.readableId}`}
           onPointerDown={keepPress}
           onDoubleClick={stop}
           onClick={copy}
@@ -163,25 +163,25 @@ export function PostIt(props: PostItProps) {
         </button>
       </div>
       {copied !== null && (
-        <span className="post-it-copied" role="status">
+        <span className="card-copied" role="status">
           {copied ? 'Link copied' : "Couldn't copy the link"}
         </span>
       )}
-      <div className="post-it-foot">
+      <div className="card-foot">
         {onEditTags ? (
-          <QuickEdit className="post-it-tags" label={`Tags of ${name}`} onOpen={onEditTags}>
+          <QuickEdit className="card-tags" label={`Tags of ${name}`} onOpen={onEditTags}>
             {tags.length > 0 ? tags : <span className="tag tag-add">+ tag</span>}
           </QuickEdit>
         ) : (
-          <span className="post-it-tags">{tags}</span>
+          <span className="card-tags">{tags}</span>
         )}
         {onPutBack ? (
-          <span className="post-it-people put-back-slot">
-            {note.assignees.length > 0 && <AvatarStack assignees={note.assignees} />}
+          <span className="card-people put-back-slot">
+            {card.assignees.length > 0 && <AvatarStack assignees={card.assignees} />}
             {onPurge && (
               <button
                 type="button"
-                className="post-it-put-back purge"
+                className="card-put-back purge"
                 aria-label={`Delete ${name} for good`}
                 title="Delete for good"
                 onPointerDown={(e) => e.stopPropagation()}
@@ -193,7 +193,7 @@ export function PostIt(props: PostItProps) {
             )}
             <button
               type="button"
-              className="post-it-put-back"
+              className="card-put-back"
               aria-label={`Put ${name} back on the board`}
               title="Put back on the board"
               onPointerDown={(e) => e.stopPropagation()}
@@ -204,7 +204,7 @@ export function PostIt(props: PostItProps) {
             </button>
           </span>
         ) : onEditAssignees ? (
-          <QuickEdit className="post-it-people" label={`People on ${name}`} onOpen={onEditAssignees}>
+          <QuickEdit className="card-people" label={`People on ${name}`} onOpen={onEditAssignees}>
 
             {people}
           </QuickEdit>
@@ -218,7 +218,7 @@ export function PostIt(props: PostItProps) {
 
 /**
  * The title edited in place: Enter (or clicking elsewhere) saves, Escape cancels. Presses (but the middle button's, which
- * pans) and double-clicks stay inside, so selecting text doesn't drag the post-it and a double-click selects a word
+ * pans) and double-clicks stay inside, so selecting text doesn't drag the card and a double-click selects a word
  * instead of expanding it.
  */
 function TitleInput(props: { value: string; caret?: number; onSave: (title: string) => void; onCancel: () => void }) {
@@ -234,7 +234,7 @@ function TitleInput(props: { value: string; caret?: number; onSave: (title: stri
     input.current?.setSelectionRange(start, start)
   }, [start])
 
-  // Grows with the text, like the title in the expanded post-it.
+  // Grows with the text, like the title in the expanded card.
   useLayoutEffect(() => {
     const el = input.current
     if (!el) return
@@ -253,7 +253,7 @@ function TitleInput(props: { value: string; caret?: number; onSave: (title: stri
   return (
     <textarea
       ref={input}
-      className="post-it-title-input"
+      className="card-title-input"
       rows={1}
       aria-label="Title"
       value={draft}
@@ -276,7 +276,7 @@ function TitleInput(props: { value: string; caret?: number; onSave: (title: stri
   )
 }
 
-/** A part of the post-it that opens a window on click, without starting a drag or expanding the post-it. */
+/** A part of the card that opens a window on click, without starting a drag or expanding the card. */
 function QuickEdit({ className, label, onOpen, children }: { className: string; label: string; onOpen: (anchor: DOMRect) => void; children: ReactNode }) {
   const stop = (e: PointerEvent | MouseEvent) => e.stopPropagation()
   return (

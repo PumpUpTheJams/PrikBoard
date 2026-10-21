@@ -102,7 +102,7 @@ public enum BoardRole
     /// <summary>Reads the board.</summary>
     Viewer = 1,
 
-    /// <summary>Also changes buckets, notes and images.</summary>
+    /// <summary>Also changes buckets, cards and images.</summary>
     Editor = 2,
 
     /// <summary>Also renames or deletes the board and manages its members and invites.</summary>

@@ -42,10 +42,10 @@ internal static class TestApi
         return (client, token);
     }
 
-    public static async Task<NoteDetail> CreateNoteAsync(this HttpClient client, Guid boardId, string title = "A note")
+    public static async Task<CardDetail> CreateCardAsync(this HttpClient client, Guid boardId, string title = "A card")
     {
-        var response = await client.PostAsJsonAsync($"/api/boards/{boardId}/notes", new { title });
+        var response = await client.PostAsJsonAsync($"/api/boards/{boardId}/cards", new { title });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        return (await response.Content.ReadFromJsonAsync<NoteDetail>())!;
+        return (await response.Content.ReadFromJsonAsync<CardDetail>())!;
     }
 }

@@ -55,7 +55,7 @@ internal static class McpCall
     }
 
     /// <summary>
-    /// Applies the DataAnnotations on a request record, and on the items in its lists (such as a block's checklist items),
+    /// Applies the DataAnnotations on a request record, and on the items in its lists (such as a component's checklist items),
     /// as the REST API does.
     /// </summary>
     public static void Validate(object request)

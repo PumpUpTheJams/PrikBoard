@@ -7,10 +7,10 @@ namespace PrikBoard.Api.Contracts;
 [JsonConverter(typeof(JsonStringEnumConverter<DragKind>))]
 public enum DragKind
 {
-    /// <summary>Moving a note.</summary>
-    Note,
+    /// <summary>Moving a card.</summary>
+    Card,
 
-    /// <summary>Moving a bucket (its notes move along).</summary>
+    /// <summary>Moving a bucket (its cards move along).</summary>
     Bucket,
 
     /// <summary>Resizing a bucket from one of its corners or edges (see <see cref="ResizeHandle"/>).</summary>
@@ -22,7 +22,7 @@ public enum DragKind
     /// <summary>Resizing an image from one of its corners or edges (see <see cref="ResizeHandle"/>).</summary>
     ImageResize,
 
-    /// <summary>Moving several selected items together: notes, buckets, images and drawings, listed in <c>Items</c>.</summary>
+    /// <summary>Moving several selected items together: cards, buckets, images and drawings, listed in <c>Items</c>.</summary>
     Group,
 }
 
@@ -67,7 +67,7 @@ public sealed record BoardChange(Guid BoardId, Guid By);
 
 /// <summary>A drag in progress, sent by the dragging client (Drag), at most every few dozen milliseconds.</summary>
 /// <param name="Kind">What the gesture does.</param>
-/// <param name="Id">The note, bucket or image being dragged (for Group: the item held).</param>
+/// <param name="Id">The card, bucket or image being dragged (for Group: the item held).</param>
 /// <param name="Dx">Pointer travel since the drag started, in canvas pixels (not yet snapped).</param>
 /// <param name="Dy">Pointer travel since the drag started, in canvas pixels (not yet snapped).</param>
 /// <param name="Handle">For Resize and ImageResize: the corner or edge being dragged.</param>
@@ -87,7 +87,7 @@ public sealed record DragUpdate(
 /// <param name="PrincipalId">Who is dragging.</param>
 /// <param name="DisplayName">Their display name, to label the item.</param>
 /// <param name="Kind">What the gesture does.</param>
-/// <param name="Id">The note, bucket or image being dragged.</param>
+/// <param name="Id">The card, bucket or image being dragged.</param>
 /// <param name="Dx">Pointer travel since the drag started, in canvas pixels.</param>
 /// <param name="Dy">Pointer travel since the drag started, in canvas pixels.</param>
 /// <param name="Handle">For Resize and ImageResize: the corner or edge being dragged.</param>

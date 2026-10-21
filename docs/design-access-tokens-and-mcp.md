@@ -15,7 +15,7 @@ Today an agent reaches PrikBoard only with an OAuth access token from a configur
 We want:
 
 1. **Personal access tokens (PATs):** a signed-in person creates a token in PrikBoard and pastes it into an agent. The token works for the REST API and for MCP.
-2. **An MCP server at `/mcp`:** agents get curated tools (`get_board`, `move_note`, ...) instead of having to read the OpenAPI document.
+2. **An MCP server at `/mcp`:** agents get curated tools (`get_board`, `move_card`, ...) instead of having to read the OpenAPI document.
 
 Constraints we keep from earlier work:
 
@@ -33,7 +33,7 @@ This is the main decision. Three options:
 
 | Option | How it works | For | Against |
 | --- | --- | --- | --- |
-| **A. Delegated agent (recommended)** | The token belongs to a person and acts as an **Agent principal** owned by that person, for example "Claude Code (Jimmy)". On a board, its role is the **lower of** the owner's role and the token's maximum role, optionally limited to chosen boards. | Works on all your boards at once, with no owner adding it per board. Changes still show as the agent, so people can tell Claude moved the card, not you. Losing access as a person also cuts off your tokens. | Your role caps it, so it can't do anything you can't. A board's owners can't block your delegated agent separately; they'd have to remove you. |
+| **A. Delegated agent (recommended)** | The token belongs to a person and acts as an **Agent principal** owned by that person, for example "Claude Code (Jimmy)". On a board, its role is the **lower of** the owner's role and the token's maximum role, optionally limited to chosen boards. | Works on all your boards at once, with no owner adding it per board. Changes still show as the agent, so people can tell Claude moved the card, not you. Losing access as a person also cuts off your tokens. | Your role caps it, so it can't do anything you can't. A board's owners can't component your delegated agent separately; they'd have to remove you. |
 | B. Act as the user | The token is simply you, like a GitHub classic PAT. | Simplest. | Board history and presence can't tell you from your agent, and the agent can do everything you can, including managing members. |
 | C. Standalone agent | The token mints an Agent that owners add per board, the way token issuers work today. | Owners keep full control. | Same friction as today; the "paste a token and go" story is lost. |
 
@@ -43,7 +43,7 @@ This is the main decision. Three options:
 
 New table **`AccessTokens`**:
 
-| Column | Notes |
+| Column | Cards |
 | --- | --- |
 | `Id` | Guid v7 |
 | `OwnerId` | FK to Users, cascade. Deleting the person deletes their tokens. |
@@ -120,7 +120,7 @@ curl -H "Authorization: Bearer pb_pat_..." https://<host>/api/boards
 builder.Services.AddMcpServer(options => options.ServerInfo = new() { Name = "PrikBoard", Version = "1.0" })
     .WithHttpTransport(options => options.SessionMode = HttpServerSessionMode.Stateless)
     .WithTools<BoardTools>()
-    .WithTools<NoteTools>();
+    .WithTools<CardTools>();
 
 app.MapMcp("/mcp").RequireAuthorization(AuthSetup.McpPolicy);
 ```
@@ -146,16 +146,16 @@ Hand-written and curated, rather than generated one per OpenAPI operation. Agent
 | Tool | Annotations | Does |
 | --- | --- | --- |
 | `list_boards` | read-only | Your boards with your role |
-| `get_board` | read-only | A compact snapshot: buckets in order, each with its notes (id, title, tags, assignees, checklist progress, creator), the board's tags and the people who can be assigned. Smaller than the REST `getBoard`, because agents pay per token. |
-| `search_notes` | read-only | Like `listNotes`: by bucket, tags, assignee, text |
-| `get_note` | read-only | Full note: body, checklist, links, attached image captions |
-| `create_note` | | Title, body, colour, tags, assignees (**by name or id**), checklist, links, and a bucket **by id or name** |
-| `update_note` | idempotent | PATCH semantics as in REST |
-| `move_note` | idempotent | To a bucket by id or name. The server finds the spot. |
-| `set_working` | idempotent | Assign yourself and set `agentWorking` on or off (REST: `setNoteWorking`) |
-| `delete_note` | **destructive** | |
+| `get_board` | read-only | A compact snapshot: buckets in order, each with its cards (id, title, tags, assignees, checklist progress, creator), the board's tags and the people who can be assigned. Smaller than the REST `getBoard`, because agents pay per token. |
+| `search_cards` | read-only | Like `listCards`: by bucket, tags, assignee, text |
+| `get_card` | read-only | Full card: body, checklist, links, attached image captions |
+| `create_card` | | Title, body, color, tags, assignees (**by name or id**), checklist, links, and a bucket **by id or name** |
+| `update_card` | idempotent | PATCH semantics as in REST |
+| `move_card` | idempotent | To a bucket by id or name. The server finds the spot. |
+| `set_working` | idempotent | Assign yourself and set `agentWorking` on or off (REST: `setCardWorking`) |
+| `delete_card` | **destructive** | |
 | `create_bucket`, `update_bucket` | | Rare for agents, but cheap to add |
-| `create_tag`, `update_tag`, `delete_tag` | `delete_tag` **destructive** | The board's tags by name or id; renaming and deleting change every note, and `update_tag` also changes the colour |
+| `create_tag`, `update_tag`, `delete_tag` | `delete_tag` **destructive** | The board's tags by name or id; renaming and deleting change every card, and `update_tag` also changes the color |
 
 - **No member, invite, board-delete or token tools.** Agents never manage access, and the tool list itself says so.
 - **Annotations** (`ReadOnly`, `Destructive`, `Idempotent`) let clients ask before a destructive call.
@@ -165,7 +165,7 @@ Hand-written and curated, rather than generated one per OpenAPI operation. Agent
 Today the handlers are private static methods, and the role check plus the live update happen in the `RequireBoardRole` endpoint filter. MCP calls don't go through endpoint filters, so:
 
 1. Extract the filter's core into `BoardAccess.AuthorizeAsync(db, principal, scope, id, minRole)`, which returns the board id and role or a failure. The filter calls it, and so do the tools.
-2. Make the handlers' work reusable: move it into `internal static` methods, for example `NoteOperations.MoveAsync(db, noteId, request, ct)`, that both the endpoint and the tool call. Validation (DataAnnotations on the request records) runs through `Validator.TryValidateObject` in the tool layer.
+2. Make the handlers' work reusable: move it into `internal static` methods, for example `CardOperations.MoveAsync(db, cardId, request, ct)`, that both the endpoint and the tool call. Validation (DataAnnotations on the request records) runs through `Validator.TryValidateObject` in the tool layer.
 3. Tools call `BoardEvents.ChangedAsync` after a successful write, so people watching the board see the agent's change live, exactly as with REST.
 4. Tool errors go back as MCP tool errors (`isError` with the problem detail), never as exceptions with stack traces. 404 and 403 read the same as in REST: "not found, or you are not a member".
 
@@ -173,9 +173,9 @@ A tempting shortcut is an in-process HTTP loopback: the tool calls `/api/...` wi
 
 ### Prompt-injection hygiene
 
-Note text is written by people and other agents, and it comes back in tool results.
+Card text is written by people and other agents, and it comes back in tool results.
 
-- Tool descriptions say that note content is data, not instructions.
+- Tool descriptions say that card content is data, not instructions.
 - Write tools are limited by the token's `MaxRole` (never Owner).
 - Invites and email lookup stay unreachable for any token, as today.
 
@@ -208,7 +208,7 @@ Note text is written by people and other agents, and it comes back in tool resul
 - The cookie alone gets 401.
 - A foreign `Origin` gets 403.
 - A read-only token can't call write tools.
-- An agent's `move_note` raises `BoardChanged` for live viewers.
+- An agent's `move_card` raises `BoardChanged` for live viewers.
 - Tool errors come back as `isError`, not protocol errors.
 
 ## 5. Open questions

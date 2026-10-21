@@ -1,24 +1,24 @@
 // Client copy of the server's geometry rules (src/PrikBoard.Api/Domain/Layout.cs), used for live feedback while dragging.
 // The server snaps and assigns buckets again on every change, so it stays the source of truth.
-import type { BucketDetail, ImageDetail, NoteBlockKind, Point, Rect, ResizeHandle } from '../api/types'
+import type { BucketDetail, ImageDetail, CardComponentKind, Point, Rect, ResizeHandle } from '../api/types'
 
 export const GRID = 20
-export const NOTE_WIDTH = 200
-export const NOTE_HEIGHT = 120
-export const MIN_BUCKET_WIDTH = NOTE_WIDTH + 2 * GRID
-export const MIN_BUCKET_HEIGHT = NOTE_HEIGHT + 2 * GRID
+export const CARD_WIDTH = 200
+export const CARD_HEIGHT = 120
+export const MIN_BUCKET_WIDTH = CARD_WIDTH + 2 * GRID
+export const MIN_BUCKET_HEIGHT = CARD_HEIGHT + 2 * GRID
 
 /** A collapsed bucket is a square this size in its top-right corner. */
-export const COLLAPSED_SIZE = NOTE_HEIGHT
+export const COLLAPSED_SIZE = CARD_HEIGHT
 
 export const MIN_IMAGE_WIDTH = 80
 export const MAX_IMAGE_WIDTH = 4000
 
-/** A note's own canvas (its blocks and attached images) runs from 0 to this, in both directions. */
-export const NOTE_CANVAS_MAX = 10_000
-export const MIN_BLOCK_WIDTH = 160
-export const MIN_BLOCK_HEIGHT = 80
-export const MAX_BLOCK_SIZE = 2000
+/** A card's own canvas (its components and attached images) runs from 0 to this, in both directions. */
+export const CARD_CANVAS_MAX = 10_000
+export const MIN_COMPONENT_WIDTH = 160
+export const MIN_COMPONENT_HEIGHT = 80
+export const MAX_COMPONENT_SIZE = 2000
 
 /** The board has no edge at the origin: positions run from MIN_COORDINATE to MAX_COORDINATE, both ways. */
 export const MIN_COORDINATE = -100_000
@@ -39,13 +39,13 @@ export function imageSize(image: { pixelWidth: number; pixelHeight: number }, wi
 export const snapPoint = ({ x, y }: Point): Point => ({ x: onBoard(snap(x)), y: onBoard(snap(y)) })
 
 /**
- * The topmost bucket containing a note's centre: the bucket a note dropped there joins (Layout.Place on the server). It
+ * The topmost bucket containing a card's centre: the bucket a card dropped there joins (Layout.Place on the server). It
  * stays in that bucket while buckets move around it. `buckets` is back to front, as the API returns them. A collapsed
- * bucket only keeps the notes it has (`own`): others don't join it, as on the server.
+ * bucket only keeps the cards it has (`own`): others don't join it, as on the server.
  */
-export function bucketUnderNote(buckets: BucketDetail[], note: Point, own?: string | null): BucketDetail | undefined {
-  const cx = note.x + NOTE_WIDTH / 2
-  const cy = note.y + NOTE_HEIGHT / 2
+export function bucketUnderCard(buckets: BucketDetail[], card: Point, own?: string | null): BucketDetail | undefined {
+  const cx = card.x + CARD_WIDTH / 2
+  const cy = card.y + CARD_HEIGHT / 2
   return buckets.findLast((b) => cx >= b.x && cx < b.x + b.width && cy >= b.y && cy < b.y + b.height && (!b.collapsed || b.id === own))
 }
 
@@ -55,14 +55,14 @@ export function collapsedRect(rect: Rect): Rect {
 }
 
 /**
- * Where the post-its in the trash window go: a grid filling `width` (the visible width of its canvas), row by row, a grid
+ * Where the cards in the trash window go: a grid filling `width` (the visible width of its canvas), row by row, a grid
  * step around each. At least one column, however narrow.
  */
 export function fitGrid(count: number, width: number): Point[] {
-  const columns = Math.max(1, Math.floor((width - GRID) / (NOTE_WIDTH + GRID)))
+  const columns = Math.max(1, Math.floor((width - GRID) / (CARD_WIDTH + GRID)))
   return Array.from({ length: count }, (_, i) => ({
-    x: GRID + (i % columns) * (NOTE_WIDTH + GRID),
-    y: GRID + Math.floor(i / columns) * (NOTE_HEIGHT + GRID),
+    x: GRID + (i % columns) * (CARD_WIDTH + GRID),
+    y: GRID + Math.floor(i / columns) * (CARD_HEIGHT + GRID),
   }))
 }
 
@@ -71,16 +71,16 @@ export function spanRect(a: Point, b: Point): Rect {
   return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) }
 }
 
-/** The size a new block gets. */
-export function defaultBlockSize(kind: NoteBlockKind) {
+/** The size a new component gets. */
+export function defaultComponentSize(kind: CardComponentKind) {
   return kind === 'Checklist' ? { width: 340, height: 260 } : kind === 'Links' ? { width: 360, height: 220 } : { width: 340, height: 220 }
 }
 
-/** A block's size after a resize, as the server computes it: snapped and within limits. */
-export function blockSize(width: number, height: number) {
+/** A component's size after a resize, as the server computes it: snapped and within limits. */
+export function componentSize(width: number, height: number) {
   return {
-    width: Math.min(MAX_BLOCK_SIZE, Math.max(MIN_BLOCK_WIDTH, snap(width))),
-    height: Math.min(MAX_BLOCK_SIZE, Math.max(MIN_BLOCK_HEIGHT, snap(height))),
+    width: Math.min(MAX_COMPONENT_SIZE, Math.max(MIN_COMPONENT_WIDTH, snap(width))),
+    height: Math.min(MAX_COMPONENT_SIZE, Math.max(MIN_COMPONENT_HEIGHT, snap(height))),
   }
 }
 
@@ -91,7 +91,7 @@ export function bucketSize(width: number, height: number) {
 
 /**
  * A rectangle resized by dragging a corner or an edge by `d`, the opposite corner or edge staying put (as long as the
- * top-left stays at or right of and below `min`: 0 on a note's canvas, MIN_COORDINATE on the board); an edge only
+ * top-left stays at or right of and below `min`: 0 on a card's canvas, MIN_COORDINATE on the board); an edge only
  * changes the size in its own direction. `size` snaps and limits the new size, as the server does for that kind of item.
  */
 export function resizeFrom(
@@ -125,11 +125,11 @@ export function resizeImage(image: ImageDetail, handle: ResizeHandle, d: Point, 
   return resizeFrom(image, handle, d, (width, height) => imageSize(image, byHeight ? (height * image.pixelWidth) / image.pixelHeight : width), min)
 }
 
-/** Snaps a top-left corner on a note's canvas, keeping a `size` rectangle on it. */
-export function onNoteCanvas({ x, y }: Point, size: { width: number; height: number }): Point {
+/** Snaps a top-left corner on a card's canvas, keeping a `size` rectangle on it. */
+export function onCardCanvas({ x, y }: Point, size: { width: number; height: number }): Point {
   return {
-    x: Math.min(Math.max(0, snap(x)), Math.max(0, NOTE_CANVAS_MAX - size.width)),
-    y: Math.min(Math.max(0, snap(y)), Math.max(0, NOTE_CANVAS_MAX - size.height)),
+    x: Math.min(Math.max(0, snap(x)), Math.max(0, CARD_CANVAS_MAX - size.width)),
+    y: Math.min(Math.max(0, snap(y)), Math.max(0, CARD_CANVAS_MAX - size.height)),
   }
 }
 

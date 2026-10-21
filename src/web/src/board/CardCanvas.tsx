@@ -1,31 +1,31 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../api/client'
-import type { DrawingDetail, ImageDetail, InkColor, NoteBlock, NoteBlockKind, NoteDetail, Point, Rect, ResizeHandle } from '../api/types'
+import type { DrawingDetail, ImageDetail, InkColor, CardComponent, CardComponentKind, CardDetail, Point, Rect, ResizeHandle } from '../api/types'
 import { BoardImageView } from './BoardImageView'
-import { inkHex, movePenRing, NOTE_PEN, usePen } from './drawings'
+import { inkHex, movePenRing, CARD_PEN, usePen } from './drawings'
 import { DrawingGhost, DrawingToolbar, DrawingView, IncomingDrawingView, PenRing, StrokeSvg } from './DrawingView'
 import { draggingFiles, imageFiles } from './files'
 import { delta, isDrag } from './gesture'
 import { MinusIcon, PlusIcon } from './icons'
 import { ImageInspector } from './Inspector'
-import { blockSize, defaultBlockSize, freeSpot, onNoteCanvas, resizeFrom, resizeImage, snapPoint, spanRect } from './layout'
-import { BlockFrame, ChecklistBlock, LinksBlock, TextBlock } from './NoteBlocks'
-import { NoteBar } from './NoteBar'
+import { componentSize, defaultComponentSize, freeSpot, onCardCanvas, resizeFrom, resizeImage, snapPoint, spanRect } from './layout'
+import { ComponentFrame, ChecklistComponent, LinksComponent, TextComponent } from './CardComponents'
+import { CardBar } from './CardBar'
 import { resizeCursor } from './resizeCursor'
-import { blockMatches } from './search'
+import { componentMatches } from './search'
 import { adds, isPicked, mergePicked, togglePicked, touches, useSpaceHeld, type Picked } from './selection'
-import { blockEdit, created, deleted, patched, snap, step, target, type RecordingRun, type UndoChange, type UndoEntry } from './undo'
+import { componentEdit, created, deleted, patched, snap, step, target, type RecordingRun, type UndoChange, type UndoEntry } from './undo'
 import { useStroke } from './useStroke'
 import { useZoom } from './useZoom'
 import { stepZoom, ZOOM_LEVELS } from './zoom'
 
-/** What the board needs from the post-it's canvas to drop images into it and paste there. */
-export interface NoteCanvasHandle {
+/** What the board needs from the card's canvas to drop images into it and paste there. */
+export interface CardCanvasHandle {
   /** Whether a screen point is over the visible part of the canvas. */
   hits: (client: Point) => boolean
-  /** A screen point in note pixels. */
-  toNote: (client: Point) => Point
+  /** A screen point in card pixels. */
+  toCard: (client: Point) => Point
   /** Where pasted images go: the last pointer position over the canvas, or the middle of what is visible. */
   pastePoint: () => Point
 }
@@ -42,13 +42,13 @@ export interface IncomingDrawing {
   at: Point
 }
 
-type Kind = 'block' | 'block-resize' | 'image' | 'image-resize' | 'drawing'
+type Kind = 'component' | 'component-resize' | 'image' | 'image-resize' | 'drawing'
 
-/** A selected block, image or drawing. */
-type Item = Picked<'block' | 'image' | 'drawing'>
+/** A selected component, image or drawing. */
+type Item = Picked<'component' | 'image' | 'drawing'>
 
 /**
- * A press on a block or image, in note pixels, with the last screen point and whether it is outside the window (an
+ * A press on a component or image, in card pixels, with the last screen point and whether it is outside the window (an
  * image dragged out, to drop on the board). A finished gesture (`done`) stays until the board has reloaded, so the item
  * doesn't jump back meanwhile. `group`: several selected items moved together, `id` the one pressed. `select`: the
  * selection rectangle (`id` empty).
@@ -76,21 +76,21 @@ interface Pan {
 
 const NO_INSET = { x: 0, y: 0 }
 
-/** Empty canvas kept beyond the furthest block or image: one grid step, so scroll bars only come when something sticks out. */
+/** Empty canvas kept beyond the furthest component or image: one grid step, so scroll bars only come when something sticks out. */
 const CANVAS_MARGIN = 20
 
-interface NoteCanvasProps {
-  note: NoteDetail
-  /** Images attached to the post-it. */
+interface CardCanvasProps {
+  card: CardDetail
+  /** Images attached to the card. */
   images: ImageDetail[]
-  /** Pen strokes on the post-it. */
+  /** Pen strokes on the card. */
   drawings: DrawingDetail[]
-  /** The post-its on the board, to link to. */
-  notes: NoteDetail[]
+  /** The cards on the board, to link to. */
+  cards: CardDetail[]
   readOnly?: boolean
-  /** Search words to point out: blocks they occur in get an outline, and checklists and links mark them. */
+  /** Search words to point out: components they occur in get an outline, and checklists and links mark them. */
   highlight?: string[]
-  handle: RefObject<NoteCanvasHandle | null>
+  handle: RefObject<CardCanvasHandle | null>
   /** Runs a change through the board (which then reloads), recorded for undo. */
   run: RecordingRun
   /** Whether a gesture is in progress, so the board holds back its refreshes. */
@@ -102,13 +102,13 @@ interface NoteCanvasProps {
   /** A screen point on the board (canvas pixels) when it is over the board, to drop an image there; else null. */
   boardPoint: (client: Point) => Point | null
   boardZoom: number
-  /** Asks to delete the whole post-it. */
-  onDeletePostIt: () => void
+  /** Asks to delete the whole card. */
+  onDeleteCard: () => void
 }
 
-/** The post-it's own small board: its blocks and images, moved and resized like items on the board, with zoom and pan. */
-export function NoteCanvas(props: NoteCanvasProps) {
-  const { note, images, drawings, notes, readOnly, highlight, handle, run, onBusy, incoming, incomingDrawing, onAddImages, onPickImages, boardPoint, boardZoom, onDeletePostIt } = props
+/** The card's own small board: its components and images, moved and resized like items on the board, with zoom and pan. */
+export function CardCanvas(props: CardCanvasProps) {
+  const { card, images, drawings, cards, readOnly, highlight, handle, run, onBusy, incoming, incomingDrawing, onAddImages, onPickImages, boardPoint, boardZoom, onDeleteCard } = props
   /** The selected items: one, or several (Shift or Ctrl/Cmd + click, or the selection rectangle). */
   const [selected, setSelected] = useState<Item[]>([])
   /** The one item selected, for what works on a single item (its panel, its handles); null with none or several. */
@@ -118,10 +118,10 @@ export function NoteCanvas(props: NoteCanvasProps) {
   const spaceHeld = useSpaceHeld()
   const [gesture, setGesture] = useState<Gesture | null>(null)
   const [pan, setPan] = useState<Pan | null>(null)
-  /** The block added last: its main field is focused when it appears. */
-  const [focusBlock, setFocusBlock] = useState<string | null>(null)
+  /** The component added last: its main field is focused when it appears. */
+  const [focusComponent, setFocusComponent] = useState<string | null>(null)
   const [fileOver, setFileOver] = useState(false)
-  /** The scroll viewport in screen pixels, for the canvas size and where new blocks go. */
+  /** The scroll viewport in screen pixels, for the canvas size and where new components go. */
   const [view, setView] = useState<Rect>({ x: 0, y: 0, width: 0, height: 0 })
   const scrollRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
@@ -129,9 +129,9 @@ export function NoteCanvas(props: NoteCanvasProps) {
   /** The images the last two presses were on: the canvas holds the pointer, so double-clicks reach it, not the image. */
   const imagePresses = useRef<[string | null, string | null]>([null, null])
   const { zoom, zoomTo } = useZoom(scrollRef, NO_INSET)
-  /** The post-it's pen: on or off (a press then draws instead of panning), with an ink and size of its own. */
+  /** The card's pen: on or off (a press then draws instead of panning), with an ink and size of its own. */
   const [penOn, setPenOn] = useState(false)
-  const notePen = usePen(NOTE_PEN)
+  const cardPen = usePen(CARD_PEN)
   const penRing = useRef<HTMLDivElement>(null)
   const drawingOn = !readOnly && penOn
   useEffect(() => () => onBusy(false), [onBusy])
@@ -149,23 +149,23 @@ export function NoteCanvas(props: NoteCanvasProps) {
     }
   }, [])
 
-  function toNote(client: Point): Point {
+  function toCard(client: Point): Point {
     const rect = canvasRef.current!.getBoundingClientRect()
     return { x: (client.x - rect.left) / zoom, y: (client.y - rect.top) / zoom }
   }
 
   /** The stroke being drawn with the pen. */
-  const pen = useStroke((e) => toNote({ x: e.clientX, y: e.clientY }))
+  const pen = useStroke((e) => toCard({ x: e.clientX, y: e.clientY }))
   useEffect(() => onBusy(gesture !== null || pen.stroke !== null), [gesture, pen.stroke, onBusy])
 
   const contains = (rect: DOMRect, p: Point) => p.x >= rect.left && p.x < rect.right && p.y >= rect.top && p.y < rect.bottom
   const hits = (client: Point) => !!scrollRef.current && contains(scrollRef.current.getBoundingClientRect(), client)
-  /** What is visible of the canvas, in note pixels. */
+  /** What is visible of the canvas, in card pixels. */
   const visible = (): Rect => ({ x: view.x / zoom, y: view.y / zoom, width: view.width / zoom, height: view.height / zoom })
 
   useImperativeHandle(handle, () => ({
     hits,
-    toNote,
+    toCard,
     pastePoint: () => {
       const v = visible()
       return lastPointer.current ?? { x: v.x + v.width / 2, y: v.y + v.height / 2 }
@@ -178,14 +178,14 @@ export function NoteCanvas(props: NoteCanvasProps) {
     return ok
   }
 
-  const saveBlock = (block: NoteBlock, changes: Parameters<typeof api.updateNoteBlock>[2]) =>
-    settle(() => api.updateNoteBlock(note.id, block.id, changes), (after) => blockEdit(note.id, block, after, changes))
+  const saveComponent = (component: CardComponent, changes: Parameters<typeof api.updateCardComponent>[2]) =>
+    settle(() => api.updateCardComponent(card.id, component.id, changes), (after) => componentEdit(card.id, component, after, changes))
 
   /** The undo step for an image on this canvas that moved, was resized or went onto the board. */
   const imageStep = (label: string, before: ImageDetail, keys: string[]) => (after: ImageDetail) =>
     step(label, [patched(target.image(before.id), snap.image(before), snap.image(after), keys)])
 
-  /** The undo step for a drawing on this canvas that moved, was recoloured or went onto the board. */
+  /** The undo step for a drawing on this canvas that moved, was recolored or went onto the board. */
   const drawingStep = (label: string, before: DrawingDetail, keys: string[]) => (after: DrawingDetail) =>
     step(label, [patched(target.drawing(before.id), snap.drawing(before), snap.drawing(after), keys)])
 
@@ -193,33 +193,33 @@ export function NoteCanvas(props: NoteCanvasProps) {
     void settle(() => api.updateDrawing(drawing.id, { color }), drawingStep('Change ink', drawing, ['color']))
   }
 
-  /** Adds a block in the first free spot in view (or, with none, wherever the server finds room) and focuses it. */
-  function addBlock(kind: NoteBlockKind) {
-    const size = defaultBlockSize(kind)
-    const spot = freeSpot([...note.blocks, ...images], size, visible())
+  /** Adds a component in the first free spot in view (or, with none, wherever the server finds room) and focuses it. */
+  function addComponent(kind: CardComponentKind) {
+    const size = defaultComponentSize(kind)
+    const spot = freeSpot([...card.components, ...images], size, visible())
     void settle(
       async () => {
-        const block = await api.addNoteBlock(note.id, { kind, ...(spot ?? {}) })
-        setFocusBlock(block.id)
-        setSelection({ kind: 'block', id: block.id })
-        return block
+        const component = await api.addCardComponent(card.id, { kind, ...(spot ?? {}) })
+        setFocusComponent(component.id)
+        setSelection({ kind: 'component', id: component.id })
+        return component
       },
-      (block) => step('Add block', [created(target.block(note.id, block.id), snap.block(block))]),
+      (component) => step('Add component', [created(target.component(card.id, component.id), snap.component(component))]),
     )
   }
 
-  /** Removes a block, image or drawing straight away; the toast that follows can undo it (and so can Ctrl/Cmd+Z). */
-  function remove(kind: 'block' | 'image' | 'drawing', id: string) {
+  /** Removes a component, image or drawing straight away; the toast that follows can undo it (and so can Ctrl/Cmd+Z). */
+  function remove(kind: 'component' | 'image' | 'drawing', id: string) {
     setSelected((list) => list.filter((s) => s.id !== id))
-    const block = kind === 'block' ? note.blocks.find((b) => b.id === id) : undefined
+    const component = kind === 'component' ? card.components.find((b) => b.id === id) : undefined
     const image = kind === 'image' ? images.find((i) => i.id === id) : undefined
     const drawing = kind === 'drawing' ? drawings.find((d) => d.id === id) : undefined
-    if (block) {
-      // An empty block goes quietly; it can still be undone.
-      const empty = !block.text && !block.items?.length && !block.links?.length && !block.title
+    if (component) {
+      // An empty component goes quietly; it can still be undone.
+      const empty = !component.text && !component.items?.length && !component.links?.length && !component.title
       void settle(
-        () => api.deleteNoteBlock(note.id, id),
-        () => step('Remove block', [deleted(target.block(note.id, id), snap.block(block))], { toast: empty ? undefined : 'Block removed' }),
+        () => api.deleteCardComponent(card.id, id),
+        () => step('Remove component', [deleted(target.component(card.id, id), snap.component(component))], { toast: empty ? undefined : 'Component removed' }),
       )
     } else if (image) {
       void settle(
@@ -244,11 +244,11 @@ export function NoteCanvas(props: NoteCanvasProps) {
       () =>
         Promise.all(
           items.map(async ({ kind, id }): Promise<UndoChange | null> => {
-            if (kind === 'block') {
-              const block = note.blocks.find((b) => b.id === id)
-              if (!block) return null
-              await api.deleteNoteBlock(note.id, id)
-              return deleted(target.block(note.id, id), snap.block(block))
+            if (kind === 'component') {
+              const component = card.components.find((b) => b.id === id)
+              if (!component) return null
+              await api.deleteCardComponent(card.id, id)
+              return deleted(target.component(card.id, id), snap.component(component))
             }
             if (kind === 'image') {
               const image = images.find((i) => i.id === id)
@@ -270,12 +270,12 @@ export function NoteCanvas(props: NoteCanvasProps) {
   function moveGroup(items: Item[]) {
     // Where they go, worked out now: the drag ends with the first reply.
     const requests = items.flatMap(({ kind, id }) => {
-      const block = kind === 'block' ? note.blocks.find((b) => b.id === id) : undefined
+      const component = kind === 'component' ? card.components.find((b) => b.id === id) : undefined
       const image = kind === 'image' ? images.find((i) => i.id === id) : undefined
       const drawing = kind === 'drawing' ? drawings.find((d) => d.id === id) : undefined
-      if (block) {
-        const { x, y } = blockRect(block)
-        return [async () => patched(target.block(note.id, id), snap.block(block), snap.block(await api.updateNoteBlock(note.id, id, { x, y })), ['x', 'y'])]
+      if (component) {
+        const { x, y } = componentRect(component)
+        return [async () => patched(target.component(card.id, id), snap.component(component), snap.component(await api.updateCardComponent(card.id, id, { x, y })), ['x', 'y'])]
       }
       if (image) {
         const { x, y } = imageRect(image)
@@ -293,10 +293,10 @@ export function NoteCanvas(props: NoteCanvasProps) {
     )
   }
 
-  /** What the selection rectangle takes: the blocks, images and drawings it touches. */
+  /** What the selection rectangle takes: the components, images and drawings it touches. */
   function inRectangle(rect: Rect): Item[] {
     return [
-      ...note.blocks.filter((b) => touches(rect, b)).map((b) => ({ kind: 'block' as const, id: b.id })),
+      ...card.components.filter((b) => touches(rect, b)).map((b) => ({ kind: 'component' as const, id: b.id })),
       ...images.filter((i) => touches(rect, i)).map((i) => ({ kind: 'image' as const, id: i.id })),
       ...drawings.filter((d) => touches(rect, d)).map((d) => ({ kind: 'drawing' as const, id: d.id })),
     ]
@@ -309,38 +309,38 @@ export function NoteCanvas(props: NoteCanvasProps) {
   /** An image or drawing dragged out of the window, to drop on the board. */
   const leaving = (dragging?.kind === 'image' || dragging?.kind === 'drawing') && !dragging.done && dragging.outside ? dragging : null
 
-  function blockRect(block: NoteBlock): Rect {
-    if (!dragging || !moves(block.id)) return block
+  function componentRect(component: CardComponent): Rect {
+    if (!dragging || !moves(component.id)) return component
     const d = delta(dragging)
-    if (dragging.kind === 'block' || dragging.kind === 'group') return { ...block, ...onNoteCanvas({ x: block.x + d.x, y: block.y + d.y }, block) }
-    const resized = resizeFrom(block, dragging.handle, d, blockSize)
-    return { ...block, ...resized, ...onNoteCanvas(resized, resized) }
+    if (dragging.kind === 'component' || dragging.kind === 'group') return { ...component, ...onCardCanvas({ x: component.x + d.x, y: component.y + d.y }, component) }
+    const resized = resizeFrom(component, dragging.handle, d, componentSize)
+    return { ...component, ...resized, ...onCardCanvas(resized, resized) }
   }
 
   function imageRect(image: ImageDetail): Rect {
     if (!dragging || !moves(image.id) || leaving) return image
     const d = delta(dragging)
-    if (dragging.kind === 'image' || dragging.kind === 'group') return { ...image, ...onNoteCanvas({ x: image.x + d.x, y: image.y + d.y }, image) }
+    if (dragging.kind === 'image' || dragging.kind === 'group') return { ...image, ...onCardCanvas({ x: image.x + d.x, y: image.y + d.y }, image) }
     const resized = resizeImage(image, dragging.handle, d)
-    return { ...image, ...resized, ...onNoteCanvas(resized, resized) }
+    return { ...image, ...resized, ...onCardCanvas(resized, resized) }
   }
 
   function drawingRect(drawing: DrawingDetail): Rect {
     if (!dragging || !moves(drawing.id) || leaving) return drawing
     const d = delta(dragging)
-    return { ...drawing, ...onNoteCanvas({ x: drawing.x + d.x, y: drawing.y + d.y }, drawing) }
+    return { ...drawing, ...onCardCanvas({ x: drawing.x + d.x, y: drawing.y + d.y }, drawing) }
   }
 
   /**
-   * A press on a block's header, an image or a drawing: selects it and starts dragging it. One of several selected drags
+   * A press on a component's header, an image or a drawing: selects it and starts dragging it. One of several selected drags
    * them all; with Shift or Ctrl/Cmd it joins or leaves the selection instead. With Space held, the canvas pans.
    */
   function onItemPointerDown(e: PointerEvent<HTMLElement>, kind: Kind, id: string, handle: ResizeHandle = 'BottomRight') {
     // With the pen on, a press draws over whatever is there (onPenPointerDown took it already).
     if (e.button !== 0 || drawingOn || spaceHeld) return
     imagePresses.current = [imagePresses.current[1], kind === 'image' ? id : null]
-    const item: Item = { kind: kind === 'block' || kind === 'block-resize' ? 'block' : kind === 'drawing' ? 'drawing' : 'image', id }
-    // The title field and the remove button in a block's header work as usual.
+    const item: Item = { kind: kind === 'component' || kind === 'component-resize' ? 'component' : kind === 'drawing' ? 'drawing' : 'image', id }
+    // The title field and the remove button in a component's header work as usual.
     const control = e.target instanceof Element && e.target.closest('input, button')
     const several = !readOnly && !control && !kind.endsWith('-resize')
     if (several && adds(e)) {
@@ -359,26 +359,26 @@ export function NoteCanvas(props: NoteCanvasProps) {
   function beginGesture(e: PointerEvent, target: Pick<Gesture, 'kind' | 'id' | 'handle' | 'items'>) {
     e.stopPropagation()
     e.preventDefault()
-    if (document.activeElement instanceof HTMLElement && document.activeElement.closest('.note-scroll')) document.activeElement.blur()
+    if (document.activeElement instanceof HTMLElement && document.activeElement.closest('.card-scroll')) document.activeElement.blur()
     scrollRef.current!.focus({ preventScroll: true })
     canvasRef.current!.setPointerCapture(e.pointerId)
-    const point = toNote({ x: e.clientX, y: e.clientY })
+    const point = toCard({ x: e.clientX, y: e.clientY })
     setGesture({ ...target, start: point, current: point, client: { x: e.clientX, y: e.clientY }, outside: false })
   }
 
-  /** With the pen on, a press anywhere on the canvas (over blocks and images too) starts a stroke. */
+  /** With the pen on, a press anywhere on the canvas (over components and images too) starts a stroke. */
   function onPenPointerDown(e: PointerEvent) {
     if (!drawingOn || e.button !== 0) return
     e.stopPropagation()
     e.preventDefault()
     setSelection(null)
-    if (document.activeElement instanceof HTMLElement && document.activeElement.closest('.note-scroll')) document.activeElement.blur()
+    if (document.activeElement instanceof HTMLElement && document.activeElement.closest('.card-scroll')) document.activeElement.blur()
     scrollRef.current!.focus({ preventScroll: true })
     canvasRef.current!.setPointerCapture(e.pointerId)
-    pen.start(e, notePen.ink, notePen.width)
+    pen.start(e, cardPen.ink, cardPen.width)
   }
 
-  /** Turns the post-it's pen on or off. */
+  /** Turns the card's pen on or off. */
   function togglePen() {
     setPenOn((on) => !on)
     setSelection(null)
@@ -387,9 +387,9 @@ export function NoteCanvas(props: NoteCanvasProps) {
   }
 
   /**
-   * A press on empty canvas draws a selection rectangle (viewers: pans). The middle button pans, over a block or image
+   * A press on empty canvas draws a selection rectangle (viewers: pans). The middle button pans, over a component or image
    * too, like on the board, and so does the left one with Space held (without touching the selection or the field being
-   * typed in). Other presses inside blocks and images are theirs.
+   * typed in). Other presses inside components and images are theirs.
    */
   function onCanvasPointerDown(e: PointerEvent) {
     const empty = e.target === e.currentTarget
@@ -404,7 +404,7 @@ export function NoteCanvas(props: NoteCanvasProps) {
     e.preventDefault()
     if (empty && !panning) {
       setSelection(null)
-      if (document.activeElement instanceof HTMLElement && document.activeElement.closest('.note-scroll')) document.activeElement.blur()
+      if (document.activeElement instanceof HTMLElement && document.activeElement.closest('.card-scroll')) document.activeElement.blur()
       scrollRef.current!.focus({ preventScroll: true })
     }
     const el = scrollRef.current!
@@ -414,8 +414,8 @@ export function NoteCanvas(props: NoteCanvasProps) {
 
   function onPointerMove(e: PointerEvent) {
     const client = { x: e.clientX, y: e.clientY }
-    lastPointer.current = hits(client) ? toNote(client) : null
-    if (drawingOn) movePenRing(penRing.current, toNote(client), e.pointerType)
+    lastPointer.current = hits(client) ? toCard(client) : null
+    if (drawingOn) movePenRing(penRing.current, toCard(client), e.pointerType)
     if (pen.drawing()) {
       pen.extend(e)
     } else if (pan) {
@@ -424,7 +424,7 @@ export function NoteCanvas(props: NoteCanvasProps) {
       el.scrollTop = pan.top - (e.clientY - pan.y)
     } else if (gesture && !gesture.done) {
       const frame = scrollRef.current!.closest('.expanded')!.getBoundingClientRect()
-      const next = { ...gesture, current: toNote(client), client, outside: !contains(frame, client) }
+      const next = { ...gesture, current: toCard(client), client, outside: !contains(frame, client) }
       setGesture(next)
       if (next.kind === 'select' && isDrag(next)) setSelected(mergePicked(next.items ?? [], inRectangle(spanRect(next.start, next.current))))
     }
@@ -432,7 +432,7 @@ export function NoteCanvas(props: NoteCanvasProps) {
 
   function onPointerUp() {
     if (pen.drawing()) {
-      pen.finish(run, note.boardId, note.id)
+      pen.finish(run, card.boardId, card.id)
       return
     }
     if (pan) {
@@ -473,9 +473,9 @@ export function NoteCanvas(props: NoteCanvasProps) {
       const place = { detach: true, ...snapPoint({ x: at.x - grab.x, y: at.y - grab.y }) }
       if (gesture.kind === 'drawing') {
         const drawing = item as DrawingDetail
-        void settle(() => api.updateDrawing(id, place), drawingStep('Put drawing on the board', drawing, ['noteId', 'x', 'y']))
+        void settle(() => api.updateDrawing(id, place), drawingStep('Put drawing on the board', drawing, ['cardId', 'x', 'y']))
       } else {
-        void settle(() => api.updateImage(id, place), imageStep('Put image on the board', item as ImageDetail, ['noteId', 'x', 'y']))
+        void settle(() => api.updateImage(id, place), imageStep('Put image on the board', item as ImageDetail, ['cardId', 'x', 'y']))
       }
       return
     }
@@ -484,13 +484,13 @@ export function NoteCanvas(props: NoteCanvasProps) {
       const drawing = drawings.find((d) => d.id === id)!
       const { x, y } = drawingRect(drawing)
       void settle(() => api.updateDrawing(id, { x, y }), drawingStep('Move drawing', drawing, ['x', 'y']))
-    } else if (gesture.kind === 'block' || gesture.kind === 'block-resize') {
-      const block = note.blocks.find((b) => b.id === id)!
-      const { x, y, width, height } = blockRect(block)
-      const moving = gesture.kind === 'block'
+    } else if (gesture.kind === 'component' || gesture.kind === 'component-resize') {
+      const component = card.components.find((b) => b.id === id)!
+      const { x, y, width, height } = componentRect(component)
+      const moving = gesture.kind === 'component'
       void settle(
-        () => api.updateNoteBlock(note.id, id, moving ? { x, y } : { x, y, width, height }),
-        (after) => step(moving ? 'Move block' : 'Resize block', [patched(target.block(note.id, id), snap.block(block), snap.block(after), ['x', 'y', 'width', 'height'])]),
+        () => api.updateCardComponent(card.id, id, moving ? { x, y } : { x, y, width, height }),
+        (after) => step(moving ? 'Move component' : 'Resize component', [patched(target.component(card.id, id), snap.component(component), snap.component(after), ['x', 'y', 'width', 'height'])]),
       )
     } else {
       const image = images.find((i) => i.id === id)!
@@ -500,13 +500,13 @@ export function NoteCanvas(props: NoteCanvasProps) {
     }
   }
 
-  const blocks = note.blocks.map((block) => ({ block, rect: blockRect(block) }))
+  const components = card.components.map((component) => ({ component, rect: componentRect(component) }))
   const placed = images.map((image) => ({ image, rect: imageRect(image) }))
   const strokes = drawings.map((drawing) => ({ drawing, rect: drawingRect(drawing) }))
-  const ghost = incoming && { ...incoming.image, ...onNoteCanvas(incoming.at, incoming.image) }
-  const drawingGhost = incomingDrawing && { drawing: incomingDrawing.drawing, at: onNoteCanvas(incomingDrawing.at, incomingDrawing.drawing) }
+  const ghost = incoming && { ...incoming.image, ...onCardCanvas(incoming.at, incoming.image) }
+  const drawingGhost = incomingDrawing && { drawing: incomingDrawing.drawing, at: onCardCanvas(incomingDrawing.at, incomingDrawing.drawing) }
   const items: Rect[] = [
-    ...blocks.map((b) => b.rect),
+    ...components.map((b) => b.rect),
     ...placed.map((p) => p.rect),
     ...strokes.map((s) => s.rect),
     ...(ghost ? [ghost] : []),
@@ -524,16 +524,16 @@ export function NoteCanvas(props: NoteCanvasProps) {
   const selectedDrawing = !readOnly && selection?.kind === 'drawing' ? strokes.find((s) => s.drawing.id === selection.id) : undefined
 
   return (
-    <div className={`note-viewport${incoming || incomingDrawing ? ' drop-over' : ''}`}>
+    <div className={`card-viewport${incoming || incomingDrawing ? ' drop-over' : ''}`}>
       <div
         ref={scrollRef}
-        className={`note-scroll${fileOver ? ' file-over' : ''}`}
+        className={`card-scroll${fileOver ? ' file-over' : ''}`}
         tabIndex={-1}
-        aria-label="Post-it content"
+        aria-label="Card content"
         onKeyDown={(e) => {
           if (readOnly || (e.target instanceof Element && e.target.closest('input, textarea, [contenteditable="true"]'))) return
           if (e.key === 'Escape' && penOn) {
-            // Escape puts the pen down before it closes the post-it.
+            // Escape puts the pen down before it closes the card.
             e.preventDefault()
             e.stopPropagation()
             togglePen()
@@ -565,13 +565,13 @@ export function NoteCanvas(props: NoteCanvasProps) {
           e.preventDefault()
           e.stopPropagation()
           setFileOver(false)
-          onAddImages(imageFiles(e.dataTransfer), toNote({ x: e.clientX, y: e.clientY }))
+          onAddImages(imageFiles(e.dataTransfer), toCard({ x: e.clientX, y: e.clientY }))
         }}
       >
         <div className="canvas-sizer" style={{ width: extent.width * zoom, height: extent.height * zoom }}>
           <div
             ref={canvasRef}
-            className={`note-canvas${pan ? ' panning' : spaceHeld ? ' space-pan' : ''}${drawingOn ? ' pen' : ''}`}
+            className={`card-canvas${pan ? ' panning' : spaceHeld ? ' space-pan' : ''}${drawingOn ? ' pen' : ''}`}
             style={{
               width: extent.width,
               height: extent.height,
@@ -618,49 +618,49 @@ export function NoteCanvas(props: NoteCanvasProps) {
               </div>
             ))}
 
-            {blocks.map(({ block, rect }) => (
-              <BlockFrame
-                key={block.id}
-                block={block}
+            {components.map(({ component, rect }) => (
+              <ComponentFrame
+                key={component.id}
+                component={component}
                 rect={rect}
-                selected={isPicked(selected, 'block', block.id)}
-                lifted={moves(block.id)}
-                matched={!!highlight && blockMatches(block, highlight)}
+                selected={isPicked(selected, 'component', component.id)}
+                lifted={moves(component.id)}
+                matched={!!highlight && componentMatches(component, highlight)}
                 readOnly={readOnly}
-                onHeadPointerDown={(e) => onItemPointerDown(e, 'block', block.id)}
-                onResizePointerDown={selection?.id === block.id ? (e, handle) => onItemPointerDown(e, 'block-resize', block.id, handle) : undefined}
-                onSelect={() => setSelection({ kind: 'block', id: block.id })}
-                onTitle={(title) => void saveBlock(block, { title })}
-                onRemove={() => remove('block', block.id)}
+                onHeadPointerDown={(e) => onItemPointerDown(e, 'component', component.id)}
+                onResizePointerDown={selection?.id === component.id ? (e, handle) => onItemPointerDown(e, 'component-resize', component.id, handle) : undefined}
+                onSelect={() => setSelection({ kind: 'component', id: component.id })}
+                onTitle={(title) => void saveComponent(component, { title })}
+                onRemove={() => remove('component', component.id)}
               >
-                {block.kind === 'Text' && (
-                  <TextBlock
-                    text={block.text ?? ''}
-                    autoFocus={focusBlock === block.id}
+                {component.kind === 'Text' && (
+                  <TextComponent
+                    text={component.text ?? ''}
+                    autoFocus={focusComponent === component.id}
                     readOnly={readOnly}
-                    onChange={(text) => void saveBlock(block, { text })}
+                    onChange={(text) => void saveComponent(component, { text })}
                   />
                 )}
-                {block.kind === 'Checklist' && (
-                  <ChecklistBlock
-                    items={block.items ?? []}
+                {component.kind === 'Checklist' && (
+                  <ChecklistComponent
+                    items={component.items ?? []}
                     highlight={highlight}
-                    autoFocus={focusBlock === block.id}
+                    autoFocus={focusComponent === component.id}
                     readOnly={readOnly}
-                    onChange={(items) => saveBlock(block, { items })}
+                    onChange={(items) => saveComponent(component, { items })}
                   />
                 )}
-                {block.kind === 'Links' && (
-                  <LinksBlock
-                    links={block.links ?? []}
+                {component.kind === 'Links' && (
+                  <LinksComponent
+                    links={component.links ?? []}
                     highlight={highlight}
-                    note={note}
-                    notes={notes}
-                    autoFocus={focusBlock === block.id}
-                    onChange={(links) => saveBlock(block, { links })}
+                    card={card}
+                    cards={cards}
+                    autoFocus={focusComponent === component.id}
+                    onChange={(links) => saveComponent(component, { links })}
                   />
                 )}
-              </BlockFrame>
+              </ComponentFrame>
             ))}
 
             {strokes.map(({ drawing, rect }) => (
@@ -695,7 +695,7 @@ export function NoteCanvas(props: NoteCanvasProps) {
 
             {drawingGhost && <IncomingDrawingView drawing={drawingGhost.drawing} at={drawingGhost.at} />}
 
-            {drawingOn && <PenRing ringRef={penRing} width={notePen.width} zoom={zoom} />}
+            {drawingOn && <PenRing ringRef={penRing} width={cardPen.width} zoom={zoom} />}
 
             {marquee && (
               <div className="marquee" aria-hidden="true" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />
@@ -704,13 +704,13 @@ export function NoteCanvas(props: NoteCanvasProps) {
         </div>
       </div>
 
-      {note.blocks.length === 0 && images.length === 0 && drawings.length === 0 && !incoming && !incomingDrawing && !drawingOn && (
-        <p className="note-empty">
-          {readOnly ? 'Nothing here yet.' : 'Add a note, a checklist or links from the bar below, draw with the pen, or paste or drop an image.'}
+      {card.components.length === 0 && images.length === 0 && drawings.length === 0 && !incoming && !incomingDrawing && !drawingOn && (
+        <p className="card-empty">
+          {readOnly ? 'Nothing here yet.' : 'Add text, a checklist or links from the bar below, draw with the pen, or paste or drop an image.'}
         </p>
       )}
 
-      <div className="zoom-controls note-zoom">
+      <div className="zoom-controls card-zoom">
         <button type="button" className="rail-button small" aria-label="Zoom out" disabled={zoom <= ZOOM_LEVELS[0]} onClick={() => zoomTo(stepZoom(zoom, -1))}>
           <MinusIcon />
         </button>
@@ -729,18 +729,18 @@ export function NoteCanvas(props: NoteCanvasProps) {
       </div>
 
       {!readOnly && (
-        <NoteBar
-          onAdd={addBlock}
+        <CardBar
+          onAdd={addComponent}
           onAddImage={onPickImages}
           pen={{
             on: penOn,
             onToggle: togglePen,
-            ink: notePen.ink,
-            onInkChange: notePen.setInk,
-            width: notePen.width,
-            onWidthChange: notePen.setWidth,
+            ink: cardPen.ink,
+            onInkChange: cardPen.setInk,
+            width: cardPen.width,
+            onWidthChange: cardPen.setWidth,
           }}
-          onDelete={onDeletePostIt}
+          onDelete={onDeleteCard}
         />
       )}
 

@@ -1,15 +1,15 @@
 import { useEffect, useImperativeHandle, useRef, useState, type RefObject } from 'react'
 import {
-  noteColors,
+  cardColors,
   type Assignee,
   type BoardPerson,
   type BoardTag,
   type BucketDetail,
   type DrawingDetail,
   type ImageDetail,
-  type NoteChanges,
-  type NoteColor,
-  type NoteDetail,
+  type CardChanges,
+  type CardColor,
+  type CardDetail,
   type Point,
   type TagColor,
 } from '../api/types'
@@ -19,9 +19,9 @@ import { EditableText } from './EditableText'
 import { draggingFiles, imageFiles } from './files'
 import { Highlight } from './Highlight'
 import { BucketIcon, CheckIcon, CloseIcon, LinkIcon, PutBackIcon, SparkleIcon, TrashIcon } from './icons'
-import { noteLabel, TITLE_SUGGESTION } from './links'
+import { cardLabel, TITLE_SUGGESTION } from './links'
 import { pop } from './motion'
-import { NoteCanvas, type IncomingDrawing, type IncomingImage, type NoteCanvasHandle } from './NoteCanvas'
+import { CardCanvas, type IncomingDrawing, type IncomingImage, type CardCanvasHandle } from './CardCanvas'
 import { tagColorClass, type TagColorPreview, type TagColors } from './tagColors'
 import { TagPicker } from './TagPicker'
 import type { RecordingRun } from './undo'
@@ -29,84 +29,84 @@ import { MAX_ASSIGNEES, MAX_TAGS } from './tags'
 import { useCopyLink } from './useCopyLink'
 import { useFloatingWindow } from './useFloatingWindow'
 
-/** What the board needs from the open post-it: its canvas, and whether a paste is meant for it. */
-export interface ExpandedNoteHandle extends NoteCanvasHandle {
+/** What the board needs from the open card: its canvas, and whether a paste is meant for it. */
+export interface ExpandedCardHandle extends CardCanvasHandle {
   /** The pointer is over the window, or focus is in it. */
   wantsPaste: () => boolean
   /** Whether a screen point is over the window. */
   contains: (client: Point) => boolean
-  /** A little pop of the window, when a post-it dropped on it was linked there. */
+  /** A little pop of the window, when a card dropped on it was linked there. */
   pop: () => void
 }
 
-interface ExpandedNoteProps {
-  note: NoteDetail
+interface ExpandedCardProps {
+  card: CardDetail
   bucket: BucketDetail | undefined
-  /** Focus and select the title, for a post-it that was just stuck on. */
+  /** Focus and select the title, for a card that was just stuck on. */
   focusTitle: boolean
-  onChange: (changes: NoteChanges) => Promise<boolean>
+  onChange: (changes: CardChanges) => Promise<boolean>
   /** The board's tags and the people who can be assigned, to pick from. */
   boardTags: BoardTag[]
-  /** How each tag shows, including a colour being previewed. */
+  /** How each tag shows, including a color being previewed. */
   tagColors: TagColors
   people: BoardPerson[]
   onRenameTag: (tag: BoardTag, name: string) => Promise<boolean>
   onRecolorTag: (tag: BoardTag, color: TagColor) => Promise<boolean>
   onPreviewTagColor: (preview: TagColorPreview | null) => void
   onDeleteTag: (tag: BoardTag) => Promise<boolean>
-  /** Deletes the post-it (undone with the toast's Undo button or Ctrl/Cmd+Z, so nothing asks first). */
+  /** Deletes the card (undone with the toast's Undo button or Ctrl/Cmd+Z, so nothing asks first). */
   onDelete: () => void
-  /** Images attached to this post-it. */
+  /** Images attached to this card. */
   images: ImageDetail[]
-  /** Pen strokes on this post-it (none for one in the trash). */
+  /** Pen strokes on this card (none for one in the trash). */
   drawings?: DrawingDetail[]
-  /** The post-its on the board, to link to and to show linked ones by their current title. */
-  notes: NoteDetail[]
-  /** Attaches images, at a point on the post-it's canvas or in a free spot. */
+  /** The cards on the board, to link to and to show linked ones by their current title. */
+  cards: CardDetail[]
+  /** Attaches images, at a point on the card's canvas or in a free spot. */
   onAddImages: (files: File[], at?: Point) => void
   onPickImages: () => void
   onClose: () => void
-  /** Viewers see the post-it without any way to change it (the API refuses changes anyway). */
+  /** Viewers see the card without any way to change it (the API refuses changes anyway). */
   readOnly?: boolean
   /** Words the board search found on it, to mark (opened from the search results). */
   highlight?: string[]
-  handle: RefObject<ExpandedNoteHandle | null>
+  handle: RefObject<ExpandedCardHandle | null>
   /** Runs a change through the board (which then reloads), recorded for undo. */
   run: RecordingRun
-  /** Whether a drag on the post-it's canvas is in progress, so the board holds back its refreshes. */
+  /** Whether a drag on the card's canvas is in progress, so the board holds back its refreshes. */
   onBusy: (busy: boolean) => void
   /** A board image being dragged over the window. */
   incoming: IncomingImage | null
   /** A board drawing being dragged over the window. */
   incomingDrawing?: IncomingDrawing | null
-  /** A post-it is being dragged over the window, to link it here. */
+  /** A card is being dragged over the window, to link it here. */
   linking: boolean
-  /** A screen point on the board in canvas pixels, when it is over the board; to drop images out of the post-it. */
+  /** A screen point on the board in canvas pixels, when it is over the board; to drop images out of the card. */
   boardPoint: (client: Point) => Point | null
   boardZoom: number
-  /** For a post-it in the trash (shown read only): putting it back on the board (not for viewers). */
+  /** For a card in the trash (shown read only): putting it back on the board (not for viewers). */
   deleted?: { onPutBack?: () => void }
 }
 
 /**
- * A post-it opened up in a window floating over the board: a header band in its fill, and the post-it's own small board
- * with its blocks and images. The board stays usable, and fully visible, around it.
+ * A card opened up in a window floating over the board: a header band in its fill, and the card's own small board
+ * with its components and images. The board stays usable, and fully visible, around it.
  */
-export function ExpandedNote(props: ExpandedNoteProps) {
-  const { note, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onClose, readOnly, highlight } = props
-  const { boardTags, tagColors, people, notes, onRenameTag, onRecolorTag, onPreviewTagColor, onDeleteTag, handle, run, onBusy, incoming, linking, boardPoint, boardZoom, deleted } = props
+export function ExpandedCard(props: ExpandedCardProps) {
+  const { card, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onClose, readOnly, highlight } = props
+  const { boardTags, tagColors, people, cards, onRenameTag, onRecolorTag, onPreviewTagColor, onDeleteTag, handle, run, onBusy, incoming, linking, boardPoint, boardZoom, deleted } = props
   const { drawings = [], incomingDrawing = null } = props
   /** The tag or people window, opened from its button in the band. */
   const [picking, setPicking] = useState<{ kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
   const [fileOver, setFileOver] = useState(false)
-  /** Whether the pointer is over the window: a paste then goes to the post-it. */
+  /** Whether the pointer is over the window: a paste then goes to the card. */
   const [hover, setHover] = useState(true)
   const dialogRef = useRef<HTMLElement>(null)
-  const canvas = useRef<NoteCanvasHandle>(null)
+  const canvas = useRef<CardCanvasHandle>(null)
   const titleRef = useRef<HTMLInputElement & HTMLTextAreaElement>(null)
   const { rect, moving, startMove, startResize } = useFloatingWindow(dialogRef)
 
-  // Focus goes to the window, or for a post-it just stuck on the board to its title with the text selected, so typing
+  // Focus goes to the window, or for a card just stuck on the board to its title with the text selected, so typing
   // replaces it. Only once the window shows: it is hidden until it has measured the board, and hidden things can't
   // take focus.
   const shown = rect !== null
@@ -120,7 +120,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
     }
   }, [shown, focusTitle, readOnly])
 
-  // Escape closes the post-it wherever focus is (it can end up on the page after saving the title). Fields and the
+  // Escape closes the card wherever focus is (it can end up on the page after saving the title). Fields and the
   // pickers handle their own Escape first and stop it from getting here.
   useEffect(() => {
     if (picking) return
@@ -143,7 +143,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
 
   useImperativeHandle(handle, () => ({
     hits: (client) => canvas.current?.hits(client) ?? false,
-    toNote: (client) => canvas.current!.toNote(client),
+    toCard: (client) => canvas.current!.toCard(client),
     pastePoint: () => canvas.current!.pastePoint(),
     wantsPaste: () => hover || !!dialogRef.current?.contains(document.activeElement),
     contains: (client) => {
@@ -162,7 +162,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
     <>
       <article
         ref={dialogRef}
-        className={`expanded fill-${note.color.toLowerCase()}${moving ? ' moving' : ''}${fileOver ? ' file-over' : ''}${readOnly ? ' read-only' : ''}${incoming || incomingDrawing || linking ? ' drop-over' : ''}`}
+        className={`expanded fill-${card.color.toLowerCase()}${moving ? ' moving' : ''}${fileOver ? ' file-over' : ''}${readOnly ? ' read-only' : ''}${incoming || incomingDrawing || linking ? ' drop-over' : ''}`}
         style={rect ? { left: rect.x, top: rect.y, width: rect.width, height: rect.height } : { visibility: 'hidden' }}
         // Images dropped on the band are attached in a free spot (the canvas takes drops where they land).
         onDragOver={(e) => {
@@ -184,7 +184,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
         }}
         role="dialog"
         aria-modal="false"
-        aria-label={noteLabel(note)}
+        aria-label={cardLabel(card)}
         tabIndex={-1}
       >
         <header className="band" onPointerDown={startMove}>
@@ -207,8 +207,8 @@ export function ExpandedNote(props: ExpandedNoteProps) {
                   Put back
                 </button>
               )}
-              {!deleted && <FillPicker value={note.color} onChange={(color) => void onChange({ color })} />}
-              {note.agentWorking && (
+              {!deleted && <FillPicker value={card.color} onChange={(color) => void onChange({ color })} />}
+              {card.agentWorking && (
                 <button
                   type="button"
                   className="agent-chip"
@@ -229,7 +229,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
           <EditableText
             className="band-title"
             label="Title"
-            value={note.title}
+            value={card.title}
             maxLength={200}
             placeholder={TITLE_SUGGESTION}
             fieldRef={titleRef}
@@ -238,36 +238,36 @@ export function ExpandedNote(props: ExpandedNoteProps) {
           />
           <div className="band-row">
             <TagChips
-              tags={note.tags}
+              tags={card.tags}
               tagColors={tagColors}
               highlight={highlight}
-              onRemove={(tag) => void onChange({ tags: note.tags.filter((t) => t !== tag) })}
+              onRemove={(tag) => void onChange({ tags: card.tags.filter((t) => t !== tag) })}
               onAdd={(anchor) => setPicking({ kind: 'tags', anchor })}
             />
             <AssigneeChips
-              assignees={note.assignees}
+              assignees={card.assignees}
               highlight={highlight}
-              onRemove={(a) => void onChange({ assigneeIds: note.assignees.filter((x) => x !== a).map((x) => x.principalId) })}
+              onRemove={(a) => void onChange({ assigneeIds: card.assignees.filter((x) => x !== a).map((x) => x.principalId) })}
               onAdd={(anchor) => setPicking({ kind: 'people', anchor })}
             />
           </div>
           <div className="band-row band-meta">
-            {note.createdBy ? (
-              <span title={new Date(note.createdAt).toLocaleString()}>
-                Created by <Highlight text={note.createdBy} terms={highlight} />
+            {card.createdBy ? (
+              <span title={new Date(card.createdAt).toLocaleString()}>
+                Created by <Highlight text={card.createdBy} terms={highlight} />
               </span>
             ) : (
               <span />
             )}
-            <NoteIdButton note={note} />
+            <CardIdButton card={card} />
           </div>
         </header>
 
-        <NoteCanvas
-          note={note}
+        <CardCanvas
+          card={card}
           images={images}
           drawings={drawings}
-          notes={notes}
+          cards={cards}
           highlight={highlight}
           readOnly={readOnly}
           handle={canvas}
@@ -279,7 +279,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
           onPickImages={onPickImages}
           boardPoint={boardPoint}
           boardZoom={boardZoom}
-          onDeletePostIt={onDelete}
+          onDeleteCard={onDelete}
         />
 
         <span className="window-resize e" aria-hidden="true" onPointerDown={startResize('e')} />
@@ -290,7 +290,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
       {picking?.kind === 'tags' && (
         <TagPicker
           anchor={picking.anchor}
-          tags={note.tags}
+          tags={card.tags}
           boardTags={boardTags}
           tagColors={tagColors}
           onChange={(tags) => onChange({ tags })}
@@ -304,7 +304,7 @@ export function ExpandedNote(props: ExpandedNoteProps) {
       {picking?.kind === 'people' && (
         <AssigneePicker
           anchor={picking.anchor}
-          assignees={note.assignees}
+          assignees={card.assignees}
           people={people}
           onChange={(assigneeIds) => onChange({ assigneeIds })}
           onClose={closePicker}
@@ -314,10 +314,10 @@ export function ExpandedNote(props: ExpandedNoteProps) {
   )
 }
 
-function FillPicker({ value, onChange }: { value: NoteColor; onChange: (color: NoteColor) => void }) {
+function FillPicker({ value, onChange }: { value: CardColor; onChange: (color: CardColor) => void }) {
   return (
     <div className="band-fills" role="group" aria-label="Fill">
-      {noteColors.map((c) => (
+      {cardColors.map((c) => (
         <button
           key={c}
           type="button"
@@ -388,15 +388,15 @@ function AssigneeChips({ assignees, highlight, onRemove, onAdd }: AssigneeChipsP
   )
 }
 
-/** The post-it's ID. Clicking it copies a link that opens this post-it. */
-function NoteIdButton({ note }: { note: NoteDetail }) {
+/** The card's ID. Clicking it copies a link that opens this card. */
+function CardIdButton({ card }: { card: CardDetail }) {
   /** Whether the last copy worked; null shows the ID again. */
-  const { copied, copy } = useCopyLink(note)
+  const { copied, copy } = useCopyLink(card)
 
   return (
-    <button type="button" className="note-id" title="Copy a link to this post-it" onClick={copy}>
+    <button type="button" className="card-id" title="Copy a link to this card" onClick={copy}>
       {copied ? <CheckIcon size={12} /> : <LinkIcon size={12} />}
-      <span aria-live="polite">{copied === null ? note.readableId : copied ? 'Link copied' : "Couldn't copy the link"}</span>
+      <span aria-live="polite">{copied === null ? card.readableId : copied ? 'Link copied' : "Couldn't copy the link"}</span>
     </button>
   )
 }

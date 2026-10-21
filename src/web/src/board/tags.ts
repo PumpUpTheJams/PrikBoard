@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 
-// Limits mirror the API's validation (src/PrikBoard.Api/Contracts/Notes.cs, Domain/NoteTags.cs).
+// Limits mirror the API's validation (src/PrikBoard.Api/Contracts/Cards.cs, Domain/CardTags.cs).
 export const MAX_TAGS = 10
 export const MAX_ASSIGNEES = 10
 export const MAX_TAG_LENGTH = 30
 
 /**
  * How the server stores a tag: trimmed, lower-cased, whitespace as hyphens ("Back end" is "back-end").
- * Mirrors NoteTags.Normalize in src/PrikBoard.Api/Domain/NoteTags.cs; keep the two in sync.
+ * Mirrors CardTags.Normalize in src/PrikBoard.Api/Domain/CardTags.cs; keep the two in sync.
  */
 export const normalizeTag = (tag: string) => tag.trim().toLowerCase().replace(/\s+/g, '-')
 

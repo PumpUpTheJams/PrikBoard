@@ -1,8 +1,8 @@
 import type { ComponentType, CSSProperties, PointerEvent, Ref } from 'react'
-import { noteColors, type InkColor, type NoteColor } from '../api/types'
+import { cardColors, type InkColor, type CardColor } from '../api/types'
 import { inkHex } from './drawings'
 import { PenOptions } from './DrawingView'
-import { FrameIcon, ImageIcon, PenIcon, PostItIcon, SearchIcon, SelectIcon, TrashIcon } from './icons'
+import { BucketToolIcon, ImageIcon, PenIcon, CardIcon, SearchIcon, SelectIcon, TrashIcon } from './icons'
 import type { Tool } from './tools'
 
 interface ToolDef {
@@ -19,17 +19,17 @@ const navigation: ToolDef[] = [{ tool: 'select', label: 'Select', shortcut: 'V',
 interface ToolRailProps {
   tool: Tool
   onToolChange: (tool: Tool) => void
-  /** Fill for new post-its. */
-  fill: NoteColor
-  /** A press on the post-it button: dragging from there sticks a new post-it where it is released. */
-  onPostItPointerDown?: (e: PointerEvent<HTMLButtonElement>) => void
+  /** Fill for new cards. */
+  fill: CardColor
+  /** A press on the card button: dragging from there sticks a new card where it is released. */
+  onCardPointerDown?: (e: PointerEvent<HTMLButtonElement>) => void
   /**
-   * While a post-it is dragged (or a new one carried), the post-it button is a trash can to drop it on; `over` while the
+   * While a card is dragged (or a new one carried), the card button is a trash can to drop it on; `over` while the
    * pointer is on it. The board hit-tests it through `trashRef`, since it holds the pointer during the drag.
    */
   trash?: 'shown' | 'over'
   trashRef?: Ref<HTMLButtonElement>
-  onFillChange: (fill: NoteColor) => void
+  onFillChange: (fill: CardColor) => void
   /** The pen's ink and base line width, picked in its flyout. */
   ink: InkColor
   onInkChange: (ink: InkColor) => void
@@ -46,7 +46,7 @@ interface ToolRailProps {
 
 /** The floating tool rail on the left of the board. */
 export function ToolRail(props: ToolRailProps) {
-  const { tool, onToolChange, fill, onFillChange, onPostItPointerDown, trash, trashRef, onAddImage, readOnly, searching, onSearch } = props
+  const { tool, onToolChange, fill, onFillChange, onCardPointerDown, trash, trashRef, onAddImage, readOnly, searching, onSearch } = props
   const { ink, onInkChange, strokeWidth, onStrokeWidthChange } = props
   const button = (
     { tool: t, label, shortcut, Icon, title }: ToolDef,
@@ -78,23 +78,23 @@ export function ToolRail(props: ToolRailProps) {
       {!readOnly && (
         <>
           <span className="rail-divider" aria-hidden="true" />
-          <div className="rail-note">
+          <div className="rail-anchor">
             {trash
               ? button(
-                  { tool: 'note', label: 'Trash', shortcut: 'N', Icon: TrashIcon, title: 'Drop a post-it here to delete it' },
+                  { tool: 'card', label: 'Trash', shortcut: 'N', Icon: TrashIcon, title: 'Drop a card here to delete it' },
                   `trash${trash === 'over' ? ' over' : ''}`,
-                  onPostItPointerDown,
+                  onCardPointerDown,
                   trashRef,
                 )
               : button(
-                  { tool: 'note', label: 'Post-it', shortcut: 'N', Icon: PostItIcon, title: 'Post-it (N): drag it onto the board, or click here and then on the board' },
+                  { tool: 'card', label: 'Card', shortcut: 'N', Icon: CardIcon, title: 'Card (N): drag it onto the board, or click here and then on the board' },
                   `tone-${fill.toLowerCase()}`,
-                  onPostItPointerDown,
+                  onCardPointerDown,
                   trashRef,
                 )}
-            {tool === 'note' && !trash && (
-              <div className="fill-flyout" role="group" aria-label="Fill for new post-its">
-                {noteColors.map((c) => (
+            {tool === 'card' && !trash && (
+              <div className="fill-flyout" role="group" aria-label="Fill for new cards">
+                {cardColors.map((c) => (
                   <button
                     key={c}
                     type="button"
@@ -108,14 +108,14 @@ export function ToolRail(props: ToolRailProps) {
               </div>
             )}
           </div>
-          {button({ tool: 'bucket', label: 'Bucket', shortcut: 'B', Icon: FrameIcon })}
+          {button({ tool: 'bucket', label: 'Bucket', shortcut: 'B', Icon: BucketToolIcon })}
           <button type="button" className="rail-button" aria-label="Image" title="Image (I), or paste or drop one on the board" onClick={onAddImage}>
             <ImageIcon />
           </button>
-          <div className="rail-note">
+          <div className="rail-anchor">
             {button({ tool: 'pen', label: 'Pen', shortcut: 'P', Icon: PenIcon }, 'pen-button', undefined, undefined, { '--pen-ink': inkHex[ink] } as CSSProperties)}
             {tool === 'pen' && (
-              <div className="fill-flyout pen-flyout" role="group" aria-label="Pen colour and size">
+              <div className="fill-flyout pen-flyout" role="group" aria-label="Pen color and size">
                 <PenOptions ink={ink} onInkChange={onInkChange} width={strokeWidth} onWidthChange={onStrokeWidthChange} />
               </div>
             )}

@@ -19,9 +19,9 @@ public static class DrawingEndpoints
             .RequireBoardRole(BoardRole.Editor)
             .WithName("createDrawing")
             .WithSummary("Draw a freehand stroke")
-            .WithDescription("Adds one pen stroke to the board, or to a note's own canvas with noteId. Send its top-left x and y " +
+            .WithDescription("Adds one pen stroke to the board, or to a card's own canvas with cardId. Send its top-left x and y " +
                              "(snapped to the 20 px grid), the points as [x, y, pressure] relative to that corner (not snapped), an ink " +
-                             "colour and a base stroke width of 2, 4 or 8. The response gives the box the stroke fills; the points " +
+                             "color and a base stroke width of 2, 4 or 8. The response gives the box the stroke fills; the points " +
                              $"come back from getDrawingContent. A board holds at most {BoardDrawing.MaxPerBoard} drawings (409 beyond that).")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
@@ -36,9 +36,9 @@ public static class DrawingEndpoints
         drawings.MapPatch("/drawings/{drawingId:guid}", UpdateDrawing)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Drawing)
             .WithName("updateDrawing")
-            .WithSummary("Move or recolour a drawing")
-            .WithDescription("Changes its position or ink, puts it on a note's canvas (noteId, with x and y on that canvas), or " +
-                             "puts a drawing on a note back on the board (detach, with x and y on the board). Omitted fields stay unchanged.")
+            .WithSummary("Move or recolor a drawing")
+            .WithDescription("Changes its position or ink, puts it on a card's canvas (cardId, with x and y on that canvas), or " +
+                             "puts a drawing on a card back on the board (detach, with x and y on the board). Omitted fields stay unchanged.")
             .ProducesValidationProblem();
 
         drawings.MapDelete("/drawings/{drawingId:guid}", DeleteDrawing)
@@ -52,7 +52,7 @@ public static class DrawingEndpoints
             .WithName("restoreDrawing")
             .WithSummary("Restore a deleted drawing")
             .WithDescription($"Brings back a drawing deleted in the last {Tombstones.RetentionText}, with the same id, place and points. " +
-                             "409 when it is not deleted, or when it was on a note that is deleted (restore the note instead).")
+                             "409 when it is not deleted, or when it was on a card that is deleted (restore the card instead).")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         return api;
@@ -63,13 +63,13 @@ public static class DrawingEndpoints
     {
         if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
 
-        var note = request.NoteId is null ? null : await db.Notes.FirstOrDefaultAsync(n => n.Id == request.NoteId && n.BoardId == boardId, ct);
-        if (request.NoteId is not null && note is null) return Invalid("noteId", "The note does not exist on this board.");
+        var card = request.CardId is null ? null : await db.Cards.FirstOrDefaultAsync(n => n.Id == request.CardId && n.BoardId == boardId, ct);
+        if (request.CardId is not null && card is null) return Invalid("cardId", "The card does not exist on this board.");
 
         var drawing = new BoardDrawing
         {
             BoardId = boardId,
-            NoteId = note?.Id,
+            CardId = card?.Id,
             Color = request.Color,
             StrokeWidth = request.StrokeWidth,
             AddedBy = await db.Principals.FindAsync([principal.PrincipalId()], ct),
@@ -90,7 +90,7 @@ public static class DrawingEndpoints
 
     /// <summary>
     /// Checks and sets <paramref name="drawing"/>'s points (with the size that follows) and places it at x and y: snapped
-    /// on the board, or snapped and kept on the canvas when it is on a note. Errors are keyed <c>{prefix}points[i]</c>.
+    /// on the board, or snapped and kept on the canvas when it is on a card. Errors are keyed <c>{prefix}points[i]</c>.
     /// </summary>
     internal static ValidationProblem? Build(BoardDrawing drawing, IReadOnlyList<double[]> points, int x, int y, string prefix)
     {
@@ -107,14 +107,14 @@ public static class DrawingEndpoints
         return null;
     }
 
-    /// <summary>Snaps x and y; on a note, also keeps the drawing on its canvas, at the last grid line that fits.</summary>
+    /// <summary>Snaps x and y; on a card, also keeps the drawing on its canvas, at the last grid line that fits.</summary>
     private static void Place(BoardDrawing drawing, int x, int y) =>
-        (drawing.X, drawing.Y) = drawing.NoteId is null
+        (drawing.X, drawing.Y) = drawing.CardId is null
             ? (Layout.Snap(x), Layout.Snap(y))
-            : (OnNote(x, drawing.Width), OnNote(y, drawing.Height));
+            : (OnCard(x, drawing.Width), OnCard(y, drawing.Height));
 
-    private static int OnNote(int value, int size) =>
-        Math.Clamp(Layout.Snap(value), 0, Math.Max(0, (Layout.NoteCanvasMax - size) / Layout.Grid * Layout.Grid));
+    private static int OnCard(int value, int size) =>
+        Math.Clamp(Layout.Snap(value), 0, Math.Max(0, (Layout.CardCanvasMax - size) / Layout.Grid * Layout.Grid));
 
     private static async Task<Results<Ok<DrawingContentDetail>, NotFound>> GetDrawingContent(
         Guid drawingId, HttpResponse response, PrikBoardDbContext db, CancellationToken ct)
@@ -137,27 +137,27 @@ public static class DrawingEndpoints
         if (drawing is null) return TypedResults.NotFound();
 
         var detach = request.Detach == true;
-        if (request.NoteId is not null && detach) return Invalid("detach", "Give either a noteId or detach, not both.");
-        var moving = (request.NoteId is { } to && to != drawing.NoteId) || (detach && drawing.NoteId is not null);
+        if (request.CardId is not null && detach) return Invalid("detach", "Give either a cardId or detach, not both.");
+        var moving = (request.CardId is { } to && to != drawing.CardId) || (detach && drawing.CardId is not null);
         if (moving && (request.X is null || request.Y is null))
         {
-            return Invalid(request.X is null ? "x" : "y", "Give x and y on the new canvas when moving between the board and a note.");
+            return Invalid(request.X is null ? "x" : "y", "Give x and y on the new canvas when moving between the board and a card.");
         }
         if (moving && !detach)
         {
-            if (!await db.Notes.AnyAsync(n => n.Id == request.NoteId && n.BoardId == drawing.BoardId, ct))
+            if (!await db.Cards.AnyAsync(n => n.Id == request.CardId && n.BoardId == drawing.BoardId, ct))
             {
-                return Invalid("noteId", "The note does not exist on this board.");
+                return Invalid("cardId", "The card does not exist on this board.");
             }
-            drawing.NoteId = request.NoteId;
+            drawing.CardId = request.CardId;
         }
         else if (moving)
         {
-            drawing.NoteId = null;
+            drawing.CardId = null;
         }
 
         Place(drawing, request.X ?? drawing.X, request.Y ?? drawing.Y);
-        // A drawing that moved joins the bucket it now sits in; only a new colour leaves it where it is.
+        // A drawing that moved joins the bucket it now sits in; only a new color leaves it where it is.
         if (moving || request.X is not null || request.Y is not null)
         {
             Layout.Place(drawing, await ImageEndpoints.StackAsync(db, drawing.BoardId, ct));
@@ -184,10 +184,10 @@ public static class DrawingEndpoints
             .FirstOrDefaultAsync(d => d.Id == drawingId, ct);
         if (drawing is null) return TypedResults.NotFound();
         if (drawing.DeletedAt is null) return TagEndpoints.NotDeleted("drawing");
-        if (drawing.NoteId is { } noteId && !await db.Notes.AnyAsync(n => n.Id == noteId, ct))
+        if (drawing.CardId is { } cardId && !await db.Cards.AnyAsync(n => n.Id == cardId, ct))
         {
-            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Note deleted",
-                detail: "The drawing is on a deleted note. Restore the note (restoreNote) to bring back its drawings.");
+            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Card deleted",
+                detail: "The drawing is on a deleted card. Restore the card (restoreCard) to bring back its drawings.");
         }
 
         drawing.DeletedAt = null;

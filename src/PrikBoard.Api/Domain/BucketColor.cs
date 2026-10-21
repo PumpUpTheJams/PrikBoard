@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace PrikBoard.Api.Domain;
 
-/// <summary>Bucket outline colour. Serialized as a string so API clients can use readable names.</summary>
+/// <summary>Bucket outline color. Serialized as a string so API clients can use readable names.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<BucketColor>))]
 public enum BucketColor
 {

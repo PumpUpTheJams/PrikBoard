@@ -1,44 +1,44 @@
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
-import type { ChecklistItem, NoteBlock, NoteDetail, NoteLink, Rect, ResizeHandle } from '../api/types'
-import { blockKinds } from './blockKinds'
+import type { ChecklistItem, CardComponent, CardDetail, CardLink, Rect, ResizeHandle } from '../api/types'
+import { componentKinds } from './componentKinds'
 import { EditableText } from './EditableText'
 import { Highlight } from './Highlight'
-import { CloseIcon, LinkIcon, PostItIcon, PullRequestIcon, TrashIcon } from './icons'
-import { isNoteId, linkedNote, noteLabel, notePath, noteRoute, type NoteRoute } from './links'
+import { CloseIcon, LinkIcon, CardIcon, PullRequestIcon, TrashIcon } from './icons'
+import { isCardId, linkedCard, cardLabel, cardPath, cardRoute, type CardRoute } from './links'
 import { ResizeHandles } from './ResizeHandles'
 
 // Loaded on first use, so react-markdown stays out of the main bundle.
 const MarkdownView = lazy(() => import('../components/MarkdownView'))
 
-interface BlockFrameProps {
-  block: NoteBlock
+interface ComponentFrameProps {
+  component: CardComponent
   /** Where to draw it: the server geometry, or the live geometry while moving or resizing. */
   rect: Rect
   selected: boolean
   lifted: boolean
-  /** The board search found its words in this block. */
+  /** The board search found its words in this component. */
   matched?: boolean
   readOnly?: boolean
-  /** A press on the header (outside the title) starts moving the block. */
+  /** A press on the header (outside the title) starts moving the component. */
   onHeadPointerDown: (e: PointerEvent<HTMLElement>) => void
   /**
    * A press on a corner or edge handle (shown while selected) starts resizing from there. Without it there are no
    * handles (one of several selected).
    */
   onResizePointerDown?: (e: PointerEvent<HTMLElement>, handle: ResizeHandle) => void
-  /** A press in the block's content selects it (the header and handles select it as they start a gesture). */
+  /** A press in the component's content selects it (the header and handles select it as they start a gesture). */
   onSelect: () => void
   onTitle: (title: string) => void
-  /** Asks to remove the block (the canvas confirms first). */
+  /** Asks to remove the component (the canvas confirms first). */
   onRemove: () => void
   children: ReactNode
 }
 
-/** A block on a post-it's canvas: a header to drag it by, with its kind and an optional title, and its content. */
-export function BlockFrame(props: BlockFrameProps) {
-  const { block, rect, selected, lifted, matched, readOnly, onHeadPointerDown, onResizePointerDown, onSelect, onTitle, onRemove, children } = props
-  const { label, Icon } = blockKinds[block.kind]
-  const classes = ['note-block', `kind-${block.kind.toLowerCase()}`]
+/** A component on a card's canvas: a header to drag it by, with its kind and an optional title, and its content. */
+export function ComponentFrame(props: ComponentFrameProps) {
+  const { component, rect, selected, lifted, matched, readOnly, onHeadPointerDown, onResizePointerDown, onSelect, onTitle, onRemove, children } = props
+  const { label, Icon } = componentKinds[component.kind]
+  const classes = ['card-component', `kind-${component.kind.toLowerCase()}`]
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
   if (matched) classes.push('matched')
@@ -47,19 +47,19 @@ export function BlockFrame(props: BlockFrameProps) {
     <section
       className={classes.join(' ')}
       style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
-      aria-label={block.title ?? label}
-      data-block={block.id}
+      aria-label={component.title ?? label}
+      data-component={component.id}
     >
-      <header className="block-head" title={readOnly ? undefined : 'Drag to move'} onPointerDown={onHeadPointerDown}>
+      <header className="component-head" title={readOnly ? undefined : 'Drag to move'} onPointerDown={onHeadPointerDown}>
         <Icon size={14} />
-        <BlockTitle value={block.title ?? ''} placeholder={label} readOnly={readOnly} onSave={onTitle} />
+        <ComponentTitle value={component.title ?? ''} placeholder={label} readOnly={readOnly} onSave={onTitle} />
         {!readOnly && (
-          <button type="button" className="block-remove" aria-label={`Remove ${block.title ?? label}`} title="Remove" onClick={onRemove}>
+          <button type="button" className="component-remove" aria-label={`Remove ${component.title ?? label}`} title="Remove" onClick={onRemove}>
             <TrashIcon size={13} />
           </button>
         )}
       </header>
-      <div className="block-body" onPointerDownCapture={onSelect}>
+      <div className="component-body" onPointerDownCapture={onSelect}>
         {children}
       </div>
       {selected && !readOnly && onResizePointerDown && <ResizeHandles onPointerDown={onResizePointerDown} />}
@@ -67,14 +67,14 @@ export function BlockFrame(props: BlockFrameProps) {
   )
 }
 
-/** The block's title: as wide as its text, so the rest of the header stays free to drag by. Saves on blur or Enter. */
-function BlockTitle({ value, placeholder, readOnly, onSave }: { value: string; placeholder: string; readOnly?: boolean; onSave: (value: string) => void }) {
+/** The component's title: as wide as its text, so the rest of the header stays free to drag by. Saves on blur or Enter. */
+function ComponentTitle({ value, placeholder, readOnly, onSave }: { value: string; placeholder: string; readOnly?: boolean; onSave: (value: string) => void }) {
   const [draft, setDraft] = useState<string | null>(null)
   const shown = draft ?? value
   return (
     <input
-      className="block-title"
-      aria-label="Block title"
+      className="component-title"
+      aria-label="Component title"
       value={shown}
       placeholder={placeholder}
       maxLength={100}
@@ -99,7 +99,7 @@ function BlockTitle({ value, placeholder, readOnly, onSave }: { value: string; p
   )
 }
 
-interface TextBlockProps {
+interface TextComponentProps {
   text: string
   autoFocus: boolean
   readOnly?: boolean
@@ -108,13 +108,13 @@ interface TextBlockProps {
 
 /**
  * Text in Markdown: rendered while it isn't being edited, and a plain text area while it is. A click on the rendered
- * text edits it (unless it lands on a link or ends a text selection); an empty block is always the text area.
+ * text edits it (unless it lands on a link or ends a text selection); an empty component is always the text area.
  */
-export function TextBlock({ text, autoFocus, readOnly, onChange }: TextBlockProps) {
+export function TextComponent({ text, autoFocus, readOnly, onChange }: TextComponentProps) {
   const [editing, setEditing] = useState(false)
   const field = useRef<HTMLInputElement & HTMLTextAreaElement>(null)
 
-  // Entering edit mode by clicking puts the text cursor at the end, rather than selecting everything like a new block.
+  // Entering edit mode by clicking puts the text cursor at the end, rather than selecting everything like a new component.
   useEffect(() => {
     const area = field.current
     if (!editing || !area) return
@@ -131,15 +131,15 @@ export function TextBlock({ text, autoFocus, readOnly, onChange }: TextBlockProp
   if (editing || (!text.trim() && !readOnly)) {
     return (
       <EditableText
-        className="block-text"
-        label="Note"
+        className="component-text"
+        label="Text"
         value={text}
         maxLength={4000}
         multiline
         autoFocus={autoFocus && !editing}
         readOnly={readOnly}
         fieldRef={field}
-        placeholder="Add details in Markdown: context, decisions, anything that doesn't fit on the post-it."
+        placeholder="Add details in Markdown: context, decisions, anything that doesn't fit on the card."
         onSave={onChange}
         onDone={() => setEditing(false)}
       />
@@ -148,7 +148,7 @@ export function TextBlock({ text, autoFocus, readOnly, onChange }: TextBlockProp
 
   return (
     <div
-      className="block-text block-view"
+      className="component-text component-view"
       title={readOnly ? undefined : 'Click to edit'}
       tabIndex={readOnly ? undefined : 0}
       onClick={edit}
@@ -159,14 +159,14 @@ export function TextBlock({ text, autoFocus, readOnly, onChange }: TextBlockProp
         }
       }}
     >
-      <Suspense fallback={<div className="block-plain">{text}</div>}>
+      <Suspense fallback={<div className="component-plain">{text}</div>}>
         <MarkdownView text={text} />
       </Suspense>
     </div>
   )
 }
 
-interface ChecklistBlockProps {
+interface ChecklistComponentProps {
   items: ChecklistItem[]
   /** Search words to mark. */
   highlight?: string[]
@@ -175,7 +175,7 @@ interface ChecklistBlockProps {
   onChange: (items: ChecklistItem[]) => Promise<boolean>
 }
 
-export function ChecklistBlock({ items, highlight, autoFocus, readOnly, onChange }: ChecklistBlockProps) {
+export function ChecklistComponent({ items, highlight, autoFocus, readOnly, onChange }: ChecklistComponentProps) {
   const [text, setText] = useState('')
   const done = items.filter((i) => i.done).length
 
@@ -188,7 +188,7 @@ export function ChecklistBlock({ items, highlight, autoFocus, readOnly, onChange
   return (
     <>
       {items.length > 0 && (
-        <span className="block-progress mono">
+        <span className="component-progress mono">
           {done} / {items.length}
         </span>
       )}
@@ -241,55 +241,55 @@ function webUrl(value: string): URL | null {
   }
 }
 
-interface LinksBlockProps {
-  links: NoteLink[]
+interface LinksComponentProps {
+  links: CardLink[]
   /** Search words to mark. */
   highlight?: string[]
-  /** The post-it the block is on, which is never offered as a link to itself. */
-  note: NoteDetail
-  notes: NoteDetail[]
+  /** The card the component is on, which is never offered as a link to itself. */
+  card: CardDetail
+  cards: CardDetail[]
   autoFocus: boolean
-  onChange: (links: NoteLink[]) => Promise<boolean>
+  onChange: (links: CardLink[]) => Promise<boolean>
 }
 
 /**
- * Links to web pages and to other post-its. The address field takes a URL or a post-it's link or ID, or finds post-its by
+ * Links to web pages and to other cards. The address field takes a URL or a card's link or ID, or finds cards by
  * title or readable id (MPCT-415, or just 415).
  */
-export function LinksBlock({ links, highlight, note, notes, autoFocus, onChange }: LinksBlockProps) {
+export function LinksComponent({ links, highlight, card, cards, autoFocus, onChange }: LinksComponentProps) {
   const [url, setUrl] = useState('')
   const [title, setTitle] = useState('')
   const [invalid, setInvalid] = useState(false)
   const query = url.trim()
-  // Typing words (not an address) looks for post-its on this board to link.
+  // Typing words (not an address) looks for cards on this board to link.
   const searching = query.length >= 2 && !/^(https?:|\/#)/i.test(query)
-  const linked = new Set(links.map((l) => linkedNote(notes, l.url)?.id))
+  const linked = new Set(links.map((l) => linkedCard(cards, l.url)?.id))
   const lower = query.toLowerCase()
   const matches = searching
-    ? notes
-        .filter((n) => n.id !== note.id && !linked.has(n.id))
+    ? cards
+        .filter((n) => n.id !== card.id && !linked.has(n.id))
         .filter((n) => n.title.toLowerCase().includes(lower) || n.readableId.toLowerCase().includes(lower) || n.id.startsWith(lower))
         .slice(0, 5)
     : []
 
-  async function addLink(link: NoteLink) {
+  async function addLink(link: CardLink) {
     if (await onChange([...links, link])) {
       setUrl('')
       setTitle('')
     }
   }
 
-  /** Links a post-it by its path, titled by its current title unless the person typed one. */
-  function addNote(target: NoteRoute) {
-    const found = linkedNote(notes, notePath(target))
-    return addLink({ title: title.trim() || (found ? noteLabel(found) : 'Post-it'), url: found?.path ?? notePath(target) })
+  /** Links a card by its path, titled by its current title unless the person typed one. */
+  function addCard(target: CardRoute) {
+    const found = linkedCard(cards, cardPath(target))
+    return addLink({ title: title.trim() || (found ? cardLabel(found) : 'Card'), url: found?.path ?? cardPath(target) })
   }
 
   async function add(e: FormEvent) {
     e.preventDefault()
-    const route = noteRoute(query) ?? (isNoteId(query) ? { board: note.boardId, note: lower } : null)
-    if (route) return addNote(route)
-    if (matches.length > 0) return addNote({ board: matches[0].boardId, note: matches[0].id })
+    const route = cardRoute(query) ?? (isCardId(query) ? { board: card.boardId, card: lower } : null)
+    if (route) return addCard(route)
+    if (matches.length > 0) return addCard({ board: matches[0].boardId, card: matches[0].id })
     const parsed = webUrl(query)
     if (!parsed) {
       setInvalid(true)
@@ -303,7 +303,7 @@ export function LinksBlock({ links, highlight, note, notes, autoFocus, onChange 
       <ul className="links">
         {links.map((link, i) => (
           <li key={i}>
-            <LinkRow link={link} notes={notes} highlight={highlight} />
+            <LinkRow link={link} cards={cards} highlight={highlight} />
             <button
               type="button"
               className="row-remove"
@@ -317,9 +317,9 @@ export function LinksBlock({ links, highlight, note, notes, autoFocus, onChange 
       </ul>
       <form className="widget-add link-add" onSubmit={add}>
         <input
-          aria-label="Link address, or a post-it to link"
+          aria-label="Link address, or a card to link"
           aria-invalid={invalid}
-          placeholder="https://… or a post-it"
+          placeholder="https://… or a card"
           value={url}
           maxLength={2000}
           autoFocus={autoFocus}
@@ -334,13 +334,13 @@ export function LinksBlock({ links, highlight, note, notes, autoFocus, onChange 
         </button>
       </form>
       {matches.length > 0 && (
-        <ul className="links link-suggestions" aria-label="Post-its to link">
+        <ul className="links link-suggestions" aria-label="Cards to link">
           {matches.map((n) => (
             <li key={n.id}>
-              <button type="button" className="link-row" onClick={() => void addNote({ board: n.boardId, note: n.id })}>
+              <button type="button" className="link-row" onClick={() => void addCard({ board: n.boardId, card: n.id })}>
                 <span className={`link-swatch fill-${n.color.toLowerCase()}`} aria-hidden="true" />
                 <span className="link-text">
-                  <span className="link-title">{noteLabel(n)}</span>
+                  <span className="link-title">{cardLabel(n)}</span>
                   <span className="link-meta">{n.readableId}</span>
                 </span>
               </button>
@@ -348,25 +348,25 @@ export function LinksBlock({ links, highlight, note, notes, autoFocus, onChange 
           ))}
         </ul>
       )}
-      {invalid && <p className="widget-error">Use a full http or https address, or a post-it's title, link or ID.</p>}
+      {invalid && <p className="widget-error">Use a full http or https address, or a card's title, link or ID.</p>}
     </>
   )
 }
 
-/** One link: a web page opens in a new tab; a post-it opens here, shown with its current title and fill. */
-function LinkRow({ link, notes, highlight }: { link: NoteLink; notes: NoteDetail[]; highlight?: string[] }) {
-  const route = noteRoute(link.url)
+/** One link: a web page opens in a new tab; a card opens here, shown with its current title and fill. */
+function LinkRow({ link, cards, highlight }: { link: CardLink; cards: CardDetail[]; highlight?: string[] }) {
+  const route = cardRoute(link.url)
   if (route) {
-    const target = linkedNote(notes, link.url)
+    const target = linkedCard(cards, link.url)
     return (
-      // Only the hash changes: the board opens the post-it, or App switches to its board.
-      <a className="link-row" href={(target?.path ?? notePath(route)).slice(1)}>
-        {target ? <span className={`link-swatch fill-${target.color.toLowerCase()}`} aria-hidden="true" /> : <PostItIcon size={16} />}
+      // Only the hash changes: the board opens the card, or App switches to its board.
+      <a className="link-row" href={(target?.path ?? cardPath(route)).slice(1)}>
+        {target ? <span className={`link-swatch fill-${target.color.toLowerCase()}`} aria-hidden="true" /> : <CardIcon size={16} />}
         <span className="link-text">
           <span className="link-title">
-            <Highlight text={target ? noteLabel(target) : link.title} terms={highlight} />
+            <Highlight text={target ? cardLabel(target) : link.title} terms={highlight} />
           </span>
-          <span className="link-meta">{target ? target.readableId : `On another board · ${route.board}/${route.note}`}</span>
+          <span className="link-meta">{target ? target.readableId : `On another board · ${route.board}/${route.card}`}</span>
         </span>
       </a>
     )

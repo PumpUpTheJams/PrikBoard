@@ -1,4 +1,4 @@
-import { SadPostItIcon } from '../board/icons'
+import { SadCardIcon } from '../board/icons'
 
 interface NoAccessProps {
   title?: string
@@ -18,7 +18,7 @@ export function NoAccess({
   return (
     <div className="empty no-access">
       <span className="board-tile large" aria-hidden="true">
-        <SadPostItIcon size={28} />
+        <SadCardIcon size={28} />
       </span>
       <h2>{title}</h2>
       <p>{message}</p>

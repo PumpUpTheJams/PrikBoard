@@ -3,17 +3,17 @@ namespace PrikBoard.Api.Domain;
 /// <summary>
 /// The geometry rules of a board. Coordinates are canvas pixels, snapped to a grid. The board has no edge: things can go
 /// left of and above the origin (negative coordinates) as well as right of and below it.
-/// A note, image or drawing put somewhere joins the topmost bucket containing its centre, and stays in it while buckets move (see
+/// A card, image or drawing put somewhere joins the topmost bucket containing its centre, and stays in it while buckets move (see
 /// the membership rules below); buckets stack in creation order, newest on top.
 /// </summary>
 public static class Layout
 {
     public const int Grid = 20;
-    public const int NoteWidth = 200;
-    public const int NoteHeight = 120;
-    /// <summary>Room for one column of notes with a gap on either side.</summary>
-    public const int MinBucketWidth = NoteWidth + 2 * Gap;
-    public const int MinBucketHeight = NoteHeight + 2 * Gap;
+    public const int CardWidth = 200;
+    public const int CardHeight = 120;
+    /// <summary>Room for one column of cards with a gap on either side.</summary>
+    public const int MinBucketWidth = CardWidth + 2 * Gap;
+    public const int MinBucketHeight = CardHeight + 2 * Gap;
     public const int DefaultBucketWidth = MinBucketWidth;
     public const int DefaultBucketHeight = 600;
     public const int MinCoordinate = -MaxCoordinate;
@@ -24,19 +24,19 @@ public static class Layout
     /// <summary>Width a new image gets when none is given (smaller images keep their own width).</summary>
     public const int DefaultImageWidth = 360;
     /// <summary>A collapsed bucket is a square this size in its top-right corner.</summary>
-    public const int CollapsedBucketSize = NoteHeight;
+    public const int CollapsedBucketSize = CardHeight;
 
-    /// <summary>A note's own canvas (its blocks and attached images) runs from 0 to this, in both directions.</summary>
-    public const int NoteCanvasMax = 10_000;
-    public const int MinBlockWidth = 160;
-    public const int MinBlockHeight = 80;
-    public const int MaxBlockSize = 2000;
+    /// <summary>A card's own canvas (its components and attached images) runs from 0 to this, in both directions.</summary>
+    public const int CardCanvasMax = 10_000;
+    public const int MinComponentWidth = 160;
+    public const int MinComponentHeight = 80;
+    public const int MaxComponentSize = 2000;
 
-    /// <summary>Gap between neighbouring notes and buckets, and the inset of notes from a bucket's edge.</summary>
+    /// <summary>Gap between neighbouring cards and buckets, and the inset of cards from a bucket's edge.</summary>
     private const int Gap = 20;
-    /// <summary>How far right blocks are laid out on a note's canvas before starting a new row.</summary>
-    private const int BlockAreaWidth = 1100;
-    /// <summary>How far right loose notes are laid out before starting a new row.</summary>
+    /// <summary>How far right components are laid out on a card's canvas before starting a new row.</summary>
+    private const int ComponentAreaWidth = 1100;
+    /// <summary>How far right loose cards are laid out before starting a new row.</summary>
     private const int LooseAreaWidth = 1200;
 
     public static int Snap(int value) => (int)Math.Round(value / (double)Grid, MidpointRounding.AwayFromZero) * Grid;
@@ -47,7 +47,7 @@ public static class Layout
     public static List<Bucket> BackToFront(IEnumerable<Bucket> buckets) =>
         buckets.OrderBy(b => b.CreatedAt).ThenBy(b => b.Id).ToList();
 
-    // Bucket membership. A note, image or drawing on the board keeps the bucket it is in (BucketId) until it moves itself: then
+    // Bucket membership. A card, image or drawing on the board keeps the bucket it is in (BucketId) until it moves itself: then
     // it joins the topmost bucket containing its centre (Place). Changes to buckets only touch the items they concern, so
     // moving a bucket onto another never moves items from one to the other: a moved bucket carries exactly its own items
     // and takes nothing; a resized one lets go of its items now outside it (Release) and takes loose ones it now covers
@@ -55,34 +55,34 @@ public static class Layout
     // A collapsed bucket keeps its items but takes no others: they would vanish into it (an item put into it by bucketId,
     // dropped on its square, is the exception).
 
-    /// <summary>Puts a note in the topmost bucket containing its centre (none: loose). For a note that moved.</summary>
-    public static void Place(Note note, IReadOnlyList<Bucket> stacked) => note.BucketId = TopmostAt(stacked, Centre(note))?.Id;
+    /// <summary>Puts a card in the topmost bucket containing its centre (none: loose). For a card that moved.</summary>
+    public static void Place(Card card, IReadOnlyList<Bucket> stacked) => card.BucketId = TopmostAt(stacked, Centre(card))?.Id;
 
-    /// <summary>Likewise for an image or drawing; one on a note is in no bucket.</summary>
+    /// <summary>Likewise for an image or drawing; one on a card is in no bucket.</summary>
     public static void Place(ICanvasItem item, IReadOnlyList<Bucket> stacked) =>
-        item.BucketId = item.NoteId is null ? TopmostAt(stacked, Centre(item))?.Id : null;
+        item.BucketId = item.CardId is null ? TopmostAt(stacked, Centre(item))?.Id : null;
 
-    /// <summary>Places every note, image and drawing by position, for a board built from scratch (an import).</summary>
-    public static void PlaceAll(IEnumerable<Note> notes, IEnumerable<ICanvasItem> items, IEnumerable<Bucket> buckets)
+    /// <summary>Places every card, image and drawing by position, for a board built from scratch (an import).</summary>
+    public static void PlaceAll(IEnumerable<Card> cards, IEnumerable<ICanvasItem> items, IEnumerable<Bucket> buckets)
     {
         var stacked = BackToFront(buckets);
-        foreach (var note in notes) Place(note, stacked);
+        foreach (var card in cards) Place(card, stacked);
         foreach (var item in items) Place(item, stacked);
     }
 
     /// <summary>
-    /// Keeps a note in its bucket while that bucket is still in <paramref name="stacked"/> and contains its centre;
-    /// otherwise places it by position. For a note coming back (restored) or let go by its bucket.
+    /// Keeps a card in its bucket while that bucket is still in <paramref name="stacked"/> and contains its centre;
+    /// otherwise places it by position. For a card coming back (restored) or let go by its bucket.
     /// </summary>
-    public static void Recheck(Note note, IReadOnlyList<Bucket> stacked)
+    public static void Recheck(Card card, IReadOnlyList<Bucket> stacked)
     {
-        if (!StillIn(note.BucketId, Centre(note), stacked)) Place(note, stacked);
+        if (!StillIn(card.BucketId, Centre(card), stacked)) Place(card, stacked);
     }
 
     /// <summary>Likewise for an image or drawing.</summary>
     public static void Recheck(ICanvasItem item, IReadOnlyList<Bucket> stacked)
     {
-        if (item.NoteId is not null || !StillIn(item.BucketId, Centre(item), stacked)) Place(item, stacked);
+        if (item.CardId is not null || !StillIn(item.BucketId, Centre(item), stacked)) Place(item, stacked);
     }
 
     /// <summary>
@@ -90,16 +90,16 @@ public static class Layout
     /// bucket drawn or restored around them) or, with <paramref name="looseOnly"/>, only loose ones (a bucket that grew).
     /// </summary>
     public static void Adopt(
-        Bucket bucket, IReadOnlyList<Bucket> stacked, IEnumerable<Note> notes, IEnumerable<ICanvasItem> items, bool looseOnly)
+        Bucket bucket, IReadOnlyList<Bucket> stacked, IEnumerable<Card> cards, IEnumerable<ICanvasItem> items, bool looseOnly)
     {
         if (bucket.Collapsed) return;
-        foreach (var note in notes)
+        foreach (var card in cards)
         {
-            if ((!looseOnly || note.BucketId is null) && TopmostAt(stacked, Centre(note)) == bucket) note.BucketId = bucket.Id;
+            if ((!looseOnly || card.BucketId is null) && TopmostAt(stacked, Centre(card)) == bucket) card.BucketId = bucket.Id;
         }
         foreach (var item in items)
         {
-            if (item.NoteId is null && (!looseOnly || item.BucketId is null) && TopmostAt(stacked, Centre(item)) == bucket)
+            if (item.CardId is null && (!looseOnly || item.BucketId is null) && TopmostAt(stacked, Centre(item)) == bucket)
             {
                 item.BucketId = bucket.Id;
             }
@@ -110,13 +110,13 @@ public static class Layout
     /// The items of <paramref name="bucket"/> that are no longer inside it go to whatever is under them (another bucket,
     /// or loose). Leave the bucket out of <paramref name="stacked"/> when it is deleted, and all its items go.
     /// </summary>
-    public static void Release(Bucket bucket, IReadOnlyList<Bucket> stacked, IEnumerable<Note> notes, IEnumerable<ICanvasItem> items)
+    public static void Release(Bucket bucket, IReadOnlyList<Bucket> stacked, IEnumerable<Card> cards, IEnumerable<ICanvasItem> items)
     {
-        foreach (var note in notes.Where(n => n.BucketId == bucket.Id)) Recheck(note, stacked);
+        foreach (var card in cards.Where(n => n.BucketId == bucket.Id)) Recheck(card, stacked);
         foreach (var item in items.Where(i => i.BucketId == bucket.Id)) Recheck(item, stacked);
     }
 
-    private static (int X, int Y) Centre(Note note) => (note.X + NoteWidth / 2, note.Y + NoteHeight / 2);
+    private static (int X, int Y) Centre(Card card) => (card.X + CardWidth / 2, card.Y + CardHeight / 2);
 
     private static (int X, int Y) Centre(ICanvasItem item) => (item.X + item.Width / 2, item.Y + item.Height / 2);
 
@@ -127,49 +127,49 @@ public static class Layout
     private static Bucket? TopmostAt(IReadOnlyList<Bucket> stacked, (int X, int Y) point) =>
         stacked.LastOrDefault(b => !b.Collapsed && b.Contains(point.X, point.Y));
 
-    /// <summary>Notes bucket by bucket (in stacking order, loose notes last), then top to bottom and left to right.</summary>
-    public static List<Note> ReadingOrder(IEnumerable<Note> notes, IEnumerable<Bucket> buckets)
+    /// <summary>Cards bucket by bucket (in stacking order, loose cards last), then top to bottom and left to right.</summary>
+    public static List<Card> ReadingOrder(IEnumerable<Card> cards, IEnumerable<Bucket> buckets)
     {
         var rank = BackToFront(buckets).Select((b, i) => (b.Id, i)).ToDictionary(p => p.Id, p => p.i);
-        return notes
+        return cards
             .OrderBy(n => n.BucketId is { } id && rank.TryGetValue(id, out var r) ? r : int.MaxValue)
             .ThenBy(n => n.Y).ThenBy(n => n.X)
             .ToList();
     }
 
     /// <summary>
-    /// The first grid slot inside <paramref name="bucket"/>, row by row, not covered by another note. When the bucket is
-    /// full it grows downwards by a row to make room, so buckets fit their notes the way frames on a board do. Slots
-    /// under a bucket stacked above it are skipped (the note would belong to that one), so a bucket growing towards
+    /// The first grid slot inside <paramref name="bucket"/>, row by row, not covered by another card. When the bucket is
+    /// full it grows downwards by a row to make room, so a bucket always fits its cards. Slots
+    /// under a bucket stacked above it are skipped (the card would belong to that one), so a bucket growing towards
     /// another one continues below it.
     /// </summary>
-    public static (int X, int Y) MakeRoomIn(Bucket bucket, IReadOnlyCollection<Note> notes, IEnumerable<Bucket> buckets)
+    public static (int X, int Y) MakeRoomIn(Bucket bucket, IReadOnlyCollection<Card> cards, IEnumerable<Bucket> buckets)
     {
         var above = BackToFront(buckets).SkipWhile(b => b.Id != bucket.Id).Skip(1).ToList();
         var left = bucket.X + Gap;
         var right = bucket.X + Math.Max(bucket.Width, MinBucketWidth) - Gap;
-        for (var y = bucket.Y + Gap; y + NoteHeight + Gap - bucket.Y <= MaxBucketSize; y += NoteHeight + Gap)
+        for (var y = bucket.Y + Gap; y + CardHeight + Gap - bucket.Y <= MaxBucketSize; y += CardHeight + Gap)
         {
-            for (var x = left; x + NoteWidth <= right; x += NoteWidth + Gap)
+            for (var x = left; x + CardWidth <= right; x += CardWidth + Gap)
             {
-                if (notes.Any(n => Overlaps(n.X, n.Y, NoteWidth, NoteHeight, x, y))) continue;
+                if (cards.Any(n => Overlaps(n.X, n.Y, CardWidth, CardHeight, x, y))) continue;
                 if (above.Any(b => Overlaps(b.X, b.Y, b.Width, b.Height, x, y))) continue;
-                bucket.Height = Math.Max(bucket.Height, y + NoteHeight + Gap - bucket.Y);
+                bucket.Height = Math.Max(bucket.Height, y + CardHeight + Gap - bucket.Y);
                 return (x, y);
             }
         }
         return (left, bucket.Y + Gap);
     }
 
-    /// <summary>The first grid slot near the top-left of the board that is clear of every bucket and note.</summary>
-    public static (int X, int Y) FreeSpotOutside(IReadOnlyCollection<Bucket> buckets, IReadOnlyCollection<Note> notes)
+    /// <summary>The first grid slot near the top-left of the board that is clear of every bucket and card.</summary>
+    public static (int X, int Y) FreeSpotOutside(IReadOnlyCollection<Bucket> buckets, IReadOnlyCollection<Card> cards)
     {
-        for (var y = Gap * 2; y < MaxCoordinate; y += NoteHeight + Gap)
+        for (var y = Gap * 2; y < MaxCoordinate; y += CardHeight + Gap)
         {
-            for (var x = Gap * 2; x < LooseAreaWidth; x += NoteWidth + Gap)
+            for (var x = Gap * 2; x < LooseAreaWidth; x += CardWidth + Gap)
             {
                 if (!buckets.Any(b => Overlaps(b.X, b.Y, b.Width, b.Height, x, y))
-                    && !notes.Any(n => Overlaps(n.X, n.Y, NoteWidth, NoteHeight, x, y)))
+                    && !cards.Any(n => Overlaps(n.X, n.Y, CardWidth, CardHeight, x, y)))
                 {
                     return (x, y);
                 }
@@ -180,11 +180,11 @@ public static class Layout
 
     /// <summary>Where a new image goes when no position is given: to the right of everything on the board.</summary>
     public static (int X, int Y) NextImageSpot(
-        IReadOnlyCollection<Bucket> buckets, IReadOnlyCollection<Note> notes, IReadOnlyCollection<BoardImage> images)
+        IReadOnlyCollection<Bucket> buckets, IReadOnlyCollection<Card> cards, IReadOnlyCollection<BoardImage> images)
     {
         var right = buckets.Select(b => b.X + b.Width)
-            .Concat(notes.Select(n => n.X + NoteWidth))
-            .Concat(images.Where(i => i.NoteId is null).Select(i => i.X + i.Width))
+            .Concat(cards.Select(n => n.X + CardWidth))
+            .Concat(images.Where(i => i.CardId is null).Select(i => i.X + i.Width))
             .DefaultIfEmpty(0)
             .Max();
         return (Snap(right + Gap * 2), Gap * 2);
@@ -194,36 +194,36 @@ public static class Layout
     public static (int X, int Y) NextBucketSpot(IReadOnlyCollection<Bucket> buckets) =>
         (buckets.Count == 0 ? Gap * 2 : buckets.Max(b => b.X + b.Width) + Gap * 2, Gap * 2);
 
-    /// <summary>The size a new block gets when none is given.</summary>
-    public static (int Width, int Height) DefaultBlockSize(NoteBlockKind kind) => kind switch
+    /// <summary>The size a new component gets when none is given.</summary>
+    public static (int Width, int Height) DefaultComponentSize(CardComponentKind kind) => kind switch
     {
-        NoteBlockKind.Checklist => (340, 260),
-        NoteBlockKind.Links => (360, 220),
+        CardComponentKind.Checklist => (340, 260),
+        CardComponentKind.Links => (360, 220),
         _ => (340, 220),
     };
 
-    /// <summary>Snaps a block to the grid and keeps it within the limits and on the note's canvas.</summary>
-    public static void Clamp(NoteBlock block)
+    /// <summary>Snaps a component to the grid and keeps it within the limits and on the card's canvas.</summary>
+    public static void Clamp(CardComponent component)
     {
-        block.Width = Math.Min(MaxBlockSize, SnapSize(block.Width, MinBlockWidth));
-        block.Height = Math.Min(MaxBlockSize, SnapSize(block.Height, MinBlockHeight));
-        block.X = Math.Clamp(Snap(block.X), 0, NoteCanvasMax - block.Width);
-        block.Y = Math.Clamp(Snap(block.Y), 0, NoteCanvasMax - block.Height);
+        component.Width = Math.Min(MaxComponentSize, SnapSize(component.Width, MinComponentWidth));
+        component.Height = Math.Min(MaxComponentSize, SnapSize(component.Height, MinComponentHeight));
+        component.X = Math.Clamp(Snap(component.X), 0, CardCanvasMax - component.Width);
+        component.Y = Math.Clamp(Snap(component.Y), 0, CardCanvasMax - component.Height);
     }
 
-    /// <summary>A position on a note's canvas, snapped and kept on it.</summary>
-    public static (int X, int Y) OnNoteCanvas(int x, int y, int width, int height) =>
-        (Math.Clamp(Snap(x), 0, Math.Max(0, NoteCanvasMax - width)), Math.Clamp(Snap(y), 0, Math.Max(0, NoteCanvasMax - height)));
+    /// <summary>A position on a card's canvas, snapped and kept on it.</summary>
+    public static (int X, int Y) OnCardCanvas(int x, int y, int width, int height) =>
+        (Math.Clamp(Snap(x), 0, Math.Max(0, CardCanvasMax - width)), Math.Clamp(Snap(y), 0, Math.Max(0, CardCanvasMax - height)));
 
     /// <summary>
-    /// The first grid slot on a note's canvas, row by row, where a <paramref name="width"/> by <paramref name="height"/>
-    /// rectangle keeps a gap from everything already there (its blocks and attached images).
+    /// The first grid slot on a card's canvas, row by row, where a <paramref name="width"/> by <paramref name="height"/>
+    /// rectangle keeps a gap from everything already there (its components and attached images).
     /// </summary>
-    public static (int X, int Y) NextNoteSpot(IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, int width, int height)
+    public static (int X, int Y) NextCardSpot(IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, int width, int height)
     {
-        for (var y = Gap; y + height <= NoteCanvasMax; y += Grid)
+        for (var y = Gap; y + height <= CardCanvasMax; y += Grid)
         {
-            for (var x = Gap; x == Gap || x + width <= BlockAreaWidth; x += Grid)
+            for (var x = Gap; x == Gap || x + width <= ComponentAreaWidth; x += Grid)
             {
                 if (!taken.Any(t => Intersects(t, (x - Gap, y - Gap, width + 2 * Gap, height + 2 * Gap)))) return (x, y);
             }
@@ -231,14 +231,14 @@ public static class Layout
         return (Gap, Gap);
     }
 
-    /// <summary>What is on a note's canvas: its blocks, and the images attached to it.</summary>
-    public static List<(int X, int Y, int Width, int Height)> TakenOnNote(Note note, IEnumerable<BoardImage> attached) =>
-        [.. note.Blocks.Select(b => (b.X, b.Y, b.Width, b.Height)), .. attached.Select(i => (i.X, i.Y, i.Width, i.Height))];
+    /// <summary>What is on a card's canvas: its components, and the images attached to it.</summary>
+    public static List<(int X, int Y, int Width, int Height)> TakenOnCard(Card card, IEnumerable<BoardImage> attached) =>
+        [.. card.Components.Select(b => (b.X, b.Y, b.Width, b.Height)), .. attached.Select(i => (i.X, i.Y, i.Width, i.Height))];
 
     public static bool Intersects((int X, int Y, int Width, int Height) a, (int X, int Y, int Width, int Height) b) =>
         a.X < b.X + b.Width && b.X < a.X + a.Width && a.Y < b.Y + b.Height && b.Y < a.Y + a.Height;
 
-    /// <summary>Whether a rectangle overlaps a note-sized rectangle at (<paramref name="noteX"/>, <paramref name="noteY"/>).</summary>
-    private static bool Overlaps(int x, int y, int width, int height, int noteX, int noteY) =>
-        x < noteX + NoteWidth && noteX < x + width && y < noteY + NoteHeight && noteY < y + height;
+    /// <summary>Whether a rectangle overlaps a card-sized rectangle at (<paramref name="cardX"/>, <paramref name="cardY"/>).</summary>
+    private static bool Overlaps(int x, int y, int width, int height, int cardX, int cardY) =>
+        x < cardX + CardWidth && cardX < x + width && y < cardY + CardHeight && cardY < y + height;
 }

@@ -7,7 +7,7 @@ interface ZoomOptions {
   onZoom?: () => void
   /**
    * `always`: the wheel zooms (the board); Shift + wheel, or a mostly sideways swipe, scrolls instead.
-   * `modifier` (default): only Ctrl/Cmd + wheel zooms, so the wheel still scrolls what is under it (a post-it's canvas).
+   * `modifier` (default): only Ctrl/Cmd + wheel zooms, so the wheel still scrolls what is under it (a card's canvas).
    * A trackpad pinch counts as Ctrl + wheel either way.
    */
   wheel?: 'always' | 'modifier'

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, errorMessage, loginUrl } from '../api/client'
 import type { AuthProvider } from '../api/types'
-import { PostItIcon } from '../board/icons'
+import { CardIcon } from '../board/icons'
 
 const authErrors: Record<string, string> = {
   failed: 'Signing in did not work. Please try again.',
@@ -35,7 +35,7 @@ export function SignIn() {
     <div className="sign-in">
       <div className="sign-in-card">
         <span className="board-tile large" aria-hidden="true">
-          <PostItIcon size={28} />
+          <CardIcon size={28} />
         </span>
         <h1>PrikBoard</h1>
         <p>Sign in to see your boards.</p>

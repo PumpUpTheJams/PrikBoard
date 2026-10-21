@@ -9,11 +9,11 @@ const starterRules = `## About this board
 What the project is and who it is for.
 
 ## How to handle tickets
-- Pick up notes from **To do**, call \`set_working\` and move them to **Doing**.
-- When a note is done, move it to **Done** and stop working on it.
+- Pick up cards from **To do**, call \`set_working\` and move them to **Doing**.
+- When a card is done, move it to **Done** and stop working on it.
 
 ## Don't
-- Delete notes; leave a comment in the body instead.
+- Delete cards; leave a comment in the body instead.
 `
 
 interface BoardRulesDialogProps {
@@ -25,7 +25,7 @@ interface BoardRulesDialogProps {
 
 /**
  * The board's agent rules: Markdown that owners write about what the board is for and how agents should handle its
- * notes. Agents read them over MCP and follow them in every action. Everyone on the board can read them; owners edit.
+ * cards. Agents read them over MCP and follow them in every action. Everyone on the board can read them; owners edit.
  */
 export function BoardRulesDialog({ board, onSave, onClose }: BoardRulesDialogProps) {
   const owner = board.yourRole === 'Owner'
@@ -62,7 +62,7 @@ export function BoardRulesDialog({ board, onSave, onClose }: BoardRulesDialogPro
       <Dialog title="Agent rules" subtitle={board.name} onClose={() => leave('close')} wide>
         <div className="dialog-body">
           <p className="dialog-hint">
-            What this board is about and how agents should handle its notes. Agents read these over MCP and follow them in every
+            What this board is about and how agents should handle its cards. Agents read these over MCP and follow them in every
             action{owner ? '' : '; only owners can change them'}.
           </p>
 

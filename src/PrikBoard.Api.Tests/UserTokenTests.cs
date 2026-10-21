@@ -77,8 +77,8 @@ public class UserTokenTests(UserTokenTests.Factory factory) : IClassFixture<User
         Assert.Equal(BoardRole.Owner, seen!.YourRole);
         Assert.Equal("Robin", (await write.GetFromJsonAsync<Caller>("/api/me"))!.DisplayName);
 
-        Assert.Equal(HttpStatusCode.Created, (await write.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "From VS Code" })).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await read.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "Nope" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await write.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "From VS Code" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await read.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Nope" })).StatusCode);
     }
 
     [Fact]

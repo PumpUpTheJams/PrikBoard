@@ -1,12 +1,12 @@
 import type { CSSProperties } from 'react'
-import type { InkColor, NoteBlockKind } from '../api/types'
+import type { InkColor, CardComponentKind } from '../api/types'
 import { inkHex } from './drawings'
 import { PenOptions } from './DrawingView'
 import { ImageIcon, PenIcon, TrashIcon } from './icons'
-import { blockKinds } from './blockKinds'
+import { componentKinds } from './componentKinds'
 
-/** The post-it's pen: whether it is on, and its ink and size. */
-export interface NotePen {
+/** The card's pen: whether it is on, and its ink and size. */
+export interface CardPen {
   on: boolean
   onToggle: () => void
   ink: InkColor
@@ -15,22 +15,22 @@ export interface NotePen {
   onWidthChange: (width: number) => void
 }
 
-interface NoteBarProps {
-  /** Adds a block of a kind in a free spot in view. */
-  onAdd: (kind: NoteBlockKind) => void
+interface CardBarProps {
+  /** Adds a component of a kind in a free spot in view. */
+  onAdd: (kind: CardComponentKind) => void
   /** Opens the file picker to attach images. */
   onAddImage: () => void
-  pen: NotePen
-  /** Asks to delete the whole post-it. */
+  pen: CardPen
+  /** Asks to delete the whole card. */
   onDelete: () => void
 }
 
-/** The expanded post-it's tool bar, styled like the board's tool rail but lying along the bottom. */
-export function NoteBar({ onAdd, onAddImage, pen, onDelete }: NoteBarProps) {
+/** The expanded card's tool bar, styled like the board's tool rail but lying along the bottom. */
+export function CardBar({ onAdd, onAddImage, pen, onDelete }: CardBarProps) {
   return (
-    <div className="rail note-bar" role="toolbar" aria-label="Post-it tools">
+    <div className="rail card-bar" role="toolbar" aria-label="Card tools">
       {(['Text', 'Checklist', 'Links'] as const).map((kind) => {
-        const { label, Icon } = blockKinds[kind]
+        const { label, Icon } = componentKinds[kind]
         return (
           <button key={kind} type="button" className="rail-button" aria-label={`Add ${label.toLowerCase()}`} title={`Add ${label.toLowerCase()}`} onClick={() => onAdd(kind)}>
             <Icon size={18} />
@@ -40,12 +40,12 @@ export function NoteBar({ onAdd, onAddImage, pen, onDelete }: NoteBarProps) {
       <button type="button" className="rail-button" aria-label="Add image" title="Add image, or paste or drop one here" onClick={onAddImage}>
         <ImageIcon />
       </button>
-      <div className="note-pen">
+      <div className="card-pen">
         <button
           type="button"
           className="rail-button pen-button"
           aria-label="Pen"
-          title="Pen (P): draw on the post-it"
+          title="Pen (P): draw on the card"
           aria-pressed={pen.on}
           style={{ '--pen-ink': inkHex[pen.ink] } as CSSProperties}
           onClick={pen.onToggle}
@@ -53,13 +53,13 @@ export function NoteBar({ onAdd, onAddImage, pen, onDelete }: NoteBarProps) {
           <PenIcon />
         </button>
         {pen.on && (
-          <div className="note-pen-flyout" role="group" aria-label="Pen colour and size">
+          <div className="card-pen-flyout" role="group" aria-label="Pen color and size">
             <PenOptions ink={pen.ink} onInkChange={pen.onInkChange} width={pen.width} onWidthChange={pen.onWidthChange} />
           </div>
         )}
       </div>
       <span className="rail-divider" aria-hidden="true" />
-      <button type="button" className="rail-button danger" aria-label="Delete post-it" title="Delete post-it" onClick={onDelete}>
+      <button type="button" className="rail-button danger" aria-label="Delete card" title="Delete card" onClick={onDelete}>
         <TrashIcon size={17} />
       </button>
     </div>

@@ -6,7 +6,7 @@ import { Face } from './Avatar'
 
 const MAX_SHOWN = 4
 
-/** Who else is looking at the board right now, each ringed in the colour their drags show in. */
+/** Who else is looking at the board right now, each ringed in the color their drags show in. */
 export function Presence({ viewers }: { viewers: LiveViewer[] }) {
   if (viewers.length === 0) return null
   const shown = viewers.slice(0, MAX_SHOWN)

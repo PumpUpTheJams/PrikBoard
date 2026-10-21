@@ -7,10 +7,10 @@ import type {
   DrawingDetail,
   ImageChanges,
   ImageDetail,
-  NoteBlock,
-  NoteBlockChanges,
-  NoteChanges,
-  NoteDetail,
+  CardComponent,
+  CardComponentChanges,
+  CardChanges,
+  CardDetail,
   TagChanges,
 } from '../api/types'
 import { onBoard } from './layout'
@@ -26,17 +26,17 @@ import { onBoard } from './layout'
 export type Snapshot = Record<string, unknown>
 
 export type UndoTarget =
-  | { kind: 'note'; id: string }
-  | { kind: 'block'; noteId: string; id: string }
-  /** `carry`: for a move, the post-its, images and drawings it took along. */
+  | { kind: 'card'; id: string }
+  | { kind: 'component'; cardId: string; id: string }
+  /** `carry`: for a move, the cards, images and drawings it took along. */
   | { kind: 'bucket'; id: string; carry?: BucketCarry }
   | { kind: 'image'; id: string }
   | { kind: 'drawing'; id: string }
   | { kind: 'tag'; id: string }
 
-/** What a moved bucket took along: post-its, and images and drawings on the board. */
+/** What a moved bucket took along: cards, and images and drawings on the board. */
 export interface BucketCarry {
-  notes: string[]
+  cards: string[]
   images: string[]
   drawings: string[]
 }
@@ -46,13 +46,13 @@ export interface UndoChange {
   target: UndoTarget
   before: Snapshot | null
   after: Snapshot | null
-  /** Changed as a side effect (post-its carried by a bucket): checked, but written by the bucket's move. */
+  /** Changed as a side effect (cards carried by a bucket): checked, but written by the bucket's move. */
   implied?: boolean
 }
 
 export interface UndoEntry {
   id: number
-  /** What the step did, e.g. "Move post-it". */
+  /** What the step did, e.g. "Move card". */
   label: string
   changes: UndoChange[]
   /** Consecutive steps with the same key become one (picking several tags in a row). */
@@ -74,8 +74,8 @@ export function undoEntry(label: string, changes: UndoChange[], options: { coale
 }
 
 export const target = {
-  note: (id: string): UndoTarget => ({ kind: 'note', id }),
-  block: (noteId: string, id: string): UndoTarget => ({ kind: 'block', noteId, id }),
+  card: (id: string): UndoTarget => ({ kind: 'card', id }),
+  component: (cardId: string, id: string): UndoTarget => ({ kind: 'component', cardId, id }),
   bucket: (id: string, carry?: BucketCarry): UndoTarget => ({ kind: 'bucket', id, carry }),
   image: (id: string): UndoTarget => ({ kind: 'image', id }),
   drawing: (id: string): UndoTarget => ({ kind: 'drawing', id }),
@@ -84,7 +84,7 @@ export const target = {
 
 /** The fields undo keeps of each kind of item. */
 export const snap = {
-  note: (n: NoteDetail): Snapshot => ({
+  card: (n: CardDetail): Snapshot => ({
     title: n.title,
     color: n.color,
     tags: n.tags,
@@ -92,9 +92,9 @@ export const snap = {
     agentWorking: n.agentWorking,
     x: n.x,
     y: n.y,
-    blocks: n.blocks,
+    components: n.components,
   }),
-  block: (b: NoteBlock): Snapshot => ({
+  component: (b: CardComponent): Snapshot => ({
     kind: b.kind,
     title: b.title,
     text: b.text,
@@ -106,8 +106,8 @@ export const snap = {
     height: b.height,
   }),
   bucket: (b: BucketDetail): Snapshot => ({ name: b.name, x: b.x, y: b.y, width: b.width, height: b.height, collapsed: b.collapsed }),
-  image: (i: ImageDetail): Snapshot => ({ noteId: i.noteId, x: i.x, y: i.y, width: i.width, caption: i.caption }),
-  drawing: (d: DrawingDetail): Snapshot => ({ noteId: d.noteId, x: d.x, y: d.y, color: d.color }),
+  image: (i: ImageDetail): Snapshot => ({ cardId: i.cardId, x: i.x, y: i.y, width: i.width, caption: i.caption }),
+  drawing: (d: DrawingDetail): Snapshot => ({ cardId: d.cardId, x: d.x, y: d.y, color: d.color }),
   tag: (t: BoardTag): Snapshot => ({ name: t.name, color: t.color }),
 }
 
@@ -128,30 +128,30 @@ export function step(label: string, changes: (UndoChange | null)[], options?: { 
   return real.length === 0 ? null : undoEntry(label, real, options)
 }
 
-const noteLabels: Record<keyof NoteChanges, string> = {
+const cardLabels: Record<keyof CardChanges, string> = {
   title: 'Edit title',
-  color: 'Change colour',
+  color: 'Change color',
   tags: 'Change tags',
   assigneeIds: 'Change people',
   agentWorking: 'Clear agent halo',
 }
 
-/** The step for an edit of a post-it's fields (updateNote). Picking tags or people one by one makes one step. */
-export function noteEdit(before: NoteDetail, after: NoteDetail, changes: NoteChanges): UndoEntry | null {
-  const keys = Object.keys(changes) as (keyof NoteChanges)[]
+/** The step for an edit of a card's fields (updateCard). Picking tags or people one by one makes one step. */
+export function cardEdit(before: CardDetail, after: CardDetail, changes: CardChanges): UndoEntry | null {
+  const keys = Object.keys(changes) as (keyof CardChanges)[]
   const list = keys.length === 1 && (keys[0] === 'tags' || keys[0] === 'assigneeIds') ? keys[0] : undefined
-  return step(keys.length === 1 ? noteLabels[keys[0]] : 'Edit post-it', [patched(target.note(before.id), snap.note(before), snap.note(after), keys)], {
-    coalesce: list && `note:${before.id}:${list}`,
+  return step(keys.length === 1 ? cardLabels[keys[0]] : 'Edit card', [patched(target.card(before.id), snap.card(before), snap.card(after), keys)], {
+    coalesce: list && `card:${before.id}:${list}`,
   })
 }
 
-const blockLabels: Record<string, string> = { title: 'Edit block title', text: 'Edit text', items: 'Edit checklist', links: 'Edit links' }
+const componentLabels: Record<string, string> = { title: 'Edit component title', text: 'Edit text', items: 'Edit checklist', links: 'Edit links' }
 
-/** The step for an edit of a block's content (updateNoteBlock). */
-export function blockEdit(noteId: string, before: NoteBlock, after: NoteBlock, changes: NoteBlockChanges): UndoEntry | null {
+/** The step for an edit of a component's content (updateCardComponent). */
+export function componentEdit(cardId: string, before: CardComponent, after: CardComponent, changes: CardComponentChanges): UndoEntry | null {
   const keys = Object.keys(changes)
-  const label = keys.length === 1 && blockLabels[keys[0]] ? blockLabels[keys[0]] : 'Edit block'
-  return step(label, [patched(target.block(noteId, before.id), snap.block(before), snap.block(after), keys)])
+  const label = keys.length === 1 && componentLabels[keys[0]] ? componentLabels[keys[0]] : 'Edit component'
+  return step(label, [patched(target.component(cardId, before.id), snap.component(before), snap.component(after), keys)])
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
@@ -159,13 +159,13 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stri
 /** An item's fields as they are on `board` now; null when it isn't there. */
 function read(board: BoardDetail, t: UndoTarget): Snapshot | null {
   switch (t.kind) {
-    case 'note': {
-      const note = board.notes.find((n) => n.id === t.id)
-      return note ? snap.note(note) : null
+    case 'card': {
+      const card = board.cards.find((n) => n.id === t.id)
+      return card ? snap.card(card) : null
     }
-    case 'block': {
-      const block = board.notes.find((n) => n.id === t.noteId)?.blocks.find((b) => b.id === t.id)
-      return block ? snap.block(block) : null
+    case 'component': {
+      const component = board.cards.find((n) => n.id === t.cardId)?.components.find((b) => b.id === t.id)
+      return component ? snap.component(component) : null
     }
     case 'bucket': {
       const bucket = board.buckets.find((b) => b.id === t.id)
@@ -187,8 +187,8 @@ function read(board: BoardDetail, t: UndoTarget): Snapshot | null {
 }
 
 const noun: Record<UndoTarget['kind'], string> = {
-  note: 'the post-it',
-  block: 'the block',
+  card: 'the card',
+  component: 'the component',
   bucket: 'the bucket',
   image: 'the image',
   drawing: 'the drawing',
@@ -205,7 +205,7 @@ export function check(entry: UndoEntry, direction: UndoDirection, board: BoardDe
     const expected = direction === 'undo' ? change.after : change.before
     const goal = direction === 'undo' ? change.before : change.after
     const now = read(board, t)
-    if (t.kind === 'block' && goal && !board.notes.some((n) => n.id === t.noteId)) return 'the post-it was deleted since'
+    if (t.kind === 'component' && goal && !board.cards.some((n) => n.id === t.cardId)) return 'the card was deleted since'
     if (expected === null) {
       if (now !== null) return `${noun[t.kind]} is back already`
     } else {
@@ -214,7 +214,7 @@ export function check(entry: UndoEntry, direction: UndoDirection, board: BoardDe
     }
     if (moving(t.id)) return `someone is moving ${noun[t.kind]} right now`
     if (!goal) continue
-    if (t.kind === 'note' && Array.isArray(goal.assigneeIds)) {
+    if (t.kind === 'card' && Array.isArray(goal.assigneeIds)) {
       const had = (now?.assigneeIds as string[] | undefined) ?? []
       const gone = (goal.assigneeIds as string[]).filter((id) => !had.includes(id) && !board.people.some((p) => p.principalId === id))
       if (gone.length > 0) return 'someone on it no longer has access to the board'
@@ -222,8 +222,8 @@ export function check(entry: UndoEntry, direction: UndoDirection, board: BoardDe
     if (t.kind === 'tag' && typeof goal.name === 'string' && board.tags.some((x) => x.id !== t.id && x.name === goal.name)) {
       return `a tag called “${goal.name}” exists now`
     }
-    if ((t.kind === 'image' || t.kind === 'drawing') && typeof goal.noteId === 'string' && !board.notes.some((n) => n.id === goal.noteId)) {
-      return 'its post-it was deleted since'
+    if ((t.kind === 'image' || t.kind === 'drawing') && typeof goal.cardId === 'string' && !board.cards.some((n) => n.id === goal.cardId)) {
+      return 'its card was deleted since'
     }
   }
   return null
@@ -246,8 +246,8 @@ const text = (value: unknown) => (value ?? '') as string
 
 async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, boardId: string) {
   if (to === null) {
-    if (t.kind === 'note') await api.deleteNote(t.id)
-    else if (t.kind === 'block') await api.deleteNoteBlock(t.noteId, t.id)
+    if (t.kind === 'card') await api.deleteCard(t.id)
+    else if (t.kind === 'component') await api.deleteCardComponent(t.cardId, t.id)
     else if (t.kind === 'bucket') await api.deleteBucket(t.id)
     else if (t.kind === 'image') await api.deleteImage(t.id)
     else if (t.kind === 'drawing') await api.deleteDrawing(t.id)
@@ -255,10 +255,10 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
     return
   }
   if (from === null) {
-    if (t.kind === 'note') await api.restoreNote(t.id)
-    else if (t.kind === 'block') {
-      const b = to as unknown as NoteBlock
-      await api.addNoteBlock(t.noteId, { id: t.id, kind: b.kind, title: b.title, text: b.text, items: b.items, links: b.links, x: b.x, y: b.y, width: b.width, height: b.height })
+    if (t.kind === 'card') await api.restoreCard(t.id)
+    else if (t.kind === 'component') {
+      const b = to as unknown as CardComponent
+      await api.addCardComponent(t.cardId, { id: t.id, kind: b.kind, title: b.title, text: b.text, items: b.items, links: b.links, x: b.x, y: b.y, width: b.width, height: b.height })
     } else if (t.kind === 'bucket') await api.restoreBucket(t.id)
     else if (t.kind === 'image') await api.restoreImage(t.id)
     else if (t.kind === 'drawing') await api.restoreDrawing(t.id)
@@ -266,29 +266,29 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
     return
   }
   switch (t.kind) {
-    case 'note': {
-      const { x, y, blocks: _blocks, ...rest } = to
-      if (x !== undefined) await api.moveNote(t.id, { x: x as number, y: y as number })
-      if (Object.keys(rest).length > 0) await api.updateNote(t.id, rest as NoteChanges)
+    case 'card': {
+      const { x, y, components: _components, ...rest } = to
+      if (x !== undefined) await api.moveCard(t.id, { x: x as number, y: y as number })
+      if (Object.keys(rest).length > 0) await api.updateCard(t.id, rest as CardChanges)
       return
     }
-    case 'block': {
-      const changes = { ...to } as NoteBlockChanges
+    case 'component': {
+      const changes = { ...to } as CardComponentChanges
       if ('title' in to) changes.title = text(to.title)
       if ('text' in to) changes.text = text(to.text)
-      await api.updateNoteBlock(t.noteId, t.id, changes)
+      await api.updateCardComponent(t.cardId, t.id, changes)
       return
     }
     case 'bucket': {
       const at = (key: string) => to[key] as number | undefined
       if ('width' in to || 'height' in to) {
-        // A new place with a new size is a resize: the post-its stay.
+        // A new place with a new size is a resize: the cards stay.
         await api.updateBucket(t.id, { x: at('x'), y: at('y'), width: at('width'), height: at('height') })
       } else if ('x' in to) {
         await api.updateBucket(t.id, {
           x: at('x'),
           y: at('y'),
-          carryNoteIds: t.carry?.notes ?? [],
+          carryCardIds: t.carry?.cards ?? [],
           carryImageIds: t.carry?.images ?? [],
           carryDrawingIds: t.carry?.drawings ?? [],
         })
@@ -299,8 +299,8 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
     }
     case 'image': {
       const changes: ImageChanges = {}
-      if ('noteId' in to) {
-        if (to.noteId) changes.noteId = to.noteId as string
+      if ('cardId' in to) {
+        if (to.cardId) changes.cardId = to.cardId as string
         else changes.detach = true
       }
       if ('x' in to) Object.assign(changes, { x: to.x, y: to.y })
@@ -311,8 +311,8 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
     }
     case 'drawing': {
       const changes: DrawingChanges = {}
-      if ('noteId' in to) {
-        if (to.noteId) changes.noteId = to.noteId as string
+      if ('cardId' in to) {
+        if (to.cardId) changes.cardId = to.cardId as string
         else changes.detach = true
       }
       if ('x' in to) Object.assign(changes, { x: to.x, y: to.y })
@@ -326,7 +326,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
 }
 
 /**
- * A moved bucket carries its post-its, images and drawings by the same distance, but never past the end of the coordinate range.
+ * A moved bucket carries its cards, images and drawings by the same distance, but never past the end of the coordinate range.
  * One that was stopped there on the way doesn't come back exactly, so it is put where it belongs. Only what this bucket
  * carried: a step that moved several buckets has the others' too.
  */
@@ -334,17 +334,17 @@ async function fixCarried(entry: UndoEntry, direction: UndoDirection, carry: Buc
   if (!('x' in to) || 'width' in to || 'height' in to) return
   const dx = (to.x as number) - (from.x as number)
   const dy = (to.y as number) - (from.y as number)
-  const carried = new Set([...(carry?.notes ?? []), ...(carry?.images ?? []), ...(carry?.drawings ?? [])])
+  const carried = new Set([...(carry?.cards ?? []), ...(carry?.images ?? []), ...(carry?.drawings ?? [])])
   for (const change of entry.changes) {
     const kind = change.target.kind
-    if (!change.implied || (kind !== 'note' && kind !== 'image' && kind !== 'drawing') || !carried.has(change.target.id)) continue
+    if (!change.implied || (kind !== 'card' && kind !== 'image' && kind !== 'drawing') || !carried.has(change.target.id)) continue
     const was = direction === 'undo' ? change.after : change.before
     const goal = direction === 'undo' ? change.before : change.after
     if (!was || !goal) continue
     const landed = { x: onBoard((was.x as number) + dx), y: onBoard((was.y as number) + dy) }
     if (landed.x === goal.x && landed.y === goal.y) continue
     const place = { x: goal.x as number, y: goal.y as number }
-    if (kind === 'note') await api.moveNote(change.target.id, place)
+    if (kind === 'card') await api.moveCard(change.target.id, place)
     else if (kind === 'image') await api.updateImage(change.target.id, place)
     else await api.updateDrawing(change.target.id, place)
   }

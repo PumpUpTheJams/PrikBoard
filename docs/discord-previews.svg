@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 800" width="760" height="800" font-family="Geist, 'Segoe UI', Helvetica, Arial, sans-serif">
   <title>PrikBoard link previews in Discord</title>
-  <desc>Four previews: the anonymous card any chat shows for a PrikBoard link, and the integration's embeds for a post-it, a board and an invite.</desc>
+  <desc>Four previews: the anonymous link preview any chat shows for a PrikBoard link, and the integration's embeds for a card, a board and an invite.</desc>
   <defs>
-    <g id="postit">
+    <g id="card">
       <path d="M4 4h24v17l-7 7H4z" fill="#ffd54f"/>
       <path d="M28 21h-7v7z" fill="#f9a825"/>
       <path d="M9 11h14M9 16h10" stroke="#5d4037" stroke-width="2" stroke-linecap="round"/>
@@ -13,17 +13,17 @@
     </g>
     <g id="bot">
       <rect width="32" height="32" rx="16" fill="#16181d"/>
-      <use href="#postit" transform="translate(6 6) scale(0.62)"/>
+      <use href="#card" transform="translate(6 6) scale(0.62)"/>
     </g>
   </defs>
 
   <rect width="760" height="800" rx="12" fill="#313338"/>
 
-  <!-- 1: anonymous card -->
-  <text x="24" y="34" font-size="12" fill="#949ba4">1 · Any chat, or a Discord server without the integration: one fixed card for every PrikBoard link</text>
+  <!-- 1: anonymous link preview -->
+  <text x="24" y="34" font-size="12" fill="#949ba4">1 · Any chat, or a Discord server without the integration: one fixed preview for every PrikBoard link</text>
   <use href="#avatar" x="24" y="52"/>
   <text x="68" y="64" font-size="14" font-weight="600" fill="#f2f3f5">Daniel <tspan font-size="11" font-weight="400" fill="#949ba4">Today at 10:42</tspan></text>
-  <text x="68" y="84" font-size="14" fill="#00a8fc">https://prikboard.example/#/boards/7kx2qd/notes/109</text>
+  <text x="68" y="84" font-size="14" fill="#00a8fc">https://prikboard.example/#/boards/7kx2qd/cards/109</text>
   <rect x="68" y="96" width="460" height="96" rx="4" fill="#2b2d31"/>
   <rect x="68" y="96" width="4" height="96" fill="#ffd54f"/>
   <text x="84" y="118" font-size="12" fill="#dbdee1">PrikBoard</text>
@@ -31,20 +31,20 @@
   <text x="84" y="162" font-size="13" fill="#dbdee1">Neither you nor a PrikBoard integration is signed</text>
   <text x="84" y="180" font-size="13" fill="#dbdee1">in here. Open the link to sign in and see it.</text>
   <rect x="452" y="108" width="64" height="64" rx="6" fill="#16181d"/>
-  <use href="#postit" transform="translate(460 114) scale(1.4)"/>
+  <use href="#card" transform="translate(460 114) scale(1.4)"/>
   <circle cx="502" cy="158" r="11" fill="#16181d"/>
   <circle cx="502" cy="158" r="8.5" fill="#949ba4"/>
   <circle cx="502" cy="155" r="2.6" fill="#16181d"/>
   <path d="M497.5 163a4.5 3.6 0 0 1 9 0z" fill="#16181d"/>
   <path d="M496 152l12 12" stroke="#16181d" stroke-width="1.8" stroke-linecap="round"/>
 
-  <!-- 2: post-it embed -->
-  <text x="24" y="232" font-size="12" fill="#949ba4">2 · With the integration, a post-it on a connected board: its description when it has one</text>
+  <!-- 2: card embed -->
+  <text x="24" y="232" font-size="12" fill="#949ba4">2 · With the integration, a card on a connected board: its description when it has one</text>
   <use href="#bot" x="24" y="248"/>
   <text x="68" y="262" font-size="14" font-weight="600" fill="#f2f3f5">PrikBoard <tspan font-size="10" font-weight="600" fill="#fff" dx="4">APP</tspan></text>
   <rect x="68" y="272" width="460" height="112" rx="4" fill="#2b2d31"/>
   <rect x="68" y="272" width="4" height="112" fill="#a5d6a7"/>
-  <use href="#postit" transform="translate(84 284) scale(0.44)"/>
+  <use href="#card" transform="translate(84 284) scale(0.44)"/>
   <text x="104" y="296" font-size="12" fill="#dbdee1">PrikBoard</text>
   <text x="84" y="320" font-size="15" font-weight="600" fill="#00a8fc">PRIK-109 · Return to the previous board after admin</text>
   <text x="84" y="342" font-size="13" fill="#dbdee1">After closing the admin page you land on the first board</text>
@@ -57,7 +57,7 @@
   <text x="68" y="454" font-size="14" font-weight="600" fill="#f2f3f5">PrikBoard <tspan font-size="10" font-weight="600" fill="#fff" dx="4">APP</tspan></text>
   <rect x="68" y="464" width="460" height="96" rx="4" fill="#2b2d31"/>
   <rect x="68" y="464" width="4" height="96" fill="#ffd54f"/>
-  <use href="#postit" transform="translate(84 476) scale(0.44)"/>
+  <use href="#card" transform="translate(84 476) scale(0.44)"/>
   <text x="104" y="488" font-size="12" fill="#dbdee1">PrikBoard</text>
   <text x="84" y="512" font-size="15" font-weight="600" fill="#00a8fc">Marketing site</text>
   <text x="84" y="534" font-size="13" fill="#dbdee1">The new marketing site: copy, design and the launch</text>
@@ -69,7 +69,7 @@
   <text x="68" y="630" font-size="14" font-weight="600" fill="#f2f3f5">PrikBoard <tspan font-size="10" font-weight="600" fill="#fff" dx="4">APP</tspan></text>
   <rect x="68" y="640" width="460" height="128" rx="4" fill="#2b2d31"/>
   <rect x="68" y="640" width="4" height="128" fill="#ffd54f"/>
-  <use href="#postit" transform="translate(84 652) scale(0.44)"/>
+  <use href="#card" transform="translate(84 652) scale(0.44)"/>
   <text x="104" y="664" font-size="12" fill="#dbdee1">PrikBoard</text>
   <text x="84" y="688" font-size="15" font-weight="600" fill="#00a8fc">You're invited to join Marketing site</text>
   <text x="84" y="710" font-size="13" fill="#dbdee1">Daniel invited you as <tspan font-weight="600">Editor</tspan> · expires 28 Oct</text>

@@ -30,7 +30,7 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         Assert.Equal((800, 600), (image.PixelWidth, image.PixelHeight));
         // Default buckets end at 840; images go 40 px to the right, at most 360 px wide, keeping the aspect ratio.
         Assert.Equal((880, 40, 360, 270), (image.X, image.Y, image.Width, image.Height));
-        Assert.Null(image.NoteId);
+        Assert.Null(image.CardId);
         var me = await _client.MeAsync();
         Assert.Equal((me.DisplayName, me.Id), (image.AddedBy, image.AddedById));
 
@@ -132,7 +132,7 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         string Stray(Guid? boardId) => store.PathOf(StoredFile.For(boardId, "stray.png", "image/png", [1]));
         var (old, recent, oldAvatar) = (Stray(board.Id), Stray(board.Id), Stray(null));
         var lostAndFound = Path.Combine(store.Root, "lost+found", Guid.NewGuid().ToString());
-        var notOurs = Path.Combine(Path.GetDirectoryName(old)!, "notes.txt");
+        var notOurs = Path.Combine(Path.GetDirectoryName(old)!, "cards.txt");
         foreach (var path in new[] { old, recent, oldAvatar, lostAndFound, notOurs })
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -233,62 +233,62 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
-    public async Task Images_attached_to_a_note_go_when_the_note_goes()
+    public async Task Images_attached_to_a_card_go_when_the_card_goes()
     {
         var board = await CreateBoard("Attached");
-        var noteResponse = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "With a screenshot" });
-        var note = (await noteResponse.Content.ReadFromJsonAsync<NoteDetail>())!;
+        var cardResponse = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "With a screenshot" });
+        var card = (await cardResponse.Content.ReadFromJsonAsync<CardDetail>())!;
 
-        var image = await Upload(board.Id, TestImages.Png(300, 200), "image/png", $"?noteId={note.Id}");
-        Assert.Equal(note.Id, image.NoteId);
+        var image = await Upload(board.Id, TestImages.Png(300, 200), "image/png", $"?cardId={card.Id}");
+        Assert.Equal(card.Id, image.CardId);
 
-        (await _client.DeleteAsync($"/api/notes/{note.Id}")).EnsureSuccessStatusCode();
+        (await _client.DeleteAsync($"/api/cards/{card.Id}")).EnsureSuccessStatusCode();
         var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
         Assert.Empty(snapshot!.Images);
     }
 
     [Fact]
-    public async Task Images_on_a_note_have_a_place_on_its_canvas_clear_of_its_blocks()
+    public async Task Images_on_a_card_have_a_place_on_its_canvas_clear_of_its_components()
     {
-        var board = await CreateBoard("Note canvas");
-        var noteResponse = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "Canvas", blocks = new[] { new { kind = "Text" } } });
-        var note = (await noteResponse.Content.ReadFromJsonAsync<NoteDetail>())!;
+        var board = await CreateBoard("Card canvas");
+        var cardResponse = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Canvas", components = new[] { new { kind = "Text" } } });
+        var card = (await cardResponse.Content.ReadFromJsonAsync<CardDetail>())!;
 
-        var placed = await Upload(board.Id, TestImages.Png(300, 200), "image/png", $"?noteId={note.Id}&x=505&y=611");
-        var free = await Upload(board.Id, TestImages.Png(300, 200), "image/png", $"?noteId={note.Id}");
+        var placed = await Upload(board.Id, TestImages.Png(300, 200), "image/png", $"?cardId={card.Id}&x=505&y=611");
+        var free = await Upload(board.Id, TestImages.Png(300, 200), "image/png", $"?cardId={card.Id}");
 
         Assert.Equal((500, 620), (placed.X, placed.Y));
-        // The text block takes 20..360 by 20..240, so the next free spot in the row is right of it.
+        // The text component takes 20..360 by 20..240, so the next free spot in the row is right of it.
         Assert.Equal((380, 20), (free.X, free.Y));
     }
 
     [Fact]
-    public async Task Images_move_between_the_board_and_notes()
+    public async Task Images_move_between_the_board_and_cards()
     {
         var board = await CreateBoard("Attach");
         var other = await CreateBoard("Other");
-        var note = (await (await _client.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "Target" })).Content.ReadFromJsonAsync<NoteDetail>())!;
-        var foreign = (await (await _client.PostAsJsonAsync($"/api/boards/{other.Id}/notes", new { title = "Foreign" })).Content.ReadFromJsonAsync<NoteDetail>())!;
+        var card = (await (await _client.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Target" })).Content.ReadFromJsonAsync<CardDetail>())!;
+        var foreign = (await (await _client.PostAsJsonAsync($"/api/boards/{other.Id}/cards", new { title = "Foreign" })).Content.ReadFromJsonAsync<CardDetail>())!;
         var image = await Upload(board.Id, TestImages.Png(300, 200), "image/png");
 
-        var attached = await Patch(image.Id, new { noteId = note.Id, x = 61, y = 39 });
-        Assert.Equal((note.Id, 60, 40), (attached.NoteId, attached.X, attached.Y));
+        var attached = await Patch(image.Id, new { cardId = card.Id, x = 61, y = 39 });
+        Assert.Equal((card.Id, 60, 40), (attached.CardId, attached.X, attached.Y));
 
         var moved = await Patch(image.Id, new { x = 20_000, y = 0 });
-        Assert.Equal(Layout.NoteCanvasMax - moved.Width, moved.X);
+        Assert.Equal(Layout.CardCanvasMax - moved.Width, moved.X);
 
         var detached = await Patch(image.Id, new { detach = true, x = 1001, y = 2001 });
-        Assert.Equal((null, 1000, 2000), (detached.NoteId, detached.X, detached.Y));
+        Assert.Equal((null, 1000, 2000), (detached.CardId, detached.X, detached.Y));
 
-        var reattached = await Patch(image.Id, new { noteId = note.Id });
+        var reattached = await Patch(image.Id, new { cardId = card.Id });
         Assert.Equal((20, 20), (reattached.X, reattached.Y));
         var back = await Patch(image.Id, new { detach = true });
-        Assert.Null(back.NoteId);
+        Assert.Null(back.CardId);
         Assert.True(back.X >= 880);
 
-        var both = await _client.PatchAsJsonAsync($"/api/images/{image.Id}", new { noteId = note.Id, detach = true });
-        var elsewhere = await _client.PatchAsJsonAsync($"/api/images/{image.Id}", new { noteId = foreign.Id });
-        var onlyX = await _client.PatchAsJsonAsync($"/api/images/{image.Id}", new { noteId = note.Id, x = 40 });
+        var both = await _client.PatchAsJsonAsync($"/api/images/{image.Id}", new { cardId = card.Id, detach = true });
+        var elsewhere = await _client.PatchAsJsonAsync($"/api/images/{image.Id}", new { cardId = foreign.Id });
+        var onlyX = await _client.PatchAsJsonAsync($"/api/images/{image.Id}", new { cardId = card.Id, x = 40 });
         Assert.Equal(HttpStatusCode.BadRequest, both.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, elsewhere.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, onlyX.StatusCode);
@@ -299,22 +299,22 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     {
         var board = await CreateBoard("Rejects");
         var other = await CreateBoard("Other");
-        var otherNote = await (await _client.PostAsJsonAsync($"/api/boards/{other.Id}/notes", new { title = "Elsewhere" }))
-            .Content.ReadFromJsonAsync<NoteDetail>();
+        var otherCard = await (await _client.PostAsJsonAsync($"/api/boards/{other.Id}/cards", new { title = "Elsewhere" }))
+            .Content.ReadFromJsonAsync<CardDetail>();
         var url = $"/api/boards/{board.Id}/images";
 
         var formPost = await Post(url, TestImages.Png(10, 10), "text/plain");
         var svg = await Post(url, Encoding.UTF8.GetBytes("<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>"), "image/svg+xml");
         var garbage = await Post(url, Encoding.UTF8.GetBytes("definitely not an image"), "image/png");
         var tooLarge = await Post(url, [.. TestImages.Png(10, 10), .. new byte[ImageFormats.MaxBytes]], "image/png");
-        var foreignNote = await Post($"{url}?noteId={otherNote!.Id}", TestImages.Png(10, 10), "image/png");
+        var foreignCard = await Post($"{url}?cardId={otherCard!.Id}", TestImages.Png(10, 10), "image/png");
         var onlyX = await Post($"{url}?x=40", TestImages.Png(10, 10), "image/png");
 
         Assert.Equal(HttpStatusCode.UnsupportedMediaType, formPost.StatusCode);
         Assert.Equal(HttpStatusCode.UnsupportedMediaType, svg.StatusCode);
         Assert.Equal(HttpStatusCode.UnsupportedMediaType, garbage.StatusCode);
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, tooLarge.StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, foreignNote.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, foreignCard.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, onlyX.StatusCode);
     }
 

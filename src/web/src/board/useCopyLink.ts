@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import type { NoteDetail } from '../api/types'
+import type { CardDetail } from '../api/types'
 import { copyText } from './links'
 
 /**
- * Copies a link that opens the post-it. `copied` says whether the last copy worked, for a moment after it; then it is
+ * Copies a link that opens the card. `copied` says whether the last copy worked, for a moment after it; then it is
  * null again.
  */
-export function useCopyLink(note: NoteDetail) {
+export function useCopyLink(card: CardDetail) {
   const [copied, setCopied] = useState<boolean | null>(null)
 
   useEffect(() => {
@@ -15,6 +15,6 @@ export function useCopyLink(note: NoteDetail) {
     return () => clearTimeout(timer)
   }, [copied])
 
-  const copy = async () => setCopied(await copyText(`${window.location.origin}${note.path}`))
+  const copy = async () => setCopied(await copyText(`${window.location.origin}${card.path}`))
   return { copied, copy }
 }

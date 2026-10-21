@@ -21,8 +21,8 @@ public class ImageUpload
 
     public Guid BoardId { get; set; }
 
-    /// <summary>The note to attach the image to, or null for the board.</summary>
-    public Guid? NoteId { get; set; }
+    /// <summary>The card to attach the image to, or null for the board.</summary>
+    public Guid? CardId { get; set; }
 
     public int? X { get; set; }
     public int? Y { get; set; }

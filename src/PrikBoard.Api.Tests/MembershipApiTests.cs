@@ -47,30 +47,30 @@ public class MembershipApiTests(MembershipApiTests.Factory factory) : IClassFixt
         var board = await owner.CreateBoardAsync("Matrix");
         await owner.ShareAsync(board.Id, editor, BoardRole.Editor);
         await owner.ShareAsync(board.Id, viewer, BoardRole.Viewer);
-        var note = await owner.CreateNoteAsync(board.Id);
+        var card = await owner.CreateCardAsync(board.Id);
         var bucket = board.Buckets[0];
         var image = await (await Upload(owner, board.Id)).Content.ReadFromJsonAsync<ImageDetail>();
         var tag = (await (await owner.PostAsJsonAsync($"/api/boards/{board.Id}/tags", new { name = "matrix" })).Content.ReadFromJsonAsync<BoardTagDetail>())!;
 
-        var block = (await (await owner.PostAsJsonAsync($"/api/notes/{note.Id}/blocks", new { kind = "Text" })).Content.ReadFromJsonAsync<NoteBlockDetail>())!;
+        var component = (await (await owner.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Text" })).Content.ReadFromJsonAsync<CardComponentDetail>())!;
 
         (string Method, string Url, Func<HttpContent?> Body, BoardRole Needs)[] cases =
         [
             ("GET", $"/api/boards/{board.Id}", () => null, BoardRole.Viewer),
-            ("GET", $"/api/boards/{board.Id}/notes", () => null, BoardRole.Viewer),
-            ("GET", $"/api/notes/{note.Id}", () => null, BoardRole.Viewer),
+            ("GET", $"/api/boards/{board.Id}/cards", () => null, BoardRole.Viewer),
+            ("GET", $"/api/cards/{card.Id}", () => null, BoardRole.Viewer),
             ("GET", $"/api/images/{image!.Id}/content", () => null, BoardRole.Viewer),
             ("GET", $"/api/boards/{board.Id}/members", () => null, BoardRole.Viewer),
-            ("POST", $"/api/boards/{board.Id}/notes", () => Json(new { title = "More" }), BoardRole.Editor),
-            ("PATCH", $"/api/notes/{note.Id}", () => Json(new { title = "Renamed" }), BoardRole.Editor),
-            ("POST", $"/api/notes/{note.Id}/move", () => Json(new { x = 1000, y = 1000 }), BoardRole.Editor),
-            ("POST", $"/api/notes/{note.Id}/blocks", () => Json(new { kind = "Checklist" }), BoardRole.Editor),
-            ("PATCH", $"/api/notes/{note.Id}/blocks/{block.Id}", () => Json(new { text = "Edited" }), BoardRole.Editor),
+            ("POST", $"/api/boards/{board.Id}/cards", () => Json(new { title = "More" }), BoardRole.Editor),
+            ("PATCH", $"/api/cards/{card.Id}", () => Json(new { title = "Renamed" }), BoardRole.Editor),
+            ("POST", $"/api/cards/{card.Id}/move", () => Json(new { x = 1000, y = 1000 }), BoardRole.Editor),
+            ("POST", $"/api/cards/{card.Id}/components", () => Json(new { kind = "Checklist" }), BoardRole.Editor),
+            ("PATCH", $"/api/cards/{card.Id}/components/{component.Id}", () => Json(new { text = "Edited" }), BoardRole.Editor),
             ("POST", $"/api/boards/{board.Id}/buckets", () => Json(new { name = "Review" }), BoardRole.Editor),
             ("PATCH", $"/api/buckets/{bucket.Id}", () => Json(new { name = "Backlog" }), BoardRole.Editor),
             ("PATCH", $"/api/images/{image.Id}", () => Json(new { caption = "c" }), BoardRole.Editor),
             ("POST", $"/api/boards/{board.Id}/images", () => Png(), BoardRole.Editor),
-            ("POST", $"/api/notes/{note.Id}/working", () => Json(new { working = true }), BoardRole.Editor),
+            ("POST", $"/api/cards/{card.Id}/working", () => Json(new { working = true }), BoardRole.Editor),
             ("GET", $"/api/boards/{board.Id}/tags", () => null, BoardRole.Viewer),
             ("POST", $"/api/boards/{board.Id}/tags", () => Json(new { name = $"t-{Guid.NewGuid():N}"[..12] }), BoardRole.Editor),
             ("PATCH", $"/api/boards/{board.Id}/tags/{tag.Id}", () => Json(new { name = $"t-{Guid.NewGuid():N}"[..12] }), BoardRole.Editor),
@@ -92,12 +92,12 @@ public class MembershipApiTests(MembershipApiTests.Factory factory) : IClassFixt
         }
 
         Assert.Equal(HttpStatusCode.Forbidden, (await editor.DeleteAsync($"/api/boards/{board.Id}")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await viewer.DeleteAsync($"/api/notes/{note.Id}")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await stranger.DeleteAsync($"/api/notes/{note.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await viewer.DeleteAsync($"/api/cards/{card.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await stranger.DeleteAsync($"/api/cards/{card.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await viewer.DeleteAsync($"/api/boards/{board.Id}/tags/{tag.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await stranger.DeleteAsync($"/api/boards/{board.Id}/tags/{tag.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await editor.DeleteAsync($"/api/boards/{board.Id}/tags/{tag.Id}")).StatusCode);
-        Assert.Equal(HttpStatusCode.NoContent, (await editor.DeleteAsync($"/api/notes/{note.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await editor.DeleteAsync($"/api/cards/{card.Id}")).StatusCode);
     }
 
     [Fact]
@@ -179,7 +179,7 @@ public class MembershipApiTests(MembershipApiTests.Factory factory) : IClassFixt
         Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
 
         (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}/members/{memberId}", new { role = "Editor" })).EnsureSuccessStatusCode();
-        Assert.Equal(HttpStatusCode.Created, (await member.PostAsJsonAsync($"/api/boards/{board.Id}/notes", new { title = "Now I can" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await member.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Now I can" })).StatusCode);
     }
 
     [Fact]

@@ -8,28 +8,28 @@ import { MAX_TAG_LENGTH, MAX_TAGS, normalizeTag, useDraftList } from './tags'
 
 interface TagPickerProps {
   anchor: DOMRect
-  /** The note's tags. */
+  /** The card's tags. */
   tags: string[]
   /** The board's tags, by name. */
   boardTags: BoardTag[]
-  /** How each tag shows, including a colour being previewed. */
+  /** How each tag shows, including a color being previewed. */
   tagColors: TagColors
-  /** Saves the note's whole tag list; new names are added to the board by the server. */
+  /** Saves the card's whole tag list; new names are added to the board by the server. */
   onChange: (tags: string[]) => Promise<boolean>
-  /** Renames a board tag on every note. */
+  /** Renames a board tag on every card. */
   onRename: (tag: BoardTag, name: string) => Promise<boolean>
-  /** Gives a board tag another colour, on every post-it. */
+  /** Gives a board tag another color, on every card. */
   onRecolor: (tag: BoardTag, color: TagColor) => Promise<boolean>
-  /** Shows a colour on a tag everywhere before it is picked (null: back to the saved colours). */
+  /** Shows a color on a tag everywhere before it is picked (null: back to the saved colors). */
   onPreview: (preview: TagColorPreview | null) => void
-  /** Deletes a board tag from every note (undone with Ctrl/Cmd+Z or the toast's Undo button, so nothing asks first). */
+  /** Deletes a board tag from every card (undone with Ctrl/Cmd+Z or the toast's Undo button, so nothing asks first). */
   onDelete: (tag: BoardTag) => Promise<boolean>
   onClose: () => void
 }
 
 /**
- * Picks a post-it's tags from the board's tags; typing a new name creates one. Each tag can be renamed or deleted, and
- * its colour circle opens a palette: hovering a colour previews it on the tag everywhere, clicking keeps it.
+ * Picks a card's tags from the board's tags; typing a new name creates one. Each tag can be renamed or deleted, and
+ * its color circle opens a palette: hovering a color previews it on the tag everywhere, clicking keeps it.
  */
 export function TagPicker(props: TagPickerProps) {
   const { anchor, tags, boardTags, tagColors, onChange, onRename, onRecolor, onPreview, onDelete, onClose } = props
@@ -76,7 +76,7 @@ export function TagPicker(props: TagPickerProps) {
     rows.push({
       key: tag.id,
       label: tag.name,
-      meta: tag.noteCount,
+      meta: tag.cardCount,
       checked,
       disabled: !checked && full,
       onSelect: () => toggle(tag.name),
@@ -86,10 +86,10 @@ export function TagPicker(props: TagPickerProps) {
           className="picker-color"
           tabIndex={-1}
           data-tag-color={tag.id}
-          aria-label={`Colour of ${tag.name}: ${tag.color}`}
+          aria-label={`Color of ${tag.name}: ${tag.color}`}
           aria-haspopup="true"
           aria-expanded={coloring?.tag.id === tag.id}
-          title={`Colour: ${tag.color}`}
+          title={`Color: ${tag.color}`}
           onPointerDown={(e) => e.preventDefault()}
           onClick={(e) => {
             setEditing(null)
@@ -156,7 +156,7 @@ export function TagPicker(props: TagPickerProps) {
       chips={draft.map((name) => ({ key: name, label: name, className: tagColorClass(tagColors, name), onRemove: () => toggle(name) }))}
       rows={rows}
       empty={boardTags.length === 0 ? 'No tags on this board yet: type one.' : 'No tag matches.'}
-      footer={full ? `A post-it has at most ${MAX_TAGS} tags.` : undefined}
+      footer={full ? `A card has at most ${MAX_TAGS} tags.` : undefined}
       overlay={
         coloring && (
           <TagColorPalette

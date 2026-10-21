@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, errorMessage } from '../api/client'
 import type { InvitePreview } from '../api/types'
-import { PostItIcon } from '../board/icons'
+import { CardIcon } from '../board/icons'
 
 interface InvitePageProps {
   token: string
@@ -34,7 +34,7 @@ export function InvitePage({ token, onJoined, onDismiss }: InvitePageProps) {
     <div className="sign-in">
       <div className="sign-in-card">
         <span className="board-tile large" aria-hidden="true">
-          <PostItIcon size={28} />
+          <CardIcon size={28} />
         </span>
         {preview === undefined ? (
           <p className="status-inline">Checking the invite…</p>

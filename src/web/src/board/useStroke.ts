@@ -1,4 +1,4 @@
-// The pen stroke being drawn on a canvas (the board, or a post-it's), shared by both.
+// The pen stroke being drawn on a canvas (the board, or a card's), shared by both.
 import { useRef, useState, type PointerEvent } from 'react'
 import { api } from '../api/client'
 import type { InkColor, Point, StrokePoint } from '../api/types'
@@ -55,18 +55,18 @@ export function useStroke(toCanvas: (e: { clientX: number; clientY: number }) =>
       set((s) => (s && !s.done ? null : s))
     },
     /**
-     * Saves the stroke as a drawing on the board, or on a note's canvas, as one undo step. It stays on screen until the
+     * Saves the stroke as a drawing on the board, or on a card's canvas, as one undo step. It stays on screen until the
      * board has reloaded with it. The last move has the end of the line already (a pen lifting off reports no pressure).
      */
-    finish(run: RecordingRun, boardId: string, noteId?: string) {
+    finish(run: RecordingRun, boardId: string, cardId?: string) {
       const current = live.current
       if (!current || current.done) return
       const done = { ...current, done: true }
       set(done)
-      const { x, y, points } = strokeToDrawing(done.points, done.width, noteId ? 0 : MIN_COORDINATE)
+      const { x, y, points } = strokeToDrawing(done.points, done.width, cardId ? 0 : MIN_COORDINATE)
       void run(
         async () => {
-          const drawing = await api.createDrawing(boardId, { x, y, points, color: done.color, strokeWidth: done.width, noteId })
+          const drawing = await api.createDrawing(boardId, { x, y, points, color: done.color, strokeWidth: done.width, cardId })
           rememberPoints(drawing.id, points)
           return drawing
         },

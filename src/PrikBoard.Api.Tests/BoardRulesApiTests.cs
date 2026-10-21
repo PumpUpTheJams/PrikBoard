@@ -19,7 +19,7 @@ public class BoardRulesApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
         Assert.Null(board.RulesUpdatedAt);
         await owner.ShareAsync(board.Id, viewer, BoardRole.Viewer);
 
-        const string rules = "# About\nRelease work.\n\n- Move notes to *Done* when merged.";
+        const string rules = "# About\nRelease work.\n\n- Move cards to *Done* when merged.";
         (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { rules })).EnsureSuccessStatusCode();
 
         var seen = (await viewer.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
