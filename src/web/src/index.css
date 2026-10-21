@@ -25,6 +25,9 @@
   --danger: #ff8a80;
   --danger-strong: #e5484d;
   --bucket-bg: rgba(20, 23, 29, 0.8);
+  /* A bucket on the board: nearly opaque, so one drawn over others covers them, with the dots a little fainter. */
+  --bucket-fill: rgba(20, 23, 29, 0.97);
+  --bucket-dot: rgba(255, 255, 255, 0.06);
   --dot: rgba(255, 255, 255, 0.1);
   --mini-bg: #111419;
   --mini-dot: rgba(255, 255, 255, 0.08);
@@ -736,12 +739,17 @@ main {
 
 /* Buckets: a name, a count and a box */
 
+/* The board's dots carry on inside, fainter: buckets sit on the 20 px grid, so a tile from the border's corner lines up with them. */
 .bucket {
   position: absolute;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: var(--bucket-bg);
-  transition: border-color 0.12s, background 0.12s;
+  background-color: var(--bucket-fill);
+  background-image: radial-gradient(circle, var(--bucket-dot) 1px, transparent 1.4px);
+  background-size: 20px 20px;
+  background-position: -10px -10px;
+  background-origin: border-box;
+  transition: border-color 0.12s, background-color 0.12s;
 }
 
 .bucket.selected {
@@ -751,7 +759,7 @@ main {
 
 .bucket.drop-target {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 7%, var(--bucket-bg));
+  background-color: color-mix(in srgb, var(--accent) 7%, var(--bucket-fill));
 }
 
 /* A bucket's rim moves it, like its name; inside, a drag draws a selection rectangle. */
