@@ -253,7 +253,7 @@ public static partial class AuthSetup
                         context.Fail("This person has no PrikBoard account.");
                         return;
                     }
-                    identity.AddClaim(new Claim(UserPrincipal.PrincipalClaim, principalId.ToString()));
+                    identity.AddClaim(new Claim(UserPrincipal.PrincipalClaim, principalId.Value.ToString()));
                 },
             };
         });
