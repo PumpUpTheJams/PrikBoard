@@ -350,6 +350,15 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     if (window.location.hash !== hash) history.replaceState(history.state, '', hash)
   }, [openPath, deletedOpen, board.shortId])
 
+  // The browser tab names what you are looking at: the open post-it (PRIK-118 Its title), or else the board. Away from
+  // the board (admin page, sad page, signed out) it says PrikBoard again.
+  const openNote = expanded ? board.notes.find((n) => n.id === expanded.id) : undefined
+  const tabTitle = openNote ? `${openNote.readableId} ${noteLabel(openNote)}` : board.name
+  useEffect(() => {
+    document.title = tabTitle
+  }, [tabTitle])
+  useEffect(() => () => void (document.title = 'PrikBoard'), [])
+
   // Following a link to another post-it on this board opens it (one on another board loads that board: App).
   useEffect(() => {
     function onHashChange() {
