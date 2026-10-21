@@ -3,6 +3,9 @@
 # cross-compiles for TARGETARCH, so an arm64 image builds at full speed on an x64 runner, without emulation.
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG TARGETARCH
+# NuGet over IPv4 only: on runners whose network drops IPv6, .NET waits on api.nuget.org's IPv6 address until the
+# restore times out after 10 minutes, where npm falls back to IPv4. Only set in this stage, not in the final image.
+ENV DOTNET_SYSTEM_NET_DISABLEIPV6=1
 WORKDIR /src
 COPY PrikBoard.Api.csproj ./
 RUN dotnet restore -a $TARGETARCH
