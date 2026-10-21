@@ -195,7 +195,7 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | getCardByNumber | `GET /api/boards/{shortId}/cards/{number}` | The card a path points at, by its board's short id and its number |
 | updateCard | `PATCH /api/cards/{cardId}` | Edit the title, fill, tags, `assigneeIds` or `agentWorking` |
 | setCardWorking | `POST /api/cards/{cardId}/working` | `{"working":true}` assigns you and shows the halo; `false` takes the halo away (you stay assigned) |
-| moveCard | `POST /api/cards/{cardId}/move` | Move into a bucket (`bucketId`) or to coordinates (`x` and `y`) |
+| moveCard | `POST /api/cards/{cardId}/move` | Move into a bucket (`bucketId`) or to coordinates (`x` and `y`), or both: there, in that bucket |
 | deleteCard | `DELETE /api/cards/{cardId}` | Delete a card (and the images attached to it) |
 | restoreCard | `POST /api/cards/{cardId}/restore` | Bring back a deleted card with the same id, content, creator and place, and the images deleted along with it; with `{"x","y"}` it goes there instead |
 | listCardHistory | `GET /api/cards/{cardId}/history?limit=` | Who changed what on a card and when, newest first (title, color, tags, assignees, agent flag, bucket moves, components, images, drawings, delete/restore); quick edits by one caller merged; also for deleted cards; members only |
@@ -314,7 +314,7 @@ curl -sS -T ingest-errors.png "https://prikboard.example/api/image-uploads/pb_up
 
 ## Conventions
 
-- **Placement.** createCard and moveCard take either a `bucketId` or both `x` and `y`, never both. With a `bucketId`, the card goes to the first free grid slot inside that bucket. A full bucket grows downwards to make room. placeCardsInBucket does the same for several cards at once, and can grow the bucket to any side.
+- **Placement.** createCard and moveCard take a `bucketId`, both `x` and `y`, or all three. With a `bucketId` alone, the card goes to the first free grid slot inside that bucket. A full bucket grows downwards to make room. placeCardsInBucket does the same for several cards at once, and can grow the bucket to any side. With `x` and `y` alone, the card joins the topmost bucket containing its centre. With all three, it joins that bucket, which must contain its centre (400 otherwise): the web app names the bucket it shows in front where buckets overlap.
 - **Ordering.** getBoard and listCards return cards bucket by bucket, in the order of `buckets`, with loose cards last. Each group runs top to bottom, then left to right. Clients draw cards in `updatedAt` order, so the most recently moved or edited card is on top.
 - **Sizes.** Buckets are at least 240×160 px, room for one card with a gap around it. Smaller sizes are raised to the minimum after snapping.
 - **PATCH** only changes the fields you send. Sending `""` for an optional text field (`description`, a component's `title` or `text`) clears it. A list you send (`tags`, `assigneeIds`, a component's `items` or `links`) replaces the whole list, and `[]` clears it. To tick off one checklist item, send the component's full `items` with that item changed.
