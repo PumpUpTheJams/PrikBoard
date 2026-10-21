@@ -6,7 +6,7 @@ To explore and try the API in the browser, open the Scalar API reference at `/sc
 
 - **Base URL (local):** `http://localhost:5080`
 - **Format:** JSON with camelCase properties. Enums such as `color` are strings.
-- **Authentication:** every `/api` endpoint needs a caller, except `listAuthProviders` and `logout`. Machines send an OAuth 2.0 access token: `Authorization: Bearer <token>`. The OpenAPI document and `/health` are public.
+- **Authentication:** every `/api` endpoint needs a caller, except `listAuthProviders` and `logout`, and the reads of a public board (getBoard, getBoardByShortId, getBoardAvatar, getImageContent, getDrawingContent), which answer anyone without credentials. Machines send an OAuth 2.0 access token: `Authorization: Bearer <token>`. The OpenAPI document and `/health` are public.
 - **Access:** boards are members-only. A 404 means "not found, or you are not a member"; a 403 means your role (or token scope) is too low.
 
 ## Authentication
@@ -175,8 +175,10 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | --- | --- | --- |
 | listBoards | `GET /api/boards` | All boards, newest first, without buckets and cards |
 | createBoard | `POST /api/boards` | New board with the default buckets side by side |
-| getBoard | `GET /api/boards/{boardId}` | Full snapshot: agent `rules` and `rulesUpdatedAt`, buckets back to front, cards grouped by bucket, images, drawings (pen strokes, without their points), the board's `tags` and the `people` who can be assigned |
-| updateBoard | `PATCH /api/boards/{boardId}` | Rename, change the `key` (a letter, then letters and digits, 2 to 10 in all; upper-cased), or edit the description or agent `rules` (Markdown, at most 20000 characters; an empty string clears them) |
+| getBoard | `GET /api/boards/{boardId}` | Full snapshot: agent `rules` and `rulesUpdatedAt`, buckets back to front, cards grouped by bucket, images, drawings (pen strokes, without their points), the board's `tags` and the `people` who can be assigned. A public board answers anyone who isn't a member too (not tokens), signed in or not, with `visiting: true`, no `people`, and assignees, creators and who added images as anonymous (empty) unless it shows people (`publicShowsPeople`) |
+| getBoardByShortId | `GET /api/boards/{shortId}` | The same, by the short id in the board's address |
+| getBoardAvatar | `GET /api/boards/{boardId}/avatars/{principalId}` | The picture of someone on the board (member, creator or assignee), for visitors of a public board that shows people: their `avatarUrl` points here |
+| updateBoard | `PATCH /api/boards/{boardId}` | Rename, change the `key` (a letter, then letters and digits, 2 to 10 in all; upper-cased), edit the description or agent `rules` (Markdown, at most 20000 characters; an empty string clears them), or make the board public (`isPublic`) and show its people to visitors (`publicShowsPeople`). Owners only |
 | deleteBoard | `DELETE /api/boards/{boardId}` | Delete the board with all buckets and cards |
 | exportBoard | `GET /api/boards/{boardId}/export` | The board as one downloadable JSON file (`format: "prikboard-board"`, `version: 4`, `appVersion`: the PrikBoard version that wrote it): name, description, agent rules, buckets, tags (and `tagColors` for tags with a color), cards with their components, and images (bytes as base64; attached ones keep their place on the card's canvas). No members, roles, user ids or assignees. Ids in the file are local to it |
 | importBoard | `POST /api/boards/import` | Send an export file as the body. Always makes a new board that you own (`201`), with new ids; positions snap to the grid and each card's bucket follows from where it sits. Cards are created by you. `400` for a file that is not valid, newer than the server reads (a newer `version`, or fields it doesn't know: the message names them and the file's `appVersion`), or from before notes were renamed cards (versions 1 and 2: export the board again); `403` for tokens limited to chosen boards. Body at most 64 MB |

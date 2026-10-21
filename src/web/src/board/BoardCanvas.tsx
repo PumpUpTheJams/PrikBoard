@@ -306,7 +306,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [binned, setBinned] = useState<string[]>([])
   const expandedRef = useRef<ExpandedCardHandle>(null)
   /** The trash window: cards deleted in the last 7 days (opened from the board menu, through the address). */
-  const [deletedOpen, setDeletedOpen] = useState(() => trashInHash())
+  const [deletedOpen, setDeletedOpen] = useState(() => !board.visiting && trashInHash())
   const deletedRef = useRef<TrashWindowHandle>(null)
   /** A card in the trash shown as it is inside, read only. */
   const [deletedPreview, setDeletedPreview] = useState<{ card: CardDetail; images: ImageDetail[] } | null>(null)
@@ -409,7 +409,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       setQuickEdit(null)
       setExpanded(id ? { id, fresh: false } : null)
       if (id) setSelection({ kind: 'card', id })
-      if (trashInHash()) setDeletedOpen(true)
+      // The trash is for members; visitors of a public board don't see it.
+      if (trashInHash() && !board.visiting) setDeletedOpen(true)
     }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)

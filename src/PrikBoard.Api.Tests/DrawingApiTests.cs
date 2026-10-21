@@ -208,7 +208,7 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         Assert.Equal(HttpStatusCode.NotFound, (await outsider.DeleteAsync($"/api/drawings/{drawing.Id}")).StatusCode);
 
         var anonymous = factory.CreateAnonymousClient();
-        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(drawing.ContentUrl)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await anonymous.GetAsync(drawing.ContentUrl)).StatusCode);
     }
 
     [Fact]

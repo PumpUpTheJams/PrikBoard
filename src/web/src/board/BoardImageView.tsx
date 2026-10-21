@@ -59,7 +59,8 @@ export function BoardImageView({ image, rect, selected, lifted, front, onPointer
       </div>
       <figcaption>
         <span className="board-image-name">{label}</span>
-        <span title={`Added by ${image.addedBy}`}>added by {initials(image.addedBy)}</span>
+        {/* Unnamed on a public board that hides its people. */}
+        {image.addedBy && <span title={`Added by ${image.addedBy}`}>added by {initials(image.addedBy)}</span>}
       </figcaption>
     </figure>
   )

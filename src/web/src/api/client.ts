@@ -159,8 +159,12 @@ export const api = {
   createBoard: (name: string, description?: string) =>
     request<BoardDetail>('POST', '/boards', { name, description }),
   getBoard: (boardId: string) => request<BoardDetail>('GET', `/boards/${boardId}`),
-  updateBoard: (boardId: string, changes: { name?: string; key?: string; description?: string; rules?: string }) =>
-    request<BoardSummary>('PATCH', `/boards/${boardId}`, changes),
+  /** A board by the short id in its address; public boards answer anyone, signed in or not. */
+  getBoardByShortId: (shortId: string) => request<BoardDetail>('GET', `/boards/${shortId}`),
+  updateBoard: (
+    boardId: string,
+    changes: { name?: string; key?: string; description?: string; rules?: string; isPublic?: boolean; publicShowsPeople?: boolean },
+  ) => request<BoardSummary>('PATCH', `/boards/${boardId}`, changes),
   deleteBoard: (boardId: string) => request<void>('DELETE', `/boards/${boardId}`),
   /** The board as one file to save: its content with images, but no people. */
   exportBoard: async (boardId: string) => {

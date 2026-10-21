@@ -34,6 +34,7 @@ import { Presence } from './components/Presence'
 import { QuickAdd } from './components/QuickAdd'
 import { ShareDialog } from './components/ShareDialog'
 import { SignIn } from './components/SignIn'
+import { VisitorPage } from './components/VisitorPage'
 
 const BoardRulesDialog = lazy(() => import('./components/BoardRulesDialog').then((m) => ({ default: m.BoardRulesDialog })))
 
@@ -49,6 +50,10 @@ export default function App() {
   const [user, setUser] = useState<Caller | null | undefined>(undefined)
   const [invite, setInvite] = useState(inviteFromHash)
   const [connect, setConnect] = useState(connectFromHash)
+  // Signed out, a board link may be to a public board: shown to visitors unless it isn't public or they sign in.
+  const [boardRef, setBoardRef] = useState(boardRefFromHash)
+  const [notVisible, setNotVisible] = useState<string | null>(null)
+  const [signingIn, setSigningIn] = useState(false)
 
   useEffect(() => {
     // Any 401, such as an expired session, drops back to the sign-in screen.
@@ -58,6 +63,7 @@ export default function App() {
     const onHashChange = () => {
       setInvite(inviteFromHash())
       setConnect(connectFromHash())
+      setBoardRef(boardRefFromHash())
     }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
@@ -69,8 +75,13 @@ export default function App() {
   }
 
   if (user === undefined) return <p className="status">Loading…</p>
-  // Signing in returns to the same hash, so an invite link or an app's sign-in survives the round trip.
-  if (user === null) return <SignIn />
+  // Signing in returns to the same hash, so an invite link, an app's sign-in or a public board survives the round trip.
+  if (user === null) {
+    if (boardRef && !signingIn && !invite && !connect && notVisible !== boardRef) {
+      return <VisitorPage key={boardRef} boardRef={boardRef} onMissing={() => setNotVisible(boardRef)} onSignIn={() => setSigningIn(true)} />
+    }
+    return <SignIn />
+  }
   if (connect) {
     return (
       <ConnectPage
@@ -115,8 +126,10 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   const [boards, setBoards] = useState<BoardSummary[] | null>(null)
   const [selectedId, setSelectedId] = useState(boardRefFromHash)
   const [adminView, setAdminView] = useState(adminFromHash)
-  // A board in the hash that isn't in your list is looked up once more (you may just have joined) before the sad page.
+  // A board in the hash that isn't in your list is looked up once more (you may just have joined), then opened as a
+  // visitor if it is public, and else gets the sad page.
   const [recheckedId, setRecheckedId] = useState<string | null>(null)
+  const [notPublic, setNotPublic] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   /** Why an import was refused, one message each. */
   const [importRefused, setImportRefused] = useState<string[] | null>(null)
@@ -284,6 +297,11 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
     }
   }
 
+  // A board you're not a member of may be public: you see it as its visitors do, until it turns out not to be.
+  if (!adminView && selectedId && selectedMissing && recheckedId === selectedId && notPublic !== selectedId) {
+    return <VisitorPage key={selectedId} boardRef={selectedId} onMissing={() => setNotPublic(selectedId)} onBack={() => selectBoard(null)} />
+  }
+
   return (
     <div className="app">
       <header className="topbar">
@@ -449,7 +467,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
         </div>
 
         <div className="topbar-end">
-          <Presence viewers={othersHere} />
+          <Presence viewers={othersHere} guests={live.guests} />
           <span className="topbar-divider" aria-hidden="true" />
           <Menu
             label="Your settings"
@@ -577,7 +595,13 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
       </main>
 
       {dialog === 'share' && activeBoard && (
-        <ShareDialog key={activeBoard.id} board={activeBoard} onClose={() => setDialog(null)} onLeft={() => left(activeBoard)} />
+        <ShareDialog
+          key={activeBoard.id}
+          board={activeBoard}
+          onClose={() => setDialog(null)}
+          onLeft={() => left(activeBoard)}
+          onChanged={(updated) => setBoards((current) => current?.map((b) => (b.id === updated.id ? updated : b)) ?? null)}
+        />
       )}
       {dialog === 'rules' && board && (
         <Suspense>

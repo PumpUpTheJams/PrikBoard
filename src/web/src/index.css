@@ -354,6 +354,27 @@ input[aria-invalid='true'] {
   font: 11px/1 var(--mono);
 }
 
+/* A public board seen by a visitor: its name where the board menu would be. */
+.visitor-board-name {
+  overflow: hidden;
+  margin: 0 0 0 4px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visitor-rules {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  margin-left: 8px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
 .topbar-divider {
   width: 1px;
   height: 24px;
@@ -2821,6 +2842,28 @@ a.button.primary:hover {
   font-size: 12px;
 }
 
+/* A checkbox with its label, one setting per line. */
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.check-row input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.check-row.disabled {
+  color: var(--subtle);
+  cursor: default;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
@@ -3300,6 +3343,20 @@ a.button.primary:hover {
 
 .presence .avatar.more {
   border: 2px solid var(--bar);
+}
+
+/* Visitors of a public board: just how many. */
+.presence-guests {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  margin-right: 8px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  color: var(--muted);
+  font: 500 12px/1 var(--mono);
 }
 
 .remote-drag {

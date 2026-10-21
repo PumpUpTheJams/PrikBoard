@@ -51,14 +51,19 @@ public enum ResizeHandle
 public sealed record LiveViewer(Guid PrincipalId, PrincipalKind Kind, string DisplayName, string? AvatarUrl);
 
 /// <summary>Who is on a board right now; sent whenever someone joins or leaves it.</summary>
-public sealed record BoardPresence(Guid BoardId, List<LiveViewer> Viewers);
+/// <param name="BoardId">The board.</param>
+/// <param name="Viewers">Its members looking at it. Visitors of a public board that hides people get none: only Guests.</param>
+/// <param name="Guests">How many visitors (not members) of a public board look at it; for visitors of a board that hides people, everyone looking.</param>
+public sealed record BoardPresence(Guid BoardId, List<LiveViewer> Viewers, int Guests = 0);
 
 /// <summary>The answer to Join.</summary>
 /// <param name="BoardId">The board joined.</param>
-/// <param name="Role">Your role on it.</param>
+/// <param name="Role">Your role on it (Viewer for a visitor of a public board).</param>
 /// <param name="Key">Identifies this connection in drag messages, so a client can tell its own tabs apart.</param>
-/// <param name="Viewers">Who is on the board, including you.</param>
-public sealed record JoinedBoard(Guid BoardId, BoardRole Role, Guid Key, List<LiveViewer> Viewers);
+/// <param name="Viewers">Who is on the board, including you (see BoardPresence).</param>
+/// <param name="Guests">See BoardPresence.</param>
+/// <param name="Visiting">You joined as a visitor of a public board, not as a member: you hear about changes and presence, not drags.</param>
+public sealed record JoinedBoard(Guid BoardId, BoardRole Role, Guid Key, List<LiveViewer> Viewers, int Guests = 0, bool Visiting = false);
 
 /// <summary>Something on the board was saved; re-read it with getBoard.</summary>
 /// <param name="BoardId">The board that changed.</param>

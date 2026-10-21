@@ -40,12 +40,19 @@ public static partial class AuthSetup
     public const string AccessTokenScheme = "pat";
 
     /// <summary>
-    /// The live hub: a signed-in person on PrikBoard's own pages, or a token with boards:read or boards:write. Not the
-    /// method-based API policy, because SignalR's long-polling fallback POSTs even for a read-only token; dragging checks
-    /// boards:write itself. Browsers send cookies on cross-site WebSocket upgrades without any CORS check, hence the
-    /// origin check, which runs on negotiate and connect alike.
+    /// The live hub: anyone on PrikBoard's own pages (signed in, or a visitor of a public board), or a token with
+    /// boards:read or boards:write. Joining a board checks membership, or that the board is public. Not the method-based
+    /// API policy, because SignalR's long-polling fallback POSTs even for a read-only token; dragging checks boards:write
+    /// itself. Browsers send cookies on cross-site WebSocket upgrades without any CORS check, hence the origin check, which
+    /// runs on negotiate and connect alike.
     /// </summary>
     public const string LivePolicy = "Live";
+
+    /// <summary>
+    /// The reads visitors of a public board may make (<see cref="BoardAccess.AllowVisitors"/>): anyone without credentials,
+    /// or a signed-in caller with the scope a read needs. Credentials that don't sign in (a wrong token) still get 401.
+    /// </summary>
+    public const string PublicReadPolicy = "PublicRead";
 
     public static string CallbackPath(string provider) => $"/api/auth/callback/{provider}";
 
@@ -145,14 +152,29 @@ public static partial class AuthSetup
                     && (context.Resource is not HttpContext http
                         || string.IsNullOrEmpty(http.Request.Headers.Origin) || SameOrigin.Check(http.Request)));
             })
-            .AddPolicy(LivePolicy, policy => policy.RequireAuthenticatedUser().RequireAssertion(context =>
+            .AddPolicy(LivePolicy, policy => policy.RequireAssertion(context =>
                 context.User.IsToken()
                     ? ApiScopes.Of(context.User) is var granted && (granted.Contains(ApiScopes.Read) || granted.Contains(ApiScopes.Write))
-                    : context.Resource is HttpContext http && SameOrigin.Check(http.Request)))
+                    : context.Resource is HttpContext http && !HasCredentials(http.Request, context.User) && SameOrigin.Check(http.Request)))
+            .AddPolicy(PublicReadPolicy, policy => policy.RequireAssertion(context =>
+                context.User.Identity?.IsAuthenticated == true
+                    ? ApiScopes.Of(context.User) is var granted && (granted.Contains(ApiScopes.Read) || granted.Contains(ApiScopes.Write))
+                    : context.Resource is not HttpContext http || !HasCredentials(http.Request, context.User)))
             // Every endpoint without its own authorization metadata gets the API policy.
             .SetFallbackPolicy(apiPolicy);
 
         return builder;
+    }
+
+    /// <summary>
+    /// Whether an anonymous request brought a token that didn't sign in (wrong, expired or revoked): it gets 401 rather
+    /// than a visitor's view. An empty "Bearer" counts as none, as in <see cref="SelectScheme"/>.
+    /// </summary>
+    private static bool HasCredentials(HttpRequest request, System.Security.Claims.ClaimsPrincipal user)
+    {
+        if (user.Identity?.IsAuthenticated == true) return false;
+        var header = request.Headers.Authorization.ToString().Trim();
+        return header.Length > 0 && !header.Equals("Bearer", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
