@@ -2105,16 +2105,33 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             {buckets.map(({ bucket, rect }) => {
               const count = countIn(bucket.id)
               const countLabel = count === 1 ? '1 card' : `${count} cards`
+              const images = imagesIn(bucket.id)
+              const imagesLabel = images === 1 ? '1 image' : `${images} images`
+              const contents = `${countLabel}${images > 0 ? `, ${imagesLabel}` : ''}`
+              // How many cards and images are in it, each with its icon: a zero is left out, but an empty bucket shows 0 cards.
+              const counts = (className: string) => (
+                <>
+                  {(count > 0 || images === 0) && (
+                    <span className={className} title={countLabel}>
+                      <CardIcon size={12} />
+                      {count}
+                    </span>
+                  )}
+                  {images > 0 && (
+                    <span className={className} title={imagesLabel}>
+                      <ImageIcon size={12} />
+                      {images}
+                    </span>
+                  )}
+                </>
+              )
               if (bucket.collapsed) {
-                // Folded up: a square in its top-right corner with its name and how many cards and images are inside
-                // (an empty one shows 0 cards).
+                // Folded up: a square in its top-right corner with its name and what is inside.
                 const square = collapsedRect(rect)
-                const images = imagesIn(bucket.id)
-                const imagesLabel = images === 1 ? '1 image' : `${images} images`
                 return (
                   <section
                     key={bucket.id}
-                    aria-label={`${bucket.name} (collapsed, ${countLabel}${images > 0 ? `, ${imagesLabel}` : ''})`}
+                    aria-label={`${bucket.name} (collapsed, ${contents})`}
                     data-fold={bucket.id}
                     className={['bucket-collapsed', foldDrop === bucket.id && 'drop-target', isSelected('bucket', bucket.id) && 'selected']
                       .filter(Boolean)
@@ -2124,18 +2141,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                     onPointerDown={(e) => onItemPointerDown(e, 'bucket', bucket.id)}
                   >
                     <span className={`bucket-collapsed-counts${count > 0 && images > 0 ? ' both' : ''}`} aria-hidden>
-                      {(count > 0 || images === 0) && (
-                        <span className="bucket-collapsed-count" title={countLabel}>
-                          <CardIcon size={14} />
-                          {count}
-                        </span>
-                      )}
-                      {images > 0 && (
-                        <span className="bucket-collapsed-count" title={imagesLabel}>
-                          <ImageIcon size={14} />
-                          {images}
-                        </span>
-                      )}
+                      {counts('bucket-collapsed-count')}
                     </span>
                     <span className="bucket-collapsed-name">{bucket.name}</span>
                     {!readOnly && (
@@ -2190,8 +2196,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                     }}
                   >
                     <span className="bucket-name">{bucket.name}</span>
-                    <span className="count" aria-label={countLabel}>
-                      {count}
+                    <span className="bucket-counts" aria-label={contents}>
+                      {counts('count')}
                     </span>
                   </button>
                   {!readOnly && (
