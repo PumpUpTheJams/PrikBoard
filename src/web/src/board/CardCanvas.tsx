@@ -12,10 +12,11 @@ import { ImageInspector } from './Inspector'
 import { componentSize, defaultComponentSize, freeSpot, onCardCanvas, resizeFrom, resizeImage, snapPoint, spanRect } from './layout'
 import { ComponentFrame, ChecklistComponent, LinksComponent, TextComponent } from './CardComponents'
 import { CardBar } from './CardBar'
+import { ops } from './ops'
 import { resizeCursor } from './resizeCursor'
 import { componentMatches } from './search'
 import { adds, isPicked, mergePicked, togglePicked, touches, useSpaceHeld, type Picked } from './selection'
-import { componentEdit, created, deleted, patched, snap, step, target, type RecordingRun, type UndoChange, type UndoEntry } from './undo'
+import { deleted, patched, snap, step, target, type RecordingRun, type UndoChange, type UndoEntry } from './undo'
 import { useStroke } from './useStroke'
 import { useZoom } from './useZoom'
 import { stepZoom, ZOOM_LEVELS } from './zoom'
@@ -179,7 +180,7 @@ export function CardCanvas(props: CardCanvasProps) {
   }
 
   const saveComponent = (component: CardComponent, changes: Parameters<typeof api.updateCardComponent>[2]) =>
-    settle(() => api.updateCardComponent(card.id, component.id, changes), (after) => componentEdit(card.id, component, after, changes))
+    settle(...ops.editComponent(card.id, component, changes))
 
   /** The undo step for an image on this canvas that moved, was resized or went onto the board. */
   const imageStep = (label: string, before: ImageDetail, keys: string[]) => (after: ImageDetail) =>
@@ -197,15 +198,13 @@ export function CardCanvas(props: CardCanvasProps) {
   function addComponent(kind: CardComponentKind) {
     const size = defaultComponentSize(kind)
     const spot = freeSpot([...card.components, ...images], size, visible())
-    void settle(
-      async () => {
-        const component = await api.addCardComponent(card.id, { kind, ...(spot ?? {}) })
-        setFocusComponent(component.id)
-        setSelection({ kind: 'component', id: component.id })
-        return component
-      },
-      (component) => step('Add component', [created(target.component(card.id, component.id), snap.component(component))]),
-    )
+    const [add, describe] = ops.addComponent(card.id, { kind, ...(spot ?? {}) })
+    void settle(async () => {
+      const component = await add()
+      setFocusComponent(component.id)
+      setSelection({ kind: 'component', id: component.id })
+      return component
+    }, describe)
   }
 
   /** Removes a component, image or drawing straight away; the toast that follows can undo it (and so can Ctrl/Cmd+Z). */
@@ -216,16 +215,9 @@ export function CardCanvas(props: CardCanvasProps) {
     const drawing = kind === 'drawing' ? drawings.find((d) => d.id === id) : undefined
     if (component) {
       // An empty component goes quietly; it can still be undone.
-      const empty = !component.text && !component.items?.length && !component.links?.length && !component.title
-      void settle(
-        () => api.deleteCardComponent(card.id, id),
-        () => step('Remove component', [deleted(target.component(card.id, id), snap.component(component))], { toast: empty ? undefined : 'Component removed' }),
-      )
+      void settle(...ops.removeComponent(card.id, component))
     } else if (image) {
-      void settle(
-        () => api.deleteImage(id),
-        () => step('Delete image', [deleted(target.image(id), snap.image(image))], { toast: 'Image deleted' }),
-      )
+      void settle(...ops.deleteImage(image))
     } else if (drawing) {
       void settle(
         () => api.deleteDrawing(id),
@@ -706,7 +698,7 @@ export function CardCanvas(props: CardCanvasProps) {
 
       {card.components.length === 0 && images.length === 0 && drawings.length === 0 && !incoming && !incomingDrawing && !drawingOn && (
         <p className="card-empty">
-          {readOnly ? 'Nothing here yet.' : 'Add text, a checklist or links from the bar below, draw with the pen, or paste or drop an image.'}
+          {readOnly ? 'Nothing here yet.' : 'Add a note, a checklist or links from the bar below, draw with the pen, or paste or drop an image.'}
         </p>
       )}
 

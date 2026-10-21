@@ -3,7 +3,7 @@ import type { ChecklistItem, CardComponent, CardDetail, CardLink, Rect, ResizeHa
 import { componentKinds } from './componentKinds'
 import { EditableText } from './EditableText'
 import { Highlight } from './Highlight'
-import { CloseIcon, LinkIcon, CardIcon, PullRequestIcon, TrashIcon } from './icons'
+import { CloseIcon, LinkIcon, CardIcon, PencilIcon, PullRequestIcon, TrashIcon } from './icons'
 import { isCardId, linkedCard, cardLabel, cardPath, cardRoute, type CardRoute } from './links'
 import { ResizeHandles } from './ResizeHandles'
 
@@ -12,15 +12,18 @@ const MarkdownView = lazy(() => import('../components/MarkdownView'))
 
 interface ComponentFrameProps {
   component: CardComponent
-  /** Where to draw it: the server geometry, or the live geometry while moving or resizing. */
-  rect: Rect
+  /**
+   * Where to draw it on the card's canvas: the server geometry, or the live geometry while moving or resizing. Without
+   * one it is stacked in a list (the mobile layout), as wide as the list and as tall as its content.
+   */
+  rect?: Rect
   selected: boolean
   lifted: boolean
   /** The board search found its words in this component. */
   matched?: boolean
   readOnly?: boolean
   /** A press on the header (outside the title) starts moving the component. */
-  onHeadPointerDown: (e: PointerEvent<HTMLElement>) => void
+  onHeadPointerDown?: (e: PointerEvent<HTMLElement>) => void
   /**
    * A press on a corner or edge handle (shown while selected) starts resizing from there. Without it there are no
    * handles (one of several selected).
@@ -31,31 +34,42 @@ interface ComponentFrameProps {
   onTitle: (title: string) => void
   /** Asks to remove the component (the canvas confirms first). */
   onRemove: () => void
+  /**
+   * Opens the component in an editor of its own (the mobile layout edits there): an edit button at the end of the
+   * header, shown even when the content itself is read only here.
+   */
+  onEdit?: () => void
   children: ReactNode
 }
 
 /** A component on a card's canvas: a header to drag it by, with its kind and an optional title, and its content. */
 export function ComponentFrame(props: ComponentFrameProps) {
-  const { component, rect, selected, lifted, matched, readOnly, onHeadPointerDown, onResizePointerDown, onSelect, onTitle, onRemove, children } = props
+  const { component, rect, selected, lifted, matched, readOnly, onHeadPointerDown, onResizePointerDown, onSelect, onTitle, onRemove, onEdit, children } = props
   const { label, Icon } = componentKinds[component.kind]
   const classes = ['card-component', `kind-${component.kind.toLowerCase()}`]
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
   if (matched) classes.push('matched')
+  if (!rect) classes.push('stacked')
 
   return (
     <section
       className={classes.join(' ')}
-      style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
+      style={rect ? { left: rect.x, top: rect.y, width: rect.width, height: rect.height } : undefined}
       aria-label={component.title ?? label}
       data-component={component.id}
     >
-      <header className="component-head" title={readOnly ? undefined : 'Drag to move'} onPointerDown={onHeadPointerDown}>
+      <header className="component-head" title={readOnly || !onHeadPointerDown ? undefined : 'Drag to move'} onPointerDown={onHeadPointerDown}>
         <Icon size={14} />
         <ComponentTitle value={component.title ?? ''} placeholder={label} readOnly={readOnly} onSave={onTitle} />
         {!readOnly && (
           <button type="button" className="component-remove" aria-label={`Remove ${component.title ?? label}`} title="Remove" onClick={onRemove}>
             <TrashIcon size={13} />
+          </button>
+        )}
+        {onEdit && (
+          <button type="button" className="component-edit" aria-label={`Edit ${component.title ?? label}`} title="Edit" onClick={onEdit}>
+            <PencilIcon size={15} />
           </button>
         )}
       </header>
@@ -107,7 +121,7 @@ interface TextComponentProps {
 }
 
 /**
- * Text in Markdown: rendered while it isn't being edited, and a plain text area while it is. A click on the rendered
+ * A note, in Markdown: rendered while it isn't being edited, and a plain text area while it is. A click on the rendered
  * text edits it (unless it lands on a link or ends a text selection); an empty component is always the text area.
  */
 export function TextComponent({ text, autoFocus, readOnly, onChange }: TextComponentProps) {
@@ -132,7 +146,7 @@ export function TextComponent({ text, autoFocus, readOnly, onChange }: TextCompo
     return (
       <EditableText
         className="component-text"
-        label="Text"
+        label="Note"
         value={text}
         maxLength={4000}
         multiline
@@ -172,10 +186,12 @@ interface ChecklistComponentProps {
   highlight?: string[]
   autoFocus: boolean
   readOnly?: boolean
+  /** Items can be ticked off, but not added or removed here (the mobile card; its editor does that). */
+  tickOnly?: boolean
   onChange: (items: ChecklistItem[]) => Promise<boolean>
 }
 
-export function ChecklistComponent({ items, highlight, autoFocus, readOnly, onChange }: ChecklistComponentProps) {
+export function ChecklistComponent({ items, highlight, autoFocus, readOnly, tickOnly, onChange }: ChecklistComponentProps) {
   const [text, setText] = useState('')
   const done = items.filter((i) => i.done).length
 
@@ -206,27 +222,31 @@ export function ChecklistComponent({ items, highlight, autoFocus, readOnly, onCh
                 <Highlight text={item.text} terms={highlight} />
               </span>
             </label>
-            <button
-              type="button"
-              className="row-remove"
-              aria-label={`Remove "${item.text}"`}
-              onClick={() => void onChange(items.filter((_, j) => j !== i))}
-            >
-              <CloseIcon size={12} />
-            </button>
+            {!tickOnly && (
+              <button
+                type="button"
+                className="row-remove"
+                aria-label={`Remove "${item.text}"`}
+                onClick={() => void onChange(items.filter((_, j) => j !== i))}
+              >
+                <CloseIcon size={12} />
+              </button>
+            )}
           </li>
         ))}
       </ul>
-      <form className="widget-add" onSubmit={add}>
-        <input
-          aria-label="New checklist item"
-          placeholder="Add an item"
-          value={text}
-          maxLength={300}
-          autoFocus={autoFocus}
-          onChange={(e) => setText(e.target.value)}
-        />
-      </form>
+      {!tickOnly && (
+        <form className="widget-add" onSubmit={add}>
+          <input
+            aria-label="New checklist item"
+            placeholder="Add an item"
+            value={text}
+            maxLength={300}
+            autoFocus={autoFocus}
+            onChange={(e) => setText(e.target.value)}
+          />
+        </form>
+      )}
     </>
   )
 }
@@ -249,6 +269,8 @@ interface LinksComponentProps {
   card: CardDetail
   cards: CardDetail[]
   autoFocus: boolean
+  /** Only the links, to open: no fields to add or remove them (the mobile card; its editor does that). */
+  readOnly?: boolean
   onChange: (links: CardLink[]) => Promise<boolean>
 }
 
@@ -256,7 +278,7 @@ interface LinksComponentProps {
  * Links to web pages and to other cards. The address field takes a URL or a card's link or ID, or finds cards by
  * title or readable id (MPCT-415, or just 415).
  */
-export function LinksComponent({ links, highlight, card, cards, autoFocus, onChange }: LinksComponentProps) {
+export function LinksComponent({ links, highlight, card, cards, autoFocus, readOnly, onChange }: LinksComponentProps) {
   const [url, setUrl] = useState('')
   const [title, setTitle] = useState('')
   const [invalid, setInvalid] = useState(false)
@@ -304,35 +326,39 @@ export function LinksComponent({ links, highlight, card, cards, autoFocus, onCha
         {links.map((link, i) => (
           <li key={i}>
             <LinkRow link={link} cards={cards} highlight={highlight} />
-            <button
-              type="button"
-              className="row-remove"
-              aria-label={`Remove link ${link.title}`}
-              onClick={() => void onChange(links.filter((_, j) => j !== i))}
-            >
-              <CloseIcon size={12} />
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                className="row-remove"
+                aria-label={`Remove link ${link.title}`}
+                onClick={() => void onChange(links.filter((_, j) => j !== i))}
+              >
+                <CloseIcon size={12} />
+              </button>
+            )}
           </li>
         ))}
       </ul>
-      <form className="widget-add link-add" onSubmit={add}>
-        <input
-          aria-label="Link address, or a card to link"
-          aria-invalid={invalid}
-          placeholder="https://… or a card"
-          value={url}
-          maxLength={2000}
-          autoFocus={autoFocus}
-          onChange={(e) => {
-            setUrl(e.target.value)
-            setInvalid(false)
-          }}
-        />
-        <input aria-label="Link title" placeholder="Title (optional)" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
-        <button type="submit" className="widget-button" disabled={!query}>
-          Add
-        </button>
-      </form>
+      {!readOnly && (
+        <form className="widget-add link-add" onSubmit={add}>
+          <input
+            aria-label="Link address, or a card to link"
+            aria-invalid={invalid}
+            placeholder="https://… or a card"
+            value={url}
+            maxLength={2000}
+            autoFocus={autoFocus}
+            onChange={(e) => {
+              setUrl(e.target.value)
+              setInvalid(false)
+            }}
+          />
+          <input aria-label="Link title" placeholder="Title (optional)" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
+          <button type="submit" className="widget-button" disabled={!query}>
+            Add
+          </button>
+        </form>
+      )}
       {matches.length > 0 && (
         <ul className="links link-suggestions" aria-label="Cards to link">
           {matches.map((n) => (

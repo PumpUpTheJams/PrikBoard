@@ -17,13 +17,13 @@ When someone pastes a PrikBoard link in Discord, the chat should show what it po
 ### Constraints
 
 - **Links stay as they are.** Board and card links keep everything behind the `#` (`/#/boards/{shortId}/cards/{number}`), and so do invites (`/#/invite/{token}`). There are no new share links or server-rendered pages.
-- **The integration only talks to the API.** The Discord bot is a separate process that calls the PrikBoard REST API (`/api/...`) with its own credential, like any other client. It has no database access and doesn't read the web app. The API, in turn, never calls Discord.
+- **The integration only talks to the API.** The Discord bot is a separate process that calls the PrikBoard REST API (`/api/...`) with a token per Discord server, like any other client. It has no database access and doesn't read the web app. The API, in turn, never calls Discord.
 
 ## Why the chat app's own preview sees so little
 
 Chat apps build link previews by fetching the URL themselves, anonymously, and nobody sends the part after `#` to the server. Every PrikBoard link reaches the server as `/`, and the crawler isn't signed in. So the chat app's own preview can only ever be one fixed preview for all PrikBoard links, built from `index.html`.
 
-The integration avoids both limits: the bot reads the link from the message text, fragment included, and asks the API about it with its own credential.
+The integration avoids both limits: the bot reads the link from the message text, fragment included, and asks the API about it with that server's token.
 
 ## Part 1: the anonymous preview
 
@@ -78,30 +78,42 @@ A new `DiscordGuild` row keeps what the agent can't hold:
 | --- | --- |
 | `GuildId` | Discord's id for the server (a snowflake, kept as text) |
 | `AgentId` | The guild's `Agent` |
-| `ChannelIds` | Channels previews are limited to, or null for the whole server (see open questions) |
-| `ConnectedById` | The PrikBoard user who confirmed the connection |
+| `ConnectedById` | The PrikBoard user who confirmed the latest connection |
 | `ConnectedAt` | When |
+
+And a `DiscordBoardChannels` row per connected board keeps where it may be previewed:
+
+| Field | Meaning |
+| --- | --- |
+| `GuildId`, `BoardId` | The connection (the membership is the grant; this row only narrows it) |
+| `Channels` | The channels (id and name, as Discord gave them at connect time) previews of this board are limited to, or null for the whole server |
 
 Discord's own ids are not personal data about PrikBoard users, so storing them in plain text is fine. No Discord user ids are stored.
 
 ### Connecting a server
 
-This works like the VS Code extension's sign-in (`AppSignInEndpoints`, `components/ConnectPage.tsx`):
+This is the VS Code extension's sign-in (`AppSignInEndpoints`, `components/ConnectPage.tsx`) with the paste path: an authorization code with PKCE, where the person carries the code back by hand.
 
-1. A Discord admin runs `/prikboard connect` in the server. The bot checks that they have the *Manage Server* permission, which the interaction payload includes.
-2. The bot asks the API for a one-time connect code (`beginDiscordConnect`: bot credential, guild id and name, 15 minutes, stored as a hash like `ImageUpload` tokens). It replies with a private (ephemeral) message linking to `/#/connect/discord?code=...`.
-3. A board owner opens the link, signs in and picks boards (and channels, if limited). The page shows the server's name so they know what they are granting.
-4. `confirmDiscordConnect` (session only, Owner on each chosen board) creates or reuses the guild's agent, adds it as a Viewer to those boards and spends the code. The page says it is done. The API doesn't call Discord, so the bot doesn't post a confirmation; the admin can run `/prikboard status` to see the connected boards.
+1. A Discord admin runs `/prikboard connect` in a channel of the server. The bot checks that they have the *Manage Server* permission, which the interaction payload includes. It makes a PKCE code verifier, keeps it in memory for that guild for 10 minutes together with the channel's id and name, and replies with a private (ephemeral) message linking to `/#/connect?app=discord&challenge=...`. The bot makes no API call yet.
+2. A board owner opens the link, signs in and picks the boards to connect, and for each one *only the channel where `/prikboard connect` was run* (the default) or *the whole server*. The page can't name the channel either; the bot shows its name in step 4. The page names no server: anything in the link could be forged, so it says *paste the code into the Discord server where `/prikboard connect` was run*.
+3. `approveDiscordConnect` (session only, Owner on each chosen board, `SameOrigin`, like approveAppSignIn) stores a one-time code with the challenge, the boards and each board's channel choice (hashed, 5 minutes) and the page shows it.
+4. The admin runs `/prikboard finish code:<code>` in the same server (ephemeral, *Manage Server* again). The bot takes the guild id and name from the interaction, which Discord vouches for, not from the link, and calls `exchangeDiscordConnect` (anonymous and rate limited, like exchangeAppSignIn) with the code, its verifier, the guild id and name, and the channel kept from step 1. It replies with the boards and channels that are now connected.
+5. The API creates or reuses the guild's agent, adds it as a Viewer to the boards, adds the channel to each board's `Channels` (or sets it to null for *the whole server*), spends the code and returns a new `pb_pat_` token of kind `Discord` once. The bot stores it for that guild, encrypted at rest. A code started in one server can't be finished in another: the other server has no matching verifier.
 
-Both sides consent: a Discord admin for the server, and a PrikBoard owner for each board. Owners can connect more boards later from the board menu, or from `/prikboard connect` again.
+Both sides consent: a Discord admin for the server, and a PrikBoard owner for each board. Connecting more boards, or allowing a board in another channel, runs the same flow from that channel; the API adds the memberships and the new token replaces the guild's old one. `/prikboard status` lists the connected boards.
 
 ### How the bot calls the API
 
-The bot has one service credential (see open questions for which kind). Every call also names the guild it acts for, and the API turns that into the guild's agent as the principal. The credential alone can't read anything: a guild that isn't connected has no agent, so every call for it is a 404.
+With the guild's own token, `Authorization: Bearer pb_pat_...`, like any other client. There is no bot-wide credential and no guild header: the token says which guild it is.
+
+- **Token kind `Discord`** (`AccessTokenKind`, next to `Agent` and `App`). `AgentId` is the guild's agent and `OwnerId` the owner who approved it (it counts toward their `MaxPerOwner` and shows in their token list). `AccessTokenHandler` gives it the agent as principal and scope `boards:read` only, and no owner cap: `BoardCaller` uses the agent's own memberships, as for an issuer's agent. So the owner who connected it leaving the board doesn't break it; removing the guild's membership does.
+- **Lifetime.** `AccessToken.MaxDays` (365). `/prikboard status` warns from 14 days before it ends, and connecting again renews it.
+- **Revoking.** Removing the guild from the board's members, revoking the token in the owner's token list, or `/prikboard disconnect` (the bot calls `revokeDiscordToken` with the token itself). A guild without a token gets no previews; the bot doesn't call the API for it.
+- **What a leak costs.** A stolen bot store gives each connected guild's read-only token, for that guild's boards only, not a key to every server.
 
 For previews the bot makes one call per link, to a new endpoint that does the parsing and picks what to show, so the bot stays thin and the rules live in one place:
 
-`POST /api/link-previews` (`getLinkPreview`, `.NoBoardScope()`, Discord bot only) with `{ "url": "<the link as pasted>" }`. The link goes in the body, not the path, because an invite link holds its token. It answers with one of:
+`POST /api/link-previews` (`getLinkPreview`, `.NoBoardScope()`, `Discord` tokens only) with `{ "url": "<the link as pasted>", "channelId": "<where it was pasted>" }`. The link goes in the body, not the path, because an invite link holds its token. It answers with one of:
 
 | `kind` | When | Fields |
 | --- | --- | --- |
@@ -109,11 +121,11 @@ For previews the bot makes one call per link, to a new endpoint that does the pa
 | `Board` | A board link (`/#/boards/{shortId}` or `/#/boards/{boardId}`) the agent can read | `boardName`, `description`, `path` |
 | `Invite` | `/#/invite/{token}` for an open invite | `boardName`, `role`, `invitedBy`, `expiresAt` |
 
-Everything else is a 404: a link to another host, a board or card the guild can't see or that doesn't exist, a used, revoked or expired invite. The four look the same, so the bot can't be used to find out which boards exist.
+Everything else is a 404: a link to another host, a board or card the guild can't see or that doesn't exist, a used, revoked or expired invite, a board or card link from a channel outside that board's `Channels`. They all look the same, so the bot can't be used to find out which boards exist.
 
-- **Card description.** Cards have no description field, so it is the first text component on the card's canvas (top to bottom, then left to right), Markdown reduced to plain text and cut to 300 characters at a word, with an ellipsis. A card without text components has none, and a card whose content is a checklist gets `3/7 done` instead. Built by a `CardPreview.Describe(card)` helper so the rule can be tested on its own.
+- **Card description.** Cards have no description field, so it is the first note (Text component) on the card's canvas (top to bottom, then left to right), Markdown reduced to plain text and cut to 300 characters at a word, with an ellipsis. A card without notes has none, and a card whose content is a checklist gets `3/7 done` instead. Built by a `CardPreview.Describe(card)` helper so the rule can be tested on its own.
 - **Board description.** `Board.Description`, cut the same way, or null.
-- **Invites** reuse `previewInvite`'s lookup and never spend the token. They need no membership, since anyone holding the link is meant to see the board's name, but the guild must be connected to at least one board, so the bot's credential alone can't be used to test tokens. Rate limited with `InviteEndpoints.InviteLimit`, keyed per guild.
+- **Invites** reuse `previewInvite`'s lookup and never spend the token. They need no membership, since anyone holding the link is meant to see the board's name, but only a `Discord` token can ask, and that already takes a connected guild, so it can't be used to test invite tokens at scale. Rate limited with `InviteEndpoints.InviteLimit`, keyed per guild.
 - The invite response has no `yourRole`: the bot can't tell who will click.
 - **Host check.** Links are only parsed when their origin is the API's own public URL (`Discord:PublicUrl`), so a look-alike host isn't previewed as PrikBoard.
 
@@ -127,7 +139,7 @@ A new project, `src/PrikBoard.Discord`: a .NET worker using a Discord library (D
 - It needs the **Message Content** intent to read pasted links. Discord treats it as privileged: free for bots in under 100 servers, verification by Discord above that.
 - It finds candidate links with a loose match on the configured host and sends each to `getLinkPreview`; the API decides what they are. Up to five links per message.
 - It posts one reply per message, with one embed per link that got a preview (Discord allows 10), and stays silent about the rest. Saying "no access" would confirm that the board exists.
-- It checks the channel against `ChannelIds` before posting.
+- It sends the channel id with every `getLinkPreview` call; the API checks it against the board's `Channels` (invites aren't limited by channel).
 - It ignores messages from bots, including its own.
 - With *Manage Messages* it removes Discord's own anonymous link preview from the message it answers (suppress embeds), so the channel doesn't show "not signed in" right above a full preview. Without it, both show.
 
@@ -144,46 +156,35 @@ No images and no avatars (see open questions).
 ### Web
 
 - The connect page (`#/connect/discord`).
-- A *Discord* entry in the board menu, for owners: connected servers, their channel limits, and a remove button (with `ConfirmDialog`).
+- A *Discord* entry in the board menu, for owners: connected servers, their channel limits, and a remove button (with `ConfirmDialog`, which says previews already posted stay in Discord).
 - The guild agent shows in the members list with a Discord badge.
 - Mirrors in `api/types.ts` and `api/client.ts` for the endpoints the web uses (not `getLinkPreview`).
 
 ### API checklist
 
 - `DiscordGuild` entity and migration; an `Agent` issuer `discord`.
-- Endpoints, each with `WithName`, summaries and `RequireBoardRole`/`NoBoardScope`: `beginDiscordConnect` (bot), `getDiscordConnect` (session, for the connect page), `confirmDiscordConnect` (session), `getDiscordStatus` (bot), `getLinkPreview` (bot), `listDiscordConnections` and `removeDiscordConnection` (board Owner).
+- Endpoints, each with `WithName`, summaries and `RequireBoardRole`/`NoBoardScope`: `approveDiscordConnect` (session), `exchangeDiscordConnect` (anonymous, rate limited), `getDiscordStatus`, `getLinkPreview` and `revokeDiscordToken` (Discord token), `listDiscordConnections` and `removeDiscordConnection` (board Owner).
 - `CardLinks` gains a board-link parser next to `TryParse`; `CardPreview.Describe`.
-- The bot auth scheme.
-- Configuration: `Discord:PublicUrl` (the PrikBoard origin links are matched against) and whatever the bot credential needs. `Discord:BotToken` belongs to the bot only.
+- `AccessTokenKind.Discord` in `AccessTokenHandler` and `BoardCaller`; the connect page handles `app=discord`.
+- Configuration: `Discord:PublicUrl` (the PrikBoard origin links are matched against). `Discord:BotToken` belongs to the bot only.
 - Tests: connect flow (code expiry, reuse, non-owner); `getLinkPreview` for a card with and without text, a checklist card, a board with and without a description, an open invite, and identical 404s for an unknown board, a board the guild can't see, a removed connection, an unknown guild, another host and a used invite; previewing an invite doesn't spend it; the description cut.
 - Docs: `api.md` endpoint table, `authentication.md` (the bot as a caller).
-
-### Simpler first step
-
-Without any API changes: an owner creates a Viewer personal access token limited to one board and gives it to the bot with `/prikboard connect token:<pat>` (the reply is ephemeral). The bot stores it per guild and calls `getCard` and `getBoard` with it, building the description itself.
-
-It is enough to try board and card embeds, but:
-- invites don't work, since `previewInvite` is people only;
-- it acts through the owner's membership, so it stops working when they leave the board or are removed;
-- the bot stores a secret per server;
-- members see it as the owner's agent, not as the Discord server.
 
 ## Order of work
 
 1. Part 1: meta tags and images. Useful in every chat app, no Discord setup.
-2. Part 2's simpler first step, to try the bot.
-3. Part 2 in full.
+2. Part 2.
 
 ## Open questions
 
-1. **Bot credential.** A new auth scheme (a shared secret, with the guild id in a header) or a JWT issuer under `Auth:Tokens:Issuers` whose tokens carry the guild id as a claim? The scheme is simpler; the issuer fits what already exists and gives expiry for free.
-2. **Invites in public channels.** An invite link is single-use and goes to whoever accepts it first. Should the embed only appear in channels limited by `ChannelIds`, or should the bot warn (as planned) and leave the choice to the poster?
-3. **Channel limits: in the bot or in the API?** If the bot sends the channel id and the API checks it, a bug or a compromised bot can't post a board into the wrong channel. It also means the API learns about Discord channels.
-4. **Channel limits per board or per server?** Per board is more precise (`#design` sees the design board only) but makes the settings page bigger.
-5. **More on the card embed.** Bucket, tags and assignees fit as embed fields. Leave them out to start, as planned, or show them?
-6. **Readable ids in plain text.** Should the bot also preview a bare `MPCT-415` typed in a message? Keys aren't unique, so it would only look among the guild's boards, and it may fire on text that only looks like an id.
-7. **Per-person check.** Should the bot only preview links the poster can open? That needs Discord as a sign-in provider (a hashed `UserIdentity`, as now) and the poster to link their account. The server grant is still needed, since the whole channel sees the embed.
-8. **Revoked access.** Embeds already posted stay in Discord's history after a disconnect. Accept and document it, or have the bot edit its old replies away (it would have to remember them)?
-9. **Images.** Discord fetches embed images anonymously, so an image needs a signed, short-lived URL. Worth it, or leave images out?
+1. ~~**Bot credential.**~~ Decided: a `pb_pat_` token per guild, of kind `Discord`, from the VS Code-style PKCE sign-in (see Connecting a server). No bot-wide credential.
+2. ~~**Invites in public channels.**~~ Decided: preview invites in any channel the bot posts in, with the line saying the link works once, for whoever accepts it first. Invites aren't tied to a board the guild is connected to, so channel limits don't apply to them.
+3. ~~**Channel limits: in the bot or in the API?**~~ Decided: in the API. `getLinkPreview` takes the `channelId`, and a channel that isn't allowed gets the same 404 as a board the guild can't see. The bot reports the channel, so this catches bot bugs, not a compromised bot (which holds the token anyway); the rules stay in one place.
+4. ~~**Channel limits per board or per server?**~~ Decided: per board, taken from the channel where `/prikboard connect` was run, or the whole server, chosen on the connect page. Another channel is added by connecting again from it; owners remove channels in the board's *Discord* menu.
+5. ~~**More on the card embed.**~~ Decided: none to start. The embed shows the readable id, title, description, board name and color only; bucket, tags and assignees can come later as inline fields.
+6. ~~**Readable ids in plain text.**~~ Decided: not now, full links only. Text such as `ISO-9001` looks like an id and keys aren't unique. If it comes later, it matches only keys of boards connected to the server, in their allowed channels, and an ambiguous key previews nothing.
+7. ~~**Per-person check.**~~ Decided: no. The whole channel sees the embed, so the server grant and the channel limits are what protect a board; checking the poster would add Discord sign-in and account linking for almost no privacy gain.
+8. ~~**Revoked access.**~~ Decided: embeds already posted stay; they are snapshots. The owner's *Disconnect* dialog says "Previews already posted in Discord stay there. Delete them in Discord if needed." The bot keeps no record of its replies.
+9. ~~**Images.**~~ Decided: none at first. If they come later, the bot downloads the card's first image with its token and attaches it to the reply (`attachment://`), so no signed URLs or anonymous file routes are needed.
 10. **Hosting.** Nothing is deployed. Both parts need a real public host: crawlers can't reach `localhost`, and the bot needs the API reachable. This waits on HTTPS and persisted Data Protection keys (see `authentication.md`).
-11. **Later: notifications.** With a guild agent in place, posting board changes to a channel is a small next step, but the API never calls Discord, so the bot would have to listen (the SignalR hub, as the guild's agent). Is that wanted, and who picks which changes?
+11. ~~**Later: notifications.**~~ Decided: out of scope here, for a design of its own. The live hub (`/api/live`) already accepts the guild's read-only token, so the bot could listen as the guild's agent, but a `BoardChanged` event doesn't say what changed: the bot would have to compare board versions itself, or the API would need richer events. Who picks which changes are posted, and where, is open.

@@ -271,7 +271,7 @@ input[aria-invalid='true'] {
 .app {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100dvh;
 }
 
 .topbar {
@@ -2427,7 +2427,7 @@ li:hover .row-remove,
 .sign-in {
   display: grid;
   place-items: center;
-  min-height: 100vh;
+  min-height: 100dvh;
   padding: 16px;
   background-color: var(--bg);
   background-image: radial-gradient(circle, var(--dot) 1px, transparent 1.4px);
@@ -2799,7 +2799,7 @@ a.button.primary:hover {
   display: flex;
   flex-direction: column;
   width: min(460px, 100%);
-  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -3482,7 +3482,7 @@ a.button.primary:hover {
   z-index: 20;
   display: flex;
   flex-direction: column;
-  max-height: min(420px, calc(100vh - 16px));
+  max-height: min(420px, calc(100dvh - 16px));
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel);
@@ -4889,4 +4889,800 @@ button.picker-color:hover,
 .trash-band .band-button.empty-trash:hover:not(:disabled) {
   background: color-mix(in srgb, var(--danger) 16%, transparent);
   color: var(--danger);
+}
+
+/*
+ * Mobile layout (mobile/): boards, buckets, a bucket's cards and a card, one screen at a time. It reuses the board's
+ * parts (cards, components, images, the expanded card's band) and only adds the screens around them. Everything along
+ * the bottom edge keeps clear of the phone's own bar (Android's navigation bar, the iPhone home indicator) through
+ * env(safe-area-inset-bottom); the viewport tag sets viewport-fit=cover and lets the keyboard shrink the page.
+ */
+
+.app.mobile {
+  position: relative;
+}
+
+.m-screen {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.m-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-height: 56px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--bar-line);
+  background: var(--bar);
+}
+
+.m-bar > .board-tile {
+  margin: 0 6px 0 8px;
+}
+
+.m-bar-title {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 0 4px;
+}
+
+.m-bar-title.centered {
+  align-items: center;
+}
+
+.m-bar-name {
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-bar-context {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-bar-context.mono,
+.m-sheet-aside {
+  font: 11px var(--mono);
+  color: var(--muted);
+}
+
+.m-back,
+.m-bar-button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 22px;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.m-back.with-text {
+  display: flex;
+  gap: 2px;
+  width: auto;
+  padding: 0 10px 0 4px;
+  font-size: 15px;
+}
+
+.m-back:active,
+.m-bar-button:active {
+  background: var(--hover);
+}
+
+.m-bar-text,
+.m-bar-primary {
+  flex: none;
+  height: 38px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 15px;
+}
+
+.m-bar-primary {
+  padding: 0 16px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.m-bar .menu-panel {
+  min-width: 220px;
+}
+
+.m-scroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  padding: 20px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Room at the end for the floating button. */
+.m-cards,
+.m-stack {
+  padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+}
+
+.m-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.m-heading h1 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.m-count {
+  color: var(--muted);
+  font: 12px var(--mono);
+  letter-spacing: 0;
+}
+
+/* New board: the quick-add button in the heading, as a button of its own. */
+.m-heading .quick-add-toggle {
+  width: auto;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.m-heading .quick-add {
+  flex-basis: 100%;
+  padding: 0;
+}
+
+.m-heading .quick-add input,
+.m-heading .quick-add button {
+  height: 44px;
+}
+
+.m-search {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  color: var(--muted);
+}
+
+.m-search svg {
+  position: absolute;
+  left: 14px;
+  pointer-events: none;
+}
+
+.m-search input {
+  width: 100%;
+  height: 46px;
+  padding: 0 14px 0 40px;
+  border-radius: 10px;
+  background: var(--panel);
+  font-size: 16px;
+}
+
+.m-search.in-bar {
+  padding: 8px 12px 12px;
+  border-bottom: 1px solid var(--bar-line);
+  background: var(--bar);
+}
+
+.m-search.in-bar svg {
+  left: 26px;
+}
+
+.m-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.m-row,
+.m-bucket {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  text-align: left;
+}
+
+.m-row > svg,
+.m-bucket > svg {
+  flex: none;
+  color: var(--subtle);
+}
+
+.m-row:active,
+.m-bucket:active {
+  background: var(--row-hover);
+}
+
+.m-row-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--chip);
+  color: var(--text-2);
+}
+
+.m-row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.m-row-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.m-row-name {
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-row-detail {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-bucket {
+  border-radius: 10px;
+  background: var(--frame-bg);
+}
+
+.m-bucket.collapsed .m-row-name,
+.m-bucket.loose .m-row-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.m-bucket.loose {
+  border-style: dashed;
+  background: transparent;
+}
+
+.m-agents {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--halo) 14%, transparent);
+  color: var(--halo);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.m-empty,
+.m-note {
+  margin: 4px 0 0;
+  color: var(--subtle);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.m-empty {
+  margin-top: 24px;
+}
+
+/* The buckets as tabs above a bucket's cards; they scroll sideways. */
+.m-tabs-bar {
+  flex: none;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--bar-line);
+  background: var(--bar);
+}
+
+.m-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 4px 12px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.m-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.m-tab {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.m-tab[aria-current='page'] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--text);
+}
+
+/* The dots under the tabs: which bucket of how many. They take a row of their own, centred. */
+.m-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.m-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--slot);
+}
+
+.m-dots span.current {
+  width: 18px;
+  background: var(--accent);
+}
+
+.m-tab-count {
+  font: 11px var(--mono);
+  opacity: 0.75;
+}
+
+/* A card in a list: as wide as the list, as tall as its content (at least the board's height), opened with a tap. */
+.card.in-list {
+  --title-lines: 3;
+  position: relative;
+  flex: none;
+  min-height: 120px;
+  cursor: pointer;
+}
+
+.card.in-list .card-corner button {
+  display: none;
+}
+
+.card.in-list:hover .card-count,
+.card.in-list:focus-within .card-count {
+  display: grid;
+}
+
+/* An image in a list: as wide as the list at its own aspect ratio, opened with a tap. */
+.board-image.in-list {
+  position: relative;
+  flex: none;
+  margin: 4px 0;
+  cursor: pointer;
+}
+
+.board-image.in-list .board-image-frame img {
+  object-fit: contain;
+}
+
+.board-image.in-list .image-delete {
+  display: none;
+}
+
+/* The floating button that adds a card or a component. */
+.m-fab {
+  position: absolute;
+  right: 16px;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 22px 0 18px;
+  border: 0;
+  border-radius: 26px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: var(--float-shadow);
+}
+
+/* A card: the expanded card's band, then its components and images stacked on the dotted canvas. */
+.m-band {
+  flex: none;
+  gap: 12px;
+  padding: 6px 16px 16px;
+}
+
+.m-band-top {
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+.m-band .m-back {
+  margin-left: -12px;
+  color: var(--ink);
+}
+
+.m-band .band-fills {
+  margin: 0 0 0 auto;
+}
+
+.m-band .band-fills .swatch {
+  width: 22px;
+  height: 22px;
+}
+
+.m-band-bucket {
+  min-width: 0;
+  padding: 0 6px;
+  color: var(--ink-soft);
+}
+
+.m-band-bucket:disabled {
+  opacity: 1;
+}
+
+.m-band .band-title {
+  overflow: hidden;
+  font-size: 24px;
+  line-height: 1.2;
+  resize: none;
+  field-sizing: content;
+}
+
+.m-band .band-add {
+  height: 32px;
+  padding: 0 10px;
+}
+
+.m-band-people {
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.m-people {
+  display: flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.m-people:disabled {
+  opacity: 1;
+}
+
+.m-people .avatar {
+  border: 2px solid color-mix(in srgb, var(--fill), #17181b 12%);
+}
+
+.m-card-screen .m-stack {
+  background-color: var(--mini-bg);
+  background-image: radial-gradient(circle, var(--mini-dot) 1px, transparent 1.4px);
+  background-size: 20px 20px;
+}
+
+.card-component.stacked {
+  position: relative;
+  flex: none;
+  cursor: auto;
+}
+
+.card-component.stacked .component-head {
+  cursor: default;
+}
+
+.card-component.stacked .component-body {
+  overflow: visible;
+}
+
+.card-component.stacked .component-text {
+  min-height: 120px;
+  overflow: visible;
+}
+
+.card-component.stacked .checklist label {
+  min-height: 44px;
+  align-items: center;
+  font-size: 14px;
+}
+
+.card-component.stacked .checklist input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.card-component.stacked .link-row {
+  min-height: 44px;
+}
+
+/* The address gets the whole row; the title and Add go below it. */
+.card-component.stacked .link-add {
+  grid-template-columns: 1fr auto;
+}
+
+.card-component.stacked .link-add input:first-child {
+  grid-column: 1 / -1;
+}
+
+.card-component.stacked .link-add input,
+.card-component.stacked .widget-add input,
+.card-component.stacked .widget-button {
+  height: 44px;
+}
+
+.card-component.stacked .row-remove {
+  opacity: 1;
+}
+
+/* Inputs at 16 px, or phones zoom in on them. */
+.card-component.stacked input,
+.card-component.stacked textarea,
+.m-band .band-title {
+  font-size: max(16px, 1em);
+}
+
+.card-component.stacked .component-title {
+  font-size: 12px;
+}
+
+.component-edit {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin: -6px -4px -4px auto;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.component-edit:active {
+  background: var(--tool-hover);
+}
+
+.m-editor .component-remove {
+  display: none;
+}
+
+.m-editor .card-component.stacked .component-text {
+  min-height: 40dvh;
+}
+
+/* Sheets from the bottom: add to a card, move it. */
+.m-sheet-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.m-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  background: var(--dim);
+}
+
+.m-sheet {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 85dvh;
+  padding: 10px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  border-top: 1px solid var(--dialog-line);
+  border-radius: 16px 16px 0 0;
+  background: var(--dialog);
+  box-shadow: var(--float-shadow);
+}
+
+.m-sheet-grip {
+  align-self: center;
+  width: 36px;
+  height: 4px;
+  margin-bottom: 6px;
+  border-radius: 2px;
+  background: var(--slot);
+}
+
+.m-sheet-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.m-sheet-head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.m-choices {
+  gap: 6px;
+}
+
+.m-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  text-align: left;
+}
+
+.m-choice .m-row-name {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.m-choice[aria-checked='true'] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.m-radio {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--slot);
+  border-radius: 50%;
+}
+
+.m-choice[aria-checked='true'] .m-radio {
+  border: 6px solid var(--accent);
+  background: var(--accent-ink);
+}
+
+/* An image on its own. */
+.m-image-screen {
+  background: #07080b;
+}
+
+.m-image-view {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  overflow: auto;
+}
+
+.m-image-view img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.m-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  padding: 12px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--bar-line);
+  background: var(--bar);
+}
+
+.m-action {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.m-action.danger {
+  color: var(--danger);
+}
+
+.m-stack > .m-action {
+  flex: none;
+}
+
+/* The tag and people windows as sheets along the bottom, above the keyboard. */
+.picker.sheet {
+  top: auto;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  max-height: 70dvh;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  border-radius: 16px 16px 0 0;
+}
+
+.picker.sheet .picker-search input {
+  height: 48px;
+  font-size: 16px;
+}
+
+.picker.sheet .picker-pick {
+  min-height: 44px;
+}
+
+.app.mobile .toast-region {
+  bottom: calc(88px + env(safe-area-inset-bottom, 0px));
 }

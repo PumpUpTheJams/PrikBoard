@@ -11,11 +11,11 @@ import { useCopyLink } from './useCopyLink'
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
 
-/** What the card holds inside, by kind, e.g. "2 texts, 1 checklist, 1 image". */
+/** What the card holds inside, by kind, e.g. "2 notes, 1 checklist, 1 image". */
 function contentSummary(card: CardDetail, images: number) {
   const count = (kind: string) => card.components.filter((b) => b.kind === kind).length
   const parts = [
-    [count('Text'), 'text', 'texts'],
+    [count('Text'), 'note', 'notes'],
     [count('Checklist'), 'checklist', 'checklists'],
     [count('Links'), 'link list', 'link lists'],
     [images, 'image', 'images'],
@@ -38,8 +38,11 @@ function titleLines(card: CardDetail) {
 
 interface CardProps {
   card: CardDetail
-  /** Where to draw it: the server position, or the live position while dragging. */
-  point: Point
+  /**
+   * Where to draw it on the board: the server position, or the live position while dragging. Without one it is part
+   * of a list (the mobile layout), as wide as the list, and a tap opens it.
+   */
+  point?: Point
   /** How many images are attached to it (they count with its components in the content badge). */
   images?: number
   /** The board's tag colors; tags without one are a shade of the fill. */
@@ -56,7 +59,7 @@ interface CardProps {
   current?: boolean
   /** An image being dragged would be attached to this card on release. */
   dropTarget?: boolean
-  onPointerDown: (e: PointerEvent<HTMLDivElement>) => void
+  onPointerDown?: (e: PointerEvent<HTMLDivElement>) => void
   onExpand: () => void
   /** For editors: open the tag or people window next to this part of the card (a screen rectangle). */
   onEditTags?: (anchor: DOMRect) => void
@@ -101,6 +104,7 @@ export function Card(props: CardProps) {
   }
 
   const classes = ['card', `fill-${card.color.toLowerCase()}`]
+  if (!point) classes.push('in-list')
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
   if (front) classes.push('in-front')
@@ -126,13 +130,14 @@ export function Card(props: CardProps) {
   return (
     <div
       className={classes.join(' ')}
-      style={{ left: point.x, top: point.y, width: CARD_WIDTH, height: CARD_HEIGHT, '--title-lines': titleLines(card) } as CSSProperties}
+      style={point ? ({ left: point.x, top: point.y, width: CARD_WIDTH, height: CARD_HEIGHT, '--title-lines': titleLines(card) } as CSSProperties) : undefined}
       role="group"
       data-card={card.id}
       aria-label={card.agentWorking ? `${name} (agent working)` : name}
       tabIndex={0}
       onPointerDown={onPointerDown}
-      onDoubleClick={onExpand}
+      onDoubleClick={point ? onExpand : undefined}
+      onClick={point ? undefined : onExpand}
       onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && onExpand()}
     >
       <div className="card-head">
