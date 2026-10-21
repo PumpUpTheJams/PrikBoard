@@ -30,6 +30,8 @@ interface CardScreenProps {
   card: CardDetail
   /** Just made: its title is focused to type straight away. */
   fresh: boolean
+  /** The title of a card just made was left: it is not focused again. */
+  onFreshDone: () => void
   tagColors: TagColors
   run: RecordingRun
   notify: (text: string) => void
@@ -41,7 +43,7 @@ type Picking = { kind: 'tags' | 'people'; anchor: DOMRect }
  * The fourth mobile screen: a card, with the same band as the expanded card on the desktop (fill, title, tags, people,
  * readable id) and its components and attached images stacked below in reading order. One button adds to it.
  */
-export function CardScreen({ board, card, fresh, tagColors, run, notify }: CardScreenProps) {
+export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, notify }: CardScreenProps) {
   const readOnly = board.yourRole === 'Viewer'
   const [picking, setPicking] = useState<Picking | null>(null)
   const [sheet, setSheet] = useState<'add' | 'move' | null>(null)
@@ -151,6 +153,7 @@ export function CardScreen({ board, card, fresh, tagColors, run, notify }: CardS
           autoFocus={fresh && !readOnly}
           readOnly={readOnly}
           onSave={(title) => void edit({ title: title.replace(/\s+/g, ' ').trim() })}
+          onDone={() => fresh && onFreshDone()}
         />
         {readOnly ? (
           card.tags.length > 0 && <div className="band-tags">{card.tags.map((t) => <span key={t} className="band-tag">{t}</span>)}</div>

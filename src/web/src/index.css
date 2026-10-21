@@ -5217,6 +5217,7 @@ button.picker-color:hover,
 }
 
 .m-band .band-title {
+  overflow: hidden;
   font-size: 24px;
   line-height: 1.2;
   resize: none;
@@ -5288,6 +5289,21 @@ button.picker-color:hover,
 
 .card-component.stacked .link-row {
   min-height: 44px;
+}
+
+/* The address gets the whole row; the title and Add go below it. */
+.card-component.stacked .link-add {
+  grid-template-columns: 1fr auto;
+}
+
+.card-component.stacked .link-add input:first-child {
+  grid-column: 1 / -1;
+}
+
+.card-component.stacked .link-add input,
+.card-component.stacked .widget-add input,
+.card-component.stacked .widget-button {
+  height: 44px;
 }
 
 .card-component.stacked .row-remove {

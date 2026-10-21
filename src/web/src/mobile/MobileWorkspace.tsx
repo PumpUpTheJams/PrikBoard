@@ -154,7 +154,7 @@ function MobileBoard({ board, run, undoHistory, moving, onDialog, onDesktop }: M
   let screen: ReactNode
   if (image) screen = <ImageScreen board={board} image={image} run={runRec} />
   else if (card)
-    screen = <CardScreen key={card.id} board={board} card={card} fresh={freshId === card.id} tagColors={tagColors} run={runRec} notify={notify} />
+    screen = <CardScreen key={card.id} board={board} card={card} fresh={freshId === card.id} onFreshDone={() => setFreshId(null)} tagColors={tagColors} run={runRec} notify={notify} />
   else if (bucketId) screen = <BucketScreen board={board} bucketId={bucketId} tagColors={tagColors} run={runRec} onCreated={opened} actions={actions} />
   else screen = <BucketList board={board} actions={actions} />
 
