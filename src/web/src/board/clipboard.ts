@@ -1,15 +1,30 @@
 import type { BoardClip } from '../api/types'
 
-// Copied cards go on the system clipboard as the clip itself (from copyItems), so they paste on any PrikBoard server, in
-// any browser. It rides along in the HTML version, in an attribute, under a readable list of the cards: pasted into a
-// document or chat, that list (or the plain text) is what shows. The board reads the attribute back on paste.
+// Copied items go on the system clipboard as the clip itself (from copyItems), so they paste on any PrikBoard server, in
+// any browser. It rides along in the HTML version, in an attribute, under a readable list of what is in it: pasted into
+// a document or chat, that list (or the plain text) is what shows. The board reads the attribute back on paste.
 
 const ATTRIBUTE = 'data-prikboard-clip'
 
 const escapeHtml = (text: string) =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
-/** The card's readable id, title and link, for each card. */
+/** "1 bucket, 3 cards and 2 images" from counts and nouns; the ones at 0 are left out. */
+export function countList(parts: readonly (readonly [number, string])[]) {
+  const named = parts.filter(([n]) => n > 0).map(([n, one]) => (n === 1 ? `1 ${one}` : `${n} ${one}s`))
+  return named.length > 1 ? `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}` : (named[0] ?? 'nothing')
+}
+
+/** What a clip holds, for a toast: its buckets, cards, and images and drawings on the board (not those on the cards). */
+export const clipSummary = (clip: BoardClip) =>
+  countList([
+    [clip.buckets?.length ?? 0, 'bucket'],
+    [clip.cards.length, 'card'],
+    [clip.images.filter((i) => !i.cardId).length, 'image'],
+    [clip.drawings.filter((d) => !d.cardId).length, 'drawing'],
+  ])
+
+/** The cards' readable ids, titles and links. */
 function lines(clip: BoardClip) {
   const server = clip.source.url.replace(/\/+$/, '')
   return clip.cards.map((card) => ({
@@ -19,20 +34,32 @@ function lines(clip: BoardClip) {
   }))
 }
 
+/** Buckets by name, and a count of the images and drawings, for the readable versions. */
+function others(clip: BoardClip) {
+  const buckets = (clip.buckets ?? []).map((b) => `Bucket: ${b.name}`)
+  const loose = countList([
+    [clip.images.filter((i) => !i.cardId).length, 'image'],
+    [clip.drawings.filter((d) => !d.cardId).length, 'drawing'],
+  ])
+  return loose === 'nothing' ? buckets : [...buckets, loose]
+}
+
 function html(clip: BoardClip) {
-  const items = lines(clip)
-    .map((c) => `<li><a href="${escapeHtml(c.url)}">${escapeHtml(c.id)}</a> ${escapeHtml(c.title)}</li>`)
-    .join('')
+  const items = [
+    ...others(clip).map((line) => `<li>${escapeHtml(line)}</li>`),
+    ...lines(clip).map((c) => `<li><a href="${escapeHtml(c.url)}">${escapeHtml(c.id)}</a> ${escapeHtml(c.title)}</li>`),
+  ].join('')
   return `<meta charset="utf-8"><div ${ATTRIBUTE}="${escapeHtml(JSON.stringify(clip))}"><ul>${items}</ul></div>`
 }
 
-const text = (clip: BoardClip) => lines(clip).map((c) => `${c.id} ${c.title}\n${c.url}`).join('\n')
+const text = (clip: BoardClip) => [...others(clip), ...lines(clip).map((c) => `${c.id} ${c.title}\n${c.url}`)].join('\n')
 
 /**
- * Puts the clip on the clipboard once it has loaded. Call it straight from the key press: the browser only allows the
- * write during the user's gesture, so it is started at once with the clip still on its way. Throws what went wrong.
+ * Puts the clip on the clipboard once it has loaded, and returns it. Call it straight from the key press: the browser
+ * only allows the write during the user's gesture, so it is started at once with the clip still on its way. Throws what
+ * went wrong.
  */
-export async function writeClip(load: Promise<BoardClip>): Promise<void> {
+export async function writeClip(load: Promise<BoardClip>): Promise<BoardClip> {
   if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
     const written = navigator.clipboard
       .write([
@@ -47,11 +74,13 @@ export async function writeClip(load: Promise<BoardClip>): Promise<void> {
       )
     // A failed load says more than the refused write it causes.
     const clip = await load
-    if (await written) return
     // Refused (some embedded browsers allow no clipboard writes): the copy command may still work.
-    return copyCommand(clip)
+    if (!(await written)) copyCommand(clip)
+    return clip
   }
-  return copyCommand(await load)
+  const clip = await load
+  copyCommand(clip)
+  return clip
 }
 
 /** Copies with the copy command, which browsers still allow shortly after the key press. */

@@ -286,14 +286,16 @@ export interface BoardClip {
   copiedAt: string
   source: ClipSource
   cards: ClippedCard[]
-  images: unknown[]
-  drawings: unknown[]
+  images: ClippedItem[]
+  drawings: ClippedItem[]
   tagColors?: Record<string, TagColor> | null
   appVersion?: string | null
+  /** Buckets with what is in them (from version 2). */
+  buckets?: ClippedBucket[] | null
 }
 
 export interface ClipSource {
-  /** The server the cards were copied on; card links in the clip are paths on it. */
+  /** The server the items were copied on; card links in the clip are paths on it. */
   url: string
   boardShortId: string
   boardKey: string
@@ -306,15 +308,41 @@ export interface ClippedCard {
   title: string
 }
 
-/** Where pasted cards go: the top-left one at x and y (the rest keep their places around it), into a bucket, or (neither) into the first bucket. */
+/** A bucket in a clip (the rest of its fields are passed on untouched). */
+export interface ClippedBucket {
+  id: string
+  name: string
+}
+
+/** An image or drawing in a clip: on a card in it, or (null) on the board. */
+export interface ClippedItem {
+  cardId: string | null
+}
+
+/** What copyItems copies, all on one board. A bucket comes with what is in it. */
+export interface CopyItemsRequest {
+  cardIds?: string[]
+  bucketIds?: string[]
+  imageIds?: string[]
+  drawingIds?: string[]
+}
+
+/**
+ * Where pasted items go: the top-left at x and y (the rest keep their places around it), cards alone into a bucket, or
+ * (neither) cards into the first bucket and anything else to a free spot.
+ */
 export type PastePlace = Point | { bucketId: string } | Record<string, never>
 
 export interface PastedItems {
   cards: CardDetail[]
+  /** On the new cards, or on the board. */
   images: ImageDetail[]
+  /** On the new cards, or on the board. */
   drawings: DrawingDetail[]
-  /** The bucket they went into, when one was asked for. */
+  /** The bucket the cards went into, when one was asked for. */
   bucket: BucketDetail | null
+  /** The new buckets, back to front. */
+  buckets: BucketDetail[]
 }
 
 export type AssigneeKind = 'Person' | 'Agent'

@@ -453,35 +453,51 @@ public sealed class BoardTools
         return result;
     }
 
-    [McpServerTool(Name = "copy_to_board", Title = "Copy cards to a board", OpenWorld = false)]
-    [Description("Copies cards to a board, the same one or another: new cards, created by you, with the same title, fill, tags, " +
-                 "content, and the images and drawings on them. Assignees stay when they can be assigned there; links between the " +
-                 "copied cards point at the copies. They go into free spots in the bucket (default: the board's first bucket). The " +
-                 "originals stay where they are. Needs the Viewer role on their board and the Editor role on the board they go to.")]
+    [McpServerTool(Name = "copy_to_board", Title = "Copy items to a board", OpenWorld = false)]
+    [Description("Copies cards, buckets, and images and drawings on the board to a board, the same one or another: new items, " +
+                 "created by you. Cards keep their title, fill, tags, content, and the images and drawings on them; a bucket comes " +
+                 "with everything in it. Assignees stay when they can be assigned there; links between the copied cards point at " +
+                 "the copies. Everything keeps its place relative to the rest, the top-left at x and y (or a free spot); cards alone " +
+                 "may instead go into free spots in a bucket (default: the board's first bucket). The originals stay where they are. " +
+                 "Needs the Viewer role on their board and the Editor role on the board they go to.")]
     public static async Task<PastedItems> CopyToBoard(
         IHttpContextAccessor accessor,
         [Description("The board to copy them to: " + BoardForms)] string board,
-        [Description("The cards to copy, all from one board, each: " + CardForms)] List<string> cards,
-        [Description("The bucket on that board to put them in: its name or id. Default: the first bucket.")] string? bucket = null,
+        [Description("The cards to copy, all from one board, each: " + CardForms)] List<string>? cards = null,
+        [Description("The board they come from (" + BoardForms + "); needed only without cards.")] string? from = null,
+        [Description("Buckets to copy, with what is in them: their names or ids on the board they come from.")] List<string>? buckets = null,
+        [Description("Ids of images on that board (not on a card: those come with their card), from get_board.")] List<Guid>? images = null,
+        [Description("Ids of drawings on that board (not on a card), from get_board.")] List<Guid>? drawings = null,
+        [Description("For cards alone: the bucket on the board they go to to put them in, by name or id. Default: the first bucket.")] string? bucket = null,
+        [Description("Left edge of where the top-left item goes; give it with y.")] int? x = null,
+        [Description("Top edge of where the top-left item goes; give it with x.")] int? y = null,
         CancellationToken ct = default)
     {
         var http = McpCall.Http(accessor);
         var targetId = await ResolveBoardAsync(http, board, ct);
         var cardIds = new List<Guid>();
-        foreach (var card in cards) cardIds.Add(await ResolveCardAsync(http, card, ct));
-        McpCall.Validate(new CopyItemsRequest(cardIds));
+        foreach (var card in cards ?? []) cardIds.Add(await ResolveCardAsync(http, card, ct));
         var sourceIds = new HashSet<Guid>();
         foreach (var cardId in cardIds.Distinct()) sourceIds.Add(await McpCall.AuthorizeAsync(http, BoardScope.Card, cardId, BoardRole.Viewer));
-        if (sourceIds.Count > 1) throw new McpException("Copy cards from one board at a time.");
+        if (from is not null) sourceIds.Add(await ResolveBoardAsync(http, from, ct));
+        if (sourceIds.Count > 1) throw new McpException("Copy from one board at a time.");
+        if (sourceIds.Count == 0) throw new McpException("Name the cards to copy, or the board they come from (from).");
+        var sourceId = sourceIds.Single();
+        await McpCall.AuthorizeAsync(http, BoardScope.Board, sourceId, BoardRole.Viewer);
         await McpCall.AuthorizeAsync(http, BoardScope.Board, targetId, BoardRole.Editor);
 
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
         var files = http.RequestServices.GetRequiredService<FileStore>();
+        var bucketIds = new List<Guid>();
+        foreach (var name in buckets ?? []) bucketIds.Add(await ResolveBucketAsync(db, sourceId, name, ct));
+        var what = new CopyItemsRequest(cardIds, bucketIds, images, drawings);
+        McpCall.Validate(what);
         Guid? bucketId = bucket is null ? null : await ResolveBucketAsync(db, targetId, bucket, ct);
         var server = ClipEndpoints.ServerUrl(http.Request);
-        var clip = McpCall.Value<BoardClip>(await ClipEndpoints.BuildClipAsync(db, files, sourceIds.Single(), cardIds, server, ct));
-        var result = McpCall.Value<PastedItems>(
-            await ClipEndpoints.PasteAsync(targetId, new PasteItemsRequest(clip, BucketId: bucketId), server, http.User, db, files, ct));
+        var clip = McpCall.Value<BoardClip>(await ClipEndpoints.BuildClipAsync(db, files, sourceId, what, server, ct));
+        var request = new PasteItemsRequest(clip, x, y, bucketId);
+        McpCall.Validate(request);
+        var result = McpCall.Value<PastedItems>(await ClipEndpoints.PasteAsync(targetId, request, server, http.User, db, files, ct));
         await McpCall.AnnounceAsync(http, targetId);
         return result;
     }
