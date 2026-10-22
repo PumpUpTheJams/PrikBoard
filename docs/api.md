@@ -76,7 +76,7 @@ The VS Code extension gets its own kind of token, `App`, by signing in through P
 
 A Discord server connected for link previews has a token of kind `Discord`: read-only, acting as the server's own agent, which is a Viewer member of the connected boards. It counts toward the tokens of the owner who connected it and shows in their list. See [discord.md](discord.md).
 
-Tokens are managed with listAccessTokens, createAccessToken and revokeAccessToken, from a browser session only: a token can never create another token. Each token is limited to 600 requests a minute (`RateLimits:AccessTokenRequestsPerMinute`).
+Tokens are managed with listAccessTokens, createAccessToken and revokeAccessToken, from a browser session only: a token can never create another token. Each token is limited to 600 requests a minute (`RateLimits:AccessTokenRequestsPerMinute`). One address may present at most 30 unknown tokens a minute (`RateLimits:UnknownAccessTokensPerMinute`); after that it gets 429 with `Retry-After` for every token not looked up before.
 
 ## MCP
 

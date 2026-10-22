@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
@@ -12,14 +13,19 @@ namespace PrikBoard.Api.Auth;
 /// <summary>
 /// Authenticates <c>Authorization: Bearer pb_pat_...</c>. The principal carries the same claims as an issuer token (so
 /// scopes and <c>PrincipalId()</c> work unchanged). An agent token adds the owner, maximum role and boards that
-/// <see cref="BoardCaller"/> applies; an app token is the owner themselves; a Discord token is its server's agent, read-only. Lookups are cached for a minute; revoking evicts at once on this instance.
+/// <see cref="BoardCaller"/> applies; an app token is the owner themselves; a Discord token is its server's agent, read-only.
+/// Tokens found are cached for a minute; revoking evicts at once on this instance. Unknown tokens are not cached (anyone can
+/// make up well-formed ones): <see cref="AccessTokenLookups"/> limits how many one address may try instead.
 /// </summary>
 public sealed class AccessTokenHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder,
-    PrikBoardDbContext db, IMemoryCache cache)
+    PrikBoardDbContext db, IMemoryCache cache, AccessTokenLookups lookups)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     private static readonly TimeSpan CacheFor = TimeSpan.FromMinutes(1);
+
+    /// <summary>Set when the address tried too many unknown tokens: the challenge answers 429 with this Retry-After.</summary>
+    private const string RetryAfterItem = "PrikBoard.AccessTokens.RetryAfter";
 
     private sealed record Found(Guid Id, AccessTokenKind Kind, Guid OwnerId, Guid? AgentId, BoardRole MaxRole, List<Guid>? BoardIds, DateTimeOffset ExpiresAt);
 
@@ -38,24 +44,30 @@ public sealed class AccessTokenHandler(
 
         var hash = AccessTokens.Hash(token);
         var key = Key(hash);
-        if (!cache.TryGetValue(key, out Found? found))
+        if (!cache.TryGetValue(key, out Found? found) || found is null)
         {
+            if (!lookups.MayLookUp(Context, out var retryAfter))
+            {
+                Context.Items[RetryAfterItem] = retryAfter;
+                return AuthenticateResult.Fail("Too many unknown access tokens from this address.");
+            }
             found = await db.AccessTokens.AsNoTracking()
                 .Where(t => t.TokenHash == hash)
                 .Select(t => new Found(t.Id, t.Kind, t.OwnerId, t.AgentId, t.MaxRole, t.BoardIds, t.ExpiresAt))
                 .FirstOrDefaultAsync(Context.RequestAborted);
+            if (found is null)
+            {
+                lookups.Unknown(Context);
+                return AuthenticateResult.Fail("Unknown or revoked access token.");
+            }
             cache.Set(key, found, CacheFor);
 
             // Once per cache period at most, which is all "last used" needs.
-            if (found is not null)
-            {
-                var now = DateTimeOffset.UtcNow;
-                await db.AccessTokens.Where(t => t.TokenHash == hash)
-                    .ExecuteUpdateAsync(s => s.SetProperty(t => t.LastUsedAt, now), Context.RequestAborted);
-            }
+            var now = DateTimeOffset.UtcNow;
+            await db.AccessTokens.Where(t => t.TokenHash == hash)
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.LastUsedAt, now), Context.RequestAborted);
         }
 
-        if (found is null) return AuthenticateResult.Fail("Unknown or revoked access token.");
         if (found.ExpiresAt <= DateTimeOffset.UtcNow) return AuthenticateResult.Fail("The access token has expired.");
 
         List<Claim> claims = [new(ApiScopes.IssuerIdClaim, Agent.AccessTokenIssuer), new("client_id", found.Id.ToString())];
@@ -88,6 +100,13 @@ public sealed class AccessTokenHandler(
 
     protected override Task HandleChallengeAsync(AuthenticationProperties properties)
     {
+        // Not 401: the token may well be valid, and a client should wait rather than throw it away.
+        if (Context.Items[RetryAfterItem] is TimeSpan retryAfter)
+        {
+            Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
+            return Task.CompletedTask;
+        }
         Response.StatusCode = StatusCodes.Status401Unauthorized;
         Response.Headers.WWWAuthenticate = "Bearer error=\"invalid_token\"";
         return Task.CompletedTask;

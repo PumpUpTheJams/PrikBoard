@@ -83,6 +83,7 @@ public static partial class AuthSetup
         builder.Services.AddSingleton(services =>
             KeyedHasher.FromConfiguration(services.GetRequiredService<IConfiguration>(), services.GetRequiredService<IHostEnvironment>()));
         builder.Services.AddMemoryCache();
+        builder.Services.AddSingleton<AccessTokenLookups>();
 
         var config = section.Get<AuthOptions>() ?? new AuthOptions();
         var issuers = config.Tokens.Issuers.Where(i => !string.IsNullOrWhiteSpace(i.Value.Authority)).ToList();
