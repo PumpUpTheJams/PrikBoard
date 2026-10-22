@@ -32,7 +32,8 @@ public static class CardComponentEndpoints
             .WithName("updateCardComponent")
             .WithSummary("Edit, move or resize a component")
             .WithDescription("Changes any of a component's title, content (text, checklist items or links, whichever fits its kind), " +
-                             "position and size. Omitted fields stay unchanged; a list that is given replaces the component's whole list.")
+                             "position and size. Omitted fields stay unchanged; a list that is given replaces the component's whole list. " +
+                             "appendText, addItems, checkItems and uncheckItems change a Text or Checklist component without sending its content back.")
             .ProducesValidationProblem();
 
         components.MapDelete("/{componentId:guid}", DeleteCardComponent)
@@ -87,6 +88,7 @@ public static class CardComponentEndpoints
         if (component.Kind == CardComponentKind.Text) component.Text = PatchText.Apply(component.Text, request.Text);
         if (request.Items is not null) component.Items = Items(request.Items);
         if (request.Links is not null) component.Links = Links(request.Links);
+        if (ApplyIncrements(component, request) is { } increment) return increment;
         component.X = request.X ?? component.X;
         component.Y = request.Y ?? component.Y;
         component.Width = request.Width ?? component.Width;
@@ -156,6 +158,53 @@ public static class CardComponentEndpoints
         (component.X, component.Y) = request.X is { } x && request.Y is { } y ? (x, y) : Layout.NextCardSpot(taken, component.Width, component.Height);
         Layout.Clamp(component);
         return component;
+    }
+
+    /// <summary>
+    /// Applies appendText, addItems, checkItems and uncheckItems, which change part of a component's content in place. Returns a
+    /// problem when they don't fit its kind, the result is too long, or an item to tick doesn't exist.
+    /// </summary>
+    private static ValidationProblem? ApplyIncrements(CardComponent component, UpdateCardComponentRequest request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.AppendText))
+        {
+            if (component.Kind != CardComponentKind.Text) return Problems.Invalid("appendText", $"A {component.Kind} component has no text; use a Text component.");
+            var added = request.AppendText.Trim();
+            var text = string.IsNullOrWhiteSpace(component.Text) ? added : $"{component.Text.TrimEnd()}\n\n{added}";
+            if (text.Length > CardComponent.MaxTextLength)
+            {
+                return Problems.Invalid("appendText", $"The text would be longer than {CardComponent.MaxTextLength} characters.");
+            }
+            component.Text = text;
+        }
+
+        if (request is { AddItems: null, CheckItems: null, UncheckItems: null }) return null;
+        if (component.Kind != CardComponentKind.Checklist)
+        {
+            return Problems.Invalid(request.AddItems is not null ? "addItems" : request.CheckItems is not null ? "checkItems" : "uncheckItems",
+                $"A {component.Kind} component has no checklist items; use a Checklist component.");
+        }
+        if (request.AddItems is not null) component.Items = [.. component.Items, .. Items(request.AddItems)];
+        if (component.Items.Count > CardComponent.MaxItems)
+        {
+            return Problems.Invalid("addItems", $"A checklist has at most {CardComponent.MaxItems} items.");
+        }
+        return Tick(component, request.CheckItems, true, "checkItems") ?? Tick(component, request.UncheckItems, false, "uncheckItems");
+    }
+
+    /// <summary>Ticks (or unticks) the items with these texts; a problem naming the items when one isn't there.</summary>
+    private static ValidationProblem? Tick(CardComponent component, List<string>? texts, bool done, string field)
+    {
+        foreach (var text in texts ?? [])
+        {
+            var matches = component.Items.Where(i => i.Text.Equals(text.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+            if (matches.Count == 0)
+            {
+                return Problems.Invalid(field, $"No checklist item \"{text.Trim()}\". Items: {string.Join(", ", component.Items.Select(i => $"\"{i.Text}\""))}.");
+            }
+            foreach (var item in matches) item.Done = done;
+        }
+        return null;
     }
 
     /// <summary>Why <see cref="Build"/> returned null.</summary>

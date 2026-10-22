@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -32,17 +33,28 @@ internal static class McpCall
     public static HttpContext Http(IHttpContextAccessor accessor) =>
         accessor.HttpContext ?? throw new InvalidOperationException("MCP tools run inside an HTTP request.");
 
-    /// <summary>Checks the caller's role on the board an id belongs to; answers the board id.</summary>
-    public static async Task<Guid> AuthorizeAsync(HttpContext http, BoardScope scope, Guid id, BoardRole minimum)
+    /// <summary>
+    /// Checks the caller's role on the board an id belongs to; answers the board id. The board becomes the one the caller
+    /// last used (<see cref="LastBoard"/>).
+    /// </summary>
+    public static Task<Guid> AuthorizeAsync(HttpContext http, BoardScope scope, Guid id, BoardRole minimum) =>
+        CheckedAsync(http, minimum, () => BoardAccess.AuthorizeAsync(http, scope, id, minimum));
+
+    private static async Task<Guid> CheckedAsync(HttpContext http, BoardRole minimum, Func<Task<BoardAccess.Authorization>> authorize)
     {
         if (minimum >= BoardRole.Editor && !ApiScopes.Has(http.User, ApiScopes.Write))
         {
             throw new McpException("This token is read-only (boards:read), so it cannot change anything.");
         }
-        var access = await BoardAccess.AuthorizeAsync(http, scope, id, minimum);
+        var access = await authorize();
         if (access.Failure is not null) throw Error(access.Failure);
+        await LastBoard.RememberAsync(http, access.BoardId);
         return access.BoardId;
     }
+
+    /// <summary>Like the overload with an id, for the board with this short id, found in the same query as the role.</summary>
+    public static Task<Guid> AuthorizeAsync(HttpContext http, string shortId, BoardRole minimum) =>
+        CheckedAsync(http, minimum, () => BoardAccess.AuthorizeAsync(http, shortId, minimum));
 
     /// <summary>The value of a successful handler result; anything else becomes a tool error.</summary>
     public static T Value<T>(IResult result) =>
@@ -100,20 +112,44 @@ internal static class McpCall
         var http = context.Services?.GetService<IHttpContextAccessor>()?.HttpContext;
         if (result.IsError == true || http?.Items[ChangedBoardItem] is not Guid boardId) return result;
 
-        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
-        var changed = await db.Boards.Where(b => b.Id == boardId && b.Rules != null).Select(b => b.RulesUpdatedAt).ToListAsync(ct);
-        if (changed is [{ } updatedAt])
+        if (await RulesUpdatedAtAsync(http, boardId, ct) is { } updatedAt)
         {
             result.Content.Add(new TextContentBlock
             {
-                Text = $"This board has agent rules (last changed {updatedAt:yyyy-MM-dd HH:mm:ss}Z). Follow them in every action; " +
-                       "if you have not read this version yet, read it with get_board_rules.",
+                Text = $"This board has agent rules (last changed {updatedAt:yyyy-MM-dd HH:mm:ss}Z). Follow them in every action. " +
+                       "The rules you got from get_board or get_board_rules are current unless their rulesUpdatedAt is older than this.",
             });
         }
         return result;
     };
 
     private const string ChangedBoardItem = "PrikBoard.Mcp.ChangedBoard";
+
+    private sealed record RulesStamp(DateTimeOffset? UpdatedAt);
+
+    private static string RulesKey(Guid boardId) => "mcp-rules:" + boardId;
+
+    /// <summary>
+    /// When the board's rules last changed, or null without rules: cached, as every write asks, and dropped by
+    /// <see cref="ForgetRules"/> when they change (on this instance; the cache entry lasts a minute anyway).
+    /// </summary>
+    private static async Task<DateTimeOffset?> RulesUpdatedAtAsync(HttpContext http, Guid boardId, CancellationToken ct)
+    {
+        var cache = http.RequestServices.GetRequiredService<IMemoryCache>();
+        if (cache.TryGetValue(RulesKey(boardId), out RulesStamp? stamp) && stamp is not null) return stamp.UpdatedAt;
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var changed = await db.Boards.Where(b => b.Id == boardId && b.Rules != null).Select(b => b.RulesUpdatedAt).ToListAsync(ct);
+        var updatedAt = changed is [{ } at] ? at : (DateTimeOffset?)null;
+        cache.Set(RulesKey(boardId), new RulesStamp(updatedAt), TimeSpan.FromMinutes(1));
+        return updatedAt;
+    }
+
+    /// <summary>Drops what MCP calls keep of a board's rules, after they changed.</summary>
+    public static void ForgetRules(IMemoryCache cache, Guid boardId)
+    {
+        cache.Remove(RulesKey(boardId));
+        LastBoard.Forget(cache, boardId);
+    }
 
     private static IResult Unwrap(IResult result) => result is INestedHttpResult nested ? nested.Result : result;
 

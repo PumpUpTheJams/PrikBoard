@@ -145,11 +145,11 @@ Hand-written and curated, rather than generated one per OpenAPI operation. Agent
 
 | Tool | Annotations | Does |
 | --- | --- | --- |
-| `list_boards` | read-only | Your boards with your role |
-| `get_board` | read-only | A compact snapshot: buckets in order, each with its cards (id, title, tags, assignees, checklist progress, creator), the board's tags and the people who can be assigned. Smaller than the REST `getBoard`, because agents pay per token. |
+| `list_boards` | read-only | Your boards with your role, the one you used last first |
+| `get_board` | read-only | A compact snapshot: buckets in order, each with its cards (id, title, tags, assignee names, checklist progress, creator; collapsed buckets only counted), the board's tags and the people who can be assigned. Smaller than the REST `getBoard`, because agents pay per token. |
 | `search_cards` | read-only | Like `listCards`: by bucket, tags, assignee, text |
 | `get_card` | read-only | Full card: body, checklist, links, attached image captions |
-| `create_card` | | Title, body, color, tags, assignees (**by name or id**), checklist, links, and a bucket **by id or name** |
+| `create_card` | | Title, body, color, tags, assignees (**by name or id**), checklist, links, a bucket **by id or name**, and `working` to start on it at once; `create_cards` takes several |
 | `update_card` | idempotent | PATCH semantics as in REST |
 | `move_card` | idempotent | To a bucket by id or name. The server finds the spot. |
 | `set_working` | idempotent | Assign yourself and set `agentWorking` on or off (REST: `setCardWorking`) |

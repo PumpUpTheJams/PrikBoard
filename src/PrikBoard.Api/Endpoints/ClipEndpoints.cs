@@ -400,7 +400,8 @@ public static class ClipEndpoints
             }
         }
 
-        foreach (var card in cards) card.Number = await CardEndpoints.TakeNumberAsync(db, boardId, ct);
+        var number = cards.Count == 0 ? 0 : await CardEndpoints.TakeNumberAsync(db, boardId, ct, cards.Count);
+        foreach (var card in cards) card.Number = number++;
         var byNumber = clip.Cards.Zip(cards).ToDictionary(p => p.First.Number, p => p.Second);
         foreach (var (source, i) in clip.Cards.Select((n, i) => (n, i)))
         {

@@ -247,6 +247,25 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
+    public async Task A_bucket_that_grows_for_a_new_card_takes_the_loose_card_below_it_with_its_history()
+    {
+        var board = await CreateBoard("Grow over loose");
+        var done = board.Buckets[2];
+        var loose = await CreateCard(board.Id, new { title = "Below", x = done.X + 20, y = done.Y + done.Height + 40 });
+        Assert.Null(loose.BucketId);
+
+        // Fill Done until it grows down over the loose card.
+        for (var i = 0; i < 12; i++) await CreateCard(board.Id, new { title = $"Filler {i}", bucketId = done.Id });
+
+        var after = (await _client.GetFromJsonAsync<CardDetail>($"/api/cards/{loose.Id}"))!;
+        Assert.Equal(done.Id, after.BucketId);
+        Assert.Equal((loose.X, loose.Y, "Below"), (after.X, after.Y, after.Title));
+        var history = await _client.GetFromJsonAsync<JsonElement>($"/api/cards/{loose.Id}/history");
+        Assert.Contains(history.EnumerateArray(), c => c.GetProperty("entries").EnumerateArray()
+            .Any(e => e.GetProperty("kind").GetString() == "Bucket" && e.GetProperty("after").GetString() == "Done"));
+    }
+
+    [Fact]
     public async Task A_full_bucket_grows_past_a_bucket_stacked_above_it()
     {
         var board = await CreateBoard("Stacked");
