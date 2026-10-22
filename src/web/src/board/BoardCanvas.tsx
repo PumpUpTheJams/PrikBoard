@@ -63,7 +63,7 @@ import { ResizeHandles } from './ResizeHandles'
 import { ops } from './ops'
 import { matchCard, searchTerms, type SearchField } from './search'
 import { SelectionToolbar, type CardSort } from './SelectionToolbar'
-import { adds, isPicked, mergePicked, togglePicked, touches, useSpaceHeld } from './selection'
+import { adds, contains, isPicked, mergePicked, togglePicked, touches, useSpaceHeld } from './selection'
 import { shakeDetector } from './shake'
 import { tagColorsOf, type TagColorPreview } from './tagColors'
 import { TagFilter } from './TagFilter'
@@ -92,9 +92,11 @@ interface Selection {
 
 /**
  * A pointer gesture on the canvas, in canvas coordinates. A finished gesture (`done`) stays until the board has
- * reloaded, so the dropped item doesn't jump back to its old place while the request is in flight.
+ * reloaded, so the dropped item doesn't jump back to its old place while the request is in flight. Dragging a card or
+ * a group, `home` is the area the items took up when it began, and `away` says the pointer has left it since: released
+ * back over it, the drag is called off.
  */
-type Gesture = GestureTarget & { start: Point; current: Point; done?: boolean }
+type Gesture = GestureTarget & { start: Point; current: Point; done?: boolean; home?: Rect; away?: boolean }
 type ItemGesture = 'card' | 'bucket' | 'resize' | 'image' | 'image-resize' | 'drawing'
 /**
  * `handle`: for resizes, the corner or edge being dragged. `group`: moving several selected items at once, `held` the
@@ -335,6 +337,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [deletedBusy, setDeletedBusy] = useState(false)
   /** The collapsed bucket a card (or several selected cards) being dragged would go into on release. */
   const [foldDrop, setFoldDrop] = useState<string | null>(null)
+  /** A card or group being dragged is back over where it started (`home`): released there, nothing changes. */
+  const [homeDrop, setHomeDrop] = useState(false)
   /** Buckets as they stack, the same for everyone (`stackedAt`): drawn in this order, the last one on top. */
   const stacked = backToFront(board.buckets)
   /**
@@ -371,8 +375,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   function coveredAt(p: Point, bucketId: string | null): boolean {
     const bucket = front !== null && bucketId !== front ? board.buckets.find((b) => b.id === front) : undefined
     if (!bucket) return false
-    const r = bucketRect(bucket)
-    return p.x >= r.x && p.x < r.x + r.width && p.y >= r.y && p.y < r.y + r.height
+    return contains(bucketRect(bucket), p)
   }
   /**
    * A card put at a point, naming the bucket in front when it covers the card's centre there: by position alone the
@@ -1491,7 +1494,31 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     const point = toCanvas(e)
     canvasRef.current!.setPointerCapture(e.pointerId)
     shaken.current = shakeDetector()
-    setGesture({ ...target, start: point, current: point })
+    setGesture({ ...target, start: point, current: point, home: homeOf(target) ?? undefined })
+  }
+
+  /** The area a card or group being dragged takes up as the drag begins: released back over it, nothing changes. */
+  function homeOf(target: GestureTarget): Rect | null {
+    const items = target.kind === 'card' ? [{ kind: 'card' as const, id: target.id }] : target.kind === 'group' ? target.members : []
+    const rects = items.flatMap((m) => liveRect(m.kind, m.id) ?? [])
+    if (rects.length === 0) return null
+    const x = Math.min(...rects.map((r) => r.x))
+    const y = Math.min(...rects.map((r) => r.y))
+    return {
+      x,
+      y,
+      width: Math.max(...rects.map((r) => r.x + r.width)) - x,
+      height: Math.max(...rects.map((r) => r.y + r.height)) - y,
+    }
+  }
+
+  /**
+   * Whether releasing a card or group being dragged calls it off: the pointer is back over where it started after
+   * leaving it, and not over the trash, the open deleted items or the open card, which lie above the board.
+   */
+  function cancelsAt(g: Gesture, client: Point): boolean {
+    if (!g.home || !g.away || !contains(g.home, g.current)) return false
+    return !onTrash(client) && !(deletedOpen && deletedRef.current?.contains(client)) && !expandedRef.current?.contains(client)
   }
 
   /**
@@ -1672,7 +1699,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     } else if (pen.drawing()) {
       pen.extend(e)
     } else if (gesture && !gesture.done) {
-      const next = { ...gesture, current: toCanvas(e) }
+      const current = toCanvas(e)
+      const next = { ...gesture, current, away: gesture.away || (!!gesture.home && !contains(gesture.home, current)) }
       if (next.kind === 'select') {
         setGesture(next)
         if (isDrag(next)) setSelected(mergePicked(next.base, inRectangle(spanRect(next.start, next.current), next.bucketId)))
@@ -1685,13 +1713,17 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         setGesture(moved)
         // Over the trash or the open deleted items they would be deleted; cards over a collapsed bucket go in, over
         // another card (or the open one) they link there; images and drawings over a card are attached to it.
+        // Back over where they started, they would stay as they were.
         const client = { x: e.clientX, y: e.clientY }
         const dragged = isDrag(moved)
+        const home = cancelsAt(moved, client)
         const trash = dragged && onTrash(client)
         const intoDeleted = dragged && !trash && deletedOpen && !!deletedRef.current?.contains(client)
         const cardsOnly = moved.members.every((m) => m.kind === 'card')
-        const fold = dragged && cardsOnly && !trash && !intoDeleted && !expandedRef.current?.contains(client) ? foldAt(moved.current) : undefined
-        const free = dragged && !trash && !intoDeleted && !fold
+        const fold =
+          dragged && cardsOnly && !home && !trash && !intoDeleted && !expandedRef.current?.contains(client) ? foldAt(moved.current) : undefined
+        const free = dragged && !home && !trash && !intoDeleted && !fold
+        setHomeDrop(home)
         const link = free ? linkDropFor(moved, client) : null
         // Cards over a bucket they aren't all in go into its free spots (over the open card, they stay on the board).
         const arrange = free && !link && !expandedRef.current?.contains(client) ? arrangeFor(moved) : null
@@ -1704,18 +1736,23 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         return
       }
       const client = { x: e.clientX, y: e.clientY }
+      const home = cancelsAt(next, client)
       const trash = next.kind === 'card' && isDrag(next) && onTrash(client)
       setGesture(next)
-      // Over the open deleted items a card is deleted too, and over a collapsed bucket it goes in, rather than being linked.
+      // Over the open deleted items a card is deleted too, and over a collapsed bucket it goes in, rather than being
+      // linked; back over where it started, it would stay put.
       const intoDeleted = !trash && next.kind === 'card' && isDrag(next) && deletedOpen && !!deletedRef.current?.contains(client)
       const fold =
-        next.kind === 'card' && isDrag(next) && !trash && !intoDeleted && !expandedRef.current?.contains(client) ? foldAt(next.current) : undefined
+        next.kind === 'card' && isDrag(next) && !home && !trash && !intoDeleted && !expandedRef.current?.contains(client)
+          ? foldAt(next.current)
+          : undefined
+      setHomeDrop(home)
       setOverTrash(trash)
       setDeletedDrop(intoDeleted ? client : null)
       setFoldDrop(fold?.id ?? null)
       setIncoming(isDrag(next) && !trash && !intoDeleted ? dropOnCard(next, client) : null)
       setIncomingDrawing(isDrag(next) ? drawingOnCard(next, client) : null)
-      setLinkDrop(isDrag(next) && !trash && !intoDeleted && !fold ? linkDropFor(next, client) : null)
+      setLinkDrop(isDrag(next) && !home && !trash && !intoDeleted && !fold ? linkDropFor(next, client) : null)
     }
   }
 
@@ -1733,6 +1770,13 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     setFoldDrop(null)
     setLinkDrop(null)
     setAttachDrop(null)
+    setHomeDrop(false)
+    if (cancelsAt(g, client)) {
+      // Back over where they started: called off, everything as it was.
+      setArrangeDrop(null)
+      setGesture(null)
+      return
+    }
     if (onTrash(client) || intoDeleted) {
       setArrangeDrop(null)
       // Gone at once rather than back in their places; the toast's Undo puts them all back.
@@ -1894,6 +1938,13 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     setOverTrash(false)
     setDeletedDrop(null)
     setFoldDrop(null)
+    setHomeDrop(false)
+    if (cancelsAt(gesture, client)) {
+      // Back over where it started: called off, the card stays as it was.
+      setLinkDrop(null)
+      setGesture(null)
+      return
+    }
     if (gesture.kind === 'card' && (onTrash(client) || intoDeleted)) {
       // Dropped on the trash can, or on the open deleted items: deleted (the toast and Ctrl/Cmd+Z undo it), and gone at
       // once rather than back in its place.
@@ -2209,6 +2260,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               setAttachDrop(null)
               setArrangeDrop(null)
               setFoldDrop(null)
+              setHomeDrop(false)
               setDeletedDrop(null)
               setOverTrash(false)
             }}
@@ -2222,6 +2274,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               setLinkDrop(null)
               setAttachDrop(null)
               setFoldDrop(null)
+              setHomeDrop(false)
               setDeletedDrop(null)
               setOverTrash(false)
             }}
@@ -2468,6 +2521,14 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
             {marquee && (
               <div className="marquee" aria-hidden="true" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />
+            )}
+
+            {gesture?.home && gesture.away && !gesture.done && (
+              <div
+                className={`drag-home${homeDrop ? ' over' : ''}`}
+                aria-hidden="true"
+                style={{ left: gesture.home.x, top: gesture.home.y, width: gesture.home.width, height: gesture.home.height }}
+              />
             )}
           </div>
         </div>

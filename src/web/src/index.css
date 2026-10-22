@@ -802,6 +802,21 @@ main {
   pointer-events: none;
 }
 
+/* Where a card or group being dragged started, once the drag has left it: released back over it, nothing changes. */
+.drag-home {
+  position: absolute;
+  z-index: 1;
+  border-radius: 8px;
+  outline: 2px dashed color-mix(in srgb, var(--accent) 50%, transparent);
+  outline-offset: 4px;
+  pointer-events: none;
+}
+
+.drag-home.over {
+  outline-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
 /* Space held: a press pans. */
 .canvas.space-pan,
 .canvas.space-pan *,
