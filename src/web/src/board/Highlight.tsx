@@ -1,8 +1,11 @@
-import { matchRanges } from './search'
+import { fieldRanges, type SearchField, type SearchTerm } from './search'
 
-/** Text with the parts the search found in <mark>; plain text when there is nothing to look for. */
-export function Highlight({ text, terms }: { text: string; terms?: string[] }) {
-  const ranges = terms ? matchRanges(text, terms) : []
+/**
+ * Text with the parts the search found in <mark>; plain text when there is nothing to look for. `field` is what kind of
+ * text it is, so a word kept to another field (`tag:ui`) isn't marked here.
+ */
+export function Highlight({ text, terms, field }: { text: string; terms?: SearchTerm[]; field: SearchField['kind'] }) {
+  const ranges = terms ? fieldRanges(text, terms, field) : []
   if (ranges.length === 0) return <>{text}</>
   const parts = []
   let at = 0

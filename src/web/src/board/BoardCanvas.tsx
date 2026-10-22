@@ -2187,6 +2187,16 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const results: SearchResult[] = board.cards
     .filter((n) => matches.has(n.id) && !tagFaded(n))
     .map((card) => ({ card, fields: matches.get(card.id)! }))
+  /**
+   * How many matching cards each bucket holds, so the search marks it: the results in it, or for a collapsed bucket the
+   * cards folded away in it that would be results.
+   */
+  const searchHits = new Map<string, number>()
+  const foldedHits =
+    terms.length === 0 ? [] : board.cards.filter((n) => n.bucketId && collapsedIds.has(n.bucketId) && !tagFaded(n) && matchCard(n, terms))
+  for (const { bucketId } of [...results.map((r) => r.card), ...foldedHits]) {
+    if (bucketId) searchHits.set(bucketId, (searchHits.get(bucketId) ?? 0) + 1)
+  }
   /** The result being looked at: the one picked, or else the first. */
   const current = results.find((r) => r.card.id === search?.current)?.card.id ?? results[0]?.card.id ?? null
 
@@ -2308,16 +2318,23 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               if (bucket.collapsed) {
                 // Folded up: a square in its top-right corner with its name and what is inside.
                 const square = collapsedRect(rect)
+                const hits = searchHits.get(bucket.id) ?? 0
+                const found = hits === 0 ? '' : hits === 1 ? '1 card inside matches the search' : `${hits} cards inside match the search`
                 return (
                   <section
                     key={bucket.id}
-                    aria-label={`${bucket.name} (collapsed, ${contents})`}
+                    aria-label={`${bucket.name} (collapsed, ${contents}${found && `; ${found}`})`}
                     data-fold={bucket.id}
-                    className={['bucket-collapsed', foldDrop === bucket.id && 'drop-target', isSelected('bucket', bucket.id) && 'selected']
+                    className={[
+                      'bucket-collapsed',
+                      foldDrop === bucket.id && 'drop-target',
+                      hits > 0 && 'search-hit',
+                      isSelected('bucket', bucket.id) && 'selected',
+                    ]
                       .filter(Boolean)
                       .join(' ')}
                     style={{ left: square.x, top: square.y, width: square.width, height: square.height }}
-                    title="Drag to move the bucket"
+                    title={found ? `${found}. Open the bucket to see them` : 'Drag to move the bucket'}
                     onPointerDown={(e) => onItemPointerDown(e, 'bucket', bucket.id)}
                   >
                     <span className={`bucket-collapsed-counts${count > 0 && images > 0 ? ' both' : ''}`} aria-hidden>
@@ -2347,6 +2364,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                     'bucket',
                     front === bucket.id && 'in-front',
                     (dropTarget?.id === bucket.id || (arrangeDrop?.bucket.id === bucket.id && !dragging?.done)) && 'drop-target',
+                    searchHits.has(bucket.id) && 'search-hit',
                     isSelected('bucket', bucket.id) && 'selected',
                   ]
                     .filter(Boolean)
@@ -2577,6 +2595,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             onOpen={openResult}
             onClose={closeSearch}
             faded={board.cards.filter((n) => matches.has(n.id) && tagFaded(n)).length}
+            folded={foldedHits.length}
             onClearFilter={() => {
               setTagFilter([])
               revealPending.current = true

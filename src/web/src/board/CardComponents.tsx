@@ -3,6 +3,7 @@ import type { ChecklistItem, CardComponent, CardDetail, CardLink, Rect, ResizeHa
 import { componentKinds } from './componentKinds'
 import { EditableText } from './EditableText'
 import { Highlight } from './Highlight'
+import type { SearchTerm } from './search'
 import { CloseIcon, LinkIcon, CardIcon, PencilIcon, PullRequestIcon, TrashIcon } from './icons'
 import { isCardId, linkedCard, cardLabel, cardPath, cardRoute, type CardRoute } from './links'
 import { ResizeHandles } from './ResizeHandles'
@@ -183,7 +184,7 @@ export function TextComponent({ text, autoFocus, readOnly, onChange }: TextCompo
 interface ChecklistComponentProps {
   items: ChecklistItem[]
   /** Search words to mark. */
-  highlight?: string[]
+  highlight?: SearchTerm[]
   autoFocus: boolean
   readOnly?: boolean
   /** Items can be ticked off, but not added or removed here (the mobile card; its editor does that). */
@@ -219,7 +220,7 @@ export function ChecklistComponent({ items, highlight, autoFocus, readOnly, tick
                 onChange={() => void onChange(items.map((it, j) => (j === i ? { ...it, done: !it.done } : it)))}
               />
               <span>
-                <Highlight text={item.text} terms={highlight} />
+                <Highlight text={item.text} terms={highlight} field="component" />
               </span>
             </label>
             {!tickOnly && (
@@ -264,7 +265,7 @@ function webUrl(value: string): URL | null {
 interface LinksComponentProps {
   links: CardLink[]
   /** Search words to mark. */
-  highlight?: string[]
+  highlight?: SearchTerm[]
   /** The card the component is on, which is never offered as a link to itself. */
   card: CardDetail
   cards: CardDetail[]
@@ -380,7 +381,7 @@ export function LinksComponent({ links, highlight, card, cards, autoFocus, readO
 }
 
 /** One link: a web page opens in a new tab; a card opens here, shown with its current title and fill. */
-function LinkRow({ link, cards, highlight }: { link: CardLink; cards: CardDetail[]; highlight?: string[] }) {
+function LinkRow({ link, cards, highlight }: { link: CardLink; cards: CardDetail[]; highlight?: SearchTerm[] }) {
   const route = cardRoute(link.url)
   if (route) {
     const target = linkedCard(cards, link.url)
@@ -390,7 +391,7 @@ function LinkRow({ link, cards, highlight }: { link: CardLink; cards: CardDetail
         {target ? <span className={`link-swatch fill-${target.color.toLowerCase()}`} aria-hidden="true" /> : <CardIcon size={16} />}
         <span className="link-text">
           <span className="link-title">
-            <Highlight text={target ? cardLabel(target) : link.title} terms={highlight} />
+            <Highlight text={target ? cardLabel(target) : link.title} terms={highlight} field="component" />
           </span>
           <span className="link-meta">{target ? target.readableId : `On another board · ${route.board}/${route.card}`}</span>
         </span>
@@ -404,10 +405,10 @@ function LinkRow({ link, cards, highlight }: { link: CardLink; cards: CardDetail
       <Icon />
       <span className="link-text">
         <span className="link-title">
-          <Highlight text={link.title} terms={highlight} />
+          <Highlight text={link.title} terms={highlight} field="component" />
         </span>
         <span className="link-meta">
-          <Highlight text={parsed ? `${parsed.host}${parsed.pathname}` : link.url} terms={highlight} />
+          <Highlight text={parsed ? `${parsed.host}${parsed.pathname}` : link.url} terms={highlight} field="component" />
         </span>
       </span>
     </a>

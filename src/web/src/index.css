@@ -762,6 +762,15 @@ main {
   background-color: color-mix(in srgb, var(--accent) 7%, var(--bucket-fill));
 }
 
+/* While searching, a bucket holding a matching card has an accent rim and name. */
+.bucket.search-hit {
+  border-color: var(--accent);
+}
+
+.bucket.search-hit .bucket-name {
+  color: var(--accent);
+}
+
 /* A bucket's rim moves it, like its name; inside, a drag draws a selection rectangle. */
 .bucket-rim {
   position: absolute;
@@ -5023,6 +5032,12 @@ button.picker-color:hover,
 .bucket-collapsed.drop-target {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, var(--bucket-bg));
+  color: var(--accent);
+}
+
+/* Matching cards folded away inside: the square is marked like an open bucket holding them. */
+.bucket-collapsed.search-hit {
+  border-color: var(--accent);
   color: var(--accent);
 }
 

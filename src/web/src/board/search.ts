@@ -1,29 +1,98 @@
-import type { CardComponent, CardDetail } from '../api/types'
+import type { CardColor, CardComponent, CardDetail } from '../api/types'
 import { componentKinds } from './componentKinds'
 
 /*
  * Searching a board's cards (BoardSearch). Case and accents don't matter, and with several words a card matches
- * when every word is found somewhere on it: its title, readable id (MPCT-415), tags, people, who created it, or its components.
+ * when every word is found somewhere on it: its title, readable id (MPCT-415), tags, people, who created it, or its
+ * components. "Quoted words" are looked for together, and a prefix keeps a word to one field: `tag:ui`,
+ * `assignee:jimmy`, `creator:jimmy` or `color:red` (the fill's name or a plain color word; only with the prefix).
  */
 
 /** Lower case without accents, so "cafe" finds "café". */
 export const fold = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
-/** The words to look for; none for an empty query. */
-export const searchTerms = (query: string) => fold(query).split(/\s+/).filter(Boolean)
-
-export const textMatches = (text: string, terms: string[]) => {
-  const folded = fold(text)
-  return terms.some((t) => folded.includes(t))
-}
-
 /** One searchable piece of a card. */
 export interface SearchField {
   /** The title and tags are on the card on the board, where their matches are marked already. */
-  kind: 'title' | 'id' | 'tag' | 'assignee' | 'creator' | 'component'
+  kind: 'title' | 'id' | 'tag' | 'assignee' | 'creator' | 'color' | 'component'
   /** What it is, as shown under a result: "Tag", "Created by", or the component's title or kind. */
   label: string
   text: string
+}
+
+/** The fields a word can be kept to with a prefix. */
+export type SearchPrefix = 'tag' | 'assignee' | 'creator' | 'color'
+
+/** A word (or quoted words) to look for, folded; `field` keeps it to that kind of field. */
+export interface SearchTerm {
+  text: string
+  field?: SearchPrefix
+}
+
+const prefixes: Record<string, SearchPrefix> = {
+  tag: 'tag',
+  tags: 'tag',
+  assignee: 'assignee',
+  assigned: 'assignee',
+  creator: 'creator',
+  created: 'creator',
+  color: 'color',
+  colour: 'color',
+}
+
+/** Plain color words for each fill, so `color:red` finds Coral cards without knowing the fills' names. */
+const colorWords: Record<CardColor, string[]> = {
+  Butter: ['butter', 'yellow'],
+  Mint: ['mint', 'green'],
+  Sky: ['sky', 'blue'],
+  Coral: ['coral', 'red', 'pink', 'orange'],
+  Lilac: ['lilac', 'purple', 'violet'],
+}
+
+/**
+ * The words to look for; none for an empty query. `prefix:word` (a space after the colon is fine too) keeps the word
+ * to that field; an unknown prefix is part of the word, so "https://…" is still found. A prefix without a word yet
+ * (while typing) looks for nothing.
+ */
+export function searchTerms(query: string): SearchTerm[] {
+  const terms: SearchTerm[] = []
+  const plain = (text: string) => {
+    const words = text.replace(/\s+/g, ' ').trim()
+    if (words) terms.push({ text: words })
+  }
+  for (const [all, name, value, quoted] of fold(query).matchAll(/(\p{L}+):\s*("[^"]*"?|[^\s"]*)|"([^"]*)"?|[^\s"]+/gu)) {
+    if (name === undefined) {
+      plain(quoted ?? all)
+      continue
+    }
+    const field = prefixes[name]
+    if (!field) {
+      for (const word of all.split(/\s+/)) plain(word)
+      continue
+    }
+    const text = value.replace(/"/g, '').replace(/\s+/g, ' ').trim()
+    if (text) terms.push({ text, field })
+  }
+  return terms
+}
+
+/** Whether a term looks in a kind of field: a prefixed one only in its own, the others everywhere but the color. */
+const looksIn = (term: SearchTerm, kind: SearchField['kind']) => (term.field ? term.field === kind : kind !== 'color')
+
+/** The words that look in a kind of field. */
+export const wordsFor = (terms: SearchTerm[], kind: SearchField['kind']) => terms.filter((t) => looksIn(t, kind)).map((t) => t.text)
+
+/** Whether a term is found in a field: a color by the start of one of its words, the rest anywhere in the text. */
+function found(term: SearchTerm, kind: SearchField['kind'], text: string) {
+  if (!looksIn(term, kind)) return false
+  if (kind === 'color') return (colorWords[text as CardColor] ?? [fold(text)]).some((w) => w.startsWith(term.text))
+  return fold(text).includes(term.text)
+}
+
+/** Where a field's text shows the terms that look in it: a matching color is marked whole. */
+export function fieldRanges(text: string, terms: SearchTerm[], kind: SearchField['kind']): [number, number][] {
+  if (kind === 'color') return terms.some((t) => found(t, kind, text)) ? [[0, text.length]] : []
+  return matchRanges(text, wordsFor(terms, kind))
 }
 
 /** The text in a component: its title, text, checklist items, and its links' titles and web addresses. */
@@ -33,12 +102,14 @@ function componentTexts(component: CardComponent): string[] {
   return texts.filter((t): t is string => !!t)
 }
 
-export const componentMatches = (component: CardComponent, terms: string[]) => componentTexts(component).some((t) => textMatches(t, terms))
+export const componentMatches = (component: CardComponent, terms: SearchTerm[]) =>
+  componentTexts(component).some((text) => terms.some((t) => found(t, 'component', text)))
 
 function cardFields(card: CardDetail): SearchField[] {
   const fields: SearchField[] = [
     { kind: 'title', label: 'Title', text: card.title },
     { kind: 'id', label: 'ID', text: card.readableId },
+    { kind: 'color', label: 'Color', text: card.color },
   ]
   for (const tag of card.tags) fields.push({ kind: 'tag', label: 'Tag', text: tag })
   for (const a of card.assignees) fields.push({ kind: 'assignee', label: 'Assigned to', text: a.name })
@@ -51,10 +122,10 @@ function cardFields(card: CardDetail): SearchField[] {
 }
 
 /** The fields where any of the terms occur, or null when some term occurs nowhere on the card. */
-export function matchCard(card: CardDetail, terms: string[]): SearchField[] | null {
-  const fields = cardFields(card).map((field) => ({ field, folded: fold(field.text) }))
-  if (!terms.every((t) => fields.some((f) => f.folded.includes(t)))) return null
-  return fields.filter((f) => terms.some((t) => f.folded.includes(t))).map((f) => f.field)
+export function matchCard(card: CardDetail, terms: SearchTerm[]): SearchField[] | null {
+  const fields = cardFields(card)
+  if (!terms.every((t) => fields.some((f) => found(t, f.kind, f.text)))) return null
+  return fields.filter((f) => terms.some((t) => found(t, f.kind, f.text)))
 }
 
 /** Where the terms occur in `text`: [start, end) offsets into it, sorted, with overlapping ones merged. */

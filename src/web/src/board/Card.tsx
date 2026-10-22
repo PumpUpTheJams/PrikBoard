@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent,
 import type { CardDetail, Point } from '../api/types'
 import { AvatarStack } from '../components/Avatar'
 import { Highlight } from './Highlight'
+import type { SearchTerm } from './search'
 import { CheckIcon, ExpandIcon, LinkIcon, PutBackIcon, TrashIcon } from './icons'
 import { cardLabel } from './links'
 import { CARD_HEIGHT, CARD_WIDTH } from './layout'
@@ -54,7 +55,7 @@ interface CardProps {
   /** Faded: it doesn't match the board's tag filter or search. */
   dimmed?: boolean
   /** Search words to mark in the title and tags. */
-  highlight?: string[]
+  highlight?: SearchTerm[]
   /** The search result being looked at. */
   current?: boolean
   /** An image being dragged would be attached to this card on release. */
@@ -116,7 +117,7 @@ export function Card(props: CardProps) {
 
   const tags = card.tags.map((tag) => (
     <span key={tag} className={`tag${tagColorClass(tagColors, tag)}`}>
-      <Highlight text={tag} terms={highlight} />
+      <Highlight text={tag} terms={highlight} field="tag" />
     </span>
   ))
   const people =
@@ -145,7 +146,7 @@ export function Card(props: CardProps) {
           <TitleInput value={title} caret={titleCaret} onSave={rename} onCancel={() => onTitleDone?.()} />
         ) : (
           <span className={`card-title${onRenameTitle ? ' editable-title' : ''}`}>
-            <Highlight text={title} terms={highlight} />
+            <Highlight text={title} terms={highlight} field="title" />
           </span>
         )}
       </div>

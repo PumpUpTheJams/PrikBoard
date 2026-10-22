@@ -14,7 +14,7 @@ import { ComponentFrame, ChecklistComponent, LinksComponent, TextComponent } fro
 import { CardBar } from './CardBar'
 import { ops } from './ops'
 import { resizeCursor } from './resizeCursor'
-import { componentMatches } from './search'
+import { componentMatches, type SearchTerm } from './search'
 import { adds, isPicked, mergePicked, togglePicked, touches, useSpaceHeld, type Picked } from './selection'
 import { deleted, patched, snap, step, target, type RecordingRun, type UndoChange, type UndoEntry } from './undo'
 import { useStroke } from './useStroke'
@@ -90,7 +90,7 @@ interface CardCanvasProps {
   cards: CardDetail[]
   readOnly?: boolean
   /** Search words to point out: components they occur in get an outline, and checklists and links mark them. */
-  highlight?: string[]
+  highlight?: SearchTerm[]
   handle: RefObject<CardCanvasHandle | null>
   /** Runs a change through the board (which then reloads), recorded for undo. */
   run: RecordingRun
