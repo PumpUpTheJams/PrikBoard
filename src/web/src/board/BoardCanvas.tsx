@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { api, errorMessage } from '../api/client'
+import { cardColors } from '../api/types'
 import type {
   BoardClip,
   BoardDetail,
@@ -1032,6 +1033,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       // Untitled cards last.
       title: (a, b) => Number(!a.title.trim()) - Number(!b.title.trim()) || a.title.localeCompare(b.title) || a.number - b.number,
       tag: (a, b) => tagRank(a) - tagRank(b) || a.number - b.number,
+      // In the order the fill picker shows them.
+      color: (a, b) => cardColors.indexOf(a.color) - cardColors.indexOf(b.color) || a.number - b.number,
       edited: (a, b) => b.updatedAt.localeCompare(a.updatedAt),
     }
     const sorted = cards.toSorted(order[sort])

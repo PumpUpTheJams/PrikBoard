@@ -2,12 +2,13 @@ import type { Rect } from '../api/types'
 import { keepPress } from './gesture'
 
 /** How selected cards can be sorted into a grid. */
-export type CardSort = 'number' | 'title' | 'tag' | 'edited'
+export type CardSort = 'number' | 'title' | 'tag' | 'color' | 'edited'
 
 const sorts: { key: CardSort; label: string; title: string }[] = [
   { key: 'number', label: 'Number', title: 'By number: oldest card first' },
   { key: 'title', label: 'Title', title: 'By title, A to Z' },
   { key: 'tag', label: 'Tag', title: 'By first tag, A to Z; untagged last' },
+  { key: 'color', label: 'Color', title: 'By color, in the order of the fill picker' },
   { key: 'edited', label: 'Last edited', title: 'Most recently edited first' },
 ]
 
