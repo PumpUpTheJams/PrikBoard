@@ -173,6 +173,11 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         Assert.All(withBucket.GetProperty("cards").EnumerateArray(),
             n => Assert.Equal(pastedBucket.GetProperty("id").GetGuid(), n.GetProperty("bucketId").GetGuid()));
 
+        // Moved: the original goes to the trash.
+        var moved = await CallAsync(mcp, "copy_to_board", new() { ["board"] = to.ShortId, ["cards"] = new[] { second.ReadableId }, ["move"] = true });
+        Assert.Equal(second.Id, Assert.Single(moved.GetProperty("moved").GetProperty("cards").EnumerateArray()).GetProperty("id").GetGuid());
+        Assert.DoesNotContain((await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{from.Id}"))!.Cards, n => n.Id == second.Id);
+
         var elsewhere = await owner.CreateBoardAsync("MCP copy elsewhere");
         var stranger = await owner.CreateCardAsync(elsewhere.Id, "Stranger");
         var mixed = await CallRawAsync(mcp, "copy_to_board", new() { ["board"] = to.Id, ["cards"] = new[] { first.ReadableId, stranger.ReadableId } });

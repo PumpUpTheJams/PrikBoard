@@ -211,7 +211,7 @@ public class ClipApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
             new { bucketIds = new[] { sprint.Id, folded.Id }, imageIds = new[] { imageOut.Id } });
         Assert.Equal(HttpStatusCode.OK, copied.StatusCode);
         var clip = (await copied.Content.ReadFromJsonAsync<JsonObject>())!;
-        Assert.Equal(2, (int)clip["version"]!);
+        Assert.Equal(BoardClip.CurrentVersion, (int)clip["version"]!);
 
         // The top-left of what is on the board (Sprint's corner) goes to 0, 3000.
         var pasted = await PasteAsync(owner, to.Id, new { clip, x = 0, y = 3000 });
@@ -266,6 +266,94 @@ public class ClipApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var pasted = await PasteAsync(owner, board.Id, new { clip = old, x = 0, y = 0 });
         Assert.Equal("Old style", Assert.Single(pasted.Cards).Title);
         Assert.Empty(pasted.Buckets);
+    }
+
+    [Fact]
+    public async Task Cut_items_move_to_another_board_and_the_originals_go_to_the_trash()
+    {
+        var owner = await factory.CreateSignedInClientAsync("clip-cut@example.com");
+        var from = await owner.CreateBoardAsync("Cut from");
+        var to = await owner.CreateBoardAsync("Cut to");
+        var bucket = await CreateBucketAsync(owner, from.Id, new { name = "Moving", x = 2000, y = 0, width = 600, height = 400 });
+        var inBucket = await CreateRichCardAsync(owner, from.Id, new { title = "In it", bucketId = bucket.Id });
+        var loose = await CreateRichCardAsync(owner, from.Id, new { title = "Loose", x = 2800, y = 0 });
+        await UploadAsync(owner, from.Id, TestImages.Png(100, 100), $"?fileName=on-card.png&cardId={loose.Id}");
+        var image = await UploadAsync(owner, from.Id, TestImages.Png(100, 100), "?fileName=board.png&x=3200&y=0");
+
+        var response = await owner.PostAsJsonAsync($"/api/boards/{from.Id}/copy",
+            new { cardIds = new[] { loose.Id }, bucketIds = new[] { bucket.Id }, imageIds = new[] { image.Id }, cut = true });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var clip = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.True((bool)clip["cut"]!);
+        // Added to the bucket after the cut: not part of it, so it stays behind.
+        var later = await CreateRichCardAsync(owner, from.Id, new { title = "Later", bucketId = bucket.Id });
+
+        var pasted = await PasteAsync(owner, to.Id, new { clip, x = 0, y = 3000 });
+        Assert.Equal(["In it", "Loose"], pasted.Cards.Select(n => n.Title).Order());
+        var moved = Assert.IsType<MovedOriginals>(pasted.Moved);
+        Assert.Equal((from.Id, "Cut from"), (moved.BoardId, moved.BoardName));
+        Assert.Equal([inBucket.Id, loose.Id], moved.Cards.Select(n => n.Id).Order());
+        Assert.Equal(bucket.Id, Assert.Single(moved.Buckets).Id);
+        Assert.Equal(image.Id, Assert.Single(moved.Images).Id);
+
+        var source = (await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{from.Id}"))!;
+        Assert.Equal(later.Id, Assert.Single(source.Cards).Id);
+        Assert.Null(source.Cards[0].BucketId);
+        Assert.DoesNotContain(source.Buckets, b => b.Id == bucket.Id);
+        Assert.Empty(source.Images);
+        var trash = (await owner.GetFromJsonAsync<TrashContents>($"/api/boards/{from.Id}/trash"))!;
+        Assert.Equal([inBucket.Id, loose.Id], trash.Cards.Select(n => n.Id).Order());
+
+        var copy = pasted.Cards.Single(n => n.Title == "Loose");
+        var copyHistory = (await owner.GetFromJsonAsync<List<CardChangeDetail>>($"/api/cards/{copy.Id}/history"))!;
+        Assert.Equal((CardChangeKind.Moved, loose.ReadableId), (Assert.Single(Assert.Single(copyHistory).Entries).Kind, copyHistory[0].Entries[0].Before));
+        var originalHistory = (await owner.GetFromJsonAsync<List<CardChangeDetail>>($"/api/cards/{loose.Id}/history"))!;
+        var away = originalHistory[0].Entries.Single();
+        Assert.Equal((CardChangeKind.MovedAway, copy.ReadableId, copy.Path), (away.Kind, away.Before, away.After));
+
+        // Pasting the same cut again moves nothing more.
+        var again = await owner.PostAsJsonAsync($"/api/boards/{to.Id}/paste", new { clip, x = 0, y = 0 });
+        Assert.Equal(HttpStatusCode.BadRequest, again.StatusCode);
+        Assert.Contains("moved already", await again.Content.ReadAsStringAsync());
+
+        // Undo brings the originals back with the restore endpoints, with the card's image.
+        Assert.Equal(HttpStatusCode.OK, (await owner.PostAsync($"/api/cards/{loose.Id}/restore", null)).StatusCode);
+        var restored = (await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{from.Id}"))!;
+        Assert.Contains(restored.Images, i => i.CardId == loose.Id);
+    }
+
+    [Fact]
+    public async Task A_cut_needs_the_Editor_role_on_both_boards_and_another_board_or_server()
+    {
+        var owner = await factory.CreateSignedInClientAsync("clip-cut-rules@example.com");
+        var viewer = await factory.CreateSignedInClientAsync("clip-cut-viewer@example.com");
+        var from = await owner.CreateBoardAsync("Cut rules from");
+        var to = await owner.CreateBoardAsync("Cut rules to");
+        var card = await owner.CreateCardAsync(from.Id, "Stays");
+        await owner.ShareAsync(from.Id, viewer, BoardRole.Viewer);
+
+        var refused = await viewer.PostAsJsonAsync($"/api/boards/{from.Id}/copy", new { cardIds = new[] { card.Id }, cut = true });
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Contains("\"cut\"", await refused.Content.ReadAsStringAsync());
+
+        var cut = (await (await owner.PostAsJsonAsync($"/api/boards/{from.Id}/copy", new { cardIds = new[] { card.Id }, cut = true }))
+            .Content.ReadFromJsonAsync<JsonObject>())!;
+        var sameBoard = await owner.PostAsJsonAsync($"/api/boards/{from.Id}/paste", new { clip = cut, x = 0, y = 0 });
+        Assert.Equal(HttpStatusCode.BadRequest, sameBoard.StatusCode);
+        Assert.Contains("clip.cut", await sameBoard.Content.ReadAsStringAsync());
+
+        // The viewer's own board: they can paste there, but not take the card off the board they only view.
+        var own = await viewer.CreateBoardAsync("Viewer's own");
+        var notTheirs = await viewer.PostAsJsonAsync($"/api/boards/{own.Id}/paste", new { clip = cut, x = 0, y = 0 });
+        Assert.Equal(HttpStatusCode.BadRequest, notTheirs.StatusCode);
+        Assert.Contains("clip.cut", await notTheirs.Content.ReadAsStringAsync());
+
+        // From another server: a copy, and the original stays.
+        var elsewhere = cut.DeepClone().AsObject();
+        elsewhere["source"]!["url"] = "https://other.example";
+        var copied = await PasteAsync(owner, to.Id, new { clip = elsewhere, x = 0, y = 0 });
+        Assert.Null(copied.Moved);
+        Assert.Single((await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{from.Id}"))!.Cards);
     }
 
     private static async Task<BucketDetail> CreateBucketAsync(HttpClient client, Guid boardId, object bucket)

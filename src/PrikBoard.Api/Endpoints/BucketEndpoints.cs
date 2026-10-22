@@ -280,6 +280,6 @@ public static class BucketEndpoints
     }
 
     /// <summary>The board's images and drawings: the items besides cards that buckets take, carry and let go.</summary>
-    private static async Task<List<ICanvasItem>> CanvasItemsAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
+    internal static async Task<List<ICanvasItem>> CanvasItemsAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
         [.. await db.Images.Where(i => i.BoardId == boardId).ToListAsync(ct), .. await db.Drawings.Where(d => d.BoardId == boardId).ToListAsync(ct)];
 }

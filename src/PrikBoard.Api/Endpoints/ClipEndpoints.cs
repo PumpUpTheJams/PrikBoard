@@ -8,6 +8,7 @@ using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
+using PrikBoard.Api.Live;
 
 namespace PrikBoard.Api.Endpoints;
 
@@ -54,13 +55,19 @@ public static class ClipEndpoints
         return api;
     }
 
-    private static Task<Results<Ok<BoardClip>, NotFound, ValidationProblem>> CopyItems(
-        Guid boardId, CopyItemsRequest request, HttpRequest http, PrikBoardDbContext db, FileStore files, CancellationToken ct) =>
-        BuildClipAsync(db, files, boardId, request, ServerUrl(http), ct);
+    private static async Task<Results<Ok<BoardClip>, NotFound, ValidationProblem>> CopyItems(
+        Guid boardId, CopyItemsRequest request, HttpRequest http, PrikBoardDbContext db, FileStore files, CancellationToken ct)
+    {
+        if (request.Cut && http.HttpContext.BoardRole() < BoardRole.Editor)
+        {
+            return Invalid("cut", "You can only view this board, so its items can't be cut. Copy them instead.");
+        }
+        return await BuildClipAsync(db, files, boardId, request, ServerUrl(http), ct);
+    }
 
     private static async Task<Results<Ok<PastedItems>, NotFound, ValidationProblem>> PasteItems(
         Guid boardId, PasteItemsRequest request, HttpRequest http, IOptions<HttpJsonOptions> json, ClaimsPrincipal principal,
-        PrikBoardDbContext db, FileStore files, CancellationToken ct)
+        PrikBoardDbContext db, FileStore files, BoardEvents events, CancellationToken ct)
     {
         // A clip from a newer PrikBoard is refused rather than pasted without what this server can't read.
         if (request.Clip.Version <= BoardClip.CurrentVersion
@@ -70,7 +77,10 @@ public static class ClipEndpoints
             return Invalid("clip.version", $"These items have fields this server doesn't know ({fields}). {MadeWith(request.Clip)} " +
                                            "Update PrikBoard to paste them without losing them.");
         }
-        return await PasteAsync(boardId, request, ServerUrl(http), principal, db, files, ct);
+        var result = await PasteAsync(boardId, request, ServerUrl(http), principal, db, files, ct);
+        // The board they were cut from changed too (this one is announced by the role filter).
+        if (result.Result is Ok<PastedItems> { Value.Moved: { } moved }) await events.ChangedAsync(moved.BoardId, http.HttpContext);
+        return result;
     }
 
     /// <summary>Where this server is, as clips name it: scheme and host of the request (the Host header, as for sign-in callbacks).</summary>
@@ -140,7 +150,7 @@ public static class ClipEndpoints
         foreach (var i in images)
         {
             clippedImages.Add(new ClippedImage(i.CardId, i.File!.FileName, i.Caption, i.X, i.Y, i.Width, await files.ReadAllBytesAsync(i.File, ct),
-                InCopiedBucket(i.BucketId) ? i.BucketId : null));
+                InCopiedBucket(i.BucketId) ? i.BucketId : null, i.Id));
         }
 
         return TypedResults.Ok(new BoardClip(
@@ -154,10 +164,11 @@ public static class ClipEndpoints
             clippedImages,
             [.. drawings.Select(d => new ClippedDrawing(d.CardId, d.X, d.Y,
                 [.. d.Content!.Strokes.Zip(d.Colors, (s, color) => new ExportedStroke(color, s.StrokeWidth, [.. s.Points]))],
-                BucketId: InCopiedBucket(d.BucketId) ? d.BucketId : null))],
+                BucketId: InCopiedBucket(d.BucketId) ? d.BucketId : null, Id: d.Id))],
             tagColors,
             AppVersion.Short(AppVersion.Current),
-            [.. Layout.BackToFront(buckets).Select(b => new ClippedBucket(b.Id, b.Name, b.Color, b.X, b.Y, b.Width, b.Height, b.Collapsed))]));
+            [.. Layout.BackToFront(buckets).Select(b => new ClippedBucket(b.Id, b.Name, b.Color, b.X, b.Y, b.Width, b.Height, b.Collapsed))],
+            what.Cut));
     }
 
     /// <summary>Adds the clip's items to <paramref name="boardId"/>; see pasteItems. <paramref name="serverUrl"/> is this server.</summary>
@@ -197,6 +208,22 @@ public static class ClipEndpoints
         if (board is null) return TypedResults.NotFound();
         var me = principal.PrincipalId();
         var sameServer = SameServer(clip.Source.Url, serverUrl);
+
+        // A cut moves the items: pasted on another board of this server, the originals go to their board's trash. From
+        // another server they can't be reached, so it pastes as a copy (Moved stays null).
+        Board? cutFrom = null;
+        if (clip.Cut && sameServer)
+        {
+            cutFrom = await db.Boards.AsNoTracking().FirstOrDefaultAsync(b => b.ShortId == clip.Source.BoardShortId, ct);
+            if (cutFrom is not null && cutFrom.Id == boardId)
+            {
+                return Invalid("clip.cut", "Cut items paste on another board. To move them on this board, move them.");
+            }
+            if (cutFrom is null || await BoardAccess.RoleOnBoardAsync(db, cutFrom.Id, principal, ct) is not >= BoardRole.Editor)
+            {
+                return Invalid("clip.cut", "These were cut from a board you can't change (any more), so they can't be moved. Copy them instead.");
+            }
+        }
 
         // People from the clip stay on the copies only when they can be assigned here.
         var people = clip.Cards.SelectMany(n => n.AssigneeIds ?? []).Distinct().ToList();
@@ -387,9 +414,15 @@ public static class ClipEndpoints
                 BoardId = boardId,
                 ById = me,
                 At = now,
-                Entries = [new(CardChangeKind.Copied, CardLinks.ReadableId(clip.Source.BoardKey, source.Number),
+                Entries = [new(cutFrom is null ? CardChangeKind.Copied : CardChangeKind.Moved, CardLinks.ReadableId(clip.Source.BoardKey, source.Number),
                     LinkTo(CardLinks.CardPath(clip.Source.BoardShortId, source.Number), clip.Source, sameServer))],
             });
+        }
+
+        var moved = cutFrom is null ? null : await RemoveOriginalsAsync(db, cutFrom, clip, clip.Cards.Zip(cards), board, principal, ct);
+        if (cutFrom is not null && moved is null)
+        {
+            return Invalid("clip.cut", "These were moved already: none of them is on the board they were cut from any more. Copy them from where they are now.");
         }
 
         // Files go on disk before their rows are saved (see FileStore).
@@ -411,7 +444,67 @@ public static class ClipEndpoints
             [.. images.Select(m => ImageDetail.From(m.Image))],
             [.. drawings.Select(d => DrawingDetail.From(d.Drawing))],
             bucket is null ? null : BucketDetail.From(bucket),
-            [.. newBuckets.Select(BucketDetail.From)]));
+            [.. newBuckets.Select(BucketDetail.From)],
+            moved));
+    }
+
+    /// <summary>
+    /// Deletes the originals of a cut that are still on <paramref name="from"/> (soft, as deleteCard and the others do, so
+    /// they can be restored), and returns them as they were; null when none is left. Their cards' history says where they
+    /// went. Runs inside the paste's transaction.
+    /// </summary>
+    private static async Task<MovedOriginals?> RemoveOriginalsAsync(
+        PrikBoardDbContext db, Board from, BoardClip clip, IEnumerable<(ClippedCard Source, Card Copy)> copies, Board to,
+        ClaimsPrincipal principal, CancellationToken ct)
+    {
+        var copyOf = copies.ToDictionary(p => p.Source.Id, p => p.Copy);
+        var cardIds = copyOf.Keys.ToList();
+        var bucketIds = (clip.Buckets ?? []).Select(b => b.Id).ToList();
+        var imageIds = clip.Images.Where(m => m.CardId is null && m.Id is not null).Select(m => m.Id!.Value).ToList();
+        var drawingIds = clip.Drawings.Where(d => d.CardId is null && d.Id is not null).Select(d => d.Id!.Value).ToList();
+
+        var cards = await db.Cards.AsNoTracking().Where(n => n.BoardId == from.Id && cardIds.Contains(n.Id)).ToListAsync(ct);
+        var buckets = await db.Buckets.Where(b => b.BoardId == from.Id && bucketIds.Contains(b.Id)).ToListAsync(ct);
+        var images = await db.Images.AsNoTracking().Include(i => i.File).Include(i => i.AddedBy)
+            .Where(i => i.BoardId == from.Id && i.CardId == null && imageIds.Contains(i.Id)).ToListAsync(ct);
+        var drawings = await db.Drawings.AsNoTracking().Include(d => d.AddedBy)
+            .Where(d => d.BoardId == from.Id && d.CardId == null && drawingIds.Contains(d.Id)).ToListAsync(ct);
+        if (cards.Count + buckets.Count + images.Count + drawings.Count == 0) return null;
+
+        var principals = await CardEndpoints.PrincipalsOnAsync(db, cards, ct);
+        var result = new MovedOriginals(from.Id, from.Name,
+            [.. cards.Select(n => CardDetail.From(n, BoardRef.Of(from), principals))],
+            [.. buckets.Select(BucketDetail.From)],
+            [.. images.Select(ImageDetail.From)],
+            [.. drawings.Select(DrawingDetail.From)]);
+
+        // One stamp, so a card's images and drawings come back with it (restoreCard).
+        var stamp = DateTimeOffset.UtcNow;
+        var gone = cards.Select(n => n.Id).ToList();
+        await db.Cards.Where(n => gone.Contains(n.Id)).ExecuteUpdateAsync(s => s.SetProperty(n => n.DeletedAt, stamp), ct);
+        await db.Images.Where(i => i.CardId != null && gone.Contains(i.CardId.Value)).ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, stamp), ct);
+        await db.Drawings.Where(d => d.CardId != null && gone.Contains(d.CardId.Value)).ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, stamp), ct);
+        var looseImages = images.Select(i => i.Id).ToList();
+        var looseDrawings = drawings.Select(d => d.Id).ToList();
+        await db.Images.Where(i => looseImages.Contains(i.Id)).ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, stamp), ct);
+        await db.Drawings.Where(d => looseDrawings.Contains(d.Id)).ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, stamp), ct);
+        foreach (var card in cards)
+        {
+            var copy = copyOf[card.Id];
+            CardHistory.Record(db, principal, card.Id, from.Id,
+                new(CardChangeKind.MovedAway, CardLinks.ReadableId(to.Key, copy.Number), CardLinks.CardPath(to.ShortId, copy.Number)));
+        }
+
+        // A bucket goes like deleteBucket: what else is in it now stays, loose or in the bucket under it.
+        if (buckets.Count > 0)
+        {
+            foreach (var bucket in buckets) bucket.DeletedAt = stamp;
+            var remaining = Layout.BackToFront(await db.Buckets.Where(b => b.BoardId == from.Id && !bucketIds.Contains(b.Id)).ToListAsync(ct));
+            var left = await db.Cards.Where(n => n.BoardId == from.Id).ToListAsync(ct);
+            var items = await BucketEndpoints.CanvasItemsAsync(db, from.Id, ct);
+            foreach (var bucket in buckets) Layout.Release(bucket, remaining, left, items);
+        }
+        return result;
     }
 
     /// <summary>The bucket, locked until the transaction ends so two pastes into it don't take the same free spots; null when it isn't on the board.</summary>

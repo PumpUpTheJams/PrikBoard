@@ -292,6 +292,8 @@ export interface BoardClip {
   appVersion?: string | null
   /** Buckets with what is in them (from version 2). */
   buckets?: ClippedBucket[] | null
+  /** Cut rather than copied (from version 3): pasted on another board of the same server, the originals go to the trash. */
+  cut?: boolean
 }
 
 export interface ClipSource {
@@ -306,17 +308,29 @@ export interface ClippedCard {
   id: string
   number: number
   title: string
+  x: number
+  y: number
+  /** The copied bucket it is in. */
+  bucketId?: string | null
 }
 
 /** A bucket in a clip (the rest of its fields are passed on untouched). */
 export interface ClippedBucket {
   id: string
   name: string
+  x: number
+  y: number
 }
 
 /** An image or drawing in a clip: on a card in it, or (null) on the board. */
 export interface ClippedItem {
+  /** Its id on its board (from version 3). */
+  id?: string | null
   cardId: string | null
+  x: number
+  y: number
+  /** On the board: the copied bucket it is in. */
+  bucketId?: string | null
 }
 
 /** What copyItems copies, all on one board. A bucket comes with what is in it. */
@@ -325,6 +339,8 @@ export interface CopyItemsRequest {
   bucketIds?: string[]
   imageIds?: string[]
   drawingIds?: string[]
+  /** Cut them (Editor): pasted on another board of the same server, the originals go to the trash. */
+  cut?: boolean
 }
 
 /**
@@ -343,6 +359,19 @@ export interface PastedItems {
   bucket: BucketDetail | null
   /** The new buckets, back to front. */
   buckets: BucketDetail[]
+  /** For a cut from another board of this server: the originals, now in that board's trash, as they were. */
+  moved?: MovedOriginals | null
+}
+
+/** The originals of a cut, deleted by the paste (the restore endpoints bring them back). */
+export interface MovedOriginals {
+  boardId: string
+  boardName: string
+  cards: CardDetail[]
+  buckets: BucketDetail[]
+  /** The images that were on the board (those on the cards went with them). */
+  images: ImageDetail[]
+  drawings: DrawingDetail[]
 }
 
 export type AssigneeKind = 'Person' | 'Agent'
@@ -456,6 +485,10 @@ export type CardChangeKind =
   | 'Restored'
   /** Added as a copy: before is the original's readable id, after its link (a full URL when it was on another server). */
   | 'Copied'
+  /** Added as the new place of a card cut from another board: before is the original's readable id, after its link. */
+  | 'Moved'
+  /** Cut and pasted on another board (the card went to the trash): before is its new readable id, after its link. */
+  | 'MovedAway'
   /** A change this version can't describe; also how to treat kinds added later. */
   | 'Other'
 

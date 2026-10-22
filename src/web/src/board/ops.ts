@@ -18,7 +18,7 @@ import type {
 } from '../api/types'
 import { countList } from './clipboard'
 import { loadDrawingStrokes, type Reshape } from './drawings'
-import { cardEdit, componentEdit, created, deleted, patched, reshaped, snap, step, target, type UndoEntry } from './undo'
+import { cardEdit, componentEdit, created, deleted, patched, reshaped, snap, step, target, type UndoChange, type UndoEntry } from './undo'
 
 /**
  * A change to the board as a request and the undo step it makes from the result, to hand to a RecordingRun (or the
@@ -58,17 +58,35 @@ export const ops = {
    */
   paste: (boardId: string, clip: BoardClip, place: PastePlace, label = 'Paste'): Op<PastedItems> => [
     () => api.pasteItems(boardId, clip, place),
-    (pasted) =>
-      step(
-        label,
+    (pasted) => {
+      // A cut's originals went to the trash of the board they were cut from: undo puts them back there.
+      const moved = pasted.moved
+      const away = (change: UndoChange): UndoChange => ({ ...change, boardId: moved!.boardId })
+      const originals = moved
+        ? [
+            ...moved.buckets.map((b) => away(deleted(target.bucket(b.id), snap.bucket(b)))),
+            ...moved.cards.map((n) => away(deleted(target.card(n.id), snap.card(n)))),
+            ...moved.images.map((i) => away(deleted(target.image(i.id), snap.image(i)))),
+            ...moved.drawings.map((d) => away(deleted(target.drawing(d.id), snap.drawing(d)))),
+          ]
+        : []
+      const toast = moved
+        ? `Moved ${pastedSummary(pasted)} from ${moved.boardName}`
+        : clip.cut
+          ? `Pasted copies of ${pastedSummary(pasted)}: the originals stay on their server`
+          : `Pasted ${pastedSummary(pasted)}`
+      return step(
+        moved ? 'Move here' : label,
         [
           ...pasted.buckets.map((b) => created(target.bucket(b.id), snap.bucket(b))),
           ...pasted.cards.map((card) => created(target.card(card.id), snap.card(card))),
           ...pasted.images.filter((i) => !i.cardId).map((i) => created(target.image(i.id), snap.image(i))),
           ...pasted.drawings.filter((d) => !d.cardId).map((d) => created(target.drawing(d.id), snap.drawing(d))),
+          ...originals,
         ],
-        label === 'Paste' ? { toast: `Pasted ${pastedSummary(pasted)}` } : undefined,
-      ),
+        label === 'Paste' ? { toast } : undefined,
+      )
+    },
   ],
 
   deleteCard: (card: CardDetail): Op<void> => [
