@@ -64,8 +64,8 @@ public record NewCardComponent(
 
 /// <summary>
 /// Partially updates a component: its content, position and/or size. Omitted (null) fields stay unchanged. A list that is
-/// given replaces the component's whole list, so to tick off one checklist item, send the component's items from getCard with that
-/// item changed. Only content that fits the component's kind is accepted.
+/// given replaces the component's whole list. To change a little without sending it all back, use appendText, addItems,
+/// checkItems and uncheckItems, which apply after the other fields. Only content that fits the component's kind is accepted.
 /// </summary>
 /// <param name="Title">New heading; an empty string clears it.</param>
 /// <param name="Text">New text of a Text component, in Markdown; an empty string clears it.</param>
@@ -75,6 +75,10 @@ public record NewCardComponent(
 /// <param name="Y">New top edge on the card's canvas; snapped to the 20 px grid.</param>
 /// <param name="Width">New width; snapped to the grid, at least 160.</param>
 /// <param name="Height">New height; snapped to the grid, at least 80.</param>
+/// <param name="AppendText">Text to add at the end of a Text component, as a new paragraph; the text already there stays.</param>
+/// <param name="AddItems">Items to add at the end of a Checklist component.</param>
+/// <param name="CheckItems">The texts of checklist items to tick off (whole text, ignoring case); the other items stay as they are.</param>
+/// <param name="UncheckItems">The texts of checklist items to untick, like checkItems.</param>
 public record UpdateCardComponentRequest(
     [property: StringLength(CardComponent.MaxTitleLength)] string? Title = null,
     [property: StringLength(CardComponent.MaxTextLength)] string? Text = null,
@@ -83,4 +87,8 @@ public record UpdateCardComponentRequest(
     [property: Range(0, Layout.CardCanvasMax)] int? X = null,
     [property: Range(0, Layout.CardCanvasMax)] int? Y = null,
     [property: Range(1, Layout.MaxComponentSize)] int? Width = null,
-    [property: Range(1, Layout.MaxComponentSize)] int? Height = null);
+    [property: Range(1, Layout.MaxComponentSize)] int? Height = null,
+    [property: StringLength(CardComponent.MaxTextLength)] string? AppendText = null,
+    [property: MaxLength(CardComponent.MaxItems)] List<ChecklistItem>? AddItems = null,
+    [property: MaxLength(CardComponent.MaxItems)] List<string>? CheckItems = null,
+    [property: MaxLength(CardComponent.MaxItems)] List<string>? UncheckItems = null);

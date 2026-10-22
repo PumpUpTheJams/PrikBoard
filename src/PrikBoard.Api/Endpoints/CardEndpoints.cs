@@ -32,6 +32,15 @@ public static class CardEndpoints
                              "Tags the board does not have yet are added to it (see listBoardTags).")
             .ProducesValidationProblem();
 
+        cards.MapPost("/boards/{boardId:guid}/cards/batch", CreateCards)
+            .RequireBoardRole(BoardRole.Editor)
+            .WithName("createCards")
+            .WithSummary("Stick several new cards on a board")
+            .WithDescription($"Creates up to {MaxBatch} cards at once, in the order given, like createCard does one: each in a free " +
+                             "spot of its bucket (default: the board's first bucket) or at its X and Y. All of them are created, or none " +
+                             "(a 400 keyed on cards[i]).")
+            .ProducesValidationProblem();
+
         cards.MapGet("/cards/{cardId:guid}", GetCard)
             .RequireBoardRole(BoardRole.Viewer, BoardScope.Card)
             .WithName("getCard")
@@ -156,48 +165,144 @@ public static class CardEndpoints
         return TypedResults.Ok(Layout.ReadingOrder(cards, buckets).Select(n => CardDetail.From(n, board, principals)).ToList());
     }
 
-    internal static async Task<Results<Created<CardDetail>, NotFound, ValidationProblem>> CreateCard(
-        Guid boardId, CreateCardRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
+    internal static Task<Results<Created<CardDetail>, NotFound, ValidationProblem>> CreateCard(
+        Guid boardId, CreateCardRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct) =>
+        CreateCardAsync(boardId, request, principal, db, assigneesChecked: false, ct);
+
+    /// <summary>
+    /// createCard for callers that already checked the assignees can be assigned (MCP tools, which resolve them by name
+    /// against the same list), which saves a query.
+    /// </summary>
+    internal static async Task<Results<Created<CardDetail>, NotFound, ValidationProblem>> CreateCardAsync(
+        Guid boardId, CreateCardRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, bool assigneesChecked, CancellationToken ct)
     {
-        if (await BoardRefAsync(db, boardId, ct) is not { } board) return TypedResults.NotFound();
+        var (cards, missing, invalid) = await AddCardsAsync(boardId, [request], principal, db, assigneesChecked, batch: false, ct);
+        if (missing is not null) return missing;
+        if (invalid is not null) return invalid;
+        var card = cards![0];
+        return TypedResults.Created($"/api/cards/{card.Id}", card);
+    }
 
-        var card = new Card
-        {
-            BoardId = boardId,
-            Title = request.Title.Trim(),
-            Color = request.Color ?? CardColor.Butter,
-            AgentWorking = request.AgentWorking ?? false,
-            CreatedById = principal.PrincipalId(),
-        };
-        if (request.AssigneeIds is not null && await CheckAssigneesAsync(db, boardId, request.AssigneeIds, [], ct) is { } unassignable)
-        {
-            return unassignable;
-        }
-        if (ApplyLists(card, request.Tags, request.AssigneeIds) is { } invalid) return invalid;
-        if (request.Components is not null && CardComponentEndpoints.BuildAll(card, request.Components) is { } invalidComponent) return invalidComponent;
-        await CardComponentEndpoints.ShortenLinksAsync(db, boardId, card.Components, ct);
-        if (await TagEndpoints.EnsureBoardTagsAsync(db, boardId, card.Tags, ct) is { } tooManyTags) return tooManyTags;
+    /// <summary>The most cards createCards takes at once.</summary>
+    internal const int MaxBatch = 50;
 
-        var buckets = await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct);
-        var others = await db.Cards.Where(n => n.BoardId == boardId).ToListAsync(ct);
-        var bucketId = request.BucketId ?? (request.X is null && request.Y is null ? Layout.InListOrder(buckets).FirstOrDefault()?.Id : null);
-        if (Place(card, bucketId, request.X, request.Y, buckets, others) is { } problem) return problem;
+    internal static Task<Results<Ok<List<CardDetail>>, NotFound, ValidationProblem>> CreateCards(
+        Guid boardId, CreateCardsRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct) =>
+        CreateCardsAsync(boardId, request, principal, db, assigneesChecked: false, ct);
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        card.Number = await TakeNumberAsync(db, boardId, ct);
-        db.Cards.Add(card);
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
-        return TypedResults.Created($"/api/cards/{card.Id}", await DetailAsync(db, card, board, ct));
+    /// <summary>createCards; see <see cref="CreateCardAsync"/> for <paramref name="assigneesChecked"/>.</summary>
+    internal static async Task<Results<Ok<List<CardDetail>>, NotFound, ValidationProblem>> CreateCardsAsync(
+        Guid boardId, CreateCardsRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, bool assigneesChecked, CancellationToken ct)
+    {
+        if (request.Cards.Count == 0) return Problems.Invalid("cards", "Give at least one card.");
+        var (cards, missing, invalid) = await AddCardsAsync(boardId, request.Cards, principal, db, assigneesChecked, batch: true, ct);
+        if (missing is not null) return missing;
+        if (invalid is not null) return invalid;
+        return TypedResults.Ok(cards!);
     }
 
     /// <summary>
-    /// The board's next card number, counted up in the same statement. That locks the board's row until the transaction
-    /// ends, so cards created at the same time get different numbers, and a card that fails to save gives its number back.
+    /// Creates cards in one transaction, each placed like createCard places one, with room for the ones before it. With
+    /// <paramref name="batch"/>, problems are keyed on cards[i].
     /// </summary>
-    internal static async Task<int> TakeNumberAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
+    private static async Task<(List<CardDetail>? Cards, NotFound? Missing, ValidationProblem? Invalid)> AddCardsAsync(
+        Guid boardId, IReadOnlyList<CreateCardRequest> requests, ClaimsPrincipal principal, PrikBoardDbContext db,
+        bool assigneesChecked, bool batch, CancellationToken ct)
+    {
+        if (await BoardRefAsync(db, boardId, ct) is not { } board) return (null, TypedResults.NotFound(), null);
+        ValidationProblem Keyed(ValidationProblem problem, int i) => batch ? Prefixed(problem, $"cards[{i}].") : problem;
+
+        var cards = new List<Card>();
+        for (var i = 0; i < requests.Count; i++)
+        {
+            var request = requests[i];
+            var card = new Card
+            {
+                BoardId = boardId,
+                Title = request.Title.Trim(),
+                Color = request.Color ?? CardColor.Butter,
+                AgentWorking = request.AgentWorking ?? false,
+                CreatedById = principal.PrincipalId(),
+            };
+            if (!assigneesChecked && request.AssigneeIds is not null
+                && await CheckAssigneesAsync(db, boardId, request.AssigneeIds, [], ct) is { } unassignable)
+            {
+                return (null, null, Keyed(unassignable, i));
+            }
+            if (ApplyLists(card, request.Tags, request.AssigneeIds) is { } invalid) return (null, null, Keyed(invalid, i));
+            if (request.Components is not null && CardComponentEndpoints.BuildAll(card, request.Components) is { } invalidComponent)
+            {
+                return (null, null, Keyed(invalidComponent, i));
+            }
+            await CardComponentEndpoints.ShortenLinksAsync(db, boardId, card.Components, ct);
+            cards.Add(card);
+        }
+        var tags = cards.SelectMany(c => c.Tags).Distinct().ToList();
+        if (await TagEndpoints.EnsureBoardTagsAsync(db, boardId, tags, ct) is { } tooManyTags) return (null, null, tooManyTags);
+
+        var buckets = await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct);
+        var others = await PlacedCardsAsync(db, boardId, null, ct);
+        var placed = others.ToDictionary(n => n.Id, n => n.BucketId);
+        var first = Layout.InListOrder(buckets).FirstOrDefault()?.Id;
+        for (var i = 0; i < requests.Count; i++)
+        {
+            var request = requests[i];
+            var bucketId = request.BucketId ?? (request.X is null && request.Y is null ? first : null);
+            if (Place(cards[i], bucketId, request.X, request.Y, buckets, others) is { } problem) return (null, null, Keyed(problem, i));
+            // The next card makes room for this one.
+            others.Add(cards[i]);
+        }
+        TrackMoved(db, others, placed);
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var number = await TakeNumberAsync(db, boardId, ct, cards.Count);
+        foreach (var card in cards) card.Number = number++;
+        db.Cards.AddRange(cards);
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        var principals = await PrincipalsOnAsync(db, cards, ct);
+        return (cards.Select(card => CardDetail.From(card, board, principals)).ToList(), null, null);
+    }
+
+    /// <summary>The same problem with its keys under <paramref name="prefix"/> (cards[2].tags).</summary>
+    private static ValidationProblem Prefixed(ValidationProblem problem, string prefix) =>
+        TypedResults.ValidationProblem(problem.ProblemDetails.Errors.ToDictionary(e => prefix + e.Key, e => e.Value));
+
+    /// <summary>
+    /// The board's other cards, with only what placing a card needs (place and bucket), untracked: a board's cards with
+    /// all their content would be loaded and compared on save for nothing. <see cref="TrackMoved"/> saves the ones that
+    /// changed bucket.
+    /// </summary>
+    private static Task<List<Card>> PlacedCardsAsync(PrikBoardDbContext db, Guid boardId, Guid? except, CancellationToken ct) =>
+        db.Cards.AsNoTracking()
+            .Where(n => n.BoardId == boardId && n.Id != except)
+            .Select(n => new Card { Id = n.Id, BoardId = n.BoardId, BucketId = n.BucketId, X = n.X, Y = n.Y, Title = "" })
+            .ToListAsync(ct);
+
+    /// <summary>
+    /// Saves the bucket of cards from <see cref="PlacedCardsAsync"/> that joined another one (<see cref="Layout.Adopt"/>):
+    /// tracked as they were, so only their bucket is written, and their history records the move.
+    /// </summary>
+    private static void TrackMoved(PrikBoardDbContext db, IEnumerable<Card> cards, Dictionary<Guid, Guid?> was)
+    {
+        foreach (var card in cards)
+        {
+            if (!was.TryGetValue(card.Id, out var bucketId) || bucketId == card.BucketId) continue;
+            var now = card.BucketId;
+            card.BucketId = bucketId;
+            db.Cards.Attach(card);
+            card.BucketId = now;
+        }
+    }
+
+    /// <summary>
+    /// The board's next card number (the first of <paramref name="count"/> in a row), counted up in the same statement.
+    /// That locks the board's row until the transaction ends, so cards created at the same time get different numbers, and
+    /// cards that fail to save give their numbers back.
+    /// </summary>
+    internal static async Task<int> TakeNumberAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct, int count = 1) =>
         (await db.Database.SqlQuery<int>($"""
-            UPDATE "Boards" SET "NextCardNumber" = "NextCardNumber" + 1 WHERE "Id" = {boardId} RETURNING "NextCardNumber" - 1 AS "Value"
+            UPDATE "Boards" SET "NextCardNumber" = "NextCardNumber" + {count} WHERE "Id" = {boardId} RETURNING "NextCardNumber" - {count} AS "Value"
             """).ToListAsync(ct)).Single();
 
     internal static async Task<Results<Ok<CardDetail>, NotFound>> GetCard(
@@ -271,8 +376,10 @@ public static class CardEndpoints
         if (card is null) return TypedResults.NotFound();
 
         var buckets = await db.Buckets.Where(b => b.BoardId == card.BoardId).ToListAsync(ct);
-        var others = await db.Cards.Where(n => n.BoardId == card.BoardId && n.Id != cardId).ToListAsync(ct);
+        var others = await PlacedCardsAsync(db, card.BoardId, cardId, ct);
+        var placed = others.ToDictionary(n => n.Id, n => n.BucketId);
         if (Place(card, request.BucketId, request.X, request.Y, buckets, others) is { } problem) return problem;
+        TrackMoved(db, others, placed);
 
         card.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);

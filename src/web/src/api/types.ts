@@ -436,6 +436,14 @@ export interface CardComponentChanges {
   y?: number
   width?: number
   height?: number
+  /** Added to the end of a Text component, as a new paragraph. */
+  appendText?: string
+  /** Added to the end of a Checklist component. */
+  addItems?: ChecklistItem[]
+  /** Texts of checklist items to tick off (whole text, ignoring case). */
+  checkItems?: string[]
+  /** Texts of checklist items to untick. */
+  uncheckItems?: string[]
 }
 
 export interface CardDetail {

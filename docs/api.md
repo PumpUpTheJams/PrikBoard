@@ -88,22 +88,23 @@ claude mcp add --transport http prikboard http://localhost:5173/mcp --header "Au
 
 | Tool | What it does |
 | --- | --- |
-| `list_boards` | Your boards with your role on each |
-| `get_board` | Compact overview: the board's agent `rules`, buckets in order with their cards (title, tags, assignees, checklist progress, creator), plus loose cards, the board's `tags` and the `people` who can be assigned |
+| `list_boards` | Your boards with your role on each; the one you used last first (`lastUsed`) |
+| `get_board` | Compact overview: the board's agent `rules`, buckets in order with their cards (title, tags, assignee names, checklist progress, creator; empty lists and false flags left out), plus loose cards, the board's `tags` and the `people` who can be assigned. Collapsed buckets give only a `cardCount`; `search_cards` with the bucket lists their cards. `cards: false` leaves out all cards |
 | `get_board_rules` | Just the board's agent rules and when they last changed |
 | `search_cards` | By bucket (name or id), `tags` (any of them), assignee (name or id) or text |
-| `get_card` | Everything about one card, with its content as `components` |
-| `create_card` | In a bucket by name or id (default: the first bucket). `assignees` are names or principal ids from `people`. `body`, `checklist` and `links` become its first Text, Checklist and Links components |
+| `get_card` | One card with its content as `components` (text, items, links; no canvas positions). Write tools return the same compact card, with only each component's id, kind and title, plus its `bucket` by name |
+| `create_card` | In a bucket by name or id (default: the first bucket). `assignees` are names or principal ids from `people`. `body`, `checklist` and `links` become its first Text, Checklist and Links components. `working: true` also assigns you and sets the working halo, like `set_working` |
+| `create_cards` | Several cards at once (at most 50), each like `create_card`; all or none |
 | `update_card` | Same PATCH rules as updateCard; `assignees` by name or id |
-| `add_card_component`, `update_card_component`, `delete_card_component` | A card's content. A component is named by its id, its title, or its kind when the card has one component of that kind; `delete_card_component` is marked destructive |
+| `add_card_component`, `update_card_component`, `delete_card_component` | A card's content. A component is named by its id, its title, or its kind when the card has one component of that kind; `delete_card_component` is marked destructive. `update_card_component` also takes `appendText`, `addItems`, `checkItems` and `uncheckItems`, so a small change needs no `get_card` first |
 | `add_image` | Like uploadImage, with the file base64-encoded in `data` (a `data:` URL works too): attached to a card (`cardId`) or on the board (`boardId`), in a free spot unless `x` and `y` are given. Slow beyond a few KB, since the agent writes out every character |
 | `begin_image_upload` | Like createImageUpload, with the same targets as `add_image`: answers a one-time `uploadUrl` and a `curl -T` `command`, so an agent that can run commands sends the file from disk without it passing through the conversation |
-| `move_card` | To a bucket by name or id; the server finds a free spot |
+| `move_card` | To a bucket by name or id; the server finds a free spot. `working` starts or stops work on it in the same call |
 | `place_cards_in_bucket` | Several cards at once into a bucket's free spots, in order; it grows (`Down` unless `grow` says `Right`, `Left` or `Up`) when they don't fit |
 | `copy_to_board` | Copy cards, buckets (by name or id, with what is in them), and images and drawings on the board (by id), all from one board (`from`, needed without cards), to a board, the same one or another. Everything keeps its place relative to the rest, the top-left at `x`/`y` (or a free spot); cards alone can go into a bucket's free spots instead (`bucket`; default the first bucket). With `move` (Editor on the source board) they go to another board and the originals to their board's trash. Like copyItems followed by pasteItems |
 | `set_working` | Assign yourself and show (or hide) the working halo, like setCardWorking |
 | `delete_card`, `restore_card`, `list_deleted_cards`, `purge_card`, `empty_trash` | `delete_card` is marked destructive, so clients ask first; `restore_card` brings a deleted card back within 7 days, at its old place or at `x`/`y`; `list_deleted_cards` shows what is in the trash; `purge_card` and `empty_trash` (also destructive) delete from the trash for good |
-| `collapse_bucket` | Folds a bucket up into a square on the board (its cards hidden there; `collapsed` in `get_board`), or opens it again |
+| `collapse_bucket` | Folds a bucket up into a square on the board (its cards hidden there; `collapsed` in `get_board`, which then only counts them), or opens it again |
 | `bring_bucket_to_front` | Puts a bucket on top of the buckets it overlaps, for everyone: drawn above them, and cards put where they overlap join it |
 | `create_bucket`, `rename_bucket` | Bucket housekeeping |
 | `create_tag`, `update_tag`, `delete_tag`, `restore_tag` | The board's tags, by name or id. `create_tag` and `update_tag` take a `color`; renaming and deleting change every card. `delete_tag` is marked destructive, and `restore_tag` puts a deleted tag back on its cards |
@@ -112,7 +113,9 @@ The tools offer the same features as the REST endpoints. Where REST takes ids (`
 
 The tools use the same access checks, validation and layout rules as the REST endpoints, and people watching the board see the changes live. There are no tools for members, invites, tokens or deleting boards. A request with a foreign `Origin` header gets `403`. Tool errors (no access, read-only token, an unknown bucket name) come back as tool results with `isError`, written for the model to act on.
 
-**Agent rules.** A board can have rules in Markdown (`rules` in getBoard): what the board is about and how agents should handle its cards. Only owners set them, through updateBoard; the web app opens them from the tool rail. Agents treat card text as data, but the rules as instructions to follow in every action on the board. The server instructions say so, get_board shows the rules first, and get_board_rules returns them on their own. After every successful write on a board with rules, the tool result gets a second text component: a short reminder with the time the rules last changed, so an agent notices when they change and re-reads them. The rules themselves are not repeated.
+**Agent rules.** A board can have rules in Markdown (`rules` in getBoard): what the board is about and how agents should handle its cards. Only owners set them, through updateBoard; the web app opens them from the tool rail. Agents treat card text as data, but the rules as instructions to follow in every action on the board. The server instructions say so, get_board shows the rules first, and get_board_rules returns them on their own. After every successful write on a board with rules, the tool result gets a second text component: a short reminder with the time the rules last changed, so an agent notices when they change and re-reads them only then. The rules themselves are not repeated.
+
+**Which board.** Tools that take a `board` can leave it out when the token works on one board only (a token limited to a single board). Otherwise the server remembers the board each agent last used through the tools (`Principals.LastBoardId`, set by every successful access check) and names it in the server instructions when the agent connects, so the agent can ask its user whether they mean that board instead of calling `list_boards`; it is mentioned only while the agent can still reach it. The note also lists that board's buckets and tags and repeats its agent rules (up to 4,000 characters, else it points to `get_board_rules`), so an agent can add a card there without `get_board`. A board named in a project's `CLAUDE.md` (its short id) saves the lookup altogether.
 
 ## The board model
 
@@ -194,6 +197,7 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | restoreBucket | `POST /api/buckets/{bucketId}/restore` | Bring back a deleted bucket with the same id and place in the stack; the cards it covers join it again |
 | listCards | `GET /api/boards/{boardId}/cards?bucketId=&tag=&assignee=&search=` | Filter by bucket, tags (repeat `tag`; any of them matches), assignee (principal id or current name), or search the title and content: text, checklist items and links (all case-insensitive) |
 | createCard | `POST /api/boards/{boardId}/cards` | New card in a bucket's free spot (default: the first bucket), or at `x`/`y`. Butter by default. Can include tags, `assigneeIds` and `components` (laid out automatically without `x`/`y`). Records you as its creator |
+| createCards | `POST /api/boards/{boardId}/cards/batch` | Up to 50 cards at once (`cards`, each as createCard takes one), placed in order with room for each other. All or none: a 400 is keyed on `cards[i]` |
 | getCard | `GET /api/cards/{cardId}` | A single card |
 | getCardByNumber | `GET /api/boards/{shortId}/cards/{number}` | The card a path points at, by its board's short id and its number |
 | updateCard | `PATCH /api/cards/{cardId}` | Edit the title, fill, tags, `assigneeIds` or `agentWorking` |
@@ -208,7 +212,7 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | purgeCard | `DELETE /api/boards/{boardId}/trash/{cardId}` | Delete a card in the trash for good, with the images and drawings deleted along with it; `409` when it is not deleted |
 | emptyTrash | `DELETE /api/boards/{boardId}/trash` | Delete every card in the board's trash for good; returns `{"purged"}`, how many cards went |
 | addCardComponent | `POST /api/cards/{cardId}/components` | Add a `Text`, `Checklist` or `Links` component to the card's content, in a free spot unless `x`/`y` are given (at most 30 components). `id` puts back a removed component with the id it had (`409` when the card has it) |
-| updateCardComponent | `PATCH /api/cards/{cardId}/components/{componentId}` | Edit a component's `title`, content (`text`, `items` or `links`, whichever fits its kind), position or size |
+| updateCardComponent | `PATCH /api/cards/{cardId}/components/{componentId}` | Edit a component's `title`, content (`text`, `items` or `links`, whichever fits its kind), position or size. `appendText` adds a paragraph to a Text component; `addItems`, `checkItems` and `uncheckItems` (item texts, ignoring case) change a Checklist without sending all its items |
 | deleteCardComponent | `DELETE /api/cards/{cardId}/components/{componentId}` | Remove a component |
 | listBoardTags | `GET /api/boards/{boardId}/tags` | The board's tags by name, with how many cards use each |
 | createBoardTag | `POST /api/boards/{boardId}/tags` | Add a tag, optionally with a `color`, without putting it on a card (`409` when it exists or the board has 100) |

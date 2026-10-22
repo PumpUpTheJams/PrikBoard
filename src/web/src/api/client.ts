@@ -217,6 +217,11 @@ export const api = {
     boardId: string,
     card: Omit<CardChanges, 'title'> & { title: string; components?: NewCardComponent[] } & ({ bucketId?: string } | (Point & { bucketId?: string })),
   ) => request<CardDetail>('POST', `/boards/${boardId}/cards`, card),
+  /** Several cards at once, in order; all are created or none. */
+  createCards: (
+    boardId: string,
+    cards: (Omit<CardChanges, 'title'> & { title: string; components?: NewCardComponent[]; bucketId?: string; x?: number; y?: number })[],
+  ) => request<CardDetail[]>('POST', `/boards/${boardId}/cards/batch`, { cards }),
   /** The card at a path's board short id and number (#/boards/{shortId}/cards/{number}). */
   getCardByNumber: (shortId: string, number: number) => request<CardDetail>('GET', `/boards/${shortId}/cards/${number}`),
   updateCard: (cardId: string, changes: CardChanges) => request<CardDetail>('PATCH', `/cards/${cardId}`, changes),

@@ -760,10 +760,15 @@ namespace PrikBoard.Api.Data.Migrations
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)");
 
+                    b.Property<Guid?>("LastBoardId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset>("LastSeenAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("LastBoardId");
 
                     b.ToTable("Principals", (string)null);
 
@@ -1167,6 +1172,14 @@ namespace PrikBoard.Api.Data.Migrations
                         .HasForeignKey("PrincipalId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.Principal", b =>
+                {
+                    b.HasOne("PrikBoard.Api.Domain.Board", null)
+                        .WithMany()
+                        .HasForeignKey("LastBoardId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.UserIdentity", b =>

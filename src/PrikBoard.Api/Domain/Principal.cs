@@ -16,6 +16,9 @@ public abstract class Principal
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset LastSeenAt { get; set; } = DateTimeOffset.UtcNow;
 
+    /// <summary>The board this principal last used through the MCP tools, which they are told about when they connect; null before the first.</summary>
+    public Guid? LastBoardId { get; set; }
+
     /// <summary>What others see when no display name was chosen.</summary>
     public abstract string FallbackName { get; }
 

@@ -159,6 +159,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             principal.Property(p => p.DisplayName).HasMaxLength(100);
             principal.Ignore(p => p.FallbackName);
             principal.Ignore(p => p.ShownName);
+            principal.HasOne<Board>().WithMany().HasForeignKey(p => p.LastBoardId).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<User>(user =>

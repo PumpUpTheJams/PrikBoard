@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
@@ -192,7 +193,8 @@ public static class BoardEndpoints
         board.Key = request.Key is null ? board.Key : Board.NormalizeKey(request.Key);
         board.Description = PatchText.Apply(board.Description, request.Description);
         var rules = PatchText.Apply(board.Rules, request.Rules);
-        if (rules != board.Rules)
+        var rulesChanged = rules != board.Rules;
+        if (rulesChanged)
         {
             board.Rules = rules;
             board.RulesUpdatedAt = DateTimeOffset.UtcNow;
@@ -204,6 +206,8 @@ public static class BoardEndpoints
         board.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
+        // MCP calls keep the rules' timestamp (and the connect note shows the rules).
+        if (rulesChanged) Mcp.McpCall.ForgetRules(http.RequestServices.GetRequiredService<IMemoryCache>(), boardId);
         await events.BoardsChangedForMembersAsync(db, boardId, ct);
         // Visitors look again: gone when it is no longer public, and with or without people.
         if (visitorsChanged) await events.VisitorsChangedAsync(boardId);

@@ -113,6 +113,10 @@ public record CreateCardRequest(
     [property: MaxLength(CardComponent.MaxComponents)] List<NewCardComponent>? Components = null,
     bool? AgentWorking = null);
 
+/// <summary>Creates several cards at once (createCards), in the order given.</summary>
+/// <param name="Cards">The cards, each as createCard takes one; at most 50.</param>
+public record CreateCardsRequest([property: Required, MaxLength(Endpoints.CardEndpoints.MaxBatch)] List<CreateCardRequest> Cards);
+
 /// <summary>
 /// Partially updates a card. Omitted (null) fields stay unchanged. A list that is given replaces the whole list (send []
 /// to clear it). Use moveCard to move the card, and addCardComponent, updateCardComponent and deleteCardComponent to change its content.
