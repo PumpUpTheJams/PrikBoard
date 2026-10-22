@@ -52,7 +52,7 @@ interface CardProps {
   lifted: boolean
   /** Drawn above the rest, with the bucket that was opened or pressed last. */
   front?: boolean
-  /** Faded: it doesn't match the board's tag filter or search. */
+  /** Faded: it doesn't match the board's filters or search. */
   dimmed?: boolean
   /** Search words to mark in the title and tags. */
   highlight?: SearchTerm[]

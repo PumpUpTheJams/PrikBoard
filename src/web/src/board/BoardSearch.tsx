@@ -16,7 +16,7 @@ interface BoardSearchProps {
   query: string
   onQueryChange: (query: string) => void
   terms: SearchTerm[]
-  /** Matching cards that pass the tag filter, in board order. */
+  /** Matching cards that pass the filters, in board order. */
   results: SearchResult[]
   /** The active result: outlined on the board, highlighted in the list. */
   current: string | null
@@ -26,7 +26,7 @@ interface BoardSearchProps {
   onMove: (direction: 1 | -1) => void
   onOpen: (cardId: string) => void
   onClose: () => void
-  /** Matches the tag filter fades, so they aren't in the results. */
+  /** Matches the filters fade, so they aren't in the results. */
   faded: number
   /** Matches folded away in collapsed buckets, which the search marks instead. */
   folded: number
@@ -132,7 +132,7 @@ export function BoardSearch(props: BoardSearchProps) {
           <ul ref={listRef} id="board-search-results" className="search-result-list" role="listbox" aria-label="Search results">
             {results.length === 0 ? (
               <li className="search-empty" role="presentation">
-                {faded > 0 ? 'None of the cards the tag filter shows' : folded > 0 ? 'No open card' : 'No card on this board'} matches “{query.trim()}”.
+                {faded > 0 ? 'None of the cards the filters show' : folded > 0 ? 'No open card' : 'No card on this board'} matches “{query.trim()}”.
               </li>
             ) : (
               results.map(({ card, fields }) => (
@@ -177,9 +177,9 @@ export function BoardSearch(props: BoardSearchProps) {
             {folded > 0 && <span className="search-faded">{folded} more in collapsed buckets, marked on the board</span>}
             {faded > 0 && (
               <span className="search-faded">
-                {faded} more faded by the tag filter
+                {faded} more faded by the filters
                 <button type="button" onClick={onClearFilter}>
-                  Clear the filter
+                  Clear the filters
                 </button>
               </span>
             )}

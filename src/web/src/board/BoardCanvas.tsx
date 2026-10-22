@@ -24,6 +24,7 @@ import type {
 import { presenceColor } from '../live/presence'
 import type { LiveDrag } from '../live/useLive'
 import { Toast, type ToastMessage } from '../components/Toast'
+import { AssigneeFilter } from './AssigneeFilter'
 import { AssigneePicker } from './AssigneePicker'
 import { BoardImageView } from './BoardImageView'
 import { BoardSearch, type SearchResult } from './BoardSearch'
@@ -33,6 +34,7 @@ import { DrawingToolbar, DrawingView, PenRing, StrokeSvg } from './DrawingView'
 import { TrashWindow, type OutgoingCard, type TrashWindowHandle } from './TrashWindow'
 import { clipSummary, readClip, writeClip } from './clipboard'
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
+import { assignedToAny } from './filters'
 import { delta, isDrag } from './gesture'
 import { boardRefFromHash, isBoard, linksTo, cardInHash, cardLabel, trashInHash, trashPath } from './links'
 import { CardIcon, ChevronDownIcon, ChevronUpIcon, ImageIcon } from './icons'
@@ -266,6 +268,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [quickEdit, setQuickEdit] = useState<{ cardId: string; kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
   /** Tags to filter on: cards with none of them fade. Not kept: every board starts unfiltered. */
   const [tagFilter, setTagFilter] = useState<string[]>([])
+  /** People to filter on (principal ids, or NOBODY for cards without assignees): cards with none of them fade. Not kept either. */
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>([])
   /** A tag color under the pointer in the palette, and one being saved: both show on the tag everywhere. */
   const [tagPreview, setTagPreview] = useState<TagColorPreview | null>(null)
   const [tagSaving, setTagSaving] = useState<TagColorPreview | null>(null)
@@ -1478,7 +1482,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     const section = el.parentElement
     const stack = around(boardTop.current)
     const rail = around(section?.querySelector('.tool-rail'))
-    const covers = [stack, rail, around(section?.querySelector('.view-controls')), around(section?.querySelector('.tag-filter'))]
+    const covers = [stack, rail, around(section?.querySelector('.view-controls')), around(section?.querySelector('.board-filters'))]
     const covered = covers.some((r) => r && box.left < r.right && box.right > r.left && box.top < r.bottom && box.bottom > r.top)
     if (!covered && box.left >= 0 && box.top >= 0 && box.right <= el.clientWidth && box.bottom <= el.clientHeight) return
     const area: Box = { left: rail?.right ?? 16, top: stack?.bottom ?? 16, right: el.clientWidth - 16, bottom: el.clientHeight - 16 }
@@ -2171,7 +2175,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   // Filter on tags that still exist (one may have been renamed or deleted meanwhile); any of them matches.
   const filter = tagFilter.filter((t) => board.tags.some((bt) => bt.name === t))
   const tagFaded = (card: CardDetail) => filter.length > 0 && !card.tags.some((t) => filter.includes(t))
-  // The search fades the cards without its words too. Its results are the matches the tag filter lets through, in
+  // The same for people; with both filters on, a card stays bright when it passes each.
+  const assigneeFaded = (card: CardDetail) => assigneeFilter.length > 0 && !assignedToAny(card, assigneeFilter)
+  const filterFaded = (card: CardDetail) => tagFaded(card) || assigneeFaded(card)
+  // The search fades the cards without its words too. Its results are the matches the filters let through, in
   // board order (bucket by bucket, loose cards last).
   const terms = useMemo(() => searchTerms(search?.query ?? ''), [search?.query])
   const matches = useMemo(() => {
@@ -2183,9 +2190,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     }
     return found
   }, [visibleCards, terms])
-  const dimmed = (card: CardDetail) => tagFaded(card) || (terms.length > 0 && !matches.has(card.id))
+  const dimmed = (card: CardDetail) => filterFaded(card) || (terms.length > 0 && !matches.has(card.id))
   const results: SearchResult[] = board.cards
-    .filter((n) => matches.has(n.id) && !tagFaded(n))
+    .filter((n) => matches.has(n.id) && !filterFaded(n))
     .map((card) => ({ card, fields: matches.get(card.id)! }))
   /**
    * How many matching cards each bucket holds, so the search marks it: the results in it, or for a collapsed bucket the
@@ -2193,7 +2200,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
    */
   const searchHits = new Map<string, number>()
   const foldedHits =
-    terms.length === 0 ? [] : board.cards.filter((n) => n.bucketId && collapsedIds.has(n.bucketId) && !tagFaded(n) && matchCard(n, terms))
+    terms.length === 0 ? [] : board.cards.filter((n) => n.bucketId && collapsedIds.has(n.bucketId) && !filterFaded(n) && matchCard(n, terms))
   for (const { bucketId } of [...results.map((r) => r.card), ...foldedHits]) {
     if (bucketId) searchHits.set(bucketId, (searchHits.get(bucketId) ?? 0) + 1)
   }
@@ -2572,14 +2579,24 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         searching={!!search}
         onSearch={() => (search ? closeSearch() : openSearch())}
       />
-      <TagFilter
-        boardTags={board.tags}
-        tagColors={tagColors}
-        value={filter}
-        onChange={setTagFilter}
-        matching={board.cards.filter((n) => !tagFaded(n)).length}
-        total={board.cards.length}
-      />
+      <div className="board-filters">
+        <TagFilter
+          boardTags={board.tags}
+          tagColors={tagColors}
+          value={filter}
+          onChange={setTagFilter}
+          matching={board.cards.filter((n) => !tagFaded(n)).length}
+          total={board.cards.length}
+        />
+        <AssigneeFilter
+          people={board.people}
+          cards={board.cards}
+          value={assigneeFilter}
+          onChange={setAssigneeFilter}
+          matching={board.cards.filter((n) => !assigneeFaded(n)).length}
+          total={board.cards.length}
+        />
+      </div>
       <div className={`board-top${search ? ' searching' : ''}`} ref={boardTop}>
         {search && (
           <BoardSearch
@@ -2594,10 +2611,11 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             onMove={moveInResults}
             onOpen={openResult}
             onClose={closeSearch}
-            faded={board.cards.filter((n) => matches.has(n.id) && tagFaded(n)).length}
+            faded={board.cards.filter((n) => matches.has(n.id) && filterFaded(n)).length}
             folded={foldedHits.length}
             onClearFilter={() => {
               setTagFilter([])
+              setAssigneeFilter([])
               revealPending.current = true
             }}
             bucketName={(card) => board.buckets.find((b) => b.id === card.bucketId)?.name ?? 'Loose'}

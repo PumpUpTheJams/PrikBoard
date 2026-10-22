@@ -28,7 +28,7 @@ interface ViewControlsProps {
   viewport: Rect
   buckets: BucketDetail[]
   cards: CardDetail[]
-  /** Cards faded by the tag filter or the search. */
+  /** Cards faded by the filters or the search. */
   dimmed?: (card: CardDetail) => boolean
   /** The search result being looked at. */
   current?: string | null

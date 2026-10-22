@@ -24,7 +24,7 @@ interface VisitorPageProps {
 
 /**
  * A public board for someone who isn't a member, signed in or not: read only, with its name, its agent rules and how
- * many people look at it at the top, and live updates. Search, the tag filter and card links work as for members.
+ * many people look at it at the top, and live updates. Search, the filters and card links work as for members.
  */
 export function VisitorPage({ boardRef, onMissing, onSignIn, onBack }: VisitorPageProps) {
   const [boardId, setBoardId] = useState<string | null>(null)

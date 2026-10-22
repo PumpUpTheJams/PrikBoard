@@ -4139,7 +4139,7 @@ button.picker-color:hover,
   opacity: 1;
 }
 
-/* The tag filter fades cards without the picked tags; they stay where they are and still work. */
+/* The filters fade cards without the picked tags or people; they stay where they are and still work. */
 
 .card.dimmed {
   opacity: 0.28;
@@ -4156,17 +4156,28 @@ button.picker-color:hover,
   opacity: 0.25;
 }
 
-/* Bottom left: the top is where buckets have their names, the right holds the minimap and inspectors. */
-.tag-filter {
+/*
+ * Bottom left, the filters by tag and by assignee side by side: the top is where buckets have their names, the right
+ * holds the minimap and inspectors.
+ */
+.board-filters {
   position: absolute;
   bottom: calc(16px + var(--scrollbar));
   left: 16px;
   z-index: 5;
   display: flex;
+  flex-wrap: wrap-reverse;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: calc(50% - 120px);
+}
+
+.filter-pill {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  max-width: calc(50% - 120px);
+  max-width: 100%;
   padding: 4px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -4174,12 +4185,12 @@ button.picker-color:hover,
   box-shadow: var(--float-shadow);
 }
 
-.tag-filter.active {
+.filter-pill.active {
   border-color: var(--accent);
 }
 
-.tag-filter-button,
-.tag-filter-clear {
+.filter-pill-button,
+.filter-pill-clear {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -4192,21 +4203,21 @@ button.picker-color:hover,
   font-size: 12px;
 }
 
-.tag-filter-button:hover,
-.tag-filter-clear:hover {
+.filter-pill-button:hover,
+.filter-pill-clear:hover {
   background: var(--hover);
   color: var(--text);
 }
 
-.tag-filter.active .tag-filter-button {
+.filter-pill.active .filter-pill-button {
   color: var(--accent);
 }
 
-.tag-filter-clear {
+.filter-pill-clear {
   color: var(--subtle);
 }
 
-.tag-filter-chip {
+.filter-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -4218,9 +4229,20 @@ button.picker-color:hover,
   font: 12px var(--mono);
 }
 
+/* A person in the assignee filter: their avatar at the chip's left edge. */
+.filter-chip.person-chip {
+  padding-left: 2px;
+  font-family: inherit;
+}
+
+.person-chip .avatar {
+  width: 20px;
+  height: 20px;
+}
+
 /*
- * The board search (BoardSearch): a pill shaped like the tag filter's, with the matching cards listed under it.
- * Cards without the words fade like the tag filter fades them; the words are marked where they show.
+ * The board search (BoardSearch): a pill shaped like the filters', with the matching cards listed under it.
+ * Cards without the words fade like the filters fade them; the words are marked where they show.
  */
 
 .board-search {
