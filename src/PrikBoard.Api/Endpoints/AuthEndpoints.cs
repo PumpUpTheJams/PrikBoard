@@ -161,7 +161,7 @@ public static class AuthEndpoints
 
         if (request.DisplayName is not null)
         {
-            var name = new string(request.DisplayName.Where(c => !char.IsControl(c)).ToArray()).Trim();
+            var name = PatchText.OneLine(request.DisplayName);
             self.DisplayName = name.Length == 0 ? null : name;
         }
         await db.SaveChangesAsync(ct);

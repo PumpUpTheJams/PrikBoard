@@ -146,9 +146,12 @@ A signed-in person creates tokens under Account → *Agents and access tokens*, 
   - Viewer tokens get only `boards:read`.
   - Tokens are refused, like issuer tokens, wherever a person is needed: invites, email lookup, linking sign-ins, managing tokens.
 - **Lifetime.** 90 days by default, 1 to 365 days, at most 50 per person.
-  - Lookups are cached for a minute. Revoking evicts the cache on the instance that handled it; on other instances, a revoked token works for up to a minute.
+  - Tokens found are cached for a minute. Revoking evicts the cache on the instance that handled it; on other instances, a revoked token works for up to a minute.
   - `lastUsedAt` is updated at most once a minute.
-- **Rate limit.** 600 requests a minute per token (`RateLimits:AccessTokenRequestsPerMinute`).
+- **Rate limits.**
+  - 600 requests a minute per token (`RateLimits:AccessTokenRequestsPerMinute`).
+  - Unknown tokens (made up, revoked, or a typo the checksum missed) are not cached, as anyone can make up well-formed ones (`Auth/AccessTokenLookups.cs`). One address may present 30 a minute (`RateLimits:UnknownAccessTokensPerMinute`). After that, every token that isn't cached gets 429 with `Retry-After` until the minute is over. Tokens already looked up keep working.
+  - The address is the client's as the API sees it: behind the web container's nginx, from `X-Forwarded-For`. An IPv6 address counts by its /64 network.
 - **The `/mcp` endpoint** accepts personal access tokens and issuer tokens, never the cookie (`AuthSetup.McpPolicy`). It also refuses requests whose `Origin` header names another site, as the MCP spec requires.
 
 ### App sign-in (VS Code extension)
@@ -276,4 +279,5 @@ The integration tests:
 - Persist the ASP.NET Core Data Protection keys (for example `AddDataProtection().PersistKeysToFileSystem(...)` on a volume, or Azure Key Vault/Blob). Otherwise every restart or extra instance invalidates all sessions and in-flight sign-ins.
 - Serve over HTTPS. The OAuth correlation cookies need it, and so do most providers' callback URL rules for non-localhost hosts.
 - Register production callback URLs (a separate GitHub OAuth App) and the token issuers.
+- Make sure the API sees each client's own address when there is another proxy in front of the web container. Otherwise all clients share one address, and so one limit for anonymous callers and for unknown access tokens (see [Personal access tokens](#personal-access-tokens)).
 - Set `Auth:HashKey` (see [Hash key](#hash-key-authhashkey)). Back it up together with the database, and use the same value on every instance. Without it the API does not start. If you lose it, every account is orphaned.

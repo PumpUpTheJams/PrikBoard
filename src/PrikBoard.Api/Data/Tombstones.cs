@@ -14,18 +14,22 @@ public static class Tombstones
     /// <summary>How long deleted things can be restored, for endpoint descriptions.</summary>
     public const string RetentionText = "7 days";
 
+    private static readonly string[] SoftDeleteFilter = [PrikBoardDbContext.SoftDelete];
+
+    /// <summary>The query with deleted rows too: it bypasses the <see cref="PrikBoardDbContext.SoftDelete"/> filter (and only that one).</summary>
+    public static IQueryable<T> WithDeleted<T>(this IQueryable<T> query) where T : class => query.IgnoreQueryFilters(SoftDeleteFilter);
+
     /// <summary>Deletes for good everything deleted before <paramref name="cutoff"/>. Returns how many rows went.</summary>
     public static async Task<int> PurgeAsync(PrikBoardDbContext db, DateTimeOffset cutoff, CancellationToken ct)
     {
-        string[] deleted = [PrikBoardDbContext.SoftDelete];
         // Images and drawings first; a card's images and drawings (and their content) would also go with it through the
         // cascades. Image files go at the next sweep.
-        var count = await db.Images.IgnoreQueryFilters(deleted).Where(i => i.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
-        count += await db.Drawings.IgnoreQueryFilters(deleted).Where(d => d.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
-        count += await db.Cards.IgnoreQueryFilters(deleted).Where(n => n.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
+        var count = await db.Images.WithDeleted().Where(i => i.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
+        count += await db.Drawings.WithDeleted().Where(d => d.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
+        count += await db.Cards.WithDeleted().Where(n => n.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         // Cards, images and drawings still pointing at a purged bucket lose the reference (SetNull); live ones never do, see Layout.Release.
-        count += await db.Buckets.IgnoreQueryFilters(deleted).Where(b => b.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
-        count += await db.BoardTags.IgnoreQueryFilters(deleted).Where(t => t.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
+        count += await db.Buckets.WithDeleted().Where(b => b.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
+        count += await db.BoardTags.WithDeleted().Where(t => t.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         return count;
     }
 }

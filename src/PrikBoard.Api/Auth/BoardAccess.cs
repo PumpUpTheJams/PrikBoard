@@ -134,7 +134,8 @@ public static class BoardAccess
     public sealed record Authorization(Guid BoardId, BoardRole Role, IResult? Failure);
 
     /// <summary>
-    /// Finds the board a board, card, bucket, image or drawing id belongs to and checks the caller's role on it in one query:
+    /// Finds the board a board, card, bucket, image or drawing id belongs to and checks the caller's role on it in one query
+    /// (a second one for visitors of public boards):
     /// 404 when the caller has no access (so existence does not leak), 403 when the role is too low. On success the role
     /// is available through <see cref="BoardRole(HttpContext)"/>. Used by the endpoint filter and by MCP tools.
     /// </summary>
@@ -143,14 +144,13 @@ public static class BoardAccess
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
         // Deleted items still belong to their board, so restoring them is authorized like any other write; the handlers
         // themselves load through the soft-delete filter and answer 404 for everything else.
-        string[] deleted = [PrikBoardDbContext.SoftDelete];
         var boardIds = scope switch
         {
             BoardScope.Board => db.Boards.Where(b => b.Id == id).Select(b => b.Id),
-            BoardScope.Card => db.Cards.IgnoreQueryFilters(deleted).Where(n => n.Id == id).Select(n => n.BoardId),
-            BoardScope.Bucket => db.Buckets.IgnoreQueryFilters(deleted).Where(b => b.Id == id).Select(b => b.BoardId),
-            BoardScope.Image => db.Images.IgnoreQueryFilters(deleted).Where(i => i.Id == id).Select(i => i.BoardId),
-            BoardScope.Drawing => db.Drawings.IgnoreQueryFilters(deleted).Where(d => d.Id == id).Select(d => d.BoardId),
+            BoardScope.Card => db.Cards.WithDeleted().Where(n => n.Id == id).Select(n => n.BoardId),
+            BoardScope.Bucket => db.Buckets.WithDeleted().Where(b => b.Id == id).Select(b => b.BoardId),
+            BoardScope.Image => db.Images.WithDeleted().Where(i => i.Id == id).Select(i => i.BoardId),
+            BoardScope.Drawing => db.Drawings.WithDeleted().Where(d => d.Id == id).Select(d => d.BoardId),
             _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, "This scope does not take an id."),
         };
         return AuthorizeAsync(http, boardIds, minimum, visitors);

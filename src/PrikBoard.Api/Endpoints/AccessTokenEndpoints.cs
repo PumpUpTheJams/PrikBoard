@@ -65,10 +65,7 @@ public static class AccessTokenEndpoints
 
         if (request.Access is not (BoardRole.Viewer or BoardRole.Editor))
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["access"] = ["Viewer or Editor. Tokens never get the Owner role."],
-            });
+            return Problems.Invalid("access", "Viewer or Editor. Tokens never get the Owner role.");
         }
 
         var boardIds = request.BoardIds?.Distinct().ToList();
@@ -77,10 +74,7 @@ public static class AccessTokenEndpoints
             var memberOf = await db.BoardMembers.CountAsync(m => m.PrincipalId == userId && boardIds.Contains(m.BoardId), ct);
             if (boardIds.Count == 0 || memberOf != boardIds.Count)
             {
-                return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-                {
-                    ["boardIds"] = ["Choose at least one board, and only boards you are a member of; or leave it out for all of them."],
-                });
+                return Problems.Invalid("boardIds", "Choose at least one board, and only boards you are a member of; or leave it out for all of them.");
             }
         }
 
@@ -90,7 +84,7 @@ public static class AccessTokenEndpoints
                 detail: $"You can have at most {AccessToken.MaxPerOwner}; revoke some you no longer use.");
         }
 
-        var name = new string(request.Name.Where(c => !char.IsControl(c)).ToArray()).Trim();
+        var name = PatchText.OneLine(request.Name);
         var (token, hint) = AccessTokens.Generate();
         var record = new AccessToken
         {

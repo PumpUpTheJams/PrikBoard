@@ -98,10 +98,7 @@ public static class MemberEndpoints
     {
         if (!options.Value.Tokens.Issuers.TryGetValue(request.Issuer, out var issuer) || string.IsNullOrWhiteSpace(issuer.Authority))
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["issuer"] = ["Not a configured token issuer; see listTokenIssuers."],
-            });
+            return Problems.Invalid("issuer", "Not a configured token issuer; see listTokenIssuers.");
         }
 
         var agentId = await AgentRegistry.ResolveAsync(http.RequestServices, request.Issuer, request.ClientId.Trim(), ct);

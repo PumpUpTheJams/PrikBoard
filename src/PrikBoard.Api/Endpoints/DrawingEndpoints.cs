@@ -105,13 +105,15 @@ public static class DrawingEndpoints
     {
         if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
 
-        var card = request.CardId is null ? null : await db.Cards.FirstOrDefaultAsync(n => n.Id == request.CardId && n.BoardId == boardId, ct);
-        if (request.CardId is not null && card is null) return Invalid("cardId", "The card does not exist on this board.");
+        if (request.CardId is not null && !await db.Cards.AnyAsync(n => n.Id == request.CardId && n.BoardId == boardId, ct))
+        {
+            return Problems.CardNotOnBoard();
+        }
 
         var drawing = new BoardDrawing
         {
             BoardId = boardId,
-            CardId = card?.Id,
+            CardId = request.CardId,
             AddedBy = await db.Principals.FindAsync([principal.PrincipalId()], ct),
         };
         if (Build(drawing, [(request.Color, request.StrokeWidth, request.Points)], request.X!.Value, request.Y!.Value, "") is { } invalid) return invalid;
@@ -138,10 +140,10 @@ public static class DrawingEndpoints
     {
         if (strokes.Count is 0 or > BoardDrawing.MaxStrokes)
         {
-            return Invalid($"{prefix}strokes", $"A drawing has 1 to {BoardDrawing.MaxStrokes} strokes.");
+            return Problems.Invalid($"{prefix}strokes", $"A drawing has 1 to {BoardDrawing.MaxStrokes} strokes.");
         }
         var checkedStrokes = new List<DrawingStroke>();
-        foreach (var (stroke, i) in strokes.Select((s, i) => (s, i)))
+        foreach (var (i, stroke) in strokes.Index())
         {
             var (ok, problem) = CheckStroke(stroke.Width, stroke.Points, strokes.Count == 1 ? prefix : $"{prefix}strokes[{i}].");
             if (problem is not null) return problem;
@@ -149,7 +151,7 @@ public static class DrawingEndpoints
         }
         if (checkedStrokes.Sum(s => s.Points.Length) > BoardDrawing.MaxTotalPoints)
         {
-            return Invalid($"{prefix}strokes", $"A drawing has at most {BoardDrawing.MaxTotalPoints} points.");
+            return Problems.Invalid($"{prefix}strokes", $"A drawing has at most {BoardDrawing.MaxTotalPoints} points.");
         }
         drawing.SetStrokes(checkedStrokes, [.. strokes.Select(s => s.Color)]);
         Place(drawing, x, y);
@@ -159,13 +161,13 @@ public static class DrawingEndpoints
     /// <summary>Checks one stroke's width and points; errors are keyed <c>{prefix}strokeWidth</c> and <c>{prefix}points[i]</c>.</summary>
     private static (DrawingStroke? Stroke, ValidationProblem? Problem) CheckStroke(int width, IReadOnlyList<double[]> points, string prefix)
     {
-        if (!BoardDrawing.StrokeWidths.Contains(width)) return (null, Invalid($"{prefix}strokeWidth", "The stroke width is 2, 4 or 8."));
+        if (!BoardDrawing.StrokeWidths.Contains(width)) return (null, Problems.Invalid($"{prefix}strokeWidth", "The stroke width is 2, 4 or 8."));
         if (points.Count is 0 or > BoardDrawing.MaxPoints)
         {
-            return (null, Invalid($"{prefix}points", $"A stroke has 1 to {BoardDrawing.MaxPoints} points."));
+            return (null, Problems.Invalid($"{prefix}points", $"A stroke has 1 to {BoardDrawing.MaxPoints} points."));
         }
         var (rounded, bad) = BoardDrawing.CheckPoints(points);
-        return bad is { } b ? (null, Invalid($"{prefix}points[{b.Index}]", b.Message)) : (new DrawingStroke(width, rounded!), null);
+        return bad is { } b ? (null, Problems.Invalid($"{prefix}points[{b.Index}]", b.Message)) : (new DrawingStroke(width, rounded!), null);
     }
 
     /// <summary>Snaps x and y; on a card, also keeps the drawing on its canvas, at the last grid line that fits.</summary>
@@ -199,22 +201,22 @@ public static class DrawingEndpoints
         if (drawing is null) return TypedResults.NotFound();
 
         var detach = request.Detach == true;
-        if (request.CardId is not null && detach) return Invalid("detach", "Give either a cardId or detach, not both.");
-        if (request.Color is not null && request.Colors is not null) return Invalid("colors", "Give either a color or colors, not both.");
+        if (request.CardId is not null && detach) return Problems.Invalid("detach", "Give either a cardId or detach, not both.");
+        if (request.Color is not null && request.Colors is not null) return Problems.Invalid("colors", "Give either a color or colors, not both.");
         if (request.Colors is { } colors && colors.Count != drawing.Colors.Count)
         {
-            return Invalid("colors", $"The drawing has {drawing.Colors.Count} strokes; give an ink for each.");
+            return Problems.Invalid("colors", $"The drawing has {drawing.Colors.Count} strokes; give an ink for each.");
         }
         var moving = (request.CardId is { } to && to != drawing.CardId) || (detach && drawing.CardId is not null);
         if (moving && (request.X is null || request.Y is null))
         {
-            return Invalid(request.X is null ? "x" : "y", "Give x and y on the new canvas when moving between the board and a card.");
+            return Problems.Invalid(request.X is null ? "x" : "y", "Give x and y on the new canvas when moving between the board and a card.");
         }
         if (moving && !detach)
         {
             if (!await db.Cards.AnyAsync(n => n.Id == request.CardId && n.BoardId == drawing.BoardId, ct))
             {
-                return Invalid("cardId", "The card does not exist on this board.");
+                return Problems.CardNotOnBoard();
             }
             drawing.CardId = request.CardId;
         }
@@ -283,7 +285,7 @@ public static class DrawingEndpoints
     {
         if (request.PivotX is null != request.PivotY is null)
         {
-            return Invalid(request.PivotX is null ? "pivotX" : "pivotY", "Give pivotX and pivotY together, or neither.");
+            return Problems.Invalid(request.PivotX is null ? "pivotX" : "pivotY", "Give pivotX and pivotY together, or neither.");
         }
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
@@ -306,7 +308,7 @@ public static class DrawingEndpoints
         if (await LockedDrawingAsync(db, drawingId, ct) is not { } drawing) return TypedResults.NotFound();
         if (request.Strokes.Count != drawing.Colors.Count)
         {
-            return Invalid("strokes", $"The drawing has {drawing.Colors.Count} strokes; give the points of each.");
+            return Problems.Invalid("strokes", $"The drawing has {drawing.Colors.Count} strokes; give the points of each.");
         }
         var strokes = request.Strokes.Zip(drawing.Colors, (s, color) => (color, s.StrokeWidth, (IReadOnlyList<double[]>)s.Points)).ToList();
         if (Build(drawing, strokes, request.X!.Value, request.Y!.Value, "") is { } invalid) return invalid;
@@ -332,11 +334,9 @@ public static class DrawingEndpoints
     /// Locks the drawing's row until the transaction ends, then loads it with its strokes, so strokes added at the same
     /// time both stay; null when it does not exist.
     /// </summary>
-    private static async Task<BoardDrawing?> LockedDrawingAsync(PrikBoardDbContext db, Guid drawingId, CancellationToken ct)
-    {
-        await db.Database.ExecuteSqlInterpolatedAsync($"""SELECT 1 FROM "Drawings" WHERE "Id" = {drawingId} FOR UPDATE""", ct);
-        return await db.Drawings.Include(d => d.AddedBy).Include(d => d.Content).FirstOrDefaultAsync(d => d.Id == drawingId, ct);
-    }
+    private static Task<BoardDrawing?> LockedDrawingAsync(PrikBoardDbContext db, Guid drawingId, CancellationToken ct) =>
+        db.Drawings.FromSql($"""SELECT * FROM "Drawings" WHERE "Id" = {drawingId} FOR UPDATE""")
+            .Include(d => d.AddedBy).Include(d => d.Content).FirstOrDefaultAsync(ct);
 
     internal static async Task<Results<NoContent, NotFound>> DeleteDrawing(
         Guid drawingId, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
@@ -356,11 +356,11 @@ public static class DrawingEndpoints
     internal static async Task<Results<Ok<DrawingDetail>, NotFound, ProblemHttpResult>> RestoreDrawing(
         Guid drawingId, PrikBoardDbContext db, CancellationToken ct)
     {
-        var drawing = await db.Drawings.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+        var drawing = await db.Drawings.WithDeleted()
             .Include(d => d.AddedBy)
             .FirstOrDefaultAsync(d => d.Id == drawingId, ct);
         if (drawing is null) return TypedResults.NotFound();
-        if (drawing.DeletedAt is null) return TagEndpoints.NotDeleted("drawing");
+        if (drawing.DeletedAt is null) return Problems.NotDeleted("drawing");
         if (drawing.CardId is { } cardId && !await db.Cards.AnyAsync(n => n.Id == cardId, ct))
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Card deleted",
@@ -372,7 +372,4 @@ public static class DrawingEndpoints
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok(DrawingDetail.From(drawing));
     }
-
-    private static ValidationProblem Invalid(string field, string message) =>
-        TypedResults.ValidationProblem(new Dictionary<string, string[]> { [field] = [message] });
 }

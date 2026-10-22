@@ -77,15 +77,16 @@ public static class BoardEndpoints
     {
         // A personal access token lists its owner's boards, with its capped role and only the boards it is limited to.
         var caller = BoardCaller.Of(principal);
-        var memberships = await db.BoardMembers.AsNoTracking()
+        // Projected, so the boards' rules (up to 20,000 characters each) stay in the database.
+        var boards = await db.BoardMembers.AsNoTracking()
             .Where(m => m.PrincipalId == caller.MemberId)
-            .Include(m => m.Board)
             .OrderByDescending(m => m.Board!.CreatedAt)
+            .Select(m => new BoardSummary(m.Board!.Id, m.Board.ShortId, m.Board.Key, m.Board.Name, m.Board.Description,
+                m.Board.CreatedAt, m.Board.UpdatedAt, m.Role, m.Board.IsPublic, m.Board.PublicShowsPeople))
             .ToListAsync(ct);
-        return TypedResults.Ok(memberships
-            .Select(m => (m.Board, Role: caller.Apply(m.BoardId, m.Role)))
-            .Where(m => m.Role is not null)
-            .Select(m => BoardSummary.From(m.Board!, m.Role!.Value))
+        return TypedResults.Ok(boards
+            .Select(b => caller.Apply(b.Id, b.YourRole) is { } role ? b with { YourRole = role } : null)
+            .OfType<BoardSummary>()
             .ToList());
     }
 
@@ -133,18 +134,23 @@ public static class BoardEndpoints
             BoardDetail.From(board, caller.Apply(board.Id, BoardRole.Owner)!.Value, new Dictionary<Guid, Principal>(), people, principal.PrincipalId()));
     }
 
-    internal static async Task<Results<Ok<BoardDetail>, NotFound>> GetBoard(
-        Guid boardId, HttpContext http, PrikBoardDbContext db, CancellationToken ct)
+    internal static Task<Results<Ok<BoardDetail>, NotFound>> GetBoard(
+        Guid boardId, HttpContext http, PrikBoardDbContext db, CancellationToken ct) =>
+        SnapshotAsync(boardId, http, db, withCanvasItems: true, ct);
+
+    /// <summary>getBoard's snapshot; without <paramref name="withCanvasItems"/> its images and drawings are left out (empty).</summary>
+    internal static async Task<Results<Ok<BoardDetail>, NotFound>> SnapshotAsync(
+        Guid boardId, HttpContext http, PrikBoardDbContext db, bool withCanvasItems, CancellationToken ct)
     {
-        var board = await db.Boards.AsNoTracking()
-            .Include(b => b.Buckets)
-            .Include(b => b.Cards)
-            .Include(b => b.Images).ThenInclude(i => i.AddedBy)
-            .Include(b => b.Images).ThenInclude(i => i.File)
-            .Include(b => b.Drawings).ThenInclude(d => d.AddedBy)
-            .Include(b => b.Tags)
-            .AsSplitQuery()
-            .FirstOrDefaultAsync(b => b.Id == boardId, ct);
+        IQueryable<Board> query = db.Boards.AsNoTracking().Include(b => b.Buckets).Include(b => b.Cards).Include(b => b.Tags);
+        if (withCanvasItems)
+        {
+            query = query
+                .Include(b => b.Images).ThenInclude(i => i.AddedBy)
+                .Include(b => b.Images).ThenInclude(i => i.File)
+                .Include(b => b.Drawings).ThenInclude(d => d.AddedBy);
+        }
+        var board = await query.AsSplitQuery().FirstOrDefaultAsync(b => b.Id == boardId, ct);
 
         if (board is null) return TypedResults.NotFound();
         var principals = await CardEndpoints.PrincipalsOnAsync(db, board.Cards, ct);

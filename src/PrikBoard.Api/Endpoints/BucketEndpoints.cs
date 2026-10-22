@@ -18,7 +18,7 @@ public static class BucketEndpoints
             .WithName("createBucket")
             .WithSummary("Draw a bucket on a board")
             .WithDescription("Creates a bucket at the given rectangle (or to the right of the existing buckets), on top of " +
-                             "the others. The cards and images whose centre it covers join it. Coordinates snap to the 20 px grid.")
+                             "the others. The cards, images and drawings whose centre it covers join it. Coordinates snap to the 20 px grid.")
             .ProducesValidationProblem();
 
         buckets.MapPatch("/buckets/{bucketId:guid}", UpdateBucket)
@@ -26,7 +26,8 @@ public static class BucketEndpoints
             .WithName("updateBucket")
             .WithSummary("Rename, recolor, move or resize a bucket")
             .WithDescription("Changes any of name, color, position and size. Omitted fields stay unchanged. " +
-                             "Moving a bucket carries its cards and images along (or exactly carryCardIds and carryImageIds) " +
+                             "Moving a bucket carries its cards, images and drawings along (or exactly carryCardIds, carryImageIds " +
+                             "and carryDrawingIds) " +
                              "and changes no item's bucket, also where it overlaps another bucket. A resize lets go of " +
                              "items now outside it and takes loose ones it now covers. Moving, resizing and opening it put it " +
                              "on top of the other buckets.")
@@ -55,7 +56,7 @@ public static class BucketEndpoints
             .RequireBoardRole(BoardRole.Editor, BoardScope.Bucket)
             .WithName("deleteBucket")
             .WithSummary("Delete a bucket")
-            .WithDescription("Deletes the bucket. Its cards and images stay where they are and become loose " +
+            .WithDescription("Deletes the bucket. Its cards, images and drawings stay where they are and become loose " +
                              $"(or join a bucket underneath). restoreBucket brings it back within {Tombstones.RetentionText}.");
 
         buckets.MapPost("/buckets/{bucketId:guid}/restore", RestoreBucket)
@@ -63,7 +64,7 @@ public static class BucketEndpoints
             .WithName("restoreBucket")
             .WithSummary("Restore a deleted bucket")
             .WithDescription($"Brings back a bucket deleted in the last {Tombstones.RetentionText} with the same id, place and size, " +
-                             "and the cards and images whose centre it covers join it again. 409 when it is not deleted.")
+                             "and the cards, images and drawings whose centre it covers join it again. 409 when it is not deleted.")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         return api;
@@ -109,23 +110,24 @@ public static class BucketEndpoints
         if (!moving && (request.CarryCardIds is not null || request.CarryImageIds is not null || request.CarryDrawingIds is not null))
         {
             var key = request.CarryCardIds is not null ? "carryCardIds" : request.CarryImageIds is not null ? "carryImageIds" : "carryDrawingIds";
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                [key] = ["Only a move (X and/or Y without Width or Height) carries cards, images and drawings."],
-            });
+            return Problems.Invalid(key, "Only a move (X and/or Y without Width or Height) carries cards, images and drawings.");
         }
 
         if (resizing && (request.Collapsed ?? bucket.Collapsed))
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                [request.Width is not null ? "width" : "height"] = ["A collapsed bucket can't be resized; open it first."],
-            });
+            return Problems.Invalid(request.Width is not null ? "width" : "height", "A collapsed bucket can't be resized; open it first.");
         }
 
-        var cards = await db.Cards.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);
-        var images = await db.Images.Where(i => i.BoardId == bucket.BoardId && i.CardId == null).ToListAsync(ct);
-        var drawings = await db.Drawings.Where(d => d.BoardId == bucket.BoardId && d.CardId == null).ToListAsync(ct);
+        // A new name, color or fold touches no items, so only a move or resize loads them.
+        List<Card> cards = [];
+        List<BoardImage> images = [];
+        List<BoardDrawing> drawings = [];
+        if (moving || resizing)
+        {
+            cards = await db.Cards.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);
+            images = await db.Images.Where(i => i.BoardId == bucket.BoardId && i.CardId == null).ToListAsync(ct);
+            drawings = await db.Drawings.Where(d => d.BoardId == bucket.BoardId && d.CardId == null).ToListAsync(ct);
+        }
         var dx = request.X is { } x ? Layout.Snap(x) - bucket.X : 0;
         var dy = request.Y is { } y ? Layout.Snap(y) - bucket.Y : 0;
         if ((dx != 0 || dy != 0) && moving)
@@ -139,21 +141,15 @@ public static class BucketEndpoints
                 card.X = Math.Clamp(card.X + dx, Layout.MinCoordinate, Layout.MaxCoordinate);
                 card.Y = Math.Clamp(card.Y + dy, Layout.MinCoordinate, Layout.MaxCoordinate);
             }
-            var carriedImages = request.CarryImageIds is { } imageIds
-                ? images.Where(i => imageIds.Contains(i.Id))
-                : images.Where(i => i.BucketId == bucket.Id);
-            foreach (var image in carriedImages)
+            IEnumerable<ICanvasItem> carriedItems =
+            [
+                .. request.CarryImageIds is { } imageIds ? images.Where(i => imageIds.Contains(i.Id)) : images.Where(i => i.BucketId == bucket.Id),
+                .. request.CarryDrawingIds is { } drawingIds ? drawings.Where(d => drawingIds.Contains(d.Id)) : drawings.Where(d => d.BucketId == bucket.Id),
+            ];
+            foreach (var item in carriedItems)
             {
-                image.X = Math.Clamp(image.X + dx, Layout.MinCoordinate, Layout.MaxCoordinate);
-                image.Y = Math.Clamp(image.Y + dy, Layout.MinCoordinate, Layout.MaxCoordinate);
-            }
-            var carriedDrawings = request.CarryDrawingIds is { } drawingIds
-                ? drawings.Where(d => drawingIds.Contains(d.Id))
-                : drawings.Where(d => d.BucketId == bucket.Id);
-            foreach (var drawing in carriedDrawings)
-            {
-                drawing.X = Math.Clamp(drawing.X + dx, Layout.MinCoordinate, Layout.MaxCoordinate);
-                drawing.Y = Math.Clamp(drawing.Y + dy, Layout.MinCoordinate, Layout.MaxCoordinate);
+                item.X = Math.Clamp(item.X + dx, Layout.MinCoordinate, Layout.MaxCoordinate);
+                item.Y = Math.Clamp(item.Y + dy, Layout.MinCoordinate, Layout.MaxCoordinate);
             }
         }
 
@@ -197,27 +193,23 @@ public static class BucketEndpoints
     {
         // One at a time per bucket, so two drops into it don't take the same free slots.
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await db.Database.ExecuteSqlInterpolatedAsync($"""SELECT 1 FROM "Buckets" WHERE "Id" = {bucketId} FOR UPDATE""", ct);
-        var bucket = await db.Buckets.FirstOrDefaultAsync(b => b.Id == bucketId, ct);
+        var bucket = await db.Buckets.FromSql($"""SELECT * FROM "Buckets" WHERE "Id" = {bucketId} FOR UPDATE""").FirstOrDefaultAsync(ct);
         if (bucket is null) return TypedResults.NotFound();
 
         var ids = request.CardIds.Distinct().ToList();
-        var boardCards = await db.Cards.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);
-        var found = ids.Select(id => boardCards.Find(n => n.Id == id)).ToList();
-        if (found.Any(n => n is null))
+        var boardCards = await db.Cards.Where(n => n.BoardId == bucket.BoardId).ToDictionaryAsync(n => n.Id, ct);
+        if (!ids.TrueForAll(boardCards.ContainsKey))
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["cardIds"] = ["Every card must be on the bucket's board."],
-            });
+            return Problems.Invalid("cardIds", "Every card must be on the bucket's board.");
         }
-        var cards = found.OfType<Card>().ToList();
+        var cards = ids.ConvertAll(id => boardCards[id]);
         // It may grow over its neighbours, so it comes on top of them, with the cards it takes.
         bucket.ToFront();
 
         var buckets = await db.Buckets.Where(b => b.BoardId == bucket.BoardId).ToListAsync(ct);
         var images = await db.Images.Where(i => i.BoardId == bucket.BoardId && i.CardId == null).ToListAsync(ct);
-        var others = boardCards.Where(n => !ids.Contains(n.Id)).ToList();
+        var picked = ids.ToHashSet();
+        var others = boardCards.Values.Where(n => !picked.Contains(n.Id)).ToList();
         // They join the bucket by id, so only its own items (and loose ones) are in the way, not its neighbours': it may
         // grow over those, only as far as needed.
         bool InTheWay(Guid? owner) => owner is null || owner == bucket.Id;
@@ -265,9 +257,9 @@ public static class BucketEndpoints
     internal static async Task<Results<Ok<BucketDetail>, NotFound, ProblemHttpResult>> RestoreBucket(
         Guid bucketId, PrikBoardDbContext db, CancellationToken ct)
     {
-        var bucket = await db.Buckets.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete]).FirstOrDefaultAsync(b => b.Id == bucketId, ct);
+        var bucket = await db.Buckets.WithDeleted().FirstOrDefaultAsync(b => b.Id == bucketId, ct);
         if (bucket is null) return TypedResults.NotFound();
-        if (bucket.DeletedAt is null) return TagEndpoints.NotDeleted("bucket");
+        if (bucket.DeletedAt is null) return Problems.NotDeleted("bucket");
 
         // StackedAt stays, so it goes back to its place in the stack and takes back the cards, images and drawings it covers.
         bucket.DeletedAt = null;
@@ -279,7 +271,10 @@ public static class BucketEndpoints
         return TypedResults.Ok(BucketDetail.From(bucket));
     }
 
-    /// <summary>The board's images and drawings: the items besides cards that buckets take, carry and let go.</summary>
+    /// <summary>The images and drawings on the board (not on cards): the items besides cards that buckets take, carry and let go.</summary>
     internal static async Task<List<ICanvasItem>> CanvasItemsAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
-        [.. await db.Images.Where(i => i.BoardId == boardId).ToListAsync(ct), .. await db.Drawings.Where(d => d.BoardId == boardId).ToListAsync(ct)];
+    [
+        .. await db.Images.Where(i => i.BoardId == boardId && i.CardId == null).ToListAsync(ct),
+        .. await db.Drawings.Where(d => d.BoardId == boardId && d.CardId == null).ToListAsync(ct),
+    ];
 }

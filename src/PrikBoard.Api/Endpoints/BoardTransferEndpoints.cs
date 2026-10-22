@@ -1,7 +1,7 @@
+using System.Buffers;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
-using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -70,7 +70,7 @@ public static class BoardTransferEndpoints
                 ? CardLinks.CardPath(board.Id, id)
                 : url;
 
-        var stack = Layout.BackToFront(board.Buckets).Select((b, i) => (b.Id, i)).ToDictionary(p => p.Id, p => p.i);
+        var stack = Layout.BackToFront(board.Buckets).Index().ToDictionary(p => p.Item.Id, p => p.Index);
         var images = new List<ExportedImage>();
         foreach (var i in board.Images.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id))
         {
@@ -92,7 +92,7 @@ public static class BoardTransferEndpoints
                 .Select(d => new ExportedDrawing(d.CardId, d.X, d.Y,
                     [.. d.Content!.Strokes.Zip(d.Colors, (s, color) => new ExportedStroke(color, s.StrokeWidth, [.. s.Points]))])).ToList(),
             board.Key,
-            AppVersion.Short(AppVersion.Current));
+            AppVersion.Number);
 
         var fileName = $"{CleanName(board.Name)}.prikboard.json";
         response.Headers[HeaderNames.ContentDisposition] = new ContentDispositionHeaderValue("attachment") { FileNameStar = fileName }.ToString();
@@ -114,7 +114,7 @@ public static class BoardTransferEndpoints
         // comes first: the web app shows the first error.
         var errors = new Dictionary<string, string[]>();
         var madeWith = file.AppVersion is { } made
-            ? $"It was made with PrikBoard {made}, and this server runs {AppVersion.Short(AppVersion.Current)}."
+            ? $"It was made with PrikBoard {made}, and this server runs {AppVersion.Number}."
             : "It was made with a newer PrikBoard than this server runs.";
         if (file.Version > BoardExport.CurrentVersion)
         {
@@ -134,7 +134,7 @@ public static class BoardTransferEndpoints
         {
             ShortId = await BoardEndpoints.NewShortIdAsync(db, ct),
             Name = file.Name,
-            Key = key is not null && Regex.IsMatch(key, Board.KeyPattern) ? key : Board.KeyFrom(file.Name),
+            Key = key is not null && Board.IsKey(key) ? key : Board.KeyFrom(file.Name),
             Description = PatchText.Apply(null, file.Description),
             Rules = PatchText.Apply(null, file.Rules),
         };
@@ -142,7 +142,7 @@ public static class BoardTransferEndpoints
 
         // Distinct timestamps keep the stacking order of buckets and the drawing order of cards.
         var clock = board.CreatedAt;
-        foreach (var (bucket, i) in file.Buckets.Select((b, i) => (b, i)))
+        foreach (var (i, bucket) in file.Buckets.Index())
         {
             board.Buckets.Add(new Bucket
             {
@@ -165,12 +165,12 @@ public static class BoardTransferEndpoints
             .ToDictionary(n => newIds[n.Id], n => n.Number);
         board.NextCardNumber = numbers.Values.DefaultIfEmpty(0).Max() + 1;
         var createdBy = principal.PrincipalId();
-        foreach (var (source, i) in file.Cards.Select((n, i) => (n, i)))
+        foreach (var (i, source) in file.Cards.Index())
         {
             var cardTags = CardTags.Normalize(source.Tags);
             if (cardTags.Any(t => t.Length > CardTags.MaxLength))
             {
-                return Invalid($"cards[{i}].tags", $"A tag is at most {CardTags.MaxLength} characters.");
+                return Problems.Invalid($"cards[{i}].tags", $"A tag is at most {CardTags.MaxLength} characters.");
             }
             tags.AddRange(cardTags);
 
@@ -196,29 +196,29 @@ public static class BoardTransferEndpoints
         // The tags the file lists (also unused ones), then any a card uses that the list missed.
         var colors = new Dictionary<string, TagColor>();
         foreach (var (name, color) in file.TagColors ?? []) colors[CardTags.Normalize(name)] = color;
-        foreach (var (name, i) in CardTags.Normalize(file.Tags).Concat(tags).Distinct().Select((t, i) => (t, i)))
+        foreach (var (i, name) in CardTags.Normalize(file.Tags).Concat(tags).Distinct().Index())
         {
-            if (name.Length > CardTags.MaxLength) return Invalid("tags", $"A tag is at most {CardTags.MaxLength} characters.");
+            if (name.Length > CardTags.MaxLength) return Problems.Invalid("tags", $"A tag is at most {CardTags.MaxLength} characters.");
             board.Tags.Add(new BoardTag { Name = name, Color = colors.GetValueOrDefault(name), CreatedAt = clock.AddMilliseconds(i) });
         }
-        if (board.Tags.Count > BoardTag.MaxPerBoard) return Invalid("tags", $"A board has at most {BoardTag.MaxPerBoard} tags.");
+        if (board.Tags.Count > BoardTag.MaxPerBoard) return Problems.Invalid("tags", $"A board has at most {BoardTag.MaxPerBoard} tags.");
 
         // Files are written once the whole file has proved valid, so a rejected import leaves none behind.
         var contents = new List<(StoredFile File, byte[] Data)>();
-        foreach (var (source, i) in file.Images.Select((m, i) => (m, i)))
+        foreach (var (i, source) in file.Images.Index())
         {
             if (source.Data.Length > ImageFormats.MaxBytes)
             {
-                return Invalid($"images[{i}].data", $"Images can be at most {ImageFormats.MaxBytes / 1024 / 1024} MB.");
+                return Problems.Invalid($"images[{i}].data", $"Images can be at most {ImageFormats.MaxBytes / 1024 / 1024} MB.");
             }
             if (ImageFormats.Detect(source.Data) is not { } info)
             {
-                return Invalid($"images[{i}].data", "The file is not a PNG, JPEG, GIF or WebP image (or it is larger than 20000 pixels on a side).");
+                return Problems.Invalid($"images[{i}].data", "The file is not a PNG, JPEG, GIF or WebP image (or it is larger than 20000 pixels on a side).");
             }
             Guid? cardId = null;
             if (source.CardId is { } sourceCard)
             {
-                if (!newIds.TryGetValue(sourceCard, out var mapped)) return Invalid($"images[{i}].cardId", "The card is not in this file.");
+                if (!newIds.TryGetValue(sourceCard, out var mapped)) return Problems.Invalid($"images[{i}].cardId", "The card is not in this file.");
                 cardId = mapped;
             }
 
@@ -240,12 +240,12 @@ public static class BoardTransferEndpoints
             contents.Add((image.File, source.Data));
         }
 
-        foreach (var (source, i) in (file.Drawings ?? []).Select((d, i) => (d, i)))
+        foreach (var (i, source) in (file.Drawings ?? []).Index())
         {
             Guid? cardId = null;
             if (source.CardId is { } sourceCard)
             {
-                if (!newIds.TryGetValue(sourceCard, out var mapped)) return Invalid($"drawings[{i}].cardId", "The card is not in this file.");
+                if (!newIds.TryGetValue(sourceCard, out var mapped)) return Problems.Invalid($"drawings[{i}].cardId", "The card is not in this file.");
                 cardId = mapped;
             }
             var drawing = new BoardDrawing
@@ -261,7 +261,7 @@ public static class BoardTransferEndpoints
 
         Layout.PlaceAll(board.Cards, [.. board.Images, .. board.Drawings], board.Buckets);
         // Folded up only now, so their cards, images and drawings joined them first.
-        foreach (var (bucket, i) in board.Buckets.Select((b, i) => (b, i))) bucket.Collapsed = file.Buckets[i].Collapsed;
+        foreach (var (i, bucket) in board.Buckets.Index()) bucket.Collapsed = file.Buckets[i].Collapsed;
         // Like createBoard: a personal access token imports for its owner, who owns the board; the token keeps its capped role.
         board.Members.Add(new BoardMember { PrincipalId = caller.MemberId, Role = BoardRole.Owner });
 
@@ -309,16 +309,15 @@ public static class BoardTransferEndpoints
         return followed;
     }
 
-    private static ValidationProblem Invalid(string field, string message) =>
-        TypedResults.ValidationProblem(new Dictionary<string, string[]> { [field] = [message] });
-
     /// <summary>A file name stem from a board name: no path or control characters, a generic name when nothing is left.</summary>
     private static string CleanName(string name)
     {
-        var invalid = Path.GetInvalidFileNameChars();
-        var clean = new string(name.Where(c => !char.IsControl(c) && !invalid.Contains(c)).ToArray()).Trim();
+        var clean = PatchText.Without(name, NotInFileNames);
         return clean.Length > 0 ? clean : "board";
     }
+
+    private static readonly SearchValues<char> NotInFileNames =
+        SearchValues.Create(PatchText.ControlCharacters + new string(Path.GetInvalidFileNameChars()));
 
     /// <summary>
     /// The fields in the request body (an export file) that BoardExport doesn't have, as paths (drawings,

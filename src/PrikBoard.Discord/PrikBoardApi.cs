@@ -2,19 +2,18 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace PrikBoard.Discord;
 
 // Mirrors of the API's contracts (src/PrikBoard.Api/Contracts/Discord.cs), only what the bot reads.
 
-public sealed record DiscordChannelDetail(string Id, string Name);
+public sealed record DiscordChannelDetail(string Id);
 
-public sealed record DiscordBoardConnection(Guid BoardId, string ShortId, string BoardName, List<DiscordChannelDetail>? Channels);
+public sealed record DiscordBoardConnection(string BoardName, List<DiscordChannelDetail>? Channels);
 
-public sealed record DiscordConnected(string Token, DateTimeOffset ExpiresAt, List<DiscordBoardConnection> Boards);
+public sealed record DiscordConnected(string Token, List<DiscordBoardConnection> Boards);
 
-public sealed record DiscordStatus(string GuildId, string GuildName, DateTimeOffset TokenExpiresAt, List<DiscordBoardConnection> Boards);
+public sealed record DiscordStatus(DateTimeOffset TokenExpiresAt, List<DiscordBoardConnection> Boards);
 
 public sealed record LinkPreview(
     string Kind,
@@ -40,7 +39,7 @@ public sealed class PrikBoardException(string message) : Exception(message);
 /// </summary>
 public sealed class PrikBoardApi(HttpClient http)
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
+    private static readonly JsonSerializerOptions Json = JsonSerializerOptions.Web;
 
     /// <summary>exchangeDiscordConnect: trades the code pasted in /prikboard finish for the server's token.</summary>
     public async Task<DiscordConnected> ExchangeAsync(
@@ -56,7 +55,8 @@ public sealed class PrikBoardApi(HttpClient http)
     /// <summary>getDiscordStatus.</summary>
     public async Task<DiscordStatus> StatusAsync(string token, CancellationToken ct)
     {
-        using var response = await http.SendAsync(Request(HttpMethod.Get, "/api/discord/status", token), ct);
+        using var request = Request(HttpMethod.Get, "/api/discord/status", token);
+        using var response = await http.SendAsync(request, ct);
         Check(response);
         return (await response.Content.ReadFromJsonAsync<DiscordStatus>(Json, ct))!;
     }
@@ -64,7 +64,7 @@ public sealed class PrikBoardApi(HttpClient http)
     /// <summary>getLinkPreview: what the link shows, or null when the server may not preview it (or it is no PrikBoard link).</summary>
     public async Task<LinkPreview?> PreviewAsync(string token, string url, string channelId, CancellationToken ct)
     {
-        var request = Request(HttpMethod.Post, "/api/link-previews", token);
+        using var request = Request(HttpMethod.Post, "/api/link-previews", token);
         request.Content = JsonContent.Create(new { url, channelId }, options: Json);
         using var response = await http.SendAsync(request, ct);
         if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.TooManyRequests) return null;
@@ -75,7 +75,8 @@ public sealed class PrikBoardApi(HttpClient http)
     /// <summary>revokeDiscordToken: the token stops working at once.</summary>
     public async Task RevokeAsync(string token, CancellationToken ct)
     {
-        using var response = await http.SendAsync(Request(HttpMethod.Delete, "/api/discord/token", token), ct);
+        using var request = Request(HttpMethod.Delete, "/api/discord/token", token);
+        using var response = await http.SendAsync(request, ct);
         if (response.StatusCode == HttpStatusCode.Unauthorized) return;
         Check(response);
     }

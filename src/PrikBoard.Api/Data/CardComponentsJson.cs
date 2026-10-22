@@ -8,21 +8,23 @@ namespace PrikBoard.Api.Data;
 /// <summary>
 /// Stores a card's components as one jsonb array with camelCase names, e.g.
 /// <c>[{"id":…,"kind":"Checklist","x":20,"y":20,"width":340,"height":260,"title":null,"text":null,"items":[{"text":…,"done":false}],"links":[]}]</c>.
-/// Nothing queries inside the column, so a plain converter is enough. The migration NoteBlocks wrote the same shape (as Blocks on Notes, renamed by CardsAndComponents).
+/// The migration NoteBlocks wrote the same shape (as Blocks on Notes, renamed by CardsAndComponents).
 /// </summary>
 public static class CardComponentsJson
 {
-    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
+    public static readonly ValueConverter<List<CardComponent>, string> Converter = JsonColumn.Converter<List<CardComponent>>(JsonSerializerOptions.Web);
 
-    private static string Write(List<CardComponent> components) => JsonSerializer.Serialize(components, Options);
-
-    private static List<CardComponent> Read(string json) => JsonSerializer.Deserialize<List<CardComponent>>(json, Options) ?? [];
-
-    public static readonly ValueConverter<List<CardComponent>, string> Converter = new(v => Write(v), v => Read(v));
-
-    /// <summary>Compares by content and snapshots a deep copy, so changes made in place are saved too.</summary>
+    /// <summary>
+    /// Compares by content and snapshots a deep copy, so changes made in place are saved too. Both go through the JSON
+    /// (as UTF-8, the cheapest form), so a new field on a component needs no code here.
+    /// </summary>
     public static readonly ValueComparer<List<CardComponent>> Comparer = new(
-        (a, b) => Write(a!) == Write(b!),
-        v => Write(v).GetHashCode(),
-        v => Read(Write(v)));
+        (a, b) => Same(a!, b!),
+        v => v.Count,
+        v => JsonSerializer.Deserialize<List<CardComponent>>(Utf8(v), JsonSerializerOptions.Web)!);
+
+    private static bool Same(List<CardComponent> a, List<CardComponent> b) =>
+        a.Count == b.Count && Utf8(a).AsSpan().SequenceEqual(Utf8(b));
+
+    private static byte[] Utf8(List<CardComponent> components) => JsonSerializer.SerializeToUtf8Bytes(components, JsonSerializerOptions.Web);
 }

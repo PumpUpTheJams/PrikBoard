@@ -104,7 +104,8 @@ public static class AdminEndpoints
 
     private static async Task<Ok<List<AdminBoard>>> ListBoards(PrikBoardDbContext db, CancellationToken ct)
     {
-        var boards = await db.Boards.AsNoTracking().OrderByDescending(b => b.CreatedAt).ToListAsync(ct);
+        var boards = await db.Boards.AsNoTracking().OrderByDescending(b => b.CreatedAt)
+            .Select(b => new { b.Id, b.Name, b.CreatedAt, b.UpdatedAt }).ToListAsync(ct);
         var members = (await db.BoardMembers.AsNoTracking().Include(m => m.Principal).ToListAsync(ct))
             .ToLookup(m => m.BoardId);
 
@@ -131,7 +132,7 @@ public static class AdminEndpoints
     {
         var users = await db.Users.AsNoTracking().OrderBy(u => u.CreatedAt).ToListAsync(ct);
         var memberships = await db.BoardMembers.AsNoTracking().ToListAsync(ct);
-        var boardNames = await db.Boards.AsNoTracking().ToDictionaryAsync(b => b.Id, b => b.Name, ct);
+        var boardNames = await db.Boards.Select(b => new { b.Id, b.Name }).ToDictionaryAsync(b => b.Id, b => b.Name, ct);
         var soleOwners = memberships.Where(m => m.Role == BoardRole.Owner).GroupBy(m => m.BoardId)
             .Where(g => g.Count() == 1).Select(g => g.Single()).ToLookup(m => m.PrincipalId, m => m.BoardId);
         var boardCounts = memberships.GroupBy(m => m.PrincipalId).ToDictionary(g => g.Key, g => g.Count());

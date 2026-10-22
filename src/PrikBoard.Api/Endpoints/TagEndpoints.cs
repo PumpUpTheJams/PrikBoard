@@ -64,8 +64,8 @@ public static class TagEndpoints
     internal static async Task<Ok<List<BoardTagDetail>>> ListBoardTags(Guid boardId, PrikBoardDbContext db, CancellationToken ct)
     {
         var tags = await db.BoardTags.AsNoTracking().Where(t => t.BoardId == boardId).ToListAsync(ct);
-        var cards = await db.Cards.AsNoTracking().Where(n => n.BoardId == boardId).ToListAsync(ct);
-        return TypedResults.Ok(BoardTagDetail.List(tags, cards));
+        var cardTags = await db.Cards.Where(n => n.BoardId == boardId).Select(n => n.Tags).ToListAsync(ct);
+        return TypedResults.Ok(BoardTagDetail.List(tags, cardTags));
     }
 
     internal static async Task<Results<Created<BoardTagDetail>, ValidationProblem, ProblemHttpResult>> CreateBoardTag(
@@ -121,7 +121,7 @@ public static class TagEndpoints
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         // Deleted cards count too: they get the tag back if they are restored before the tag is.
-        tag.RemovedFromCardIds = await db.Cards.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+        tag.RemovedFromCardIds = await db.Cards.WithDeleted()
             .Where(n => n.BoardId == boardId && n.Tags.Contains(tag.Name))
             .Select(n => n.Id)
             .ToListAsync(ct);
@@ -136,10 +136,10 @@ public static class TagEndpoints
     internal static async Task<Results<Ok<BoardTagDetail>, NotFound, ProblemHttpResult>> RestoreBoardTag(
         Guid boardId, Guid tagId, PrikBoardDbContext db, CancellationToken ct)
     {
-        var tag = await db.BoardTags.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+        var tag = await db.BoardTags.WithDeleted()
             .FirstOrDefaultAsync(t => t.Id == tagId && t.BoardId == boardId, ct);
         if (tag is null) return TypedResults.NotFound();
-        if (tag.DeletedAt is null) return NotDeleted("tag");
+        if (tag.DeletedAt is null) return Problems.NotDeleted("tag");
 
         var existing = await db.BoardTags.Where(t => t.BoardId == boardId).Select(t => t.Name).ToListAsync(ct);
         if (existing.Contains(tag.Name)) return Exists(tag.Name);
@@ -165,8 +165,6 @@ public static class TagEndpoints
     private const int MaxTagsPerCard = 10;
 
     /// <summary>The 409 for restoring something that is not deleted.</summary>
-    internal static ProblemHttpResult NotDeleted(string what) => TypedResults.Problem(
-        statusCode: StatusCodes.Status409Conflict, title: "Not deleted", detail: $"The {what} is not deleted, so there is nothing to restore.");
 
     /// <summary>
     /// Adds the names a card is about to get that the board does not have yet (saved with the card).
@@ -181,10 +179,7 @@ public static class TagEndpoints
         if (added.Count == 0) return null;
         if (existing.Count + added.Count > BoardTag.MaxPerBoard)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["tags"] = [$"The board already has {existing.Count} tags; it can have at most {BoardTag.MaxPerBoard}. Use existing tags (listBoardTags) or delete some."],
-            });
+            return Problems.Invalid("tags", $"The board already has {existing.Count} tags; it can have at most {BoardTag.MaxPerBoard}. Use existing tags (listBoardTags) or delete some.");
         }
 
         db.BoardTags.AddRange(added.Select(name => new BoardTag { BoardId = boardId, Name = name }));
@@ -193,10 +188,7 @@ public static class TagEndpoints
 
     private static string? Normalized(string name) => CardTags.Normalize(name) is { Length: > 0 and <= CardTags.MaxLength } tag ? tag : null;
 
-    private static ValidationProblem InvalidName(string name) => TypedResults.ValidationProblem(new Dictionary<string, string[]>
-    {
-        ["name"] = [$"Tag \"{name.Trim()}\" must be 1 to {CardTags.MaxLength} characters."],
-    });
+    private static ValidationProblem InvalidName(string name) => Problems.Invalid("name", $"Tag \"{name.Trim()}\" must be 1 to {CardTags.MaxLength} characters.");
 
     private static ProblemHttpResult Exists(string name) => TypedResults.Problem(
         statusCode: StatusCodes.Status409Conflict, title: "Tag exists", detail: $"A tag called \"{name}\" already exists on this board.");

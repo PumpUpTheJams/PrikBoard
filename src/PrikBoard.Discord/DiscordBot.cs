@@ -156,7 +156,8 @@ public sealed class DiscordBot(
     {
         if (pending.Take(guildId) is not { } started)
         {
-            return "Run `/prikboard connect` in this server first; it works for 10 minutes. A code started in another server doesn't work here.";
+            return $"Run `/prikboard connect` in this server first; it works for {PendingConnects.Lifetime.TotalMinutes:0} minutes. " +
+                   "A code started in another server doesn't work here.";
         }
 
         var guildName = _client!.GetGuild(guildId)?.Name ?? guildId.ToString();
