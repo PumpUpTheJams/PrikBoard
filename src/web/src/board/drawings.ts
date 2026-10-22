@@ -154,6 +154,50 @@ export function strokePaths(points: StrokePoint[], base: number): { d: string; w
   return paths
 }
 
+/** A scale and turn about a pivot on the drawing's canvas, as transformDrawing takes it. */
+export interface Reshape {
+  scaleX: number
+  scaleY: number
+  /** Degrees clockwise, after scaling. */
+  rotation: number
+  pivot: Point
+}
+
+/** Scale factors transformDrawing takes. */
+export const MIN_SCALE = 0.05
+export const MAX_SCALE = 20
+
+/**
+ * A drawing's strokes scaled and turned about a pivot, with the box they then fill: BoardDrawing.Transform on the server,
+ * so the preview shows where the lines will land. `at` is the drawing's corner on its canvas.
+ */
+export function reshapeStrokes(at: Point, strokes: DrawingStroke[], { scaleX, scaleY, rotation, pivot }: Reshape) {
+  const radians = (rotation * Math.PI) / 180
+  const cos = Math.cos(radians)
+  const sin = Math.sin(radians)
+  const moved = strokes.map((s) => ({
+    strokeWidth: s.strokeWidth,
+    points: s.points.map(([px, py, pressure]): StrokePoint => {
+      const dx = (at.x + px - pivot.x) * scaleX
+      const dy = (at.y + py - pivot.y) * scaleY
+      return [pivot.x + dx * cos - dy * sin, pivot.y + dx * sin + dy * cos, pressure]
+    }),
+  }))
+  // The corner: the last grid line half the thickest line (0.8 × the base width) clear of every point.
+  const inset = (axis: 0 | 1) =>
+    Math.min(...moved.map((s) => Math.floor((Math.min(...s.points.map((p) => p[axis])) - s.strokeWidth * 0.8) / GRID) * GRID))
+  const x = inset(0)
+  const y = inset(1)
+  const round = (v: number) => Math.round(v * 10) / 10
+  const shifted = moved.map((s) => ({ ...s, points: s.points.map(([px, py, p]): StrokePoint => [round(px - x), round(py - y), p]) }))
+  const extent = (axis: 0 | 1) =>
+    Math.max(...shifted.map((s) => Math.ceil(Math.max(...s.points.map((p) => p[axis]))) + Math.floor((s.strokeWidth + 1) / 2)))
+  return { x, y, width: extent(0), height: extent(1), strokes: shifted }
+}
+
+/** A drawing's strokes if they are loaded already (they are while it shows), else null. */
+export const loadedStrokes = (drawing: DrawingDetail): DrawingStroke[] | null => cache.get(drawing.contentUrl) ?? null
+
 /** Strokes of drawings already fetched (or just drawn here), by content URL, which changes whenever they do. */
 const cache = new Map<string, DrawingStroke[]>()
 const pending = new Map<string, Promise<DrawingStroke[]>>()

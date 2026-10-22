@@ -664,6 +664,12 @@ export function CardCanvas(props: CardCanvasProps) {
                   selected={isPicked(selected, 'drawing', drawing.id)}
                   lifted={moves(drawing.id) && !dragging?.done}
                   onPointerDown={(e) => onItemPointerDown(e as PointerEvent<HTMLElement>, 'drawing', drawing.id)}
+                  zoom={zoom}
+                  onReshape={
+                    readOnly || drawingOn || selected.length !== 1 || !isPicked(selected, 'drawing', drawing.id)
+                      ? undefined
+                      : (reshape) => settle(...ops.reshapeDrawing(drawing, reshape))
+                  }
                 />
               </div>
             ))}

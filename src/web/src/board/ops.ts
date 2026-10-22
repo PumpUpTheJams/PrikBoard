@@ -6,12 +6,15 @@ import type {
   CardComponent,
   CardComponentChanges,
   CardDetail,
+  DrawingDetail,
+  DrawingStroke,
   ImageChanges,
   ImageDetail,
   NewCardComponent,
   TagColor,
 } from '../api/types'
-import { cardEdit, componentEdit, created, deleted, patched, snap, step, target, type UndoEntry } from './undo'
+import { loadDrawingStrokes, type Reshape } from './drawings'
+import { cardEdit, componentEdit, created, deleted, patched, reshaped, snap, step, target, type UndoEntry } from './undo'
 
 /**
  * A change to the board as a request and the undo step it makes from the result, to hand to a RecordingRun (or the
@@ -69,6 +72,19 @@ export const ops = {
   editImage: (image: ImageDetail, changes: ImageChanges, label: string, keys: string[]): Op<ImageDetail> => [
     () => api.updateImage(image.id, changes),
     (after) => step(label, [patched(target.image(image.id), snap.image(image), snap.image(after), keys)]),
+  ],
+
+  /**
+   * Scales and turns a drawing about a pivot. Its new strokes are loaded before the board reloads, so it doesn't blink;
+   * undo puts the old ones back exactly.
+   */
+  reshapeDrawing: (drawing: DrawingDetail, { scaleX, scaleY, rotation, pivot }: Reshape): Op<{ after: DrawingDetail; before: DrawingStroke[]; strokes: DrawingStroke[] }> => [
+    async () => {
+      const before = await loadDrawingStrokes(drawing)
+      const after = await api.transformDrawing(drawing.id, { scaleX, scaleY, rotation, pivotX: pivot.x, pivotY: pivot.y })
+      return { after, before, strokes: await loadDrawingStrokes(after) }
+    },
+    ({ after, before, strokes }) => reshaped(rotation !== 0 ? 'Rotate drawing' : 'Resize drawing', drawing, before, after, strokes),
   ],
 
   deleteImage: (image: ImageDetail): Op<void> => [

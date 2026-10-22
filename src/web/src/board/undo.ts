@@ -5,6 +5,7 @@ import type {
   BucketDetail,
   DrawingChanges,
   DrawingDetail,
+  DrawingStroke,
   ImageChanges,
   NewDrawingStroke,
   ImageDetail,
@@ -14,6 +15,7 @@ import type {
   CardDetail,
   TagChanges,
 } from '../api/types'
+import { loadDrawingStrokes, loadedStrokes } from './drawings'
 import { onBoard } from './layout'
 
 /**
@@ -33,6 +35,8 @@ export type UndoTarget =
   | { kind: 'bucket'; id: string; carry?: BucketCarry }
   | { kind: 'image'; id: string }
   | { kind: 'drawing'; id: string }
+  /** A drawing's strokes and corner, as scaling or turning it changes them. */
+  | { kind: 'shape'; id: string }
   /**
    * A stroke added to drawing `id` as its `index`th. `stroke` has its x and y measured from the drawing's corner before
    * it was added, so a redo puts it back on the drawing wherever that is now.
@@ -85,6 +89,7 @@ export const target = {
   bucket: (id: string, carry?: BucketCarry): UndoTarget => ({ kind: 'bucket', id, carry }),
   image: (id: string): UndoTarget => ({ kind: 'image', id }),
   drawing: (id: string): UndoTarget => ({ kind: 'drawing', id }),
+  shape: (id: string): UndoTarget => ({ kind: 'shape', id }),
   stroke: (drawingId: string, index: number, stroke: NewDrawingStroke): UndoTarget => ({ kind: 'stroke', id: drawingId, index, stroke }),
   tag: (id: string): UndoTarget => ({ kind: 'tag', id }),
 }
@@ -116,9 +121,18 @@ export const snap = {
   bucket: (b: BucketDetail): Snapshot => ({ name: b.name, x: b.x, y: b.y, width: b.width, height: b.height, collapsed: b.collapsed }),
   image: (i: ImageDetail): Snapshot => ({ cardId: i.cardId, x: i.x, y: i.y, width: i.width, caption: i.caption }),
   drawing: (d: DrawingDetail): Snapshot => ({ cardId: d.cardId, x: d.x, y: d.y, colors: d.colors }),
+  /** A drawing's corner and its strokes, as they are loaded here (null when they aren't: someone else changed them). */
+  shape: (d: DrawingDetail, strokes = loadedStrokes(d)): Snapshot => ({ x: d.x, y: d.y, strokes }),
   /** A stroke that is there: whether it is still the drawing's last (only then can it be taken off again). */
   stroke: (d: DrawingDetail, index: number): Snapshot | null => (d.colors.length > index ? { last: d.colors.length === index + 1 } : null),
   tag: (t: BoardTag): Snapshot => ({ name: t.name, color: t.color }),
+}
+
+/** The step for a drawing scaled or turned: its corner and strokes before and after; null when nothing changed. */
+export function reshaped(label: string, before: DrawingDetail, beforeStrokes: DrawingStroke[], after: DrawingDetail, afterStrokes: DrawingStroke[]) {
+  const from = snap.shape(before, beforeStrokes)
+  const to = snap.shape(after, afterStrokes)
+  return same(from, to) ? null : undoEntry(label, [{ target: target.shape(before.id), before: from, after: to }])
 }
 
 const pick = (from: Snapshot, keys: string[]): Snapshot => Object.fromEntries(keys.map((k) => [k, from[k]]))
@@ -191,6 +205,10 @@ function read(board: BoardDetail, t: UndoTarget): Snapshot | null {
       const drawing = board.drawings.find((d) => d.id === t.id)
       return drawing ? snap.drawing(drawing) : null
     }
+    case 'shape': {
+      const drawing = board.drawings.find((d) => d.id === t.id)
+      return drawing ? snap.shape(drawing) : null
+    }
     case 'stroke': {
       const drawing = board.drawings.find((d) => d.id === t.id)
       return drawing ? snap.stroke(drawing, t.index) : null
@@ -208,6 +226,7 @@ const noun: Record<UndoTarget['kind'], string> = {
   bucket: 'the bucket',
   image: 'the image',
   drawing: 'the drawing',
+  shape: 'the drawing',
   stroke: 'the line',
   tag: 'the tag',
 }
@@ -272,6 +291,13 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
       const drawing = board.drawings.find((d) => d.id === t.id)!
       await api.addDrawingStroke(t.id, { ...t.stroke, x: drawing.x + t.stroke.x, y: drawing.y + t.stroke.y })
     }
+    return
+  }
+  if (t.kind === 'shape') {
+    if (!from || !to) return
+    const after = await api.setDrawingStrokes(t.id, { x: to.x as number, y: to.y as number, strokes: to.strokes as DrawingStroke[] })
+    // Loaded now, so the next step's check can compare them.
+    await loadDrawingStrokes(after)
     return
   }
   if (to === null) {

@@ -1,7 +1,7 @@
-import type { CSSProperties, PointerEvent, Ref } from 'react'
+import { useState, type CSSProperties, type PointerEvent, type Ref } from 'react'
 import { inkColors, type DrawingDetail, type DrawingStroke, type InkColor, type Point, type Rect, type StrokePoint } from '../api/types'
 import { keepPress } from './gesture'
-import { inkHex, strokePaths, strokeSizes, useDrawingStrokes } from './drawings'
+import { inkHex, MAX_SCALE, MIN_SCALE, reshapeStrokes, strokePaths, strokeSizes, useDrawingStrokes, type Reshape } from './drawings'
 import { TrashIcon } from './icons'
 
 /** A stroke's line being drawn, at its place. */
@@ -48,24 +48,133 @@ interface DrawingViewProps {
   /** Drawn above the rest, with the bucket that was opened or pressed last. */
   front?: boolean
   onPointerDown: (e: PointerEvent<Element>) => void
+  /** The canvas's zoom, to turn pointer travel into canvas pixels. */
+  zoom?: number
+  /**
+   * Scales or turns it (its corner handles and the round one above it, shown while selected; none without this). The
+   * preview stays until the promise settles, by when the board shows the new strokes.
+   */
+  onReshape?: (reshape: Reshape) => Promise<unknown>
 }
 
-/** A drawing on a canvas; pressing any of its lines selects and moves all of it. */
-export function DrawingView({ drawing, rect, selected, lifted, front, onPointerDown }: DrawingViewProps) {
-  const strokes = useDrawingStrokes(drawing)
+type Corner = 'TopLeft' | 'TopRight' | 'BottomLeft' | 'BottomRight'
+const corners: Corner[] = ['TopLeft', 'TopRight', 'BottomLeft', 'BottomRight']
+
+/**
+ * Scaling from a corner (the opposite one stays put; keeping its shape unless Shift is held) or turning with the handle
+ * above (about the middle, in steps of 15° with Shift). Points are on screen; `centre` is the box's middle there.
+ */
+type ReshapeGesture = ({ kind: 'scale'; corner: Corner } | { kind: 'rotate'; centre: Point }) & {
+  start: Point
+  current: Point
+  shift: boolean
+  /** Released: waiting for the server, which will give the drawing a new content URL than this one. */
+  done?: string
+}
+
+const clampScale = (s: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s))
+
+/** What a reshape gesture does to a drawing at `rect`, on its canvas. */
+function reshapeOf(g: ReshapeGesture, rect: Rect, zoom: number): Reshape {
+  if (g.kind === 'rotate') {
+    const angle = (p: Point) => Math.atan2(p.y - g.centre.y, p.x - g.centre.x)
+    let degrees = ((angle(g.current) - angle(g.start)) * 180) / Math.PI
+    degrees = ((((degrees + 180) % 360) + 360) % 360) - 180
+    degrees = g.shift ? Math.round(degrees / 15) * 15 : Math.round(degrees * 10) / 10
+    return { scaleX: 1, scaleY: 1, rotation: degrees, pivot: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } }
+  }
+  const left = g.corner.endsWith('Left')
+  const top = g.corner.startsWith('Top')
+  const dx = (g.current.x - g.start.x) / zoom
+  const dy = (g.current.y - g.start.y) / zoom
+  const w = Math.max(1, rect.width)
+  const h = Math.max(1, rect.height)
+  let scaleX = (w + (left ? -dx : dx)) / w
+  let scaleY = (h + (top ? -dy : dy)) / h
+  if (!g.shift) {
+    // Along the box's diagonal, so a flat line scales by how far its long side is pulled.
+    scaleX = scaleY = (scaleX * w * w + scaleY * h * h) / (w * w + h * h)
+  }
+  const tidy = (s: number) => Math.round(clampScale(s) * 1000) / 1000
+  return {
+    scaleX: tidy(scaleX),
+    scaleY: tidy(scaleY),
+    rotation: 0,
+    pivot: { x: left ? rect.x + rect.width : rect.x, y: top ? rect.y + rect.height : rect.y },
+  }
+}
+
+const unchanged = (r: Reshape) => r.scaleX === 1 && r.scaleY === 1 && r.rotation === 0
+
+/** A drawing on a canvas; pressing any of its lines selects and moves all of it. Selected, its handles scale and turn it. */
+export function DrawingView({ drawing, rect, selected, lifted, front, onPointerDown, zoom = 1, onReshape }: DrawingViewProps) {
+  const loaded = useDrawingStrokes(drawing)
+  const [held, setGesture] = useState<ReshapeGesture | null>(null)
+  // Once the new strokes are in, they show as they are.
+  const gesture = held?.done && held.done !== drawing.contentUrl ? null : held
+  const reshape = gesture && loaded ? reshapeOf(gesture, rect, zoom) : null
+  const shaped = reshape && loaded && !unchanged(reshape) ? reshapeStrokes(rect, loaded, reshape) : null
+  const strokes = shaped?.strokes ?? loaded
+  const box: Rect = shaped ?? rect
   const classes = ['drawing']
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
   if (front) classes.push('in-front')
+  if (gesture) classes.push('reshaping')
+
+  function begin(e: PointerEvent<HTMLElement>, kind: 'rotate' | Corner) {
+    if (e.button !== 0 || !loaded) return
+    e.stopPropagation()
+    e.preventDefault()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    const start = { x: e.clientX, y: e.clientY }
+    if (kind !== 'rotate') {
+      setGesture({ kind: 'scale', corner: kind, start, current: start, shift: e.shiftKey })
+      return
+    }
+    const r = e.currentTarget.closest('.drawing-box')!.getBoundingClientRect()
+    setGesture({ kind: 'rotate', centre: { x: r.left + r.width / 2, y: r.top + r.height / 2 }, start, current: start, shift: e.shiftKey })
+  }
+  function move(e: PointerEvent<HTMLElement>) {
+    if (!gesture || gesture.done) return
+    e.stopPropagation()
+    setGesture({ ...gesture, current: { x: e.clientX, y: e.clientY }, shift: e.shiftKey })
+  }
+  function end(e: PointerEvent<HTMLElement>) {
+    if (!gesture || gesture.done) return
+    e.stopPropagation()
+    const released = { ...gesture, current: { x: e.clientX, y: e.clientY }, shift: e.shiftKey }
+    const result = reshapeOf(released, rect, zoom)
+    if (!onReshape || unchanged(result)) {
+      setGesture(null)
+      return
+    }
+    setGesture({ ...released, done: drawing.contentUrl })
+    void onReshape(result).finally(() => setGesture(null))
+  }
+  const cancel = () => setGesture((g) => (g?.done ? g : null))
+  const handlers = { onPointerMove: move, onPointerUp: end, onPointerCancel: cancel, onLostPointerCapture: cancel }
+
   return (
     <div className={classes.join(' ')} data-drawing={drawing.id} onPointerDown={onPointerDown}>
-      {strokes && <DrawingSvg strokes={strokes} colors={drawing.colors} at={rect} hit />}
+      {strokes && <DrawingSvg strokes={strokes} colors={drawing.colors} at={box} hit={!gesture} />}
       {selected && (
-        <div className="drawing-box" aria-hidden="true" style={{ left: rect.x - 6, top: rect.y - 6, width: rect.width + 12, height: rect.height + 12 }}>
-          <span className="drawing-handle" style={{ left: -4, top: -4 }} />
-          <span className="drawing-handle" style={{ right: -4, top: -4 }} />
-          <span className="drawing-handle" style={{ left: -4, bottom: -4 }} />
-          <span className="drawing-handle" style={{ right: -4, bottom: -4 }} />
+        <div className="drawing-box" aria-hidden="true" style={{ left: box.x - 6, top: box.y - 6, width: box.width + 12, height: box.height + 12 }}>
+          {corners.map((corner) =>
+            onReshape ? (
+              <span
+                key={corner}
+                className={`drawing-handle ${corner}`}
+                title="Drag to resize (Shift: stretch)"
+                onPointerDown={(e) => begin(e, corner)}
+                {...handlers}
+              />
+            ) : (
+              <span key={corner} className={`drawing-handle ${corner}`} />
+            ),
+          )}
+          {onReshape && <span className="drawing-rotate" title="Drag to rotate (Shift: 15° steps)" onPointerDown={(e) => begin(e, 'rotate')} {...handlers} />}
+          {gesture?.kind === 'rotate' && reshape && <span className="drawing-angle">{Math.round(reshape.rotation)}°</span>}
         </div>
       )}
     </div>

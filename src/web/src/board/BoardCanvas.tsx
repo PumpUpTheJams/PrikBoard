@@ -2315,6 +2315,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                 lifted={lifting(drawing.id)}
                 front={inFront(drawing)}
                 onPointerDown={(e) => onItemPointerDown(e as PointerEvent<HTMLElement>, 'drawing', drawing.id)}
+                zoom={zoom}
+                onReshape={readOnly || selection?.id !== drawing.id ? undefined : (reshape) => settle(...ops.reshapeDrawing(drawing, reshape))}
               />
             ))}
 

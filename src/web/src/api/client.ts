@@ -30,6 +30,8 @@ import type {
   DrawingChanges,
   DrawingContent,
   DrawingDetail,
+  DrawingStrokesChange,
+  DrawingTransform,
   ImageChanges,
   ImageDetail,
   ImageUploadRequest,
@@ -271,6 +273,10 @@ export const api = {
   addDrawingStroke: (drawingId: string, stroke: NewDrawingStroke) => request<DrawingDetail>('POST', `/drawings/${drawingId}/strokes`, stroke),
   /** Takes a stroke (by its index in drawing order) off a drawing; not its only one. */
   deleteDrawingStroke: (drawingId: string, index: number) => request<DrawingDetail>('DELETE', `/drawings/${drawingId}/strokes/${index}`),
+  /** Scales and turns a drawing about a pivot (default: the middle of its box); its points change, line widths stay. */
+  transformDrawing: (drawingId: string, transform: DrawingTransform) => request<DrawingDetail>('POST', `/drawings/${drawingId}/transform`, transform),
+  /** Writes new points for every stroke of a drawing (inks kept), e.g. to put it back as it was before a transform. */
+  setDrawingStrokes: (drawingId: string, change: DrawingStrokesChange) => request<DrawingDetail>('PUT', `/drawings/${drawingId}/strokes`, change),
   updateDrawing: (drawingId: string, changes: DrawingChanges) =>
     request<DrawingDetail>('PATCH', `/drawings/${drawingId}`, changes),
   deleteDrawing: (drawingId: string) => request<void>('DELETE', `/drawings/${drawingId}`),

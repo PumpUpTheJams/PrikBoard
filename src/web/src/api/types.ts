@@ -211,6 +211,26 @@ export interface NewDrawingStroke {
   strokeWidth?: number
 }
 
+/**
+ * Scales a drawing (scaleX, scaleY), then turns it clockwise (rotation, degrees), both about a pivot on its canvas
+ * (default: the middle of its box). Its points change; line widths stay.
+ */
+export interface DrawingTransform {
+  scaleX?: number
+  scaleY?: number
+  rotation?: number
+  /** Give both or neither. */
+  pivotX?: number
+  pivotY?: number
+}
+
+/** New points for every stroke of a drawing (as many as it has, inks kept), measured from its new x/y on the grid. */
+export interface DrawingStrokesChange {
+  x: number
+  y: number
+  strokes: DrawingStroke[]
+}
+
 /** A PATCH of a drawing; x and y are on wherever it ends up (give both when attaching or detaching). */
 export interface DrawingChanges {
   x?: number
