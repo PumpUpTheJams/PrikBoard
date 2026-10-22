@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Rect } from '../api/types'
+import type { Point, Rect } from '../api/types'
 
 /** One selected item on a canvas. */
 export interface Picked<K extends string> {
@@ -24,6 +24,9 @@ export const adds = (e: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean 
 
 /** Whether two rectangles overlap: the selection rectangle takes what it touches. */
 export const touches = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+
+/** Whether a point lies in a rectangle (its right and bottom edges are outside). */
+export const contains = (r: Rect, p: Point) => p.x >= r.x && p.x < r.x + r.width && p.y >= r.y && p.y < r.y + r.height
 
 /**
  * Whether Space is held down: a left press then pans the canvas, as the middle button does. Fields, buttons, menus and

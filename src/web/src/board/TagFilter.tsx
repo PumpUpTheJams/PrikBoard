@@ -16,7 +16,7 @@ interface TagFilterProps {
   total: number
 }
 
-/** A floating pill at the bottom left of the board that filters cards by tag. */
+/** A floating pill at the bottom left of the board (with the assignee filter) that filters cards by tag. */
 export function TagFilter({ boardTags, tagColors, value, onChange, matching, total }: TagFilterProps) {
   const [anchor, setAnchor] = useState<DOMRect | null>(null)
   const [query, setQuery] = useState('')
@@ -27,10 +27,10 @@ export function TagFilter({ boardTags, tagColors, value, onChange, matching, tot
   const toggle = (name: string) => onChange(value.includes(name) ? value.filter((t) => t !== name) : [...value, name])
 
   return (
-    <div ref={pill} className={`tag-filter${value.length > 0 ? ' active' : ''}`}>
+    <div ref={pill} className={`filter-pill${value.length > 0 ? ' active' : ''}`}>
       <button
         type="button"
-        className="tag-filter-button"
+        className="filter-pill-button"
         aria-haspopup="dialog"
         aria-expanded={anchor !== null}
         onClick={(e) => setAnchor(anchor ? null : e.currentTarget.parentElement!.getBoundingClientRect())}
@@ -39,7 +39,7 @@ export function TagFilter({ boardTags, tagColors, value, onChange, matching, tot
         {value.length === 0 ? 'Filter by tag' : `${matching} of ${total}`}
       </button>
       {value.map((tag) => (
-        <span key={tag} className={`tag-filter-chip${tagColorClass(tagColors, tag)}`}>
+        <span key={tag} className={`filter-chip tag-filter-chip${tagColorClass(tagColors, tag)}`}>
           {tag}
           <button type="button" className="chip-remove" aria-label={`Stop filtering on ${tag}`} onClick={() => toggle(tag)}>
             <CloseIcon size={10} />
@@ -47,7 +47,7 @@ export function TagFilter({ boardTags, tagColors, value, onChange, matching, tot
         </span>
       ))}
       {value.length > 0 && (
-        <button type="button" className="tag-filter-clear" onClick={() => onChange([])}>
+        <button type="button" className="filter-pill-clear" onClick={() => onChange([])}>
           Clear
         </button>
       )}

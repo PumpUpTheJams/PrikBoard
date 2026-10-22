@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { api, errorMessage } from '../api/client'
+import { cardColors } from '../api/types'
 import type {
   BoardClip,
   BoardDetail,
@@ -23,6 +24,7 @@ import type {
 import { presenceColor } from '../live/presence'
 import type { LiveDrag } from '../live/useLive'
 import { Toast, type ToastMessage } from '../components/Toast'
+import { AssigneeFilter } from './AssigneeFilter'
 import { AssigneePicker } from './AssigneePicker'
 import { BoardImageView } from './BoardImageView'
 import { BoardSearch, type SearchResult } from './BoardSearch'
@@ -32,6 +34,7 @@ import { DrawingToolbar, DrawingView, PenRing, StrokeSvg } from './DrawingView'
 import { TrashWindow, type OutgoingCard, type TrashWindowHandle } from './TrashWindow'
 import { clipSummary, readClip, writeClip } from './clipboard'
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
+import { assignedToAny } from './filters'
 import { delta, isDrag } from './gesture'
 import { boardRefFromHash, isBoard, linksTo, cardInHash, cardLabel, trashInHash, trashPath } from './links'
 import { CardIcon, ChevronDownIcon, ChevronUpIcon, ImageIcon } from './icons'
@@ -63,7 +66,7 @@ import { ResizeHandles } from './ResizeHandles'
 import { ops } from './ops'
 import { matchCard, searchTerms, type SearchField } from './search'
 import { SelectionToolbar, type CardSort } from './SelectionToolbar'
-import { adds, isPicked, mergePicked, togglePicked, touches, useSpaceHeld } from './selection'
+import { adds, contains, isPicked, mergePicked, togglePicked, touches, useSpaceHeld } from './selection'
 import { shakeDetector } from './shake'
 import { tagColorsOf, type TagColorPreview } from './tagColors'
 import { TagFilter } from './TagFilter'
@@ -92,9 +95,11 @@ interface Selection {
 
 /**
  * A pointer gesture on the canvas, in canvas coordinates. A finished gesture (`done`) stays until the board has
- * reloaded, so the dropped item doesn't jump back to its old place while the request is in flight.
+ * reloaded, so the dropped item doesn't jump back to its old place while the request is in flight. Dragging a card or
+ * a group, `home` is the area the items took up when it began, and `away` says the pointer has left it since: released
+ * back over it, the drag is called off.
  */
-type Gesture = GestureTarget & { start: Point; current: Point; done?: boolean }
+type Gesture = GestureTarget & { start: Point; current: Point; done?: boolean; home?: Rect; away?: boolean }
 type ItemGesture = 'card' | 'bucket' | 'resize' | 'image' | 'image-resize' | 'drawing'
 /**
  * `handle`: for resizes, the corner or edge being dragged. `group`: moving several selected items at once, `held` the
@@ -263,6 +268,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [quickEdit, setQuickEdit] = useState<{ cardId: string; kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
   /** Tags to filter on: cards with none of them fade. Not kept: every board starts unfiltered. */
   const [tagFilter, setTagFilter] = useState<string[]>([])
+  /** People to filter on (principal ids, or NOBODY for cards without assignees): cards with none of them fade. Not kept either. */
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>([])
   /** A tag color under the pointer in the palette, and one being saved: both show on the tag everywhere. */
   const [tagPreview, setTagPreview] = useState<TagColorPreview | null>(null)
   const [tagSaving, setTagSaving] = useState<TagColorPreview | null>(null)
@@ -335,6 +342,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [deletedBusy, setDeletedBusy] = useState(false)
   /** The collapsed bucket a card (or several selected cards) being dragged would go into on release. */
   const [foldDrop, setFoldDrop] = useState<string | null>(null)
+  /** A card or group being dragged is back over where it started (`home`): released there, nothing changes. */
+  const [homeDrop, setHomeDrop] = useState(false)
   /** Buckets as they stack, the same for everyone (`stackedAt`): drawn in this order, the last one on top. */
   const stacked = backToFront(board.buckets)
   /**
@@ -364,6 +373,15 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }
   /** Whether an item is drawn in front, with its bucket. */
   const inFront = (item: { bucketId: string | null }) => front !== null && item.bucketId === front
+  /**
+   * Whether the front bucket hides a canvas point from what isn't in it (`bucketId`, or a collapsed bucket's own id): its
+   * fill covers the buckets, collapsed squares, cards and images under it, so a drop there doesn't reach them.
+   */
+  function coveredAt(p: Point, bucketId: string | null): boolean {
+    const bucket = front !== null && bucketId !== front ? board.buckets.find((b) => b.id === front) : undefined
+    if (!bucket) return false
+    return contains(bucketRect(bucket), p)
+  }
   /**
    * A card put at a point, naming the bucket in front when it covers the card's centre there: by position alone the
    * server would put it in the bucket stacked on top, which this screen may show behind the front one.
@@ -695,10 +713,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     )
   }
 
-  /** The collapsed bucket whose square is under a canvas point. */
+  /** The collapsed bucket whose square is under a canvas point (not behind the front bucket). */
   function foldAt(p: Point): BucketDetail | undefined {
     return stacked.findLast((b) => {
-      if (!b.collapsed) return false
+      if (!b.collapsed || coveredAt(p, b.id)) return false
       const r = collapsedRect(bucketRect(b))
       return p.x >= r.x && p.x < r.x + r.width && p.y >= r.y && p.y < r.y + r.height
     })
@@ -1019,6 +1037,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       // Untitled cards last.
       title: (a, b) => Number(!a.title.trim()) - Number(!b.title.trim()) || a.title.localeCompare(b.title) || a.number - b.number,
       tag: (a, b) => tagRank(a) - tagRank(b) || a.number - b.number,
+      // In the order the fill picker shows them.
+      color: (a, b) => cardColors.indexOf(a.color) - cardColors.indexOf(b.color) || a.number - b.number,
       edited: (a, b) => b.updatedAt.localeCompare(a.updatedAt),
     }
     const sorted = cards.toSorted(order[sort])
@@ -1238,12 +1258,17 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   /** Cards in the order they are drawn: the front bucket's above the rest, then the most recently updated on top. */
   const drawOrder = (a: CardDetail, b: CardDetail) => Number(inFront(a)) - Number(inFront(b)) || a.updatedAt.localeCompare(b.updatedAt)
 
-  /** The topmost card on the board under a canvas point, other than `except` (one id, or the ids of a group). */
+  /**
+   * The topmost card on the board under a canvas point, other than `except` (one id, or the ids of a group). Not one
+   * the front bucket hides there.
+   */
   function cardAt(p: Point, except?: string | Set<string>): CardDetail | undefined {
     const skip = (id: string) => (typeof except === 'string' ? id === except : !!except?.has(id))
     return visibleCards
       .toSorted(drawOrder)
-      .findLast((n) => !skip(n.id) && p.x >= n.x && p.x < n.x + CARD_WIDTH && p.y >= n.y && p.y < n.y + CARD_HEIGHT)
+      .findLast(
+        (n) => !skip(n.id) && !coveredAt(p, n.bucketId) && p.x >= n.x && p.x < n.x + CARD_WIDTH && p.y >= n.y && p.y < n.y + CARD_HEIGHT,
+      )
   }
 
   /**
@@ -1299,7 +1324,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       .flatMap((m) => (m.kind === 'card' ? board.cards.filter((n) => n.id === m.id) : []))
       .toSorted((a, b) => a.y - b.y || a.x - b.x)
     const p = g.current
-    const bucket = stacked.findLast((b) => !b.collapsed && p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height)
+    // The front bucket where it covers the pointer, else the topmost one there.
+    const under = stacked.filter((b) => !b.collapsed && p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height)
+    const bucket = under.find((b) => b.id === front) ?? under.at(-1)
     // Moved around inside the bucket they are all in already, they go where they are dropped.
     if (cards.length === 0 || !bucket || cards.every((n) => n.bucketId === bucket.id)) return null
     const edges: [GrowSide, number][] = [
@@ -1455,7 +1482,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     const section = el.parentElement
     const stack = around(boardTop.current)
     const rail = around(section?.querySelector('.tool-rail'))
-    const covers = [stack, rail, around(section?.querySelector('.view-controls')), around(section?.querySelector('.tag-filter'))]
+    const covers = [stack, rail, around(section?.querySelector('.view-controls')), around(section?.querySelector('.board-filters'))]
     const covered = covers.some((r) => r && box.left < r.right && box.right > r.left && box.top < r.bottom && box.bottom > r.top)
     if (!covered && box.left >= 0 && box.top >= 0 && box.right <= el.clientWidth && box.bottom <= el.clientHeight) return
     const area: Box = { left: rail?.right ?? 16, top: stack?.bottom ?? 16, right: el.clientWidth - 16, bottom: el.clientHeight - 16 }
@@ -1474,7 +1501,31 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     const point = toCanvas(e)
     canvasRef.current!.setPointerCapture(e.pointerId)
     shaken.current = shakeDetector()
-    setGesture({ ...target, start: point, current: point })
+    setGesture({ ...target, start: point, current: point, home: homeOf(target) ?? undefined })
+  }
+
+  /** The area a card or group being dragged takes up as the drag begins: released back over it, nothing changes. */
+  function homeOf(target: GestureTarget): Rect | null {
+    const items = target.kind === 'card' ? [{ kind: 'card' as const, id: target.id }] : target.kind === 'group' ? target.members : []
+    const rects = items.flatMap((m) => liveRect(m.kind, m.id) ?? [])
+    if (rects.length === 0) return null
+    const x = Math.min(...rects.map((r) => r.x))
+    const y = Math.min(...rects.map((r) => r.y))
+    return {
+      x,
+      y,
+      width: Math.max(...rects.map((r) => r.x + r.width)) - x,
+      height: Math.max(...rects.map((r) => r.y + r.height)) - y,
+    }
+  }
+
+  /**
+   * Whether releasing a card or group being dragged calls it off: the pointer is back over where it started after
+   * leaving it, and not over the trash, the open deleted items or the open card, which lie above the board.
+   */
+  function cancelsAt(g: Gesture, client: Point): boolean {
+    if (!g.home || !g.away || !contains(g.home, g.current)) return false
+    return !onTrash(client) && !(deletedOpen && deletedRef.current?.contains(client)) && !expandedRef.current?.contains(client)
   }
 
   /**
@@ -1655,7 +1706,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     } else if (pen.drawing()) {
       pen.extend(e)
     } else if (gesture && !gesture.done) {
-      const next = { ...gesture, current: toCanvas(e) }
+      const current = toCanvas(e)
+      const next = { ...gesture, current, away: gesture.away || (!!gesture.home && !contains(gesture.home, current)) }
       if (next.kind === 'select') {
         setGesture(next)
         if (isDrag(next)) setSelected(mergePicked(next.base, inRectangle(spanRect(next.start, next.current), next.bucketId)))
@@ -1668,13 +1720,17 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         setGesture(moved)
         // Over the trash or the open deleted items they would be deleted; cards over a collapsed bucket go in, over
         // another card (or the open one) they link there; images and drawings over a card are attached to it.
+        // Back over where they started, they would stay as they were.
         const client = { x: e.clientX, y: e.clientY }
         const dragged = isDrag(moved)
+        const home = cancelsAt(moved, client)
         const trash = dragged && onTrash(client)
         const intoDeleted = dragged && !trash && deletedOpen && !!deletedRef.current?.contains(client)
         const cardsOnly = moved.members.every((m) => m.kind === 'card')
-        const fold = dragged && cardsOnly && !trash && !intoDeleted && !expandedRef.current?.contains(client) ? foldAt(moved.current) : undefined
-        const free = dragged && !trash && !intoDeleted && !fold
+        const fold =
+          dragged && cardsOnly && !home && !trash && !intoDeleted && !expandedRef.current?.contains(client) ? foldAt(moved.current) : undefined
+        const free = dragged && !home && !trash && !intoDeleted && !fold
+        setHomeDrop(home)
         const link = free ? linkDropFor(moved, client) : null
         // Cards over a bucket they aren't all in go into its free spots (over the open card, they stay on the board).
         const arrange = free && !link && !expandedRef.current?.contains(client) ? arrangeFor(moved) : null
@@ -1687,18 +1743,23 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         return
       }
       const client = { x: e.clientX, y: e.clientY }
+      const home = cancelsAt(next, client)
       const trash = next.kind === 'card' && isDrag(next) && onTrash(client)
       setGesture(next)
-      // Over the open deleted items a card is deleted too, and over a collapsed bucket it goes in, rather than being linked.
+      // Over the open deleted items a card is deleted too, and over a collapsed bucket it goes in, rather than being
+      // linked; back over where it started, it would stay put.
       const intoDeleted = !trash && next.kind === 'card' && isDrag(next) && deletedOpen && !!deletedRef.current?.contains(client)
       const fold =
-        next.kind === 'card' && isDrag(next) && !trash && !intoDeleted && !expandedRef.current?.contains(client) ? foldAt(next.current) : undefined
+        next.kind === 'card' && isDrag(next) && !home && !trash && !intoDeleted && !expandedRef.current?.contains(client)
+          ? foldAt(next.current)
+          : undefined
+      setHomeDrop(home)
       setOverTrash(trash)
       setDeletedDrop(intoDeleted ? client : null)
       setFoldDrop(fold?.id ?? null)
       setIncoming(isDrag(next) && !trash && !intoDeleted ? dropOnCard(next, client) : null)
       setIncomingDrawing(isDrag(next) ? drawingOnCard(next, client) : null)
-      setLinkDrop(isDrag(next) && !trash && !intoDeleted && !fold ? linkDropFor(next, client) : null)
+      setLinkDrop(isDrag(next) && !home && !trash && !intoDeleted && !fold ? linkDropFor(next, client) : null)
     }
   }
 
@@ -1716,6 +1777,13 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     setFoldDrop(null)
     setLinkDrop(null)
     setAttachDrop(null)
+    setHomeDrop(false)
+    if (cancelsAt(g, client)) {
+      // Back over where they started: called off, everything as it was.
+      setArrangeDrop(null)
+      setGesture(null)
+      return
+    }
     if (onTrash(client) || intoDeleted) {
       setArrangeDrop(null)
       // Gone at once rather than back in their places; the toast's Undo puts them all back.
@@ -1877,6 +1945,13 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     setOverTrash(false)
     setDeletedDrop(null)
     setFoldDrop(null)
+    setHomeDrop(false)
+    if (cancelsAt(gesture, client)) {
+      // Back over where it started: called off, the card stays as it was.
+      setLinkDrop(null)
+      setGesture(null)
+      return
+    }
     if (gesture.kind === 'card' && (onTrash(client) || intoDeleted)) {
       // Dropped on the trash can, or on the open deleted items: deleted (the toast and Ctrl/Cmd+Z undo it), and gone at
       // once rather than back in its place.
@@ -2100,7 +2175,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   // Filter on tags that still exist (one may have been renamed or deleted meanwhile); any of them matches.
   const filter = tagFilter.filter((t) => board.tags.some((bt) => bt.name === t))
   const tagFaded = (card: CardDetail) => filter.length > 0 && !card.tags.some((t) => filter.includes(t))
-  // The search fades the cards without its words too. Its results are the matches the tag filter lets through, in
+  // The same for people; with both filters on, a card stays bright when it passes each.
+  const assigneeFaded = (card: CardDetail) => assigneeFilter.length > 0 && !assignedToAny(card, assigneeFilter)
+  const filterFaded = (card: CardDetail) => tagFaded(card) || assigneeFaded(card)
+  // The search fades the cards without its words too. Its results are the matches the filters let through, in
   // board order (bucket by bucket, loose cards last).
   const terms = useMemo(() => searchTerms(search?.query ?? ''), [search?.query])
   const matches = useMemo(() => {
@@ -2112,10 +2190,20 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     }
     return found
   }, [visibleCards, terms])
-  const dimmed = (card: CardDetail) => tagFaded(card) || (terms.length > 0 && !matches.has(card.id))
+  const dimmed = (card: CardDetail) => filterFaded(card) || (terms.length > 0 && !matches.has(card.id))
   const results: SearchResult[] = board.cards
-    .filter((n) => matches.has(n.id) && !tagFaded(n))
+    .filter((n) => matches.has(n.id) && !filterFaded(n))
     .map((card) => ({ card, fields: matches.get(card.id)! }))
+  /**
+   * How many matching cards each bucket holds, so the search marks it: the results in it, or for a collapsed bucket the
+   * cards folded away in it that would be results.
+   */
+  const searchHits = new Map<string, number>()
+  const foldedHits =
+    terms.length === 0 ? [] : board.cards.filter((n) => n.bucketId && collapsedIds.has(n.bucketId) && !filterFaded(n) && matchCard(n, terms))
+  for (const { bucketId } of [...results.map((r) => r.card), ...foldedHits]) {
+    if (bucketId) searchHits.set(bucketId, (searchHits.get(bucketId) ?? 0) + 1)
+  }
   /** The result being looked at: the one picked, or else the first. */
   const current = results.find((r) => r.card.id === search?.current)?.card.id ?? results[0]?.card.id ?? null
 
@@ -2192,6 +2280,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               setAttachDrop(null)
               setArrangeDrop(null)
               setFoldDrop(null)
+              setHomeDrop(false)
               setDeletedDrop(null)
               setOverTrash(false)
             }}
@@ -2205,6 +2294,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               setLinkDrop(null)
               setAttachDrop(null)
               setFoldDrop(null)
+              setHomeDrop(false)
               setDeletedDrop(null)
               setOverTrash(false)
             }}
@@ -2235,16 +2325,23 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               if (bucket.collapsed) {
                 // Folded up: a square in its top-right corner with its name and what is inside.
                 const square = collapsedRect(rect)
+                const hits = searchHits.get(bucket.id) ?? 0
+                const found = hits === 0 ? '' : hits === 1 ? '1 card inside matches the search' : `${hits} cards inside match the search`
                 return (
                   <section
                     key={bucket.id}
-                    aria-label={`${bucket.name} (collapsed, ${contents})`}
+                    aria-label={`${bucket.name} (collapsed, ${contents}${found && `; ${found}`})`}
                     data-fold={bucket.id}
-                    className={['bucket-collapsed', foldDrop === bucket.id && 'drop-target', isSelected('bucket', bucket.id) && 'selected']
+                    className={[
+                      'bucket-collapsed',
+                      foldDrop === bucket.id && 'drop-target',
+                      hits > 0 && 'search-hit',
+                      isSelected('bucket', bucket.id) && 'selected',
+                    ]
                       .filter(Boolean)
                       .join(' ')}
                     style={{ left: square.x, top: square.y, width: square.width, height: square.height }}
-                    title="Drag to move the bucket"
+                    title={found ? `${found}. Open the bucket to see them` : 'Drag to move the bucket'}
                     onPointerDown={(e) => onItemPointerDown(e, 'bucket', bucket.id)}
                   >
                     <span className={`bucket-collapsed-counts${count > 0 && images > 0 ? ' both' : ''}`} aria-hidden>
@@ -2274,6 +2371,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                     'bucket',
                     front === bucket.id && 'in-front',
                     (dropTarget?.id === bucket.id || (arrangeDrop?.bucket.id === bucket.id && !dragging?.done)) && 'drop-target',
+                    searchHits.has(bucket.id) && 'search-hit',
                     isSelected('bucket', bucket.id) && 'selected',
                   ]
                     .filter(Boolean)
@@ -2452,6 +2550,14 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             {marquee && (
               <div className="marquee" aria-hidden="true" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />
             )}
+
+            {gesture?.home && gesture.away && !gesture.done && (
+              <div
+                className={`drag-home${homeDrop ? ' over' : ''}`}
+                aria-hidden="true"
+                style={{ left: gesture.home.x, top: gesture.home.y, width: gesture.home.width, height: gesture.home.height }}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -2473,14 +2579,24 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         searching={!!search}
         onSearch={() => (search ? closeSearch() : openSearch())}
       />
-      <TagFilter
-        boardTags={board.tags}
-        tagColors={tagColors}
-        value={filter}
-        onChange={setTagFilter}
-        matching={board.cards.filter((n) => !tagFaded(n)).length}
-        total={board.cards.length}
-      />
+      <div className="board-filters">
+        <TagFilter
+          boardTags={board.tags}
+          tagColors={tagColors}
+          value={filter}
+          onChange={setTagFilter}
+          matching={board.cards.filter((n) => !tagFaded(n)).length}
+          total={board.cards.length}
+        />
+        <AssigneeFilter
+          people={board.people}
+          cards={board.cards}
+          value={assigneeFilter}
+          onChange={setAssigneeFilter}
+          matching={board.cards.filter((n) => !assigneeFaded(n)).length}
+          total={board.cards.length}
+        />
+      </div>
       <div className={`board-top${search ? ' searching' : ''}`} ref={boardTop}>
         {search && (
           <BoardSearch
@@ -2495,9 +2611,11 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             onMove={moveInResults}
             onOpen={openResult}
             onClose={closeSearch}
-            faded={board.cards.filter((n) => matches.has(n.id) && tagFaded(n)).length}
+            faded={board.cards.filter((n) => matches.has(n.id) && filterFaded(n)).length}
+            folded={foldedHits.length}
             onClearFilter={() => {
               setTagFilter([])
+              setAssigneeFilter([])
               revealPending.current = true
             }}
             bucketName={(card) => board.buckets.find((b) => b.id === card.bucketId)?.name ?? 'Loose'}

@@ -3,7 +3,7 @@ import type { CardDetail } from '../api/types'
 import { Highlight } from './Highlight'
 import { cardLabel } from './links'
 import { ChevronDownIcon, ChevronUpIcon, CloseIcon, SearchIcon } from './icons'
-import { excerpt, type SearchField } from './search'
+import { excerpt, wordsFor, type SearchField, type SearchTerm } from './search'
 
 export interface SearchResult {
   card: CardDetail
@@ -15,8 +15,8 @@ interface BoardSearchProps {
   inputRef: RefObject<HTMLInputElement | null>
   query: string
   onQueryChange: (query: string) => void
-  terms: string[]
-  /** Matching cards that pass the tag filter, in board order. */
+  terms: SearchTerm[]
+  /** Matching cards that pass the filters, in board order. */
   results: SearchResult[]
   /** The active result: outlined on the board, highlighted in the list. */
   current: string | null
@@ -26,8 +26,10 @@ interface BoardSearchProps {
   onMove: (direction: 1 | -1) => void
   onOpen: (cardId: string) => void
   onClose: () => void
-  /** Matches the tag filter fades, so they aren't in the results. */
+  /** Matches the filters fade, so they aren't in the results. */
   faded: number
+  /** Matches folded away in collapsed buckets, which the search marks instead. */
+  folded: number
   onClearFilter: () => void
   bucketName: (card: CardDetail) => string
 }
@@ -38,7 +40,7 @@ interface BoardSearchProps {
  */
 export function BoardSearch(props: BoardSearchProps) {
   const { inputRef, query, onQueryChange, terms, results, current, listOpen, onListOpenChange, onMove, onOpen, onClose } = props
-  const { faded, onClearFilter, bucketName } = props
+  const { faded, folded, onClearFilter, bucketName } = props
   const listRef = useRef<HTMLUListElement>(null)
   const searching = terms.length > 0
   const showList = listOpen && searching
@@ -73,6 +75,7 @@ export function BoardSearch(props: BoardSearchProps) {
           aria-controls="board-search-results"
           aria-activedescendant={showList && current ? `search-result-${current}` : undefined}
           placeholder="Search titles, tags, content, people…"
+          title="Keep a word to one field with a prefix: tag:ui, assignee:name, creator:name or color:red"
           autoComplete="off"
           spellCheck={false}
           value={query}
@@ -129,7 +132,7 @@ export function BoardSearch(props: BoardSearchProps) {
           <ul ref={listRef} id="board-search-results" className="search-result-list" role="listbox" aria-label="Search results">
             {results.length === 0 ? (
               <li className="search-empty" role="presentation">
-                {faded > 0 ? 'None of the cards the tag filter shows' : 'No card on this board'} matches “{query.trim()}”.
+                {faded > 0 ? 'None of the cards the filters show' : folded > 0 ? 'No open card' : 'No card on this board'} matches “{query.trim()}”.
               </li>
             ) : (
               results.map(({ card, fields }) => (
@@ -145,7 +148,7 @@ export function BoardSearch(props: BoardSearchProps) {
                   <span className={`link-swatch fill-${card.color.toLowerCase()}`} aria-hidden="true" />
                   <span className="search-result-text">
                     <span className="search-result-title">
-                      <Highlight text={cardLabel(card)} terms={terms} />
+                      <Highlight text={cardLabel(card)} terms={terms} field="title" />
                     </span>
                     <span className="search-result-where">
                       <FoundIn fields={fields} terms={terms} />
@@ -171,11 +174,12 @@ export function BoardSearch(props: BoardSearchProps) {
             <span>
               <kbd>Esc</kbd> close
             </span>
+            {folded > 0 && <span className="search-faded">{folded} more in collapsed buckets, marked on the board</span>}
             {faded > 0 && (
               <span className="search-faded">
-                {faded} more faded by the tag filter
+                {faded} more faded by the filters
                 <button type="button" onClick={onClearFilter}>
-                  Clear the filter
+                  Clear the filters
                 </button>
               </span>
             )}
@@ -190,7 +194,7 @@ export function BoardSearch(props: BoardSearchProps) {
  * Where a result matched: first what the card on the board doesn't show (a checklist item, who created it), then its
  * tags. The title is marked in the row already.
  */
-function FoundIn({ fields, terms }: { fields: SearchField[]; terms: string[] }) {
+function FoundIn({ fields, terms }: { fields: SearchField[]; terms: SearchTerm[] }) {
   const seen = new Set<string>()
   const shown = [...fields.filter((f) => f.kind !== 'title' && f.kind !== 'tag'), ...fields.filter((f) => f.kind === 'tag')]
     .filter((f) => !seen.has(f.label + f.text) && !!seen.add(f.label + f.text))
@@ -200,7 +204,7 @@ function FoundIn({ fields, terms }: { fields: SearchField[]; terms: string[] }) 
     <Fragment key={i}>
       {i > 0 && ' · '}
       <span className="search-where-label">{f.label}</span>
-      <Highlight text={f.kind === 'component' ? excerpt(f.text, terms) : f.text} terms={terms} />
+      <Highlight text={f.kind === 'component' ? excerpt(f.text, wordsFor(terms, 'component')) : f.text} terms={terms} field={f.kind} />
     </Fragment>
   ))
 }

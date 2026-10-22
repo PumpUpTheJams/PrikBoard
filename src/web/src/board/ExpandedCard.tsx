@@ -20,6 +20,7 @@ import { shortDate } from './dates'
 import { EditableText } from './EditableText'
 import { draggingFiles, imageFiles } from './files'
 import { Highlight } from './Highlight'
+import type { SearchTerm } from './search'
 import { BucketIcon, CheckIcon, CloseIcon, LinkIcon, PutBackIcon, SparkleIcon, TrashIcon } from './icons'
 import { cardLabel, TITLE_SUGGESTION } from './links'
 import { pop } from './motion'
@@ -73,7 +74,7 @@ interface ExpandedCardProps {
   /** A visitor of a public board: the history is for members only, so it isn't shown. */
   visiting?: boolean
   /** Words the board search found on it, to mark (opened from the search results). */
-  highlight?: string[]
+  highlight?: SearchTerm[]
   handle: RefObject<ExpandedCardHandle | null>
   /** Runs a change through the board (which then reloads), recorded for undo. */
   run: RecordingRun
@@ -259,7 +260,7 @@ export function ExpandedCard(props: ExpandedCardProps) {
             <span title={new Date(card.createdAt).toLocaleString()}>
               {card.createdBy ? (
                 <>
-                  Created by <Highlight text={card.createdBy} terms={highlight} /> ·{' '}
+                  Created by <Highlight text={card.createdBy} terms={highlight} field="creator" /> ·{' '}
                 </>
               ) : (
                 'Created '
@@ -345,7 +346,7 @@ interface TagChipsProps {
   tags: string[]
   tagColors: TagColors
   /** Search words to mark. */
-  highlight?: string[]
+  highlight?: SearchTerm[]
   onRemove: (tag: string) => void
   /** Opens the tag window next to the button. */
   onAdd: (anchor: DOMRect) => void
@@ -356,7 +357,7 @@ export function TagChips({ tags, tagColors, highlight, onRemove, onAdd }: TagChi
     <div className="band-tags">
       {tags.map((tag) => (
         <span key={tag} className={`band-tag${tagColorClass(tagColors, tag)}`}>
-          <Highlight text={tag} terms={highlight} />
+          <Highlight text={tag} terms={highlight} field="tag" />
           <button type="button" className="chip-remove" aria-label={`Remove tag ${tag}`} onClick={() => onRemove(tag)}>
             <CloseIcon size={10} />
           </button>
@@ -372,7 +373,7 @@ export function TagChips({ tags, tagColors, highlight, onRemove, onAdd }: TagChi
 interface AssigneeChipsProps {
   assignees: Assignee[]
   /** Search words to mark. */
-  highlight?: string[]
+  highlight?: SearchTerm[]
   onRemove: (assignee: Assignee) => void
   /** Opens the people window next to the button. */
   onAdd: (anchor: DOMRect) => void
@@ -384,7 +385,7 @@ function AssigneeChips({ assignees, highlight, onRemove, onAdd }: AssigneeChipsP
       {assignees.map((a) => (
         <span key={a.principalId} className="band-assignee">
           <Avatar assignee={a} />
-          <Highlight text={a.name} terms={highlight} />
+          <Highlight text={a.name} terms={highlight} field="assignee" />
           <button type="button" className="chip-remove" aria-label={`Unassign ${a.name}`} onClick={() => onRemove(a)}>
             <CloseIcon size={10} />
           </button>
