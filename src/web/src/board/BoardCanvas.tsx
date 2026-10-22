@@ -365,6 +365,16 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   /** Whether an item is drawn in front, with its bucket. */
   const inFront = (item: { bucketId: string | null }) => front !== null && item.bucketId === front
   /**
+   * Whether the front bucket hides a canvas point from what isn't in it (`bucketId`, or a collapsed bucket's own id): its
+   * fill covers the buckets, collapsed squares, cards and images under it, so a drop there doesn't reach them.
+   */
+  function coveredAt(p: Point, bucketId: string | null): boolean {
+    const bucket = front !== null && bucketId !== front ? board.buckets.find((b) => b.id === front) : undefined
+    if (!bucket) return false
+    const r = bucketRect(bucket)
+    return p.x >= r.x && p.x < r.x + r.width && p.y >= r.y && p.y < r.y + r.height
+  }
+  /**
    * A card put at a point, naming the bucket in front when it covers the card's centre there: by position alone the
    * server would put it in the bucket stacked on top, which this screen may show behind the front one.
    */
@@ -695,10 +705,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     )
   }
 
-  /** The collapsed bucket whose square is under a canvas point. */
+  /** The collapsed bucket whose square is under a canvas point (not behind the front bucket). */
   function foldAt(p: Point): BucketDetail | undefined {
     return stacked.findLast((b) => {
-      if (!b.collapsed) return false
+      if (!b.collapsed || coveredAt(p, b.id)) return false
       const r = collapsedRect(bucketRect(b))
       return p.x >= r.x && p.x < r.x + r.width && p.y >= r.y && p.y < r.y + r.height
     })
@@ -1238,12 +1248,17 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   /** Cards in the order they are drawn: the front bucket's above the rest, then the most recently updated on top. */
   const drawOrder = (a: CardDetail, b: CardDetail) => Number(inFront(a)) - Number(inFront(b)) || a.updatedAt.localeCompare(b.updatedAt)
 
-  /** The topmost card on the board under a canvas point, other than `except` (one id, or the ids of a group). */
+  /**
+   * The topmost card on the board under a canvas point, other than `except` (one id, or the ids of a group). Not one
+   * the front bucket hides there.
+   */
   function cardAt(p: Point, except?: string | Set<string>): CardDetail | undefined {
     const skip = (id: string) => (typeof except === 'string' ? id === except : !!except?.has(id))
     return visibleCards
       .toSorted(drawOrder)
-      .findLast((n) => !skip(n.id) && p.x >= n.x && p.x < n.x + CARD_WIDTH && p.y >= n.y && p.y < n.y + CARD_HEIGHT)
+      .findLast(
+        (n) => !skip(n.id) && !coveredAt(p, n.bucketId) && p.x >= n.x && p.x < n.x + CARD_WIDTH && p.y >= n.y && p.y < n.y + CARD_HEIGHT,
+      )
   }
 
   /**
@@ -1299,7 +1314,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       .flatMap((m) => (m.kind === 'card' ? board.cards.filter((n) => n.id === m.id) : []))
       .toSorted((a, b) => a.y - b.y || a.x - b.x)
     const p = g.current
-    const bucket = stacked.findLast((b) => !b.collapsed && p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height)
+    // The front bucket where it covers the pointer, else the topmost one there.
+    const under = stacked.filter((b) => !b.collapsed && p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height)
+    const bucket = under.find((b) => b.id === front) ?? under.at(-1)
     // Moved around inside the bucket they are all in already, they go where they are dropped.
     if (cards.length === 0 || !bucket || cards.every((n) => n.bucketId === bucket.id)) return null
     const edges: [GrowSide, number][] = [
