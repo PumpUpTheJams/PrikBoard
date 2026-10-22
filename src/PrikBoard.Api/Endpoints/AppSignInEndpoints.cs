@@ -62,17 +62,11 @@ public static class AppSignInEndpoints
 
         if (request.RedirectUri is not null && !IsLoopback(request.RedirectUri))
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["redirectUri"] = ["Only a loopback address such as http://127.0.0.1:<port>/callback; leave it out to paste the code."],
-            });
+            return Problems.Invalid("redirectUri", "Only a loopback address such as http://127.0.0.1:<port>/callback; leave it out to paste the code.");
         }
         if (!Base64Url.IsValid(request.CodeChallenge))
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["codeChallenge"] = ["The base64url SHA-256 of the code verifier (S256)."],
-            });
+            return Problems.Invalid("codeChallenge", "The base64url SHA-256 of the code verifier (S256).");
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -107,10 +101,7 @@ public static class AppSignInEndpoints
         var spent = grant is not null && await db.AppSignInGrants.Where(g => g.Id == grant.Id).ExecuteDeleteAsync(ct) == 1;
         if (grant is null || !spent || grant.ExpiresAt <= DateTimeOffset.UtcNow || !Matches(request.CodeVerifier, grant.CodeChallenge))
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["code"] = ["Unknown, used or expired code, or the wrong code verifier. Sign in again."],
-            });
+            return Problems.Invalid("code", "Unknown, used or expired code, or the wrong code verifier. Sign in again.");
         }
 
         if (await db.AccessTokens.CountAsync(t => t.OwnerId == grant.OwnerId, ct) >= AccessToken.MaxPerOwner)
@@ -155,7 +146,7 @@ public static class AppSignInEndpoints
 
     internal static string CleanName(string name)
     {
-        var clean = new string(name.Where(c => !char.IsControl(c)).ToArray()).Trim();
+        var clean = PatchText.OneLine(name);
         return clean.Length == 0 ? "App" : clean;
     }
 }

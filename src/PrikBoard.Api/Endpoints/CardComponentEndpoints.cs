@@ -54,7 +54,7 @@ public static class CardComponentEndpoints
                 detail: $"The card already has {CardComponent.MaxComponents} components; remove one first.");
         }
 
-        var taken = Layout.TakenOnCard(card, await db.Images.Where(i => i.CardId == cardId).ToListAsync(ct));
+        var taken = Layout.TakenOnCard(card, await db.Images.AsNoTracking().Where(i => i.CardId == cardId).ToListAsync(ct));
         if (Build(request, taken, "") is not { } component) return InvalidComponent(request, "");
         if (Check(component, "") is { } invalid) return invalid;
         await ShortenLinksAsync(db, card.BoardId, [component], ct);
@@ -160,20 +160,20 @@ public static class CardComponentEndpoints
 
     /// <summary>Why <see cref="Build"/> returned null.</summary>
     private static ValidationProblem InvalidComponent(NewCardComponent request, string prefix) =>
-        request.Kind is not { } kind ? Problem(prefix + "kind", "Give the kind: Text, Checklist or Links.")
+        request.Kind is not { } kind ? Problems.Invalid(prefix + "kind", "Give the kind: Text, Checklist or Links.")
         : Misfit(kind, request.Text, request.Items, request.Links, prefix)
-          ?? Problem(prefix + (request.X is null ? "x" : "y"), "Give X and Y together.");
+          ?? Problems.Invalid(prefix + (request.X is null ? "x" : "y"), "Give X and Y together.");
 
     /// <summary>A problem when content is given that does not fit a component of <paramref name="kind"/>.</summary>
     private static ValidationProblem? Misfit(CardComponentKind kind, string? text, List<ChecklistItem>? items, List<CardLink>? links, string prefix) =>
-        kind != CardComponentKind.Text && !string.IsNullOrEmpty(text) ? Problem(prefix + "text", $"A {kind} component has no text; use a Text component.")
-        : kind != CardComponentKind.Checklist && items is { Count: > 0 } ? Problem(prefix + "items", $"A {kind} component has no checklist items; use a Checklist component.")
-        : kind != CardComponentKind.Links && links is { Count: > 0 } ? Problem(prefix + "links", $"A {kind} component has no links; use a Links component.")
+        kind != CardComponentKind.Text && !string.IsNullOrEmpty(text) ? Problems.Invalid(prefix + "text", $"A {kind} component has no text; use a Text component.")
+        : kind != CardComponentKind.Checklist && items is { Count: > 0 } ? Problems.Invalid(prefix + "items", $"A {kind} component has no checklist items; use a Checklist component.")
+        : kind != CardComponentKind.Links && links is { Count: > 0 } ? Problems.Invalid(prefix + "links", $"A {kind} component has no links; use a Links component.")
         : null;
 
     private static ValidationProblem? Check(CardComponent component, string prefix) =>
         component.Links.Find(l => !CardLinks.IsValid(l.Url)) is { } bad
-            ? Problem(prefix + "links", $"\"{bad.Url}\" is neither an absolute http or https URL nor a card's path (/#/boards/{{shortId}}/cards/{{number}}).")
+            ? Problems.Invalid(prefix + "links", $"\"{bad.Url}\" is neither an absolute http or https URL nor a card's path (/#/boards/{{shortId}}/cards/{{number}}).")
             : null;
 
     /// <summary>
@@ -191,7 +191,7 @@ public static class CardComponentEndpoints
         if (links.Count == 0) return;
 
         var ids = links.Select(l => l.CardId).Distinct().ToList();
-        var paths = await db.Cards.AsNoTracking().IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+        var paths = await db.Cards.AsNoTracking().WithDeleted()
             .Where(n => n.BoardId == boardId && ids.Contains(n.Id))
             .Select(n => new { n.Id, n.Number, n.Board!.ShortId })
             .ToDictionaryAsync(n => n.Id, n => CardLinks.CardPath(n.ShortId, n.Number), ct);
@@ -200,9 +200,6 @@ public static class CardComponentEndpoints
             if (paths.TryGetValue(cardId, out var path)) link.Url = path;
         }
     }
-
-    private static ValidationProblem Problem(string key, string message) =>
-        TypedResults.ValidationProblem(new Dictionary<string, string[]> { [key] = [message] });
 
     private static string? Clean(string? title) => title?.Trim();
 
@@ -213,9 +210,6 @@ public static class CardComponentEndpoints
         links.Select(l => new LinkEntry { Title = l.Title.Trim(), Url = l.Url.Trim() }).ToList();
 
     /// <summary>Locks the card's row until the transaction ends, then loads it; null when it does not exist.</summary>
-    private static async Task<Card?> LockedCardAsync(PrikBoardDbContext db, Guid cardId, CancellationToken ct)
-    {
-        await db.Database.ExecuteSqlInterpolatedAsync($"""SELECT 1 FROM "Cards" WHERE "Id" = {cardId} FOR UPDATE""", ct);
-        return await db.Cards.FirstOrDefaultAsync(n => n.Id == cardId, ct);
-    }
+    private static Task<Card?> LockedCardAsync(PrikBoardDbContext db, Guid cardId, CancellationToken ct) =>
+        db.Cards.FromSql($"""SELECT * FROM "Cards" WHERE "Id" = {cardId} FOR UPDATE""").FirstOrDefaultAsync(ct);
 }

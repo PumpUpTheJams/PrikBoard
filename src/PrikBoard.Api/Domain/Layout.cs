@@ -146,7 +146,7 @@ public static class Layout
     /// <summary>Cards bucket by bucket (in list order, loose cards last), then top to bottom and left to right.</summary>
     public static List<Card> ReadingOrder(IEnumerable<Card> cards, IEnumerable<Bucket> buckets)
     {
-        var rank = InListOrder(buckets).Select((b, i) => (b.Id, i)).ToDictionary(p => p.Id, p => p.i);
+        var rank = InListOrder(buckets).Index().ToDictionary(p => p.Item.Id, p => p.Index);
         return cards
             .OrderBy(n => n.BucketId is { } id && rank.TryGetValue(id, out var r) ? r : int.MaxValue)
             .ThenBy(n => n.Y).ThenBy(n => n.X)
@@ -174,7 +174,7 @@ public static class Layout
     /// in it stays put), downwards once that side reaches the size or coordinate limit. Slots that can't be found at all
     /// are the top-left one.
     /// </summary>
-    public static List<(int X, int Y)> FreeSpotsIn(
+    private static List<(int X, int Y)> FreeSpotsIn(
         Bucket bucket, int count, IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, IEnumerable<Bucket> buckets, GrowSide grow)
     {
         var above = BackToFront(buckets).SkipWhile(b => b.Id != bucket.Id).Skip(1)
@@ -213,12 +213,14 @@ public static class Layout
     {
         var right = bucket.X + Math.Max(bucket.Width, MinBucketWidth) - Gap;
         var bottom = bucket.Y + Math.Max(bucket.Height, MinBucketHeight) - Gap;
+        // Every place with the gap around it lies inside the bucket, so only what reaches into the bucket can be in the way.
+        var inTheWay = Touching(taken, Bounds(bucket));
         for (var y = bucket.Y + Gap; y + CardHeight <= bottom && spots.Count < count; y += Grid)
         {
             for (var x = bucket.X + Gap; x + CardWidth <= right && spots.Count < count; x += Grid)
             {
                 var around = (x - Gap, y - Gap, CardWidth + 2 * Gap, CardHeight + 2 * Gap);
-                if (taken.Any(t => Intersects(t, around)) || spots.Any(s => Intersects((s.X, s.Y, CardWidth, CardHeight), around))) continue;
+                if (AnyIntersects(inTheWay, around) || AnyCardIntersects(spots, around)) continue;
                 spots.Add((x, y));
             }
         }
@@ -234,12 +236,15 @@ public static class Layout
         var spots = new List<(int X, int Y)>();
         var right = bucket.X + Math.Max(bucket.Width, MinBucketWidth) - Gap;
         var bottom = bucket.Y + Math.Max(bucket.Height, MinBucketHeight) - Gap;
+        // Slots lie inside the bucket, so only what reaches into it can cover one.
+        var bounds = Bounds(bucket);
+        var inTheWay = Touching(taken, bounds);
+        inTheWay.AddRange(Touching(above, bounds));
         for (var y = bucket.Y + Gap; y + CardHeight <= bottom && spots.Count < count; y += RowStep)
         {
             for (var x = bucket.X + Gap; x + CardWidth <= right && spots.Count < count; x += ColumnStep)
             {
-                if (taken.Any(t => Overlaps(t.X, t.Y, t.Width, t.Height, x, y))) continue;
-                if (above.Any(b => Overlaps(b.X, b.Y, b.Width, b.Height, x, y))) continue;
+                if (AnyIntersects(inTheWay, (x, y, CardWidth, CardHeight))) continue;
                 spots.Add((x, y));
             }
         }
@@ -281,15 +286,13 @@ public static class Layout
     /// <summary>The first grid slot near the top-left of the board that is clear of every bucket and card.</summary>
     public static (int X, int Y) FreeSpotOutside(IReadOnlyCollection<Bucket> buckets, IReadOnlyCollection<Card> cards)
     {
+        List<(int X, int Y, int Width, int Height)> taken =
+            [.. buckets.Select(b => (b.X, b.Y, b.Width, b.Height)), .. cards.Select(n => (n.X, n.Y, CardWidth, CardHeight))];
         for (var y = Gap * 2; y < MaxCoordinate; y += CardHeight + Gap)
         {
             for (var x = Gap * 2; x < LooseAreaWidth; x += CardWidth + Gap)
             {
-                if (!buckets.Any(b => Overlaps(b.X, b.Y, b.Width, b.Height, x, y))
-                    && !cards.Any(n => Overlaps(n.X, n.Y, CardWidth, CardHeight, x, y)))
-                {
-                    return (x, y);
-                }
+                if (!AnyIntersects(taken, (x, y, CardWidth, CardHeight))) return (x, y);
             }
         }
         return (Gap * 2, Gap * 2);
@@ -338,11 +341,12 @@ public static class Layout
     /// </summary>
     public static (int X, int Y) NextCardSpot(IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, int width, int height)
     {
+        List<(int X, int Y, int Width, int Height)> rects = [.. taken];
         for (var y = Gap; y + height <= CardCanvasMax; y += Grid)
         {
             for (var x = Gap; x == Gap || x + width <= ComponentAreaWidth; x += Grid)
             {
-                if (!taken.Any(t => Intersects(t, (x - Gap, y - Gap, width + 2 * Gap, height + 2 * Gap)))) return (x, y);
+                if (!AnyIntersects(rects, (x - Gap, y - Gap, width + 2 * Gap, height + 2 * Gap))) return (x, y);
             }
         }
         return (Gap, Gap);
@@ -355,7 +359,37 @@ public static class Layout
     public static bool Intersects((int X, int Y, int Width, int Height) a, (int X, int Y, int Width, int Height) b) =>
         a.X < b.X + b.Width && b.X < a.X + a.Width && a.Y < b.Y + b.Height && b.Y < a.Y + a.Height;
 
-    /// <summary>Whether a rectangle overlaps a card-sized rectangle at (<paramref name="cardX"/>, <paramref name="cardY"/>).</summary>
-    private static bool Overlaps(int x, int y, int width, int height, int cardX, int cardY) =>
-        x < cardX + CardWidth && cardX < x + width && y < cardY + CardHeight && cardY < y + height;
+    /// <summary>The rectangle a bucket's cards are laid out in: at least the smallest bucket's size.</summary>
+    private static (int X, int Y, int Width, int Height) Bounds(Bucket bucket) =>
+        (bucket.X, bucket.Y, Math.Max(bucket.Width, MinBucketWidth), Math.Max(bucket.Height, MinBucketHeight));
+
+    /// <summary>The rectangles that reach into <paramref name="area"/>.</summary>
+    private static List<(int X, int Y, int Width, int Height)> Touching(
+        IEnumerable<(int X, int Y, int Width, int Height)> rects, (int X, int Y, int Width, int Height) area)
+    {
+        var touching = new List<(int X, int Y, int Width, int Height)>();
+        foreach (var rect in rects)
+        {
+            if (Intersects(rect, area)) touching.Add(rect);
+        }
+        return touching;
+    }
+
+    private static bool AnyIntersects(List<(int X, int Y, int Width, int Height)> rects, (int X, int Y, int Width, int Height) rect)
+    {
+        foreach (var other in rects)
+        {
+            if (Intersects(other, rect)) return true;
+        }
+        return false;
+    }
+
+    private static bool AnyCardIntersects(List<(int X, int Y)> cards, (int X, int Y, int Width, int Height) rect)
+    {
+        foreach (var (x, y) in cards)
+        {
+            if (Intersects((x, y, CardWidth, CardHeight), rect)) return true;
+        }
+        return false;
+    }
 }

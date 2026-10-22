@@ -3,7 +3,6 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrikBoard.Api.Auth;
 using PrikBoard.Api.Domain;
 
@@ -20,7 +19,8 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
     /// <summary>Quick edits of a title, color or component by the same caller within this time are merged into one change.</summary>
     public static readonly TimeSpan MergeWithin = TimeSpan.FromMinutes(2);
 
-    private static readonly CardChangeKind[] Mergeable = [CardChangeKind.Title, CardChangeKind.Color, CardChangeKind.ComponentChanged];
+    private static bool Mergeable(CardChangeEntry entry) =>
+        entry.Kind is CardChangeKind.Title or CardChangeKind.Color or CardChangeKind.ComponentChanged;
 
     public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
         DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
@@ -46,7 +46,23 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
 
     private static async Task RecordAsync(PrikBoardDbContext db, Guid actor, bool async, CancellationToken ct)
     {
-        db.ChangeTracker.DetectChanges();
+        // Detect changes once: every Entries<T>() below would detect them again, and SaveChanges does after this anyway.
+        var tracker = db.ChangeTracker;
+        tracker.DetectChanges();
+        var autoDetect = tracker.AutoDetectChangesEnabled;
+        tracker.AutoDetectChangesEnabled = false;
+        try
+        {
+            await RecordChangesAsync(db, actor, async, ct);
+        }
+        finally
+        {
+            tracker.AutoDetectChangesEnabled = autoDetect;
+        }
+    }
+
+    private static async Task RecordChangesAsync(PrikBoardDbContext db, Guid actor, bool async, CancellationToken ct)
+    {
         if (db.ChangeTracker.Entries<Board>().Any(e => e.State == EntityState.Added)) return;
 
         var changes = new Dictionary<Guid, (Guid BoardId, List<CardChangeEntry> Entries)>();
@@ -67,27 +83,39 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
             }
             if (entry.State != EntityState.Modified) continue;
 
-            T Was<T>(System.Linq.Expressions.Expression<Func<Card, T>> property) => entry.Property(property).OriginalValue;
-            if (Was(n => n.DeletedAt) is not null && card.DeletedAt is null) Add(card.Id, card.BoardId, new(CardChangeKind.Restored));
-            if (Was(n => n.Title) is var title && title != card.Title)
+            T Was<T>(string property) => entry.Property<T>(property).OriginalValue;
+            bool Changed(string property) => entry.Property(property).IsModified;
+            if (Was<DateTimeOffset?>(nameof(Card.DeletedAt)) is not null && card.DeletedAt is null) Add(card.Id, card.BoardId, new(CardChangeKind.Restored));
+            if (Was<string>(nameof(Card.Title)) is var title && title != card.Title)
             {
                 Add(card.Id, card.BoardId, new(CardChangeKind.Title, title, card.Title));
             }
-            if (Was(n => n.Color) is var color && color != card.Color)
+            if (Was<CardColor>(nameof(Card.Color)) is var color && color != card.Color)
             {
                 Add(card.Id, card.BoardId, new(CardChangeKind.Color, color.ToString(), card.Color.ToString()));
             }
-            if (Diff(Was(n => n.Tags), card.Tags) is { } tags) Add(card.Id, card.BoardId, tags with { Kind = CardChangeKind.Tags });
-            if (Diff(Was(n => n.AssigneeIds).Select(id => id.ToString()), card.AssigneeIds.Select(id => id.ToString())) is { } people)
+            if (Changed(nameof(Card.Tags)) && Diff(CardChangeKind.Tags, Was<List<string>>(nameof(Card.Tags)), card.Tags) is { } tags)
             {
-                Add(card.Id, card.BoardId, people with { Kind = CardChangeKind.Assignees });
+                Add(card.Id, card.BoardId, tags);
             }
-            if (Was(n => n.AgentWorking) != card.AgentWorking)
+            if (Changed(nameof(Card.AssigneeIds))
+                && Diff(CardChangeKind.Assignees, Was<List<Guid>>(nameof(Card.AssigneeIds)).Select(id => id.ToString()),
+                    card.AssigneeIds.Select(id => id.ToString())) is { } people)
+            {
+                Add(card.Id, card.BoardId, people);
+            }
+            if (Was<bool>(nameof(Card.AgentWorking)) != card.AgentWorking)
             {
                 Add(card.Id, card.BoardId, new(CardChangeKind.AgentWorking, After: card.AgentWorking ? "true" : "false"));
             }
-            if (Was(n => n.BucketId) is var bucket && bucket != card.BucketId) moves.Add((card.Id, card.BoardId, bucket, card.BucketId));
-            foreach (var component in DiffComponents(Was(n => n.Components), card.Components)) Add(card.Id, card.BoardId, component);
+            if (Was<Guid?>(nameof(Card.BucketId)) is var bucket && bucket != card.BucketId) moves.Add((card.Id, card.BoardId, bucket, card.BucketId));
+            if (Changed(nameof(Card.Components)))
+            {
+                foreach (var component in DiffComponents(Was<List<CardComponent>>(nameof(Card.Components)), card.Components))
+                {
+                    Add(card.Id, card.BoardId, component);
+                }
+            }
         }
 
         // Images and drawings on a card's canvas: added, moved onto or off the card, deleted (ExecuteUpdate, see Record) or restored.
@@ -96,17 +124,18 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
         {
             foreach (var entry in entries)
             {
-                var (id, boardId) = ((Guid)entry.Property("Id").CurrentValue!, (Guid)entry.Property("BoardId").CurrentValue!);
-                var on = (Guid?)entry.Property("CardId").CurrentValue;
+                if (entry.State is not (EntityState.Added or EntityState.Modified)) continue;
+                var (id, boardId) = (entry.Property<Guid>("Id").CurrentValue, entry.Property<Guid>("BoardId").CurrentValue);
+                var on = entry.Property<Guid?>("CardId").CurrentValue;
                 if (entry.State == EntityState.Added)
                 {
                     if (on is { } cardId) Add(cardId, boardId, new(added, After: label(entry.Entity), Ref: id));
                     continue;
                 }
-                if (entry.State != EntityState.Modified) continue;
 
-                var was = (Guid?)entry.Property("CardId").OriginalValue;
-                var restored = entry.Property("DeletedAt").OriginalValue is not null && entry.Property("DeletedAt").CurrentValue is null;
+                var was = entry.Property<Guid?>("CardId").OriginalValue;
+                var deletedAt = entry.Property<DateTimeOffset?>("DeletedAt");
+                var restored = deletedAt.OriginalValue is not null && deletedAt.CurrentValue is null;
                 if (was is { } from && from != on) Add(from, boardId, new(removed, Before: label(entry.Entity), Ref: id));
                 if (on is { } to && (to != was || restored)) Add(to, boardId, new(added, After: label(entry.Entity), Ref: id));
             }
@@ -116,7 +145,13 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
 
         if (moves.Count > 0)
         {
-            var names = await BucketNamesAsync(db, moves.SelectMany(m => new[] { m.From, m.To }).OfType<Guid>().ToHashSet(), async, ct);
+            var bucketIds = new HashSet<Guid>();
+            foreach (var (_, _, from, to) in moves)
+            {
+                if (from is { } f) bucketIds.Add(f);
+                if (to is { } t) bucketIds.Add(t);
+            }
+            var names = await BucketNamesAsync(db, bucketIds, async, ct);
             foreach (var (cardId, boardId, from, to) in moves)
             {
                 Add(cardId, boardId, new(CardChangeKind.Bucket, from is { } f ? names.GetValueOrDefault(f) : null, to is { } t ? names.GetValueOrDefault(t) : null));
@@ -126,7 +161,7 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
         var now = DateTimeOffset.UtcNow;
         foreach (var (cardId, (boardId, entries)) in changes)
         {
-            if (entries.All(e => Mergeable.Contains(e.Kind)) && await LatestAsync(db, cardId, async, ct) is { } last
+            if (entries.All(Mergeable) && await LatestAsync(db, cardId, async, ct) is { } last
                 && last.ById == actor && now - last.At < MergeWithin)
             {
                 // A title or color given right after adding the card is part of creating it.
@@ -135,7 +170,7 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
                 {
                     continue;
                 }
-                if (last.Entries.All(e => Mergeable.Contains(e.Kind)))
+                if (last.Entries.All(Mergeable))
                 {
                     var merged = Merge(last.Entries, entries);
                     if (merged.Count == 0)
@@ -155,13 +190,13 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
     }
 
     /// <summary>What was added to and removed from a list, or null when nothing was.</summary>
-    private static CardChangeEntry? Diff(IEnumerable<string> before, IEnumerable<string> after)
+    private static CardChangeEntry? Diff(CardChangeKind kind, IEnumerable<string> before, IEnumerable<string> after)
     {
         var added = after.Except(before).ToList();
         var removed = before.Except(after).ToList();
         return added.Count == 0 && removed.Count == 0
             ? null
-            : new(CardChangeKind.Tags, Added: added.Count > 0 ? added : null, Removed: removed.Count > 0 ? removed : null);
+            : new(kind, Added: added.Count > 0 ? added : null, Removed: removed.Count > 0 ? removed : null);
     }
 
     /// <summary>Components added, removed or with new content; moving or resizing a component isn't a change worth listing.</summary>
@@ -215,7 +250,7 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
         var missing = ids.Where(id => !names.ContainsKey(id)).ToList();
         if (missing.Count > 0)
         {
-            var query = db.Buckets.AsNoTracking().IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+            var query = db.Buckets.AsNoTracking().WithDeleted()
                 .Where(b => missing.Contains(b.Id)).Select(b => new { b.Id, b.Name });
             foreach (var bucket in async ? await query.ToListAsync(ct) : query.ToList())
             {
@@ -224,37 +259,4 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
         }
         return names;
     }
-}
-
-/// <summary>Stores a <see cref="CardChange"/>'s entries as one jsonb array with camelCase names, like <see cref="CardComponentsJson"/>.</summary>
-public static class CardChangesJson
-{
-    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
-    {
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
-        // Beats the enum's own converter, so a kind this version doesn't know reads as Other instead of failing the row.
-        Converters = { new KindConverter() },
-    };
-
-    private sealed class KindConverter : System.Text.Json.Serialization.JsonConverter<CardChangeKind>
-    {
-        public override CardChangeKind Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
-            reader.TokenType == JsonTokenType.String && Enum.TryParse<CardChangeKind>(reader.GetString(), out var kind) && Enum.IsDefined(kind)
-                ? kind
-                : CardChangeKind.Other;
-
-        public override void Write(Utf8JsonWriter writer, CardChangeKind value, JsonSerializerOptions options) =>
-            writer.WriteStringValue(value.ToString());
-    }
-
-    private static string Write(List<CardChangeEntry> entries) => JsonSerializer.Serialize(entries, Options);
-
-    private static List<CardChangeEntry> Read(string json) => JsonSerializer.Deserialize<List<CardChangeEntry>>(json, Options) ?? [];
-
-    public static readonly ValueConverter<List<CardChangeEntry>, string> Converter = new(v => Write(v), v => Read(v));
-
-    public static readonly ValueComparer<List<CardChangeEntry>> Comparer = new(
-        (a, b) => Write(a!) == Write(b!),
-        v => Write(v).GetHashCode(),
-        v => Read(Write(v)));
 }

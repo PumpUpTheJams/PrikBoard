@@ -23,7 +23,7 @@ public class DiscordGuild
     public DateTimeOffset ConnectedAt { get; set; } = DateTimeOffset.UtcNow;
 
     /// <summary>A Discord id as Discord writes it: 1 to 20 digits.</summary>
-    public static bool IsId(string? value) => value is { Length: > 0 and <= IdMaxLength } && value.All(char.IsAsciiDigit);
+    public static bool IsId(string? value) => value is { Length: > 0 and <= IdMaxLength } && !value.AsSpan().ContainsAnyExceptInRange('0', '9');
 }
 
 /// <summary>

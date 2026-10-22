@@ -155,17 +155,17 @@ public static partial class AuthSetup
                 policy.AuthenticationSchemes = [AccessTokenScheme, .. issuers.Select(i => TokenScheme(i.Key))];
                 policy.RequireAuthenticatedUser().RequireAssertion(context =>
                     context.User.IsToken()
-                    && ApiScopes.Of(context.User) is var granted && (granted.Contains(ApiScopes.Read) || granted.Contains(ApiScopes.Write))
+                    && ApiScopes.CanRead(context.User)
                     && (context.Resource is not HttpContext http
                         || string.IsNullOrEmpty(http.Request.Headers.Origin) || SameOrigin.Check(http.Request)));
             })
             .AddPolicy(LivePolicy, policy => policy.RequireAssertion(context =>
                 context.User.IsToken()
-                    ? ApiScopes.Of(context.User) is var granted && (granted.Contains(ApiScopes.Read) || granted.Contains(ApiScopes.Write))
+                    ? ApiScopes.CanRead(context.User)
                     : context.Resource is HttpContext http && !HasCredentials(http.Request, context.User) && SameOrigin.Check(http.Request)))
             .AddPolicy(PublicReadPolicy, policy => policy.RequireAssertion(context =>
                 context.User.Identity?.IsAuthenticated == true
-                    ? ApiScopes.Of(context.User) is var granted && (granted.Contains(ApiScopes.Read) || granted.Contains(ApiScopes.Write))
+                    ? ApiScopes.CanRead(context.User)
                     : context.Resource is not HttpContext http || !HasCredentials(http.Request, context.User)))
             .AddPolicy(DiscordPolicy, policy => policy.RequireAuthenticatedUser().RequireAssertion(context => context.User.IsDiscordToken()))
             // Every endpoint without its own authorization metadata gets the API policy.
@@ -339,7 +339,6 @@ public static partial class AuthSetup
         if (email is not null)
         {
             identity.AddClaim(new("email", email));
-            // Only GitHub's verified primary address is picked above.
             identity.AddClaim(new("email_verified", "true"));
         }
     }
@@ -349,7 +348,7 @@ public static partial class AuthSetup
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", context.AccessToken);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
-        request.Headers.UserAgent.Add(new ProductInfoHeaderValue("PrikBoard", "1.0"));
+        request.Headers.UserAgent.Add(new ProductInfoHeaderValue("PrikBoard", AppVersion.Number));
 
         using var response = await context.Backchannel.SendAsync(request, context.HttpContext.RequestAborted);
         response.EnsureSuccessStatusCode();

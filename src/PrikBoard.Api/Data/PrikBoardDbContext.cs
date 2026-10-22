@@ -7,7 +7,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
 {
     /// <summary>
     /// The query filter that hides deleted cards, buckets, images, drawings and tags until they are restored or purged
-    /// (<see cref="Tombstones"/>). Bypass it with <c>IgnoreQueryFilters([SoftDelete])</c>; raw SQL never applies it.
+    /// (<see cref="Tombstones"/>). Bypass it with <see cref="Tombstones.WithDeleted"/>; raw SQL never applies it.
     /// </summary>
     public const string SoftDelete = "SoftDelete";
 

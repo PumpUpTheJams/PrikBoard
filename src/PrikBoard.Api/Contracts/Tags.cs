@@ -15,10 +15,11 @@ public record BoardTagDetail(Guid Id, string Name, TagColor Color, int CardCount
 {
     public static BoardTagDetail From(BoardTag tag, int cardCount) => new(tag.Id, tag.Name, tag.Color, cardCount);
 
-    /// <summary>The board's tags by name, each with the number of <paramref name="cards"/> using it.</summary>
-    public static List<BoardTagDetail> List(IEnumerable<BoardTag> tags, IEnumerable<Card> cards)
+    /// <summary>The board's tags by name, each with the number of cards using it (<paramref name="cardTags"/>: each card's tags).</summary>
+    public static List<BoardTagDetail> List(IEnumerable<BoardTag> tags, IEnumerable<IEnumerable<string>> cardTags)
     {
-        var counts = cards.SelectMany(n => n.Tags).CountBy(t => t).ToDictionary();
+        var counts = new Dictionary<string, int>();
+        foreach (var tag in cardTags.SelectMany(t => t)) counts[tag] = counts.GetValueOrDefault(tag) + 1;
         return tags.OrderBy(t => t.Name, StringComparer.Ordinal)
             .Select(t => From(t, counts.GetValueOrDefault(t.Name)))
             .ToList();

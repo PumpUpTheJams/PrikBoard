@@ -16,7 +16,10 @@ public static class UserPrincipal
     public const string SuggestedNameClaim = "prikboard_suggested_name";
     /// <summary>The provider's picture URL, which the person may take as avatar (see <see cref="ProviderAvatars"/>); never stored.</summary>
     public const string SuggestedAvatarClaim = "prikboard_suggested_avatar";
-    /// <summary>On token principals: the <see cref="Agent"/> id the token's client maps to.</summary>
+    /// <summary>
+    /// On token principals: who the token acts for, usually the <see cref="Agent"/> its client maps to; the person
+    /// themselves for app tokens and an issuer's UserClients.
+    /// </summary>
     public const string PrincipalClaim = "prikboard_principal";
 
     public static ClaimsPrincipal Create(

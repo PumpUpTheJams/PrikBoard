@@ -3,15 +3,18 @@ using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Contracts;
 
-/// <summary>A bucket: a named rectangle on the board. Cards whose centre lies inside it belong to it.</summary>
+/// <summary>
+/// A bucket: a named rectangle on the board. A card, image or drawing put down with its centre inside it (where it is the
+/// topmost bucket) belongs to it and moves with it.
+/// </summary>
 /// <param name="Id">Bucket identifier.</param>
 /// <param name="BoardId">Board the bucket belongs to.</param>
 /// <param name="Name">Bucket name, e.g. "To do", "Doing" or "Done".</param>
 /// <param name="Color">Outline color.</param>
 /// <param name="X">Left edge in canvas pixels, a multiple of the 20 px grid.</param>
 /// <param name="Y">Top edge in canvas pixels, a multiple of the 20 px grid.</param>
-/// <param name="Width">Width in pixels, a multiple of 20 and at least 200.</param>
-/// <param name="Height">Height in pixels, a multiple of 20 and at least 200.</param>
+/// <param name="Width">Width in pixels, a multiple of 20 and at least 240.</param>
+/// <param name="Height">Height in pixels, a multiple of 20 and at least 160.</param>
 /// <param name="Collapsed">Folded up into a 120 px square in its top-right corner: its cards are hidden on the board (they keep their places, and still belong to it) until it is opened again.</param>
 /// <param name="StackedAt">Its place in the stack, the same for everyone: the later, the higher. Where buckets overlap, the topmost is drawn above the others and an item put there joins it. Drawing, moving, resizing, opening or filling a bucket puts it on top, and so does bringBucketToFront.</param>
 public record BucketDetail(
@@ -21,12 +24,12 @@ public record BucketDetail(
         new(bucket.Id, bucket.BoardId, bucket.Name, bucket.Color, bucket.X, bucket.Y, bucket.Width, bucket.Height, bucket.Collapsed, bucket.StackedAt);
 }
 
-/// <summary>Draws a bucket on a board. Loose cards it covers join it. Coordinates snap to the 20 px grid.</summary>
+/// <summary>Draws a bucket on a board, on top of the others. The cards, images and drawings whose centre it covers join it. Coordinates snap to the 20 px grid.</summary>
 /// <param name="Name">Bucket name.</param>
 /// <param name="Color">Outline color; defaults to Blue.</param>
 /// <param name="X">Left edge; omit X and Y to place the bucket to the right of the existing ones.</param>
 /// <param name="Y">Top edge; give it together with X.</param>
-/// <param name="Width">Width in pixels; defaults to 420.</param>
+/// <param name="Width">Width in pixels; defaults to 240.</param>
 /// <param name="Height">Height in pixels; defaults to 600.</param>
 public record CreateBucketRequest(
     [property: Required, StringLength(100)] string Name,
@@ -38,10 +41,9 @@ public record CreateBucketRequest(
 
 /// <summary>
 /// Renames, recolors, moves and/or resizes a bucket. Omitted (null) fields stay unchanged.
-/// Moving a bucket carries its cards along, and the images on the board whose centre lies in it (the topmost bucket
-/// there, as for cards). Giving a new X or Y together with a new Width or Height resizes it from a top or left corner or
-/// edge instead, and its cards and images stay where they are. Afterwards every card belongs to whichever bucket now
-/// contains its centre.
+/// Moving a bucket carries its own cards, images and drawings along and changes no item's bucket, also where it overlaps
+/// another one. Giving a new X or Y together with a new Width or Height resizes it from a top or left corner or edge
+/// instead: its items stay where they are, those now outside it leave it, and loose ones it now covers join it.
 /// </summary>
 /// <param name="Name">New name.</param>
 /// <param name="Color">New outline color.</param>

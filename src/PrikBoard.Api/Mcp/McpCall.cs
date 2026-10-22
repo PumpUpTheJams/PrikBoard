@@ -35,7 +35,7 @@ internal static class McpCall
     /// <summary>Checks the caller's role on the board an id belongs to; answers the board id.</summary>
     public static async Task<Guid> AuthorizeAsync(HttpContext http, BoardScope scope, Guid id, BoardRole minimum)
     {
-        if (minimum >= BoardRole.Editor && !ApiScopes.Of(http.User).Contains(ApiScopes.Write))
+        if (minimum >= BoardRole.Editor && !ApiScopes.Has(http.User, ApiScopes.Write))
         {
             throw new McpException("This token is read-only (boards:read), so it cannot change anything.");
         }

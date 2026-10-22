@@ -7,23 +7,17 @@ namespace PrikBoard.Api.Data;
 
 /// <summary>
 /// Stores the channels a Discord server may preview a board in as a jsonb array, <c>[{"id":"123…","name":"general"}]</c>.
-/// A null list (the whole server) is a SQL null. Nothing queries inside the column.
+/// A null list (the whole server) is a SQL null.
 /// </summary>
 public static class DiscordChannelsJson
 {
-    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
-
-    private static string Write(List<DiscordChannel> channels) => JsonSerializer.Serialize(channels, Options);
-
-    private static List<DiscordChannel> Read(string json) => JsonSerializer.Deserialize<List<DiscordChannel>>(json, Options) ?? [];
-
     public static readonly ValueConverter<List<DiscordChannel>?, string?> Converter = new(
-        v => v == null ? null : Write(v),
-        v => v == null ? null : Read(v));
+        v => v == null ? null : JsonSerializer.Serialize(v, JsonSerializerOptions.Web),
+        v => v == null ? null : JsonSerializer.Deserialize<List<DiscordChannel>>(v, JsonSerializerOptions.Web));
 
-    /// <summary>Compares by content and snapshots a copy, so changes made in place are saved too.</summary>
+    /// <summary>Compares the channels (records, so by value) and snapshots a copy, so changes made in place are saved too.</summary>
     public static readonly ValueComparer<List<DiscordChannel>?> Comparer = new(
-        (a, b) => (a == null ? null : Write(a)) == (b == null ? null : Write(b)),
-        v => v == null ? 0 : Write(v).GetHashCode(),
+        (a, b) => a == null ? b == null : b != null && a.SequenceEqual(b),
+        v => v == null ? 0 : v.Count,
         v => v == null ? null : v.ToList());
 }

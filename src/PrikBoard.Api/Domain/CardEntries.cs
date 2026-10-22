@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace PrikBoard.Api.Domain;
 
-// Small value objects stored inside a card (as JSON columns), always read and replaced as a whole list.
+// Small value objects stored in a card's components (its jsonb column), and the kind of an assignee.
 
 /// <summary>Whether an assignee is a person or an AI agent.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<AssigneeKind>))]

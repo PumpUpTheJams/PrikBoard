@@ -6,7 +6,7 @@ namespace PrikBoard.Api.Domain;
 [JsonConverter(typeof(JsonStringEnumConverter<CardComponentKind>))]
 public enum CardComponentKind
 {
-    /// <summary>Free text, such as a description or cards.</summary>
+    /// <summary>Free text, such as a description or notes.</summary>
     Text,
     /// <summary>A checklist, such as acceptance criteria.</summary>
     Checklist,

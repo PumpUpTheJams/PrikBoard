@@ -75,7 +75,7 @@ public sealed class BoardHub(LiveViewers viewers, PrikBoardDbContext db) : Hub<I
             principal is Agent ? PrincipalKind.Agent : PrincipalKind.User,
             principal.ShownName,
             Avatars.UrlOf(principal),
-            ApiScopes.Of(user).Contains(ApiScopes.Write)));
+            ApiScopes.Has(user, ApiScopes.Write)));
         await base.OnConnectedAsync();
     }
 
@@ -145,9 +145,7 @@ public sealed class BoardHub(LiveViewers viewers, PrikBoardDbContext db) : Hub<I
             throw new HubException($"A Group drag lists between 1 and {DragUpdate.MaxItems} items; other drags list none.");
         }
 
-        var now = Stopwatch.GetTimestamp();
-        if (now - entry.LastDragAt < DragInterval) return;
-        viewers.Update(Context.ConnectionId, e => e with { LastDragAt = now });
+        if (!viewers.TakeDragTurn(Context.ConnectionId, Stopwatch.GetTimestamp(), DragInterval)) return;
 
         await Clients.OthersInGroup(Group(boardId)).Dragging(
             new RemoteDrag(entry.Key, entry.PrincipalId, entry.DisplayName, update.Kind, update.Id, update.Dx, update.Dy, update.Handle, update.Items));

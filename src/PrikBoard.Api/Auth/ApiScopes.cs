@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 
@@ -23,13 +24,36 @@ public static class ApiScopes
     /// </summary>
     public static IReadOnlySet<string> Of(ClaimsPrincipal principal)
     {
-        if (!principal.IsToken()) return new HashSet<string> { Read, Write };
+        if (!principal.IsToken()) return Everything;
 
         return principal.Claims
-            .Where(c => c.Type is "scope" or "scp" or "roles")
+            .Where(IsScopeClaim)
             .SelectMany(c => c.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
             .ToHashSet(StringComparer.Ordinal);
     }
+
+    /// <summary>Whether the principal was granted <paramref name="scope"/>, like <see cref="Of"/> but without building the set (every request asks).</summary>
+    public static bool Has(ClaimsPrincipal principal, string scope)
+    {
+        if (!principal.IsToken()) return Everything.Contains(scope);
+        foreach (var claim in principal.Claims)
+        {
+            if (!IsScopeClaim(claim)) continue;
+            var value = claim.Value.AsSpan();
+            foreach (var range in value.Split(' '))
+            {
+                if (value[range].SequenceEqual(scope)) return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Whether the principal may read at all (boards:read or boards:write).</summary>
+    public static bool CanRead(ClaimsPrincipal principal) => Has(principal, Read) || Has(principal, Write);
+
+    private static readonly FrozenSet<string> Everything = new[] { Read, Write }.ToFrozenSet(StringComparer.Ordinal);
+
+    private static bool IsScopeClaim(Claim claim) => claim.Type is "scope" or "scp" or "roles";
 
     public class Requirement : IAuthorizationRequirement;
 
@@ -37,9 +61,8 @@ public static class ApiScopes
     {
         protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, Requirement requirement)
         {
-            var method = (context.Resource as HttpContext)?.Request.Method;
-            var granted = Of(context.User);
-            var allowed = granted.Contains(Write) || (granted.Contains(Read) && (HttpMethods.IsGet(method ?? "") || HttpMethods.IsHead(method ?? "")));
+            var method = (context.Resource as HttpContext)?.Request.Method ?? "";
+            var allowed = Has(context.User, Write) || (Has(context.User, Read) && (HttpMethods.IsGet(method) || HttpMethods.IsHead(method)));
             if (allowed) context.Succeed(requirement);
             return Task.CompletedTask;
         }

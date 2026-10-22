@@ -51,8 +51,8 @@ public class ProviderOptions
 }
 
 /// <summary>
-/// Which access tokens the API accepts. PrikBoard does not issue tokens: an external identity provider does,
-/// typically through the Client Credentials grant for machine-to-machine clients.
+/// Which external identity providers' access tokens (JWTs) the API accepts, typically from the Client Credentials grant
+/// for machine-to-machine clients. PrikBoard's own personal access tokens are separate (<see cref="AccessTokenHandler"/>).
 /// </summary>
 public class TokenOptions
 {

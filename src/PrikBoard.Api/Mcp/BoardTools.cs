@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
@@ -107,14 +106,17 @@ public sealed class BoardTools
         var boardId = await ResolveBoardAsync(http, board, ct);
         await McpCall.AuthorizeAsync(http, BoardScope.Board, boardId, BoardRole.Viewer);
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
-        var snapshot = McpCall.Value<BoardDetail>(await BoardEndpoints.GetBoard(boardId, http, db, ct));
+        // The overview only counts the images, so the snapshot leaves them (and the drawings) out.
+        var snapshot = McpCall.Value<BoardDetail>(await BoardEndpoints.SnapshotAsync(boardId, http, db, withCanvasItems: false, ct));
+        var images = await db.Images.CountAsync(i => i.BoardId == boardId, ct);
 
+        var byBucket = snapshot.Cards.ToLookup(n => n.BucketId);
         var buckets = snapshot.Buckets
-            .Select(b => new BucketOverview(b.Id, b.Name, snapshot.Cards.Where(n => n.BucketId == b.Id).Select(CardSummary.From).ToList(), b.Collapsed))
+            .Select(b => new BucketOverview(b.Id, b.Name, byBucket[b.Id].Select(CardSummary.From).ToList(), b.Collapsed))
             .ToList();
-        var loose = snapshot.Cards.Where(n => n.BucketId is null).Select(CardSummary.From).ToList();
+        var loose = byBucket[null].Select(CardSummary.From).ToList();
         return new BoardOverview(snapshot.Id, snapshot.ShortId, snapshot.Key, snapshot.Name, snapshot.Description, snapshot.YourRole,
-            snapshot.Rules, snapshot.RulesUpdatedAt, buckets, loose, snapshot.Images.Count, snapshot.Tags, snapshot.People);
+            snapshot.Rules, snapshot.RulesUpdatedAt, buckets, loose, images, snapshot.Tags, snapshot.People);
     }
 
     [McpServerTool(Name = "get_board_rules", Title = "Get a board's agent rules", ReadOnly = true, Idempotent = true, OpenWorld = false)]
@@ -185,7 +187,7 @@ public sealed class BoardTools
     }
 
     [McpServerTool(Name = "create_card", Title = "Create a card", OpenWorld = false)]
-    [Description("Adds a card (card) to a board, in a free spot of a bucket (default: the first bucket, usually \"To do\"). " +
+    [Description("Adds a card to a board, in a free spot of a bucket (default: the first bucket, usually \"To do\"). " +
                  "body, checklist and links become its first components; add more with add_card_component. Needs the Editor role.")]
     public static async Task<CardDetail> CreateCard(
         IHttpContextAccessor accessor,
@@ -736,7 +738,7 @@ public sealed class BoardTools
         if (Guid.TryParse(value, out var id)) return id;
 
         var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
-        IQueryable<Card> cards = deleted ? db.Cards.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete]) : db.Cards;
+        IQueryable<Card> cards = deleted ? db.Cards.WithDeleted() : db.Cards;
         // A full link (https://host/#/boards/…) holds the path from its "/#/" on.
         var start = value.IndexOf("/#/boards/", StringComparison.Ordinal);
         if (start >= 0 && CardLinks.TryParse(value[start..], out var linked))
@@ -750,15 +752,12 @@ public sealed class BoardTools
 
         var dash = value.LastIndexOf('-');
         var key = dash > 0 ? Board.NormalizeKey(value[..dash]) : "";
-        if (!Regex.IsMatch(key, Board.KeyPattern) || !CardLinks.TryParseNumber(value[(dash + 1)..], out var number))
+        if (!Board.IsKey(key) || !CardLinks.TryParseNumber(value[(dash + 1)..], out var number))
         {
             throw new McpException($"\"{card}\" is not a card: give {CardForms}");
         }
 
-        var caller = BoardCaller.Of(http.User);
-        var memberships = await db.BoardMembers.AsNoTracking().Where(m => m.PrincipalId == caller.MemberId)
-            .Select(m => new { m.BoardId, m.Role }).ToListAsync(ct);
-        var reachable = memberships.Where(m => caller.Apply(m.BoardId, m.Role) is not null).Select(m => m.BoardId).ToList();
+        var reachable = await ReachableBoardsAsync(http, db, ct);
         var matches = await cards.AsNoTracking()
             .Where(n => reachable.Contains(n.BoardId) && n.Board!.Key == key && n.Number == number)
             .Select(n => new { n.Id, n.Board!.ShortId, n.Board.Name })
@@ -773,14 +772,29 @@ public sealed class BoardTools
         };
     }
 
+    /// <summary>The boards the caller can reach, looked up once per call (place_cards_in_bucket resolves many cards).</summary>
+    private static async Task<List<Guid>> ReachableBoardsAsync(HttpContext http, PrikBoardDbContext db, CancellationToken ct)
+    {
+        if (http.Items[ReachableBoardsItem] is List<Guid> known) return known;
+        var caller = BoardCaller.Of(http.User);
+        var memberships = await db.BoardMembers.AsNoTracking().Where(m => m.PrincipalId == caller.MemberId)
+            .Select(m => new { m.BoardId, m.Role }).ToListAsync(ct);
+        var reachable = memberships.Where(m => caller.Apply(m.BoardId, m.Role) is not null).Select(m => m.BoardId).ToList();
+        http.Items[ReachableBoardsItem] = reachable;
+        return reachable;
+    }
+
+    private const string ReachableBoardsItem = "PrikBoard.Mcp.ReachableBoards";
+
     /// <summary>A bucket on the board by id or (case-insensitive) name.</summary>
     private static async Task<Guid> ResolveBucketAsync(PrikBoardDbContext db, Guid boardId, string bucket, CancellationToken ct)
     {
         var buckets = await db.Buckets.AsNoTracking().Where(b => b.BoardId == boardId)
             .OrderBy(b => b.CreatedAt).Select(b => new { b.Id, b.Name }).ToListAsync(ct);
+        var name = bucket.Trim();
         var match = Guid.TryParse(bucket, out var id)
             ? buckets.FirstOrDefault(b => b.Id == id)
-            : buckets.FirstOrDefault(b => b.Name.Equals(bucket.Trim(), StringComparison.OrdinalIgnoreCase));
+            : buckets.FirstOrDefault(b => b.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
         return match?.Id ?? throw new McpException(
             $"No bucket \"{bucket}\" on this board. Buckets: {string.Join(", ", buckets.Select(b => $"\"{b.Name}\""))}.");
     }
@@ -807,9 +821,10 @@ public sealed class BoardTools
     {
         var tags = await db.BoardTags.AsNoTracking().Where(t => t.BoardId == boardId)
             .OrderBy(t => t.Name).Select(t => new { t.Id, t.Name }).ToListAsync(ct);
+        var name = CardTags.Normalize(tag);
         var match = Guid.TryParse(tag, out var id)
             ? tags.FirstOrDefault(t => t.Id == id)
-            : tags.FirstOrDefault(t => t.Name == CardTags.Normalize(tag));
+            : tags.FirstOrDefault(t => t.Name == name);
         return match?.Id ?? throw new McpException(
             $"No tag \"{tag}\" on this board. Tags: {(tags.Count == 0 ? "none" : string.Join(", ", tags.Select(t => $"\"{t.Name}\"")))}.");
     }
@@ -817,12 +832,13 @@ public sealed class BoardTools
     /// <summary>A deleted tag on the board by id or name; with a name, the most recently deleted one.</summary>
     private static async Task<Guid> ResolveDeletedTagAsync(PrikBoardDbContext db, Guid boardId, string tag, CancellationToken ct)
     {
-        var tags = await db.BoardTags.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete]).AsNoTracking()
+        var tags = await db.BoardTags.WithDeleted().AsNoTracking()
             .Where(t => t.BoardId == boardId && t.DeletedAt != null)
             .OrderByDescending(t => t.DeletedAt).Select(t => new { t.Id, t.Name }).ToListAsync(ct);
+        var name = CardTags.Normalize(tag);
         var match = Guid.TryParse(tag, out var id)
             ? tags.FirstOrDefault(t => t.Id == id)
-            : tags.FirstOrDefault(t => t.Name == CardTags.Normalize(tag));
+            : tags.FirstOrDefault(t => t.Name == name);
         return match?.Id ?? throw new McpException(
             $"No deleted tag \"{tag}\" on this board. Deleted tags: {(tags.Count == 0 ? "none" : string.Join(", ", tags.Select(t => $"\"{t.Name}\"").Distinct()))}.");
     }

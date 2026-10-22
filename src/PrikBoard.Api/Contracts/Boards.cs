@@ -23,7 +23,7 @@ public record BoardSummary(
             board.IsPublic, board.PublicShowsPeople);
 }
 
-/// <summary>A full board snapshot: every bucket, card and image with its position on the canvas.</summary>
+/// <summary>A full board snapshot: every bucket, card, image and drawing with its position on the canvas, the board's tags and who can be assigned.</summary>
 /// <param name="Id">Board identifier.</param>
 /// <param name="ShortId">The board in web addresses, e.g. "k3x9m2" in /#/boards/k3x9m2/cards/415. Never changes.</param>
 /// <param name="Key">Shown before card numbers, e.g. "MPCT" in the readable id MPCT-415. Owners may change it; it is not unique.</param>
@@ -72,17 +72,20 @@ public record BoardDetail(
     /// assignees, <paramref name="people"/> who can be assigned (see BoardAccess.PeopleAsync).
     /// </summary>
     public static BoardDetail From(
-        Board board, BoardRole role, IReadOnlyDictionary<Guid, Principal> principals, IEnumerable<Principal> people, Guid caller) =>
-        new(board.Id, board.ShortId, board.Key, board.Name, board.Description, board.CreatedAt, board.UpdatedAt, board.Rules, board.RulesUpdatedAt,
-            Layout.InListOrder(board.Buckets).Select(BucketDetail.From).ToList(),
-            Layout.ReadingOrder(board.Cards, board.Buckets).Select(n => CardDetail.From(n, BoardRef.Of(board), principals)).ToList(),
+        Board board, BoardRole role, IReadOnlyDictionary<Guid, Principal> principals, IEnumerable<Principal> people, Guid caller)
+    {
+        var boardRef = BoardRef.Of(board);
+        return new(board.Id, board.ShortId, board.Key, board.Name, board.Description, board.CreatedAt, board.UpdatedAt, board.Rules, board.RulesUpdatedAt,
+            Layout.InListOrder(board.Buckets).ConvertAll(BucketDetail.From),
+            Layout.ReadingOrder(board.Cards, board.Buckets).ConvertAll(n => CardDetail.From(n, boardRef, principals)),
             board.Images.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id).Select(ImageDetail.From).ToList(),
             board.Drawings.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id).Select(DrawingDetail.From).ToList(),
-            BoardTagDetail.List(board.Tags, board.Cards),
+            BoardTagDetail.List(board.Tags, board.Cards.Select(n => n.Tags)),
             BoardPerson.List(people, caller),
             role,
             board.IsPublic,
             board.PublicShowsPeople);
+    }
 
     /// <summary>
     /// What a visitor of a public board sees: no one to assign, and either people's names with pictures served for this

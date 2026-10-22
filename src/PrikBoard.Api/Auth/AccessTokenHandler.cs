@@ -37,13 +37,14 @@ public sealed class AccessTokenHandler(
         if (!AccessTokens.IsWellFormed(token)) return AuthenticateResult.Fail("Malformed access token.");
 
         var hash = AccessTokens.Hash(token);
-        if (!cache.TryGetValue(Key(hash), out Found? found))
+        var key = Key(hash);
+        if (!cache.TryGetValue(key, out Found? found))
         {
             found = await db.AccessTokens.AsNoTracking()
                 .Where(t => t.TokenHash == hash)
                 .Select(t => new Found(t.Id, t.Kind, t.OwnerId, t.AgentId, t.MaxRole, t.BoardIds, t.ExpiresAt))
                 .FirstOrDefaultAsync(Context.RequestAborted);
-            cache.Set(Key(hash), found, CacheFor);
+            cache.Set(key, found, CacheFor);
 
             // Once per cache period at most, which is all "last used" needs.
             if (found is not null)

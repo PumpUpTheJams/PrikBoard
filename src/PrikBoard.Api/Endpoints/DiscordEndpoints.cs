@@ -120,20 +120,14 @@ public static class DiscordEndpoints
 
         if (!Base64Url.IsValid(request.CodeChallenge))
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["codeChallenge"] = ["The base64url SHA-256 of the code verifier (S256), from the link the bot posted."],
-            });
+            return Problems.Invalid("codeChallenge", "The base64url SHA-256 of the code verifier (S256), from the link the bot posted.");
         }
 
         var boardIds = request.Boards.Select(b => b.BoardId).Distinct().ToList();
         var owned = await db.BoardMembers.CountAsync(m => m.PrincipalId == userId && m.Role == BoardRole.Owner && boardIds.Contains(m.BoardId), ct);
         if (owned != boardIds.Count || boardIds.Count != request.Boards.Count)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["boards"] = ["Only boards you own, each once."],
-            });
+            return Problems.Invalid("boards", "Only boards you own, each once.");
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -164,10 +158,7 @@ public static class DiscordEndpoints
     {
         if (!DiscordGuild.IsId(request.GuildId) || !DiscordGuild.IsId(request.ChannelId))
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                [DiscordGuild.IsId(request.GuildId) ? "channelId" : "guildId"] = ["A Discord id: digits only."],
-            });
+            return Problems.Invalid(DiscordGuild.IsId(request.GuildId) ? "channelId" : "guildId", "A Discord id: digits only.");
         }
 
         var hash = AccessTokens.Hash(request.Code);
@@ -177,10 +168,7 @@ public static class DiscordEndpoints
         var spent = grant is not null && await db.DiscordConnectGrants.Where(g => g.Id == grant.Id).ExecuteDeleteAsync(ct) == 1;
         if (grant is null || !spent || grant.ExpiresAt <= DateTimeOffset.UtcNow || !AppSignInEndpoints.Matches(request.CodeVerifier, grant.CodeChallenge))
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["code"] = ["Unknown, used or expired code, or a code started in another server. Run /prikboard connect again."],
-            });
+            return Problems.Invalid("code", "Unknown, used or expired code, or a code started in another server. Run /prikboard connect again.");
         }
 
         var guildName = AppSignInEndpoints.CleanName(request.GuildName);
@@ -196,10 +184,7 @@ public static class DiscordEndpoints
             .Select(m => m.BoardId).ToListAsync(ct);
         if (stillOwned.Count == 0)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["code"] = ["Whoever approved this no longer owns any of its boards."],
-            });
+            return Problems.Invalid("code", "Whoever approved this no longer owns any of its boards.");
         }
 
         var agent = await db.Agents.FirstOrDefaultAsync(a => a.Issuer == Agent.DiscordIssuer && a.ClientId == request.GuildId, ct);
@@ -323,17 +308,12 @@ public static class DiscordEndpoints
         Card? card = null;
         if (CardLinks.TryParse(path, out var linked))
         {
-            if (linked.ByNumber)
-            {
-                board = await db.Boards.AsNoTracking().FirstOrDefaultAsync(b => b.ShortId == linked.BoardShortId, ct);
-                if (board is not null) card = await db.Cards.AsNoTracking().FirstOrDefaultAsync(c => c.BoardId == board.Id && c.Number == linked.Number, ct);
-            }
-            else
-            {
-                card = await db.Cards.AsNoTracking().FirstOrDefaultAsync(c => c.Id == linked.CardId, ct);
-                board = card is null ? null : await db.Boards.AsNoTracking().FirstAsync(b => b.Id == card.BoardId, ct);
-            }
+            var cards = db.Cards.AsNoTracking().Include(c => c.Board);
+            card = linked.ByNumber
+                ? await cards.FirstOrDefaultAsync(c => c.Board!.ShortId == linked.BoardShortId && c.Number == linked.Number, ct)
+                : await cards.FirstOrDefaultAsync(c => c.Id == linked.CardId, ct);
             if (card is null) return TypedResults.NotFound();
+            board = card.Board;
         }
         else if (CardLinks.TryParseBoard(path, out var shortId, out var boardId))
         {

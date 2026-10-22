@@ -51,6 +51,20 @@ public sealed class LiveViewers
         }
     }
 
+    /// <summary>
+    /// Whether a drag update from this connection may go out now: the last one went at least <paramref name="interval"/>
+    /// (Stopwatch ticks) before <paramref name="now"/>, which then becomes the last.
+    /// </summary>
+    public bool TakeDragTurn(string connectionId, long now, long interval)
+    {
+        lock (gate)
+        {
+            if (!connections.TryGetValue(connectionId, out var entry) || now - entry.LastDragAt < interval) return false;
+            connections[connectionId] = entry with { LastDragAt = now };
+            return true;
+        }
+    }
+
     public Entry? Remove(string connectionId)
     {
         lock (gate) return connections.Remove(connectionId, out var entry) ? entry : null;

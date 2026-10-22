@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Text;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -117,8 +118,8 @@ public static class ImageEndpoints
         if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
 
         if (InvalidPlacement(x, y, width, caption) is { } invalid) return invalid;
-        var card = cardId is null ? null : await db.Cards.FirstOrDefaultAsync(n => n.Id == cardId && n.BoardId == boardId, ct);
-        if (cardId is not null && card is null) return CardNotOnBoard();
+        var card = cardId is null ? null : await db.Cards.AsNoTracking().FirstOrDefaultAsync(n => n.Id == cardId && n.BoardId == boardId, ct);
+        if (cardId is not null && card is null) return Problems.CardNotOnBoard();
 
         var data = await ReadUpTo(body, ImageFormats.MaxBytes, ct);
         if (data is null)
@@ -159,7 +160,7 @@ public static class ImageEndpoints
         Guid boardId, CreateImageUploadRequest request, HttpContext http, PrikBoardDbContext db, CancellationToken ct)
     {
         if (InvalidPlacement(request.X, request.Y, request.Width, request.Caption) is { } invalid) return invalid;
-        if (request.CardId is { } cardId && !await db.Cards.AnyAsync(n => n.Id == cardId && n.BoardId == boardId, ct)) return CardNotOnBoard();
+        if (request.CardId is { } cardId && !await db.Cards.AnyAsync(n => n.Id == cardId && n.BoardId == boardId, ct)) return Problems.CardNotOnBoard();
 
         var principalId = http.User.PrincipalId();
         var now = DateTimeOffset.UtcNow;
@@ -264,10 +265,10 @@ public static class ImageEndpoints
         if (request.Width is { } width) image.Resize(width);
         if (moving)
         {
-            var card = detach ? null : await db.Cards.FirstOrDefaultAsync(n => n.Id == request.CardId && n.BoardId == image.BoardId, ct);
+            var card = detach ? null : await db.Cards.AsNoTracking().FirstOrDefaultAsync(n => n.Id == request.CardId && n.BoardId == image.BoardId, ct);
             if (!detach && card is null)
             {
-                return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["cardId"] = ["The card does not exist on this board."] });
+                return Problems.CardNotOnBoard();
             }
             image.CardId = card?.Id;
             await PlaceAsync(db, image, card, request.X, request.Y, ct);
@@ -300,7 +301,7 @@ public static class ImageEndpoints
     {
         if (card is not null)
         {
-            var attached = await db.Images.Where(i => i.CardId == card.Id && i.Id != image.Id).ToListAsync(ct);
+            var attached = await db.Images.AsNoTracking().Where(i => i.CardId == card.Id && i.Id != image.Id).ToListAsync(ct);
             (image.X, image.Y) = x is { } cardX && y is { } cardY
                 ? Layout.OnCardCanvas(cardX, cardY, image.Width, image.Height)
                 : Layout.NextCardSpot(Layout.TakenOnCard(card, attached), image.Width, image.Height);
@@ -310,8 +311,8 @@ public static class ImageEndpoints
             ? (Layout.Snap(boardX), Layout.Snap(boardY))
             : Layout.NextImageSpot(
                 await db.Buckets.Where(b => b.BoardId == image.BoardId).ToListAsync(ct),
-                await db.Cards.Where(n => n.BoardId == image.BoardId).ToListAsync(ct),
-                await db.Images.Where(i => i.BoardId == image.BoardId && i.Id != image.Id).ToListAsync(ct));
+                await db.Cards.AsNoTracking().Where(n => n.BoardId == image.BoardId).ToListAsync(ct),
+                await db.Images.AsNoTracking().Where(i => i.BoardId == image.BoardId && i.Id != image.Id).ToListAsync(ct));
     }
 
     private static async Task<Results<NoContent, NotFound>> DeleteImage(
@@ -334,12 +335,12 @@ public static class ImageEndpoints
     internal static async Task<Results<Ok<ImageDetail>, NotFound, ProblemHttpResult>> RestoreImage(
         Guid imageId, PrikBoardDbContext db, CancellationToken ct)
     {
-        var image = await db.Images.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+        var image = await db.Images.WithDeleted()
             .Include(i => i.AddedBy)
             .Include(i => i.File)
             .FirstOrDefaultAsync(i => i.Id == imageId, ct);
         if (image is null) return TypedResults.NotFound();
-        if (image.DeletedAt is null) return TagEndpoints.NotDeleted("image");
+        if (image.DeletedAt is null) return Problems.NotDeleted("image");
         if (image.CardId is { } cardId && !await db.Cards.AnyAsync(n => n.Id == cardId, ct))
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Card deleted",
@@ -359,13 +360,30 @@ public static class ImageEndpoints
     /// <summary>The whole body, or null when it is longer than <paramref name="limit"/> bytes.</summary>
     private static async Task<byte[]?> ReadUpTo(Stream body, int limit, CancellationToken ct)
     {
-        using var buffer = new MemoryStream();
-        var chunk = new byte[81920];
-        int read;
-        while ((read = await body.ReadAsync(chunk, ct)) > 0)
+        // A stream that knows its length (add_image's decoded file) goes straight into an array of that size.
+        if (body.CanSeek)
         {
-            if (buffer.Length + read > limit) return null;
-            buffer.Write(chunk, 0, read);
+            var length = body.Length - body.Position;
+            if (length > limit) return null;
+            var data = new byte[length];
+            await body.ReadExactlyAsync(data, ct);
+            return data;
+        }
+
+        using var buffer = new MemoryStream();
+        var chunk = ArrayPool<byte>.Shared.Rent(81920);
+        try
+        {
+            int read;
+            while ((read = await body.ReadAsync(chunk, ct)) > 0)
+            {
+                if (buffer.Length + read > limit) return null;
+                buffer.Write(chunk, 0, read);
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(chunk);
         }
         return buffer.ToArray();
     }
@@ -373,7 +391,7 @@ public static class ImageEndpoints
     /// <summary>Just the file name part, without control characters; a generic name when none is usable.</summary>
     internal static string CleanFileName(string? fileName, string contentType)
     {
-        var name = new string(Path.GetFileName(fileName ?? "").Where(c => !char.IsControl(c)).ToArray()).Trim();
+        var name = PatchText.OneLine(Path.GetFileName(fileName ?? ""));
         return name.Length > 0 ? Truncate(name, 255) : $"image.{ImageFormats.ExtensionOf(contentType)}";
     }
 
@@ -386,11 +404,8 @@ public static class ImageEndpoints
         ?? Invalid(width is < Layout.MinImageWidth or > Layout.MaxImageWidth, "width", $"Width runs from {Layout.MinImageWidth} to {Layout.MaxImageWidth}.")
         ?? Invalid(caption?.Length > 500, "caption", "A caption is at most 500 characters.");
 
-    private static ValidationProblem CardNotOnBoard() =>
-        TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["cardId"] = ["The card does not exist on this board."] });
-
     private static ValidationProblem? Invalid(bool condition, string field, string message) =>
-        condition ? TypedResults.ValidationProblem(new Dictionary<string, string[]> { [field] = [message] }) : null;
+        condition ? Problems.Invalid(field, message) : null;
 
     private static ProblemHttpResult Unsupported(string detail) =>
         TypedResults.Problem(statusCode: StatusCodes.Status415UnsupportedMediaType, title: "Unsupported image", detail: detail);

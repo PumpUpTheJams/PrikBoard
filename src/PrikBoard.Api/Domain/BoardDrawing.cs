@@ -61,7 +61,10 @@ public class BoardDrawing : ICanvasItem
         {
             var point = points[i];
             if (point is not { Length: 3 }) return (null, (i, "A point is [x, y, pressure]."));
-            if (!point.All(double.IsFinite)) return (null, (i, "Point values must be finite numbers."));
+            if (!double.IsFinite(point[0]) || !double.IsFinite(point[1]) || !double.IsFinite(point[2]))
+            {
+                return (null, (i, "Point values must be finite numbers."));
+            }
             if (point[0] is < 0 or > MaxSize || point[1] is < 0 or > MaxSize) return (null, (i, $"x and y run from 0 to {MaxSize}, from the drawing's x and y."));
             if (point[2] is < 0 or > 1) return (null, (i, "Pressure runs from 0 to 1."));
         }
@@ -91,7 +94,9 @@ public class BoardDrawing : ICanvasItem
     {
         var (left, top) = (Math.Min(X, x), Math.Min(Y, y));
         var strokes = Strokes.Select(s => s.Shifted(X - left, Y - top)).Append(stroke.Shifted(x - left, y - top)).ToList();
-        if (strokes.Any(s => s.Points.Any(p => p[0] > MaxSize || p[1] > MaxSize))) return false;
+        // The others only moved when the corner did; unmoved, they still fit.
+        var moved = X != left || Y != top;
+        if ((moved ? strokes : [strokes[^1]]).Exists(s => !s.Fits())) return false;
         (X, Y) = (left, top);
         SetStrokes(strokes, [.. Colors, color]);
         Revision++;
@@ -125,7 +130,7 @@ public class BoardDrawing : ICanvasItem
     {
         var radians = degrees * Math.PI / 180;
         var (cos, sin) = (Math.Cos(radians), Math.Sin(radians));
-        var moved = Strokes.Select(s => s with
+        var strokes = Strokes.Select(s => s with
         {
             Points = [.. s.Points.Select(p =>
             {
@@ -134,10 +139,14 @@ public class BoardDrawing : ICanvasItem
                 return new[] { pivotX + dx * cos - dy * sin, pivotY + dx * sin + dy * cos, p[2] };
             })],
         }).ToList();
-        var left = moved.Min(s => s.Inset(p => p[0]));
-        var top = moved.Min(s => s.Inset(p => p[1]));
-        var strokes = moved.Select(s => s with { Points = [.. s.Points.Select(p => new[] { Math.Round(p[0] - left, 1), Math.Round(p[1] - top, 1), p[2] })] }).ToList();
-        if (strokes.Any(s => s.Points.Any(p => p[0] > MaxSize || p[1] > MaxSize))) return $"A drawing reaches at most {MaxSize} px from its corner.";
+        var left = strokes.Min(s => s.Inset(p => p[0]));
+        var top = strokes.Min(s => s.Inset(p => p[1]));
+        // Measured from the new corner; the points are new arrays, so this changes nothing else.
+        foreach (var point in strokes.SelectMany(s => s.Points))
+        {
+            (point[0], point[1]) = (Math.Round(point[0] - left, 1), Math.Round(point[1] - top, 1));
+        }
+        if (strokes.Exists(s => !s.Fits())) return $"A drawing reaches at most {MaxSize} px from its corner.";
         if (left < Layout.MinCoordinate || top < Layout.MinCoordinate || left > Layout.MaxCoordinate || top > Layout.MaxCoordinate)
         {
             return "The drawing would leave the board.";
@@ -151,9 +160,16 @@ public class BoardDrawing : ICanvasItem
     /// <summary>Works out the box and point count from the strokes.</summary>
     private void Measure()
     {
-        Width = Strokes.Max(s => (int)Math.Ceiling(s.Points.Max(p => p[0])) + (s.StrokeWidth + 1) / 2);
-        Height = Strokes.Max(s => (int)Math.Ceiling(s.Points.Max(p => p[1])) + (s.StrokeWidth + 1) / 2);
-        PointCount = Strokes.Sum(s => s.Points.Length);
+        (Width, Height, PointCount) = (int.MinValue, int.MinValue, 0);
+        foreach (var stroke in Strokes)
+        {
+            var (right, bottom) = (double.MinValue, double.MinValue);
+            foreach (var point in stroke.Points) (right, bottom) = (Math.Max(right, point[0]), Math.Max(bottom, point[1]));
+            var margin = (stroke.StrokeWidth + 1) / 2;
+            Width = Math.Max(Width, (int)Math.Ceiling(right) + margin);
+            Height = Math.Max(Height, (int)Math.Ceiling(bottom) + margin);
+            PointCount += stroke.Points.Length;
+        }
     }
 }
 
@@ -165,6 +181,16 @@ public record DrawingStroke(int StrokeWidth, double[][] Points)
     /// <summary>The same stroke with its points moved by (dx, dy).</summary>
     public DrawingStroke Shifted(int dx, int dy) =>
         dx == 0 && dy == 0 ? this : this with { Points = [.. Points.Select(p => new[] { Math.Round(p[0] + dx, 1), Math.Round(p[1] + dy, 1), p[2] })] };
+
+    /// <summary>Whether every point is within <see cref="BoardDrawing.MaxSize"/> of the drawing's corner.</summary>
+    public bool Fits()
+    {
+        foreach (var point in Points)
+        {
+            if (point[0] > BoardDrawing.MaxSize || point[1] > BoardDrawing.MaxSize) return false;
+        }
+        return true;
+    }
 
     /// <summary>
     /// How far a drawing of only this stroke would have its corner from 0 on one axis: the last grid line at least half

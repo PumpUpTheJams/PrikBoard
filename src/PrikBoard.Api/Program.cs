@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
+using PrikBoard.Api;
 using PrikBoard.Api.Auth;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
@@ -17,7 +18,7 @@ using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton<CardHistory>();
-builder.Services.AddDbContext<PrikBoardDbContext>((services, options) => options
+builder.Services.AddDbContextPool<PrikBoardDbContext>((services, options) => options
     .UseNpgsql(services.GetRequiredService<IConfiguration>().GetConnectionString("PrikBoard"))
     .AddInterceptors(services.GetRequiredService<CardHistory>()));
 
@@ -39,14 +40,14 @@ builder.Services.AddSingleton(services => FileStore.FromConfiguration(
 builder.Services.AddHttpClient<ProviderAvatars>(http =>
 {
     http.Timeout = TimeSpan.FromSeconds(10);
-    http.DefaultRequestHeaders.UserAgent.ParseAdd("PrikBoard/1.0");
+    http.DefaultRequestHeaders.UserAgent.ParseAdd($"PrikBoard/{AppVersion.Number}");
 });
 
 // MCP (Streamable HTTP, stateless): curated tools over the same handlers as the REST API; see Mcp/BoardTools.cs.
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddMcpServer(options =>
     {
-        options.ServerInfo = new Implementation { Name = "prikboard", Title = "PrikBoard", Version = "1.0.0" };
+        options.ServerInfo = new Implementation { Name = "prikboard", Title = "PrikBoard", Version = AppVersion.Number };
         options.ServerInstructions =
             "PrikBoard is a board of cards for small projects. Start with list_boards, then get_board for an overview. " +
             "Move work between buckets (columns such as To do, Doing, Done) with move_card, and use set_working while you work on a card. " +
@@ -109,13 +110,14 @@ builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document,
             and cards (200x120 px cards). A card belongs to the topmost bucket containing its centre, or is loose.
             Boards are members-only, with roles Viewer (read), Editor (change content) and Owner (manage the board and its members).
             A 404 means "not found, or you are not a member"; a 403 means your role (or token scope) is too low.
-            Every access token acts as an agent principal: call whoAmI and ask a board owner to add your issuer and client id
-            (addBoardAgent). Boards an agent creates are its own.
             Start with listBoards, then getBoard for a complete snapshot of a project.
             Progress work by moving cards between buckets with moveCard and a bucketId; the server finds a free spot.
             Coordinates are canvas pixels from the top-left and snap to a 20 px grid.
-            Machines authenticate with an OAuth 2.0 access token from a trusted identity provider, usually obtained with
-            the Client Credentials grant for the audience api://prikboard, sent as "Authorization: Bearer <token>".
+            Machines send "Authorization: Bearer <token>". A personal access token (pb_pat_..., made by a person in
+            PrikBoard) acts as an agent of its own on that person's boards, with at most the role it was given.
+            An OAuth 2.0 access token from a configured identity provider (usually the Client Credentials grant for the
+            audience api://prikboard) acts as an agent too: call whoAmI and ask a board owner to add your issuer and
+            client id (addBoardAgent). Boards such an agent creates are its own.
             Scope boards:read allows GET requests; boards:write allows everything.
             """,
     };
@@ -126,9 +128,8 @@ builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document,
     {
         Type = SecuritySchemeType.Http,
         Scheme = "bearer",
-        BearerFormat = "JWT",
-        Description = "An OAuth 2.0 access token from a trusted issuer (for example via Client Credentials), " +
-                      "with scope boards:read (GET only) or boards:write. Browsers use a session cookie instead.",
+        Description = "A personal access token (pb_pat_...), or an OAuth 2.0 access token from a trusted issuer (for example " +
+                      "via Client Credentials) with scope boards:read (GET only) or boards:write. Browsers use a session cookie instead.",
     };
     document.Security = [new OpenApiSecurityRequirement { [new OpenApiSecuritySchemeReference(AuthSetup.BearerSecurityScheme, document)] = [] }];
     return Task.CompletedTask;

@@ -138,7 +138,8 @@ public static class CardEndpoints
         // Boards are small, so text, tags and assignees are filtered in memory.
         if (!string.IsNullOrWhiteSpace(search))
         {
-            cards = cards.Where(n => ContainsText(n, search.Trim())).ToList();
+            var text = search.Trim();
+            cards = cards.Where(n => ContainsText(n, text)).ToList();
         }
         if (tag is not null && CardTags.Normalize(tag) is { Count: > 0 } wanted)
         {
@@ -158,7 +159,7 @@ public static class CardEndpoints
     internal static async Task<Results<Created<CardDetail>, NotFound, ValidationProblem>> CreateCard(
         Guid boardId, CreateCardRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
     {
-        if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
+        if (await BoardRefAsync(db, boardId, ct) is not { } board) return TypedResults.NotFound();
 
         var card = new Card
         {
@@ -187,7 +188,7 @@ public static class CardEndpoints
         db.Cards.Add(card);
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
-        return TypedResults.Created($"/api/cards/{card.Id}", await DetailAsync(db, card, ct));
+        return TypedResults.Created($"/api/cards/{card.Id}", await DetailAsync(db, card, board, ct));
     }
 
     /// <summary>
@@ -202,15 +203,15 @@ public static class CardEndpoints
     internal static async Task<Results<Ok<CardDetail>, NotFound>> GetCard(
         Guid cardId, PrikBoardDbContext db, CancellationToken ct)
     {
-        var card = await db.Cards.AsNoTracking().FirstOrDefaultAsync(n => n.Id == cardId, ct);
-        return card is null ? TypedResults.NotFound() : TypedResults.Ok(await DetailAsync(db, card, ct));
+        var found = await WithBoardRef(db.Cards.Where(n => n.Id == cardId)).FirstOrDefaultAsync(ct);
+        return found is null ? TypedResults.NotFound() : TypedResults.Ok(await DetailAsync(db, found.Card, found.Board, ct));
     }
 
     internal static async Task<Results<Ok<CardDetail>, NotFound>> GetCardByNumber(
         string shortId, int number, PrikBoardDbContext db, CancellationToken ct)
     {
-        var card = await db.Cards.AsNoTracking().FirstOrDefaultAsync(n => n.Board!.ShortId == shortId && n.Number == number, ct);
-        return card is null ? TypedResults.NotFound() : TypedResults.Ok(await DetailAsync(db, card, ct));
+        var found = await WithBoardRef(db.Cards.Where(n => n.Board!.ShortId == shortId && n.Number == number)).FirstOrDefaultAsync(ct);
+        return found is null ? TypedResults.NotFound() : TypedResults.Ok(await DetailAsync(db, found.Card, found.Board, ct));
     }
 
     internal static async Task<Results<Ok<CardDetail>, NotFound, ValidationProblem>> UpdateCard(
@@ -265,16 +266,9 @@ public static class CardEndpoints
     internal static async Task<Results<Ok<CardDetail>, NotFound, ValidationProblem>> MoveCard(
         Guid cardId, MoveCardRequest request, PrikBoardDbContext db, CancellationToken ct)
     {
+        if (request is { BucketId: null, X: null, Y: null }) return Problems.Invalid("bucketId", "Give a bucketId, or X and Y.");
         var card = await db.Cards.FindAsync([cardId], ct);
         if (card is null) return TypedResults.NotFound();
-
-        if (request is { BucketId: null, X: null, Y: null })
-        {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["bucketId"] = ["Give a bucketId, or X and Y."],
-            });
-        }
 
         var buckets = await db.Buckets.Where(b => b.BoardId == card.BoardId).ToListAsync(ct);
         var others = await db.Cards.Where(n => n.BoardId == card.BoardId && n.Id != cardId).ToListAsync(ct);
@@ -306,7 +300,7 @@ public static class CardEndpoints
         Guid cardId, int? limit, PrikBoardDbContext db, CancellationToken ct)
     {
         // Deleted cards have a history too (the trash window opens them).
-        if (!await db.Cards.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete]).AnyAsync(c => c.Id == cardId, ct))
+        if (!await db.Cards.WithDeleted().AnyAsync(c => c.Id == cardId, ct))
         {
             return TypedResults.NotFound();
         }
@@ -333,18 +327,21 @@ public static class CardEndpoints
     {
         if (await BoardRefAsync(db, boardId, ct) is not { } board) return TypedResults.NotFound();
 
-        string[] deleted = [PrikBoardDbContext.SoftDelete];
-        var cards = await db.Cards.AsNoTracking().IgnoreQueryFilters(deleted)
+        var cards = await db.Cards.AsNoTracking().WithDeleted()
             .Where(n => n.BoardId == boardId && n.DeletedAt != null)
             .ToListAsync(ct);
         // Boards are small, so the search runs in memory, like listCards.
-        if (!string.IsNullOrWhiteSpace(search)) cards = cards.Where(n => ContainsText(n, search.Trim())).ToList();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var text = search.Trim();
+            cards = cards.Where(n => ContainsText(n, text)).ToList();
+        }
         cards = cards.OrderByDescending(n => n.DeletedAt).ThenByDescending(n => n.Id).ToList();
 
         // The images that come back with them: deleted at the same moment.
         var stamps = cards.ToDictionary(n => n.Id, n => n.DeletedAt);
         var ids = stamps.Keys.ToList();
-        var images = (await db.Images.AsNoTracking().IgnoreQueryFilters(deleted).Include(i => i.AddedBy).Include(i => i.File)
+        var images = (await db.Images.AsNoTracking().WithDeleted().Include(i => i.AddedBy).Include(i => i.File)
                 .Where(i => i.CardId != null && ids.Contains(i.CardId.Value))
                 .OrderBy(i => i.CreatedAt).ThenBy(i => i.Id)
                 .ToListAsync(ct))
@@ -359,26 +356,20 @@ public static class CardEndpoints
     internal static async Task<Results<Ok<CardDetail>, NotFound, ValidationProblem, ProblemHttpResult>> RestoreCard(
         Guid cardId, RestoreCardRequest? request, PrikBoardDbContext db, CancellationToken ct)
     {
-        var card = await db.Cards.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete]).FirstOrDefaultAsync(n => n.Id == cardId, ct);
+        var card = await db.Cards.WithDeleted().FirstOrDefaultAsync(n => n.Id == cardId, ct);
         if (card is null) return TypedResults.NotFound();
-        if (card.DeletedAt is not { } stamp) return TagEndpoints.NotDeleted("card");
-        if (request?.X is null != request?.Y is null)
-        {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                [request?.X is null ? "x" : "y"] = ["Give X and Y together."],
-            });
-        }
+        if (card.DeletedAt is not { } stamp) return Problems.NotDeleted("card");
+        if (Problems.XWithoutY(request?.X, request?.Y) is { } apart) return apart;
 
         // Tags deleted meanwhile were taken off the card as well, so this only fills a gap.
         if (await TagEndpoints.EnsureBoardTagsAsync(db, card.BoardId, card.Tags, ct) is { } tooManyTags) return tooManyTags;
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         card.DeletedAt = null;
-        await db.Images.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+        await db.Images.WithDeleted()
             .Where(i => i.CardId == cardId && i.DeletedAt == stamp)
             .ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, (DateTimeOffset?)null), ct);
-        await db.Drawings.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+        await db.Drawings.WithDeleted()
             .Where(d => d.CardId == cardId && d.DeletedAt == stamp)
             .ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, (DateTimeOffset?)null), ct);
         var stacked = Layout.BackToFront(await db.Buckets.Where(b => b.BoardId == card.BoardId).ToListAsync(ct));
@@ -403,26 +394,19 @@ public static class CardEndpoints
     internal static async Task<Results<NoContent, NotFound, ProblemHttpResult>> PurgeCard(
         Guid boardId, Guid cardId, PrikBoardDbContext db, CancellationToken ct)
     {
-        var card = await db.Cards.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
-            .Where(n => n.Id == cardId && n.BoardId == boardId)
-            .Select(n => new { n.DeletedAt })
-            .FirstOrDefaultAsync(ct);
-        if (card is null) return TypedResults.NotFound();
-        if (card.DeletedAt is null)
-        {
-            return TypedResults.Problem(
-                statusCode: StatusCodes.Status409Conflict, title: "Not deleted", detail: "The card is not in the trash; delete it first.");
-        }
         // Its images and drawings go with it through the cascades; their files at the next sweep.
-        await db.Cards.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
-            .Where(n => n.Id == cardId && n.DeletedAt != null)
+        var purged = await db.Cards.WithDeleted()
+            .Where(n => n.Id == cardId && n.BoardId == boardId && n.DeletedAt != null)
             .ExecuteDeleteAsync(ct);
-        return TypedResults.NoContent();
+        if (purged > 0) return TypedResults.NoContent();
+        if (!await db.Cards.AnyAsync(n => n.Id == cardId && n.BoardId == boardId, ct)) return TypedResults.NotFound();
+        return TypedResults.Problem(
+            statusCode: StatusCodes.Status409Conflict, title: "Not deleted", detail: "The card is not in the trash; delete it first.");
     }
 
     internal static async Task<Ok<EmptyTrashResult>> EmptyTrash(Guid boardId, PrikBoardDbContext db, CancellationToken ct)
     {
-        var purged = await db.Cards.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete])
+        var purged = await db.Cards.WithDeleted()
             .Where(n => n.BoardId == boardId && n.DeletedAt != null)
             .ExecuteDeleteAsync(ct);
         return TypedResults.Ok(new EmptyTrashResult(purged));
@@ -444,7 +428,16 @@ public static class CardEndpoints
         db.Boards.AsNoTracking().Where(b => b.Id == boardId).Select(b => new BoardRef(b.ShortId, b.Key)).FirstOrDefaultAsync(ct);
 
     private static async Task<CardDetail> DetailAsync(PrikBoardDbContext db, Card card, CancellationToken ct) =>
-        CardDetail.From(card, (await BoardRefAsync(db, card.BoardId, ct))!, await PrincipalsOnAsync(db, [card], ct));
+        await DetailAsync(db, card, (await BoardRefAsync(db, card.BoardId, ct))!, ct);
+
+    private static async Task<CardDetail> DetailAsync(PrikBoardDbContext db, Card card, BoardRef board, CancellationToken ct) =>
+        CardDetail.From(card, board, await PrincipalsOnAsync(db, [card], ct));
+
+    /// <summary>Cards with what their readable id and path need from their board, in the same query.</summary>
+    private static IQueryable<CardWithBoard> WithBoardRef(IQueryable<Card> cards) =>
+        cards.AsNoTracking().Select(n => new CardWithBoard(n, new BoardRef(n.Board!.ShortId, n.Board.Key)));
+
+    private sealed record CardWithBoard(Card Card, BoardRef Board);
 
     /// <summary>
     /// Positions <paramref name="card"/> exactly at X and Y, or in a free spot inside the bucket (and in it), or (with
@@ -454,20 +447,11 @@ public static class CardEndpoints
     private static ValidationProblem? Place(
         Card card, Guid? bucketId, int? x, int? y, List<Bucket> buckets, List<Card> others)
     {
-        if (x is null != y is null)
-        {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                [x is null ? "x" : "y"] = ["Give X and Y together."],
-            });
-        }
+        if (Problems.XWithoutY(x, y) is { } apart) return apart;
         var bucket = bucketId is { } id ? buckets.Find(b => b.Id == id) : null;
         if (bucketId is not null && bucket is null)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["bucketId"] = ["The bucket does not exist on this board."],
-            });
+            return Problems.Invalid("bucketId", "The bucket does not exist on this board.");
         }
 
         var stacked = Layout.BackToFront(buckets);
@@ -478,10 +462,7 @@ public static class CardEndpoints
             if (bucket is null) Layout.Place(card, stacked);
             else if (!Layout.PlaceIn(card, bucket))
             {
-                return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-                {
-                    ["bucketId"] = ["With X and Y, the bucket must contain the card's centre."],
-                });
+                return Problems.Invalid("bucketId", "With X and Y, the bucket must contain the card's centre.");
             }
         }
         else if (bucket is not null)
@@ -517,10 +498,7 @@ public static class CardEndpoints
         var assignable = await BoardAccess.AssignableIds(db, boardId).Where(id => added.Contains(id)).ToListAsync(ct);
         var missing = added.Except(assignable).ToList();
         if (missing.Count == 0) return null;
-        return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-        {
-            ["assigneeIds"] = [$"{string.Join(", ", missing)} cannot be assigned: no access to this board. See people in getBoard."],
-        });
+        return Problems.Invalid("assigneeIds", $"{string.Join(", ", missing)} cannot be assigned: no access to this board. See people in getBoard.");
     }
 
     /// <summary>Replaces each list that is given (null keeps it), normalizing tags. Returns a problem for an invalid value.</summary>
@@ -531,10 +509,7 @@ public static class CardEndpoints
             var normalized = CardTags.Normalize(tags);
             if (normalized.Find(t => t.Length > CardTags.MaxLength) is { } tooLong)
             {
-                return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-                {
-                    ["tags"] = [$"Tag \"{tooLong}\" is longer than {CardTags.MaxLength} characters."],
-                });
+                return Problems.Invalid("tags", $"Tag \"{tooLong}\" is longer than {CardTags.MaxLength} characters.");
             }
             card.Tags = normalized;
         }

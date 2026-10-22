@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 
@@ -67,7 +68,9 @@ public partial class Board
             for (var i = 0; i < chars.Length; i++) chars[i] = ShortIdAlphabet[RandomNumberGenerator.GetInt32(ShortIdAlphabet.Length)];
         });
 
-    public static bool IsShortId(string value) => value.Length == ShortIdLength && value.All(ShortIdAlphabet.Contains);
+    public static bool IsShortId(string value) => value.Length == ShortIdLength && !value.AsSpan().ContainsAnyExcept(ShortIdCharacters);
+
+    private static readonly SearchValues<char> ShortIdCharacters = SearchValues.Create(ShortIdAlphabet);
 
     /// <summary>
     /// A key from a board name: the initials of its words (letters and digits only), or the start of the name when that
@@ -83,11 +86,17 @@ public partial class Board
         return key.Length >= 2 ? key : "PB";
     }
 
-    /// <summary>A key as typed, trimmed and upper-cased; check it against <see cref="KeyPattern"/>.</summary>
+    /// <summary>A key as typed, trimmed and upper-cased; check it with <see cref="IsKey"/>.</summary>
     public static string NormalizeKey(string key) => key.Trim().ToUpperInvariant();
+
+    /// <summary>Whether a (normalized) key matches <see cref="KeyPattern"/>.</summary>
+    public static bool IsKey(string key) => KeyRegex().IsMatch(key);
 
     private static readonly char[] Digits = [.. "0123456789"];
 
     [GeneratedRegex("[^A-Z0-9]+")]
     private static partial Regex NonKeyCharacters();
+
+    [GeneratedRegex(KeyPattern)]
+    private static partial Regex KeyRegex();
 }

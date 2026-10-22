@@ -11,5 +11,8 @@ public static class AppVersion
         ?? "unknown";
 
     /// <summary>A version as people say it: without the build metadata after a "+" (the commit).</summary>
-    public static string Short(string version) => version.Split('+')[0];
+    public static string Short(string version) => version.IndexOf('+') is var plus and >= 0 ? version[..plus] : version;
+
+    /// <summary>This server's version as people say it, e.g. 0.0.27.</summary>
+    public static readonly string Number = Short(Current);
 }
