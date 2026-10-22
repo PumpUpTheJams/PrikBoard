@@ -184,6 +184,15 @@ const fromDragKind: Record<Exclude<DragKind, 'Group'>, ItemGesture> = {
 const toDragKind = Object.fromEntries(Object.entries(fromDragKind).map(([k, v]) => [v, k])) as Partial<Record<ItemGesture, DragKind>>
 
 /** Where in a card's title text a screen point is, as a character offset; undefined when it isn't on the text. */
+/** Whether a clip's server is the one this page is on (its scheme may differ behind a proxy). */
+function sameHost(url: string) {
+  try {
+    return new URL(url).host === window.location.host
+  } catch {
+    return false
+  }
+}
+
 /** Whether text on the page is selected, which Ctrl/Cmd+C then copies as usual instead of the selected cards. */
 const textSelected = () => (window.getSelection()?.toString().trim() ?? '') !== ''
 
@@ -497,6 +506,12 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         // Viewers may copy too: the copies go on boards where they can edit.
         e.preventDefault()
         if (!e.repeat) copySelected()
+      } else if (
+        (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'x'
+        && !readOnly && selected.length > 0 && !textSelected()
+      ) {
+        e.preventDefault()
+        if (!e.repeat) copySelected(true)
       } else if (readOnly) {
         if (e.key.toLowerCase() === 'v') setTool('select')
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && selected.length > 1) {
@@ -708,13 +723,43 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
    * Puts the selection on the clipboard, with everything on and in it (a bucket's items, a card's images), to paste on any
    * board (also on another server).
    */
-  function copySelected() {
+  function copySelected(cut = false) {
     const ids = (kind: SelectionKind) => selected.filter((s) => s.kind === kind).map((s) => s.id)
-    const what = { cardIds: ids('card'), bucketIds: ids('bucket'), imageIds: ids('image'), drawingIds: ids('drawing') }
+    const what = { cardIds: ids('card'), bucketIds: ids('bucket'), imageIds: ids('image'), drawingIds: ids('drawing'), cut }
+    // Cut items stay where they are until they are pasted: then they move there.
     writeClip(api.copyItems(board.id, what)).then(
-      (clip) => notify(`Copied ${clipSummary(clip)}`),
-      (error) => notify({ text: `Couldn't copy: ${errorMessage(error)}`, tone: 'warn' }),
+      (clip) => notify(cut ? `Cut ${clipSummary(clip)}: paste to move it there` : `Copied ${clipSummary(clip)}`),
+      (error) => notify({ text: `Couldn't ${cut ? 'cut' : 'copy'}: ${errorMessage(error)}`, tone: 'warn' }),
     )
+  }
+
+  /**
+   * A cut pasted on the board it was cut from: the items still here move, as one step, so their top-left lands at
+   * `at`. Cards keep their numbers, unlike a paste.
+   */
+  function moveCutHere(clip: BoardClip, at: Point) {
+    const loose = (item: { bucketId?: string | null }) => !item.bucketId
+    const tops = [
+      ...(clip.buckets ?? []).map((b) => ({ kind: 'bucket' as const, ...b })),
+      ...clip.cards.filter(loose).map((n) => ({ kind: 'card' as const, ...n })),
+      ...clip.images.filter((i) => !i.cardId && loose(i)).map((i) => ({ kind: 'image' as const, ...i, id: i.id ?? '' })),
+      ...clip.drawings.filter((d) => !d.cardId && loose(d)).map((d) => ({ kind: 'drawing' as const, ...d, id: d.id ?? '' })),
+    ]
+    const here = {
+      bucket: board.buckets,
+      card: board.cards,
+      image: board.images,
+      drawing: board.drawings,
+    }
+    const members = tops.filter((t) => here[t.kind].some((x) => x.id === t.id)).map((t): Selection => ({ kind: t.kind, id: t.id }))
+    if (members.length === 0) {
+      notify({ text: 'These were moved already.', tone: 'warn' })
+      return
+    }
+    const from = snapPoint({ x: Math.min(...tops.map((t) => t.x)), y: Math.min(...tops.map((t) => t.y)) })
+    const to = snapPoint(at)
+    moveGroup(members, undefined, { x: to.x - from.x, y: to.y - from.y })
+    setSelected(members)
   }
 
   /**
@@ -723,6 +768,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
    */
   function pasteClip(clip: BoardClip) {
     const at = lastPointer.current
+    if (clip.cut && clip.source.boardShortId === board.shortId && sameHost(clip.source.url)) {
+      if (at) moveCutHere(clip, at)
+      return
+    }
     const [paste, describe] = ops.paste(board.id, clip, at ? snapPoint(at) : {})
     void settle(async () => {
       const pasted = await paste()
@@ -885,10 +934,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }
 
   /**
-   * Drops several items moved together, where the drag shows them. Buckets go first, carrying what is in them, so the
-   * loose items that follow land among them as they are shown.
+   * Drops several items moved together, where the drag shows them (moved on `by`: a cut pasted here). Buckets go first,
+   * carrying what is in them, so the loose items that follow land among them as they are shown.
    */
-  function moveGroup(members: Selection[], label = `Move ${count(members.length, 'item', 'items')}`) {
+  function moveGroup(members: Selection[], label = `Move ${count(members.length, 'item', 'items')}`, by: Point = { x: 0, y: 0 }) {
     const groupBuckets = members.flatMap((m) => (m.kind === 'bucket' ? board.buckets.filter((b) => b.id === m.id) : []))
     const groupCards = members.flatMap((m) => (m.kind === 'card' ? board.cards.filter((n) => n.id === m.id) : []))
     const groupImages = members.flatMap((m) => (m.kind === 'image' ? board.images.filter((i) => i.id === m.id) : []))
@@ -900,7 +949,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       ...groupImages.map((i) => [i.id, imageRect(i)] as const),
       ...groupDrawings.map((d) => [d.id, drawingRect(d)] as const),
     ])
-    const to = (id: string) => ({ x: spots.get(id)!.x, y: spots.get(id)!.y })
+    const to = (id: string) => ({ x: spots.get(id)!.x + by.x, y: spots.get(id)!.y + by.y })
     void runAll(label, undefined, async (changes) => {
       await allOf(groupBuckets.map(async (b) => changes.push(...bucketMove(b, await api.updateBucket(b.id, to(b.id))))))
       await allOf([

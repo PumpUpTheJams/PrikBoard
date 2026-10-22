@@ -10,7 +10,7 @@ namespace PrikBoard.Api.Contracts;
 /// meaningful inside it.
 /// </summary>
 /// <param name="Format">Always "prikboard-clip".</param>
-/// <param name="Version">Version of this format, currently 2 (1 still pastes). A clip with a newer version, or with fields the server doesn't know, is refused.</param>
+/// <param name="Version">Version of this format, currently 3 (1 and 2 still paste). A clip with a newer version, or with fields the server doesn't know, is refused.</param>
 /// <param name="CopiedAt">When it was copied (UTC).</param>
 /// <param name="Source">Where the items were copied from.</param>
 /// <param name="Cards">The cards (also those in the copied buckets), the most recently edited last (they are drawn on top).</param>
@@ -19,6 +19,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="TagColors">Colors of the cards' tags that have one (not Default), by tag name. Tags new to the board get them.</param>
 /// <param name="AppVersion">The PrikBoard version that made the clip, named when another server can't read it.</param>
 /// <param name="Buckets">The buckets, back to front (from version 2). Their cards, images and drawings are in the lists above, naming them by bucketId.</param>
+/// <param name="Cut">Cut rather than copied (from version 3): pasted on another board on the same server, the originals go to their board's trash.</param>
 public record BoardClip(
     [property: Required] string Format,
     [property: Range(1, int.MaxValue)] int Version,
@@ -29,11 +30,12 @@ public record BoardClip(
     [property: Required, MaxLength(BoardClip.MaxDrawings)] List<ClippedDrawing> Drawings,
     Dictionary<string, TagColor>? TagColors = null,
     [property: StringLength(100)] string? AppVersion = null,
-    [property: MaxLength(BoardClip.MaxBuckets)] List<ClippedBucket>? Buckets = null)
+    [property: MaxLength(BoardClip.MaxBuckets)] List<ClippedBucket>? Buckets = null,
+    bool Cut = false)
 {
     public const string FormatName = "prikboard-clip";
     /// <summary>Raise it with every change to the clip's fields, so an older server refuses a clip it can't fully read.</summary>
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
     public const int MaxCards = 200;
     public const int MaxImages = 100;
     public const int MaxDrawings = 1000;
@@ -102,8 +104,9 @@ public record ClippedCard(
 /// <param name="Width">Display width in pixels; the height follows from the aspect ratio.</param>
 /// <param name="Data">The image file itself, as base64 in JSON (PNG, JPEG, GIF or WebP, at most 10 MB).</param>
 /// <param name="BucketId">For an image on the board: the copied bucket it is in (Buckets), or null (from version 2).</param>
+/// <param name="Id">The image's id on its board, so a cut can remove it (from version 3).</param>
 public record ClippedImage(
-    Guid? CardId, string FileName, string? Caption, int X, int Y, int Width, byte[] Data, Guid? BucketId = null)
+    Guid? CardId, string FileName, string? Caption, int X, int Y, int Width, byte[] Data, Guid? BucketId = null, Guid? Id = null)
     : ExportedImage(CardId, FileName, Caption, X, Y, Width, Data);
 
 /// <summary>A drawing in a clip: as in an export, and the copied bucket it is in.</summary>
@@ -115,9 +118,10 @@ public record ClippedImage(
 /// <param name="StrokeWidth">Unused (the export file's older one-stroke form); null.</param>
 /// <param name="Points">Unused (the export file's older one-stroke form); null.</param>
 /// <param name="BucketId">For a drawing on the board: the copied bucket it is in (Buckets), or null (from version 2).</param>
+/// <param name="Id">The drawing's id on its board, so a cut can remove it (from version 3).</param>
 public record ClippedDrawing(
     Guid? CardId, int X, int Y, List<ExportedStroke>? Strokes = null, InkColor? Color = null, int? StrokeWidth = null,
-    List<double[]>? Points = null, Guid? BucketId = null)
+    List<double[]>? Points = null, Guid? BucketId = null, Guid? Id = null)
     : ExportedDrawing(CardId, X, Y, Strokes, Color, StrokeWidth, Points);
 
 /// <summary>What to copy, all on the board in the path. A bucket comes with the cards, images and drawings in it.</summary>
@@ -125,11 +129,13 @@ public record ClippedDrawing(
 /// <param name="BucketIds">Buckets, with what is in them.</param>
 /// <param name="ImageIds">Images on the board (images on cards come with their card).</param>
 /// <param name="DrawingIds">Drawings on the board (drawings on cards come with their card).</param>
+/// <param name="Cut">Cut them: the clip says so, and pasted on another board of this server the originals go to the trash. Needs the Editor role.</param>
 public record CopyItemsRequest(
     [property: MaxLength(BoardClip.MaxCards)] List<Guid>? CardIds = null,
     [property: MaxLength(BoardClip.MaxBuckets)] List<Guid>? BucketIds = null,
     [property: MaxLength(BoardClip.MaxImages)] List<Guid>? ImageIds = null,
-    [property: MaxLength(BoardClip.MaxDrawings)] List<Guid>? DrawingIds = null);
+    [property: MaxLength(BoardClip.MaxDrawings)] List<Guid>? DrawingIds = null,
+    bool Cut = false);
 
 /// <summary>
 /// A clip to paste, and where. With X and Y everything keeps its place relative to the rest, the top-left at X and Y; an
@@ -152,5 +158,17 @@ public record PasteItemsRequest(
 /// <param name="Drawings">The new drawings: on those cards, or on the board.</param>
 /// <param name="Bucket">The bucket the cards went into when one was asked for (it may have grown); null otherwise.</param>
 /// <param name="Buckets">The new buckets, back to front, on top of the board's others.</param>
+/// <param name="Moved">For a cut clip from another board on this server: the originals now in that board's trash, as they were. Null otherwise (a copy, or a cut from another server, whose originals stay).</param>
 public record PastedItems(
-    List<CardDetail> Cards, List<ImageDetail> Images, List<DrawingDetail> Drawings, BucketDetail? Bucket, List<BucketDetail> Buckets);
+    List<CardDetail> Cards, List<ImageDetail> Images, List<DrawingDetail> Drawings, BucketDetail? Bucket, List<BucketDetail> Buckets,
+    MovedOriginals? Moved = null);
+
+/// <summary>The originals of a cut, deleted when it was pasted (restoreCard, restoreBucket, restoreImage and restoreDrawing bring them back).</summary>
+/// <param name="BoardId">The board they were cut from.</param>
+/// <param name="BoardName">Its name.</param>
+/// <param name="Cards">The cards, with the images and drawings on them.</param>
+/// <param name="Buckets">The buckets. What else was in them when they were cut stays on the board, loose.</param>
+/// <param name="Images">The images that were on the board.</param>
+/// <param name="Drawings">The drawings that were on the board.</param>
+public record MovedOriginals(
+    Guid BoardId, string BoardName, List<CardDetail> Cards, List<BucketDetail> Buckets, List<ImageDetail> Images, List<DrawingDetail> Drawings);

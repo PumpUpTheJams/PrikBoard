@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react'
 import { api, errorMessage } from '../api/client'
-import { apply, check, type UndoDirection, type UndoEntry } from './undo'
+import type { BoardDetail } from '../api/types'
+import { apply, check, otherBoards, type UndoDirection, type UndoEntry } from './undo'
 
 /** How many steps each board keeps. */
 const LIMIT = 100
@@ -103,14 +104,23 @@ export function useUndo({ boardId, history, run, notify, moving, onApplied }: Un
           notify({ text: errorMessage(error), tone: 'warn' })
           return
         }
+        // A cut's originals are on the board they were cut from; one that can't be loaded is left out (check refuses).
+        const elsewhere: Record<string, BoardDetail> = {}
+        for (const id of otherBoards(entry, boardId)) {
+          try {
+            elsewhere[id] = await api.getBoard(id)
+          } catch {
+            // No longer there, or no longer ours.
+          }
+        }
         from.pop()
         history.emit()
-        const reason = check(entry, direction, board, moving)
+        const reason = check(entry, direction, board, moving, elsewhere)
         if (reason) {
           notify({ text: `Can't ${direction} “${entry.label.toLowerCase()}”: ${reason}`, tone: 'warn' })
           return
         }
-        if (!(await run(() => apply(entry, direction, board)))) return
+        if (!(await run(() => apply(entry, direction, board, elsewhere)))) return
         ;(direction === 'undo' ? stacks.redo : stacks.undo).push(entry)
         history.emit()
         onApplied?.(entry, direction)
