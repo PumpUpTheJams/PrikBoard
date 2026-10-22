@@ -129,7 +129,9 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
 
         modelBuilder.Entity<BoardDrawing>(drawing =>
         {
-            drawing.Property(d => d.Color).HasConversion<string>().HasMaxLength(20);
+            drawing.PrimitiveCollection(d => d.Colors).IsRequired().ElementType().HasConversion<string>();
+            // A shortcut to Content.Strokes, not a column.
+            drawing.Ignore(d => d.Strokes);
             drawing.HasOne(d => d.AddedBy).WithMany().HasForeignKey(d => d.AddedById).OnDelete(DeleteBehavior.SetNull);
             drawing.HasOne(d => d.Board).WithMany(b => b.Drawings).HasForeignKey(d => d.BoardId).OnDelete(DeleteBehavior.Cascade);
             // A drawing on a card goes when its card goes.
@@ -145,7 +147,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
         modelBuilder.Entity<DrawingContent>(content =>
         {
             content.HasKey(c => c.DrawingId);
-            content.Property(c => c.Points).HasColumnType("jsonb").HasConversion(DrawingPointsJson.Converter, DrawingPointsJson.Comparer);
+            content.Property(c => c.Strokes).HasColumnType("jsonb").HasConversion(DrawingStrokesJson.Converter, DrawingStrokesJson.Comparer);
         });
 
         // Users and agents share one table, so memberships, invites and images point at a single kind of id.

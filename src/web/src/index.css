@@ -2741,6 +2741,16 @@ a.button.primary:hover {
   padding: 4px 0;
 }
 
+/* Who drew the selected drawing, like an image's "added by". */
+.drawing-author {
+  max-width: 160px;
+  overflow: hidden;
+  color: var(--subtle);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .drawing-delete {
   display: grid;
   place-items: center;

@@ -157,7 +157,10 @@ export type StrokeWidth = (typeof strokeWidths)[number]
 /** One point of a stroke: x and y from the drawing's x/y, then pressure from 0 to 1 (0.5 without pressure). */
 export type StrokePoint = [number, number, number]
 
-/** A freehand pen stroke; its points come from contentUrl (getDrawingContent). */
+/**
+ * A freehand drawing: one or more pen strokes that select, move and delete as one (everything drawn while the pen was
+ * up). Its strokes come from contentUrl (getDrawingContent), which changes whenever they do.
+ */
 export interface DrawingDetail {
   id: string
   boardId: string
@@ -168,8 +171,8 @@ export interface DrawingDetail {
   y: number
   width: number
   height: number
-  color: InkColor
-  strokeWidth: number
+  /** The ink of each stroke, in drawing order. */
+  colors: InkColor[]
   pointCount: number
   addedBy: string
   addedById: string | null
@@ -178,12 +181,18 @@ export interface DrawingDetail {
   updatedAt: string
 }
 
-export interface DrawingContent {
-  drawingId: string
+/** One stroke of a drawing: its base width and its points, measured from the drawing's x/y. */
+export interface DrawingStroke {
+  strokeWidth: number
   points: StrokePoint[]
 }
 
-/** A new stroke: x and y on the grid, points measured from there. */
+export interface DrawingContent {
+  drawingId: string
+  strokes: DrawingStroke[]
+}
+
+/** A new drawing of one stroke: x and y on the grid, points measured from there. */
 export interface NewDrawing {
   x: number
   y: number
@@ -193,11 +202,23 @@ export interface NewDrawing {
   cardId?: string
 }
 
+/** A stroke to add to a drawing: its own x and y on the drawing's canvas (on the grid), points measured from there. */
+export interface NewDrawingStroke {
+  x: number
+  y: number
+  points: StrokePoint[]
+  color?: InkColor
+  strokeWidth?: number
+}
+
 /** A PATCH of a drawing; x and y are on wherever it ends up (give both when attaching or detaching). */
 export interface DrawingChanges {
   x?: number
   y?: number
+  /** One ink for every stroke. */
   color?: InkColor
+  /** An ink for each stroke, as many as it has. */
+  colors?: InkColor[]
   cardId?: string
   detach?: boolean
 }

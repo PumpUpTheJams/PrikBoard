@@ -155,9 +155,10 @@ export function CardCanvas(props: CardCanvasProps) {
     return { x: (client.x - rect.left) / zoom, y: (client.y - rect.top) / zoom }
   }
 
-  /** The stroke being drawn with the pen. */
-  const pen = useStroke((e) => toCard({ x: e.clientX, y: e.clientY }))
-  useEffect(() => onBusy(gesture !== null || pen.stroke !== null), [gesture, pen.stroke, onBusy])
+  /** The strokes being drawn with the pen and saved; while it is on, they all go into one drawing. */
+  const pen = useStroke((e) => toCard({ x: e.clientX, y: e.clientY }), drawingOn)
+  const penBusy = pen.strokes.length > 0
+  useEffect(() => onBusy(gesture !== null || penBusy), [gesture, penBusy, onBusy])
 
   const contains = (rect: DOMRect, p: Point) => p.x >= rect.left && p.x < rect.right && p.y >= rect.top && p.y < rect.bottom
   const hits = (client: Point) => !!scrollRef.current && contains(scrollRef.current.getBoundingClientRect(), client)
@@ -191,7 +192,7 @@ export function CardCanvas(props: CardCanvasProps) {
     step(label, [patched(target.drawing(before.id), snap.drawing(before), snap.drawing(after), keys)])
 
   function recolorDrawing(drawing: DrawingDetail, color: InkColor) {
-    void settle(() => api.updateDrawing(drawing.id, { color }), drawingStep('Change ink', drawing, ['color']))
+    void settle(() => api.updateDrawing(drawing.id, { color }), drawingStep('Change ink', drawing, ['colors']))
   }
 
   /** Adds a component in the first free spot in view (or, with none, wherever the server finds room) and focuses it. */
@@ -667,7 +668,9 @@ export function CardCanvas(props: CardCanvasProps) {
               </div>
             ))}
 
-            {pen.stroke && <StrokeSvg points={pen.stroke.points} color={inkHex[pen.stroke.color]} strokeWidth={pen.stroke.width} at={{ x: 0, y: 0 }} />}
+            {pen.strokes.map((s, i) => (
+              <StrokeSvg key={i} points={s.points} color={inkHex[s.color]} strokeWidth={s.width} at={{ x: 0, y: 0 }} />
+            ))}
 
             {selectedDrawing && !(dragging?.id === selectedDrawing.drawing.id && !dragging.done) && (
               <DrawingToolbar

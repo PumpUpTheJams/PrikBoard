@@ -196,10 +196,9 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Property<Guid?>("CardId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("Color")
+                    b.PrimitiveCollection<string[]>("Colors")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasColumnType("text[]");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -213,7 +212,7 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Property<int>("PointCount")
                         .HasColumnType("integer");
 
-                    b.Property<int>("StrokeWidth")
+                    b.Property<int>("Revision")
                         .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
@@ -662,7 +661,7 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Property<Guid>("DrawingId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("Points")
+                    b.Property<string>("Strokes")
                         .IsRequired()
                         .HasColumnType("jsonb");
 

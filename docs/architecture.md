@@ -112,7 +112,7 @@ React 19, TypeScript and Vite, with no state library and no UI kit. The visual d
 - **Hash key rotation.** Losing or changing `Auth:HashKey` orphans every account. Rotation would need a second key and re-hashing on sign-in.
 - **Account deletion.** People can unlink sign-ins and leave boards, but cannot delete their account yet.
 - **Hosting, and which managed PostgreSQL to use.** See [`infra/README.md`](../infra/README.md).
-- **Drawing.** The mockup also shows freehand drawing on the board and annotations on images. Images are in place; drawing is not built yet.
+- **Drawing.** The mockup also shows freehand drawing on the board and annotations on images. Images and freehand drawings are in place; annotations on images are not built yet.
 - **Image storage at scale.** Images and avatars are files on a volume of the API's own (`Data/FileStore.cs`), which suits a single instance. Several instances would need a shared volume or object storage (for example Azure Blob Storage) behind the same `FileStore`.
 - **More project-management fields.** For example a due date.
 - **An MCP server.** It would sit on top of the same endpoints, so AI assistants can use PrikBoard as a native tool.

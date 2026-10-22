@@ -36,6 +36,7 @@ import type {
   ImageUploadUrl,
   ImagePlacement,
   NewDrawing,
+  NewDrawingStroke,
   NewCardComponent,
   CardComponent,
   CardComponentChanges,
@@ -265,7 +266,11 @@ export const api = {
 
   createDrawing: (boardId: string, drawing: NewDrawing) => request<DrawingDetail>('POST', `/boards/${boardId}/drawings`, drawing),
   /** The stroke's points; they never change, so the browser may cache them. */
-  getDrawingContent: (drawingId: string) => request<DrawingContent>('GET', `/drawings/${drawingId}/content`),
+  /** The strokes at a drawing's contentUrl (which names their revision). */
+  getDrawingContent: (contentUrl: string) => request<DrawingContent>('GET', contentUrl.replace(/^\/api/, '')),
+  addDrawingStroke: (drawingId: string, stroke: NewDrawingStroke) => request<DrawingDetail>('POST', `/drawings/${drawingId}/strokes`, stroke),
+  /** Takes a stroke (by its index in drawing order) off a drawing; not its only one. */
+  deleteDrawingStroke: (drawingId: string, index: number) => request<DrawingDetail>('DELETE', `/drawings/${drawingId}/strokes/${index}`),
   updateDrawing: (drawingId: string, changes: DrawingChanges) =>
     request<DrawingDetail>('PATCH', `/drawings/${drawingId}`, changes),
   deleteDrawing: (drawingId: string) => request<void>('DELETE', `/drawings/${drawingId}`),

@@ -89,7 +89,8 @@ public static class BoardTransferEndpoints
             images,
             board.Tags.Where(t => t.Color != TagColor.Default).ToDictionary(t => t.Name, t => t.Color),
             board.Drawings.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id)
-                .Select(d => new ExportedDrawing(d.CardId, d.X, d.Y, d.Color, d.StrokeWidth, [.. d.Content!.Points])).ToList(),
+                .Select(d => new ExportedDrawing(d.CardId, d.X, d.Y,
+                    [.. d.Content!.Strokes.Zip(d.Colors, (s, color) => new ExportedStroke(color, s.StrokeWidth, [.. s.Points]))])).ToList(),
             board.Key,
             AppVersion.Short(AppVersion.Current));
 
@@ -250,13 +251,11 @@ public static class BoardTransferEndpoints
             var drawing = new BoardDrawing
             {
                 CardId = cardId,
-                Color = source.Color,
-                StrokeWidth = source.StrokeWidth,
                 AddedById = createdBy,
                 CreatedAt = clock.AddMilliseconds(i),
                 UpdatedAt = clock.AddMilliseconds(i),
             };
-            if (DrawingEndpoints.Build(drawing, source.Points, source.X, source.Y, $"drawings[{i}].") is { } invalidDrawing) return invalidDrawing;
+            if (DrawingEndpoints.Build(drawing, source.AllStrokes(), source.X, source.Y, $"drawings[{i}].") is { } invalidDrawing) return invalidDrawing;
             board.Drawings.Add(drawing);
         }
 

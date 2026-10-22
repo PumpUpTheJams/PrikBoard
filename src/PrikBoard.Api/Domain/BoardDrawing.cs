@@ -1,14 +1,19 @@
 namespace PrikBoard.Api.Domain;
 
 /// <summary>
-/// One freehand pen stroke. Without a <see cref="CardId"/> it sits on the board at <see cref="X"/>, <see cref="Y"/>; with
-/// one it is drawn on that card's own canvas. The points live in <see cref="DrawingContent"/>, relative to X and Y, so
-/// board snapshots carry only the place, size and color.
+/// A freehand drawing: one or more pen strokes that select, move and delete as one. Everything drawn between picking up
+/// the pen and putting it down goes into one drawing. Without a <see cref="CardId"/> it sits on the board at
+/// <see cref="X"/>, <see cref="Y"/>; with one it is drawn on that card's own canvas. The strokes live in
+/// <see cref="DrawingContent"/>, relative to X and Y, so board snapshots carry only the place, size and inks.
 /// </summary>
 public class BoardDrawing : ICanvasItem
 {
     /// <summary>Most points one stroke can have.</summary>
     public const int MaxPoints = 5000;
+    /// <summary>Most points one drawing can have, over all its strokes.</summary>
+    public const int MaxTotalPoints = 50_000;
+    /// <summary>Most strokes one drawing can have.</summary>
+    public const int MaxStrokes = 1000;
     /// <summary>Most drawings a board can hold, on its canvas and on its cards together.</summary>
     public const int MaxPerBoard = 5000;
     /// <summary>Points run from 0 to this, in both directions, from the drawing's X and Y.</summary>
@@ -28,12 +33,14 @@ public class BoardDrawing : ICanvasItem
     /// <summary>Top-left, snapped to the grid: on the board, or on the card's canvas when attached.</summary>
     public int X { get; set; }
     public int Y { get; set; }
-    /// <summary>The box from X and Y that holds every point plus half the line width, see <see cref="SetPoints"/>.</summary>
+    /// <summary>The box from X and Y that holds every point plus half the line width, see <see cref="Measure"/>.</summary>
     public int Width { get; set; }
     public int Height { get; set; }
-    public InkColor Color { get; set; }
-    public int StrokeWidth { get; set; }
+    /// <summary>The ink of each stroke, in drawing order (the strokes themselves are in <see cref="Content"/>).</summary>
+    public List<InkColor> Colors { get; set; } = [];
     public int PointCount { get; set; }
+    /// <summary>Goes up whenever the strokes change, so the content's URL changes with it and caches stay right.</summary>
+    public int Revision { get; set; }
     /// <summary>The user or agent that drew it; null once they no longer exist.</summary>
     public Guid? AddedById { get; set; }
     public Principal? AddedBy { get; set; }
@@ -46,35 +53,97 @@ public class BoardDrawing : ICanvasItem
 
     /// <summary>
     /// Checks <paramref name="points"/> (each <c>[x, y, pressure]</c>, x and y from 0 to <see cref="MaxSize"/>, pressure
-    /// from 0 to 1) and stores them rounded, with the size and point count that follow. Returns the problem with the first
-    /// bad point as (index, message), or null when they are fine.
+    /// from 0 to 1) and returns them rounded, or the problem with the first bad point as (index, message).
     /// </summary>
-    public (int Index, string Message)? SetPoints(IReadOnlyList<double[]> points)
+    public static (double[][]? Points, (int Index, string Message)? Problem) CheckPoints(IReadOnlyList<double[]> points)
     {
         for (var i = 0; i < points.Count; i++)
         {
             var point = points[i];
-            if (point is not { Length: 3 }) return (i, "A point is [x, y, pressure].");
-            if (!point.All(double.IsFinite)) return (i, "Point values must be finite numbers.");
-            if (point[0] is < 0 or > MaxSize || point[1] is < 0 or > MaxSize) return (i, $"x and y run from 0 to {MaxSize}, from the drawing's x and y.");
-            if (point[2] is < 0 or > 1) return (i, "Pressure runs from 0 to 1.");
+            if (point is not { Length: 3 }) return (null, (i, "A point is [x, y, pressure]."));
+            if (!point.All(double.IsFinite)) return (null, (i, "Point values must be finite numbers."));
+            if (point[0] is < 0 or > MaxSize || point[1] is < 0 or > MaxSize) return (null, (i, $"x and y run from 0 to {MaxSize}, from the drawing's x and y."));
+            if (point[2] is < 0 or > 1) return (null, (i, "Pressure runs from 0 to 1."));
         }
-
         // A tenth of a pixel and a hundredth of pressure is finer than any screen shows, and keeps the content small.
-        var rounded = points.Select(p => new[] { Math.Round(p[0], 1), Math.Round(p[1], 1), Math.Round(p[2], 2) }).ToArray();
-        var margin = (StrokeWidth + 1) / 2;
-        Width = (int)Math.Ceiling(rounded.Max(p => p[0])) + margin;
-        Height = (int)Math.Ceiling(rounded.Max(p => p[1])) + margin;
-        PointCount = rounded.Length;
-        Content = new DrawingContent { Points = rounded };
-        return null;
+        return (points.Select(p => new[] { Math.Round(p[0], 1), Math.Round(p[1], 1), Math.Round(p[2], 2) }).ToArray(), null);
+    }
+
+    /// <summary>The strokes, in drawing order; empty before the content is set.</summary>
+    public IReadOnlyList<DrawingStroke> Strokes => Content?.Strokes ?? [];
+
+    /// <summary>Sets the strokes and their inks (as many as strokes), with the size and point count that follow.</summary>
+    public void SetStrokes(IReadOnlyList<DrawingStroke> strokes, IReadOnlyList<InkColor> colors)
+    {
+        if (Content is null) Content = new DrawingContent { Strokes = [.. strokes] };
+        else Content.Strokes = [.. strokes];
+        Colors = [.. colors];
+        Measure();
+    }
+
+    /// <summary>
+    /// Adds a stroke whose points are measured from (<paramref name="x"/>, <paramref name="y"/>) on the drawing's canvas.
+    /// The drawing grows to hold it: when it starts above or left of the drawing, the corner moves there (both are on the
+    /// grid) and the other strokes' points shift by as much. Returns false when the drawing would get bigger than
+    /// <see cref="MaxSize"/>.
+    /// </summary>
+    public bool AddStroke(DrawingStroke stroke, InkColor color, int x, int y)
+    {
+        var (left, top) = (Math.Min(X, x), Math.Min(Y, y));
+        var strokes = Strokes.Select(s => s.Shifted(X - left, Y - top)).Append(stroke.Shifted(x - left, y - top)).ToList();
+        if (strokes.Any(s => s.Points.Any(p => p[0] > MaxSize || p[1] > MaxSize))) return false;
+        (X, Y) = (left, top);
+        SetStrokes(strokes, [.. Colors, color]);
+        Revision++;
+        return true;
+    }
+
+    /// <summary>
+    /// Takes away the stroke at <paramref name="index"/>; the corner then moves in as far as the others allow (on the grid,
+    /// half the thickest line clear of each, as the web app places a new drawing), so taking away the stroke just added
+    /// gives back the drawing as it was.
+    /// </summary>
+    public void RemoveStroke(int index)
+    {
+        var strokes = Strokes.Where((_, i) => i != index).ToList();
+        var colors = Colors.Where((_, i) => i != index).ToList();
+        var dx = Math.Max(0, strokes.Min(s => s.Inset(p => p[0])));
+        var dy = Math.Max(0, strokes.Min(s => s.Inset(p => p[1])));
+        (X, Y) = (X + dx, Y + dy);
+        SetStrokes([.. strokes.Select(s => s.Shifted(-dx, -dy))], colors);
+        Revision++;
+    }
+
+    /// <summary>Works out the box and point count from the strokes.</summary>
+    private void Measure()
+    {
+        Width = Strokes.Max(s => (int)Math.Ceiling(s.Points.Max(p => p[0])) + (s.StrokeWidth + 1) / 2);
+        Height = Strokes.Max(s => (int)Math.Ceiling(s.Points.Max(p => p[1])) + (s.StrokeWidth + 1) / 2);
+        PointCount = Strokes.Sum(s => s.Points.Length);
     }
 }
 
-/// <summary>The points of a <see cref="BoardDrawing"/>, in their own table so board snapshots never load them.</summary>
+/// <summary>One pen stroke of a <see cref="BoardDrawing"/>: its base width and its points.</summary>
+/// <param name="StrokeWidth">Base line width: 2, 4 or 8.</param>
+/// <param name="Points">Each point is <c>[x, y, pressure]</c>, relative to the drawing's X and Y.</param>
+public record DrawingStroke(int StrokeWidth, double[][] Points)
+{
+    /// <summary>The same stroke with its points moved by (dx, dy).</summary>
+    public DrawingStroke Shifted(int dx, int dy) =>
+        dx == 0 && dy == 0 ? this : this with { Points = [.. Points.Select(p => new[] { Math.Round(p[0] + dx, 1), Math.Round(p[1] + dy, 1), p[2] })] };
+
+    /// <summary>
+    /// How far a drawing of only this stroke would have its corner from 0 on one axis: the last grid line at least half
+    /// the line at full pressure (0.8 × the base width) before its first point.
+    /// </summary>
+    public int Inset(Func<double[], double> axis) =>
+        (int)Math.Floor((Points.Min(axis) - StrokeWidth * 0.8) / Layout.Grid) * Layout.Grid;
+}
+
+/// <summary>The strokes of a <see cref="BoardDrawing"/>, in their own table so board snapshots never load them.</summary>
 public class DrawingContent
 {
     public Guid DrawingId { get; set; }
-    /// <summary>Each point is <c>[x, y, pressure]</c>, relative to the drawing's X and Y.</summary>
-    public required double[][] Points { get; set; }
+    /// <summary>The strokes in drawing order, their points relative to the drawing's X and Y.</summary>
+    public required List<DrawingStroke> Strokes { get; set; }
 }
