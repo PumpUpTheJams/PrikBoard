@@ -60,7 +60,7 @@ public static class ClipEndpoints
     {
         if (request.Cut && http.HttpContext.BoardRole() < BoardRole.Editor)
         {
-            return Invalid("cut", "You can only view this board, so its items can't be cut. Copy them instead.");
+            return Problems.Invalid("cut", "You can only view this board, so its items can't be cut. Copy them instead.");
         }
         return await BuildClipAsync(db, files, boardId, request, ServerUrl(http), ct);
     }
@@ -74,7 +74,7 @@ public static class ClipEndpoints
             && await BoardTransferEndpoints.UnknownFieldsAsync(http, json.Value.SerializerOptions, typeof(PasteItemsRequest), ct) is { Count: > 0 } unknown)
         {
             var fields = string.Join(", ", unknown.Take(5)) + (unknown.Count > 5 ? $" and {unknown.Count - 5} more" : "");
-            return Invalid("clip.version", $"These items have fields this server doesn't know ({fields}). {MadeWith(request.Clip)} " +
+            return Problems.Invalid("clip.version", $"These items have fields this server doesn't know ({fields}). {MadeWith(request.Clip)} " +
                                            "Update PrikBoard to paste them without losing them.");
         }
         var result = await PasteAsync(boardId, request, ServerUrl(http), principal, db, files, ct);
@@ -99,17 +99,17 @@ public static class ClipEndpoints
         var drawingIds = (what.DrawingIds ?? []).Distinct().ToList();
         if (cardIds.Count + bucketIds.Count + imageIds.Count + drawingIds.Count == 0)
         {
-            return Invalid("cardIds", "Name at least one card, bucket, image or drawing to copy.");
+            return Problems.Invalid("cardIds", "Name at least one card, bucket, image or drawing to copy.");
         }
 
         var buckets = await db.Buckets.AsNoTracking().Where(b => b.BoardId == boardId && bucketIds.Contains(b.Id)).ToListAsync(ct);
-        if (buckets.Count != bucketIds.Count) return Invalid("bucketIds", "Every bucket must be on this board.");
+        if (buckets.Count != bucketIds.Count) return Problems.Invalid("bucketIds", "Every bucket must be on this board.");
         // A bucket comes with what is in it.
         bool InCopiedBucket(Guid? bucketId) => bucketId is { } id && bucketIds.Contains(id);
         var cards = await db.Cards.AsNoTracking()
             .Where(n => n.BoardId == boardId && (cardIds.Contains(n.Id) || (n.BucketId != null && bucketIds.Contains(n.BucketId.Value))))
             .ToListAsync(ct);
-        if (cardIds.Except(cards.Select(n => n.Id)).Any()) return Invalid("cardIds", "Every card must be on this board.");
+        if (cardIds.Except(cards.Select(n => n.Id)).Any()) return Problems.Invalid("cardIds", "Every card must be on this board.");
         var ids = cards.Select(n => n.Id).ToList();
 
         var images = await db.Images.AsNoTracking().Include(i => i.File)
@@ -120,11 +120,11 @@ public static class ClipEndpoints
             .ToListAsync(ct);
         if (imageIds.Except(images.Where(i => i.CardId is null).Select(i => i.Id)).Any())
         {
-            return Invalid("imageIds", "Every image must be on this board, and not on a card (those come with their card).");
+            return Problems.Invalid("imageIds", "Every image must be on this board, and not on a card (those come with their card).");
         }
         if (images.Count > BoardClip.MaxImages || images.Sum(i => i.File!.Size) > BoardClip.MaxImageBytes)
         {
-            return Invalid("cardIds", $"These hold more than {BoardClip.MaxImages} images or {BoardClip.MaxImageBytes / 1024 / 1024} MB " +
+            return Problems.Invalid("cardIds", $"These hold more than {BoardClip.MaxImages} images or {BoardClip.MaxImageBytes / 1024 / 1024} MB " +
                                       "of them, more than one copy takes. Copy fewer at a time.");
         }
         var drawings = await db.Drawings.AsNoTracking().Include(d => d.Content)
@@ -135,11 +135,11 @@ public static class ClipEndpoints
             .ToListAsync(ct);
         if (drawingIds.Except(drawings.Where(d => d.CardId is null).Select(d => d.Id)).Any())
         {
-            return Invalid("drawingIds", "Every drawing must be on this board, and not on a card (those come with their card).");
+            return Problems.Invalid("drawingIds", "Every drawing must be on this board, and not on a card (those come with their card).");
         }
         if (cards.Count > BoardClip.MaxCards || drawings.Count > BoardClip.MaxDrawings)
         {
-            return Invalid("cardIds", $"These hold more than {BoardClip.MaxCards} cards or {BoardClip.MaxDrawings} drawings. Copy fewer at a time.");
+            return Problems.Invalid("cardIds", $"These hold more than {BoardClip.MaxCards} cards or {BoardClip.MaxDrawings} drawings. Copy fewer at a time.");
         }
 
         var tagNames = cards.SelectMany(n => n.Tags).Distinct().ToList();
@@ -166,7 +166,7 @@ public static class ClipEndpoints
                 [.. d.Content!.Strokes.Zip(d.Colors, (s, color) => new ExportedStroke(color, s.StrokeWidth, [.. s.Points]))],
                 BucketId: InCopiedBucket(d.BucketId) ? d.BucketId : null, Id: d.Id))],
             tagColors,
-            AppVersion.Short(AppVersion.Current),
+            AppVersion.Number,
             [.. Layout.BackToFront(buckets).Select(b => new ClippedBucket(b.Id, b.Name, b.Color, b.X, b.Y, b.Width, b.Height, b.Collapsed))],
             what.Cut));
     }
@@ -179,29 +179,29 @@ public static class ClipEndpoints
         var clip = request.Clip;
         if (clip.Version > BoardClip.CurrentVersion)
         {
-            return Invalid("clip.version", $"These items were copied in a newer format (version {clip.Version}; this server reads up to " +
+            return Problems.Invalid("clip.version", $"These items were copied in a newer format (version {clip.Version}; this server reads up to " +
                                            $"{BoardClip.CurrentVersion}). {MadeWith(clip)} Update PrikBoard to paste them.");
         }
-        if (clip.Format != BoardClip.FormatName) return Invalid("clip.format", $"This is not a PrikBoard clip: format must be \"{BoardClip.FormatName}\".");
-        if (request.X is null != request.Y is null) return Invalid(request.X is null ? "x" : "y", "Give X and Y together.");
-        if (request.BucketId is not null && request.X is not null) return Invalid("bucketId", "Give a bucketId, or X and Y, not both.");
-        if (clip.Cards.Select(n => n.Id).Distinct().Count() != clip.Cards.Count) return Invalid("clip.cards", "Card ids must be unique within the clip.");
+        if (clip.Format != BoardClip.FormatName) return Problems.Invalid("clip.format", $"This is not a PrikBoard clip: format must be \"{BoardClip.FormatName}\".");
+        if (Problems.XWithoutY(request.X, request.Y) is { } apart) return apart;
+        if (request.BucketId is not null && request.X is not null) return Problems.Invalid("bucketId", "Give a bucketId, or X and Y, not both.");
+        if (clip.Cards.Select(n => n.Id).Distinct().Count() != clip.Cards.Count) return Problems.Invalid("clip.cards", "Card ids must be unique within the clip.");
         var clipBuckets = clip.Buckets ?? [];
-        if (clipBuckets.Select(b => b.Id).Distinct().Count() != clipBuckets.Count) return Invalid("clip.buckets", "Bucket ids must be unique within the clip.");
+        if (clipBuckets.Select(b => b.Id).Distinct().Count() != clipBuckets.Count) return Problems.Invalid("clip.buckets", "Bucket ids must be unique within the clip.");
         var looseImages = clip.Images.Where(m => m.CardId is null).ToList();
         var looseDrawings = clip.Drawings.Where(d => d.CardId is null).ToList();
         var cardsOnly = clipBuckets.Count == 0 && looseImages.Count == 0 && looseDrawings.Count == 0;
-        if (cardsOnly && clip.Cards.Count == 0) return Invalid("clip", "The clip holds nothing to paste.");
+        if (cardsOnly && clip.Cards.Count == 0) return Problems.Invalid("clip", "The clip holds nothing to paste.");
         if (!cardsOnly && request.BucketId is not null)
         {
-            return Invalid("bucketId", "Only cards go into a bucket by bucketId; paste buckets, images and drawings at X and Y.");
+            return Problems.Invalid("bucketId", "Only cards go into a bucket by bucketId; paste buckets, images and drawings at X and Y.");
         }
         var inBucket = clipBuckets.Select(b => b.Id).ToHashSet();
         if (clip.Cards.Any(n => n.BucketId is { } b && !inBucket.Contains(b))
             || looseImages.Any(m => m.BucketId is { } b && !inBucket.Contains(b))
             || looseDrawings.Any(d => d.BucketId is { } b && !inBucket.Contains(b)))
         {
-            return Invalid("clip.buckets", "An item names a bucket that is not in the clip.");
+            return Problems.Invalid("clip.buckets", "An item names a bucket that is not in the clip.");
         }
 
         var board = await db.Boards.AsNoTracking().FirstOrDefaultAsync(b => b.Id == boardId, ct);
@@ -217,11 +217,11 @@ public static class ClipEndpoints
             cutFrom = await db.Boards.AsNoTracking().FirstOrDefaultAsync(b => b.ShortId == clip.Source.BoardShortId, ct);
             if (cutFrom is not null && cutFrom.Id == boardId)
             {
-                return Invalid("clip.cut", "Cut items paste on another board. To move them on this board, move them.");
+                return Problems.Invalid("clip.cut", "Cut items paste on another board. To move them on this board, move them.");
             }
             if (cutFrom is null || await BoardAccess.RoleOnBoardAsync(db, cutFrom.Id, principal, ct) is not >= BoardRole.Editor)
             {
-                return Invalid("clip.cut", "These were cut from a board you can't change (any more), so they can't be moved. Copy them instead.");
+                return Problems.Invalid("clip.cut", "These were cut from a board you can't change (any more), so they can't be moved. Copy them instead.");
             }
         }
 
@@ -236,7 +236,7 @@ public static class ClipEndpoints
         foreach (var (source, i) in clip.Cards.Select((n, i) => (n, i)))
         {
             var tags = CardTags.Normalize(source.Tags);
-            if (tags.Any(t => t.Length > CardTags.MaxLength)) return Invalid($"clip.cards[{i}].tags", $"A tag is at most {CardTags.MaxLength} characters.");
+            if (tags.Any(t => t.Length > CardTags.MaxLength)) return Problems.Invalid($"clip.cards[{i}].tags", $"A tag is at most {CardTags.MaxLength} characters.");
             cards.Add(new Card
             {
                 BoardId = boardId,
@@ -253,7 +253,7 @@ public static class ClipEndpoints
 
         if (clip.Images.Sum(m => (long)m.Data.Length) > BoardClip.MaxImageBytes)
         {
-            return Invalid("clip.images", $"A clip holds at most {BoardClip.MaxImageBytes / 1024 / 1024} MB of images.");
+            return Problems.Invalid("clip.images", $"A clip holds at most {BoardClip.MaxImageBytes / 1024 / 1024} MB of images.");
         }
         var images = new List<(BoardImage Image, ClippedImage Source, byte[] Data)>();
         foreach (var (source, i) in clip.Images.Select((m, i) => (m, i)))
@@ -261,15 +261,15 @@ public static class ClipEndpoints
             Card? card = null;
             if (source.CardId is { } on && !copies.TryGetValue(on, out card))
             {
-                return Invalid($"clip.images[{i}].cardId", "The card is not in the clip.");
+                return Problems.Invalid($"clip.images[{i}].cardId", "The card is not in the clip.");
             }
             if (source.Data.Length > ImageFormats.MaxBytes)
             {
-                return Invalid($"clip.images[{i}].data", $"Images can be at most {ImageFormats.MaxBytes / 1024 / 1024} MB.");
+                return Problems.Invalid($"clip.images[{i}].data", $"Images can be at most {ImageFormats.MaxBytes / 1024 / 1024} MB.");
             }
             if (ImageFormats.Detect(source.Data) is not { } info)
             {
-                return Invalid($"clip.images[{i}].data", "The file is not a PNG, JPEG, GIF or WebP image (or it is larger than 20000 pixels on a side).");
+                return Problems.Invalid($"clip.images[{i}].data", "The file is not a PNG, JPEG, GIF or WebP image (or it is larger than 20000 pixels on a side).");
             }
             var image = new BoardImage
             {
@@ -292,7 +292,7 @@ public static class ClipEndpoints
         if (clip.Drawings.Count > 0
             && await db.Drawings.CountAsync(d => d.BoardId == boardId, ct) + clip.Drawings.Count > BoardDrawing.MaxPerBoard)
         {
-            return Invalid("clip.drawings", $"A board holds at most {BoardDrawing.MaxPerBoard} drawings, and these would pass that. Delete some first.");
+            return Problems.Invalid("clip.drawings", $"A board holds at most {BoardDrawing.MaxPerBoard} drawings, and these would pass that. Delete some first.");
         }
         var drawings = new List<(BoardDrawing Drawing, ClippedDrawing Source)>();
         foreach (var (source, i) in clip.Drawings.Select((d, i) => (d, i)))
@@ -300,7 +300,7 @@ public static class ClipEndpoints
             Card? card = null;
             if (source.CardId is { } on && !copies.TryGetValue(on, out card))
             {
-                return Invalid($"clip.drawings[{i}].cardId", "The card is not in the clip.");
+                return Problems.Invalid($"clip.drawings[{i}].cardId", "The card is not in the clip.");
             }
             var drawing = new BoardDrawing
             {
@@ -328,7 +328,7 @@ public static class ClipEndpoints
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var bucket = request.BucketId is { } bucketId ? await LockBucketAsync(db, boardId, bucketId, ct) : null;
-        if (request.BucketId is not null && bucket is null) return Invalid("bucketId", "The bucket does not exist on this board.");
+        if (request.BucketId is not null && bucket is null) return Problems.Invalid("bucketId", "The bucket does not exist on this board.");
         var buckets = await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct);
         if (bucket is null && cardsOnly && request.X is null && Layout.InListOrder(buckets).FirstOrDefault() is { } first)
         {
@@ -422,7 +422,7 @@ public static class ClipEndpoints
         var moved = cutFrom is null ? null : await RemoveOriginalsAsync(db, cutFrom, clip, clip.Cards.Zip(cards), board, principal, ct);
         if (cutFrom is not null && moved is null)
         {
-            return Invalid("clip.cut", "These were moved already: none of them is on the board they were cut from any more. Copy them from where they are now.");
+            return Problems.Invalid("clip.cut", "These were moved already: none of them is on the board they were cut from any more. Copy them from where they are now.");
         }
 
         // Files go on disk before their rows are saved (see FileStore).
@@ -573,9 +573,6 @@ public static class ClipEndpoints
         && Uri.Compare(x, y, UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.Unescaped, StringComparison.OrdinalIgnoreCase) == 0;
 
     private static string MadeWith(BoardClip clip) => clip.AppVersion is { } made
-        ? $"They were copied with PrikBoard {made}, and this server runs {AppVersion.Short(AppVersion.Current)}."
+        ? $"They were copied with PrikBoard {made}, and this server runs {AppVersion.Number}."
         : "They were copied with a newer PrikBoard than this server runs.";
-
-    private static ValidationProblem Invalid(string field, string message) =>
-        TypedResults.ValidationProblem(new Dictionary<string, string[]> { [field] = [message] });
 }
