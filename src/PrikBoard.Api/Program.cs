@@ -185,6 +185,7 @@ api.MapBoardEndpoints();
 api.MapBoardTransferEndpoints();
 api.MapBucketEndpoints();
 api.MapCardEndpoints();
+api.MapClipEndpoints();
 api.MapCardComponentEndpoints();
 api.MapTagEndpoints();
 api.MapImageEndpoints();

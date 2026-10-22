@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { api } from '../api/client'
+import { api, errorMessage } from '../api/client'
 import type {
+  BoardClip,
   BoardDetail,
   BoardTag,
   BucketDetail,
@@ -29,6 +30,7 @@ import { ExpandedCard, type ExpandedCardHandle } from './ExpandedCard'
 import { BOARD_PEN, inkHex, movePenRing, usePen } from './drawings'
 import { DrawingToolbar, DrawingView, PenRing, StrokeSvg } from './DrawingView'
 import { TrashWindow, type OutgoingCard, type TrashWindowHandle } from './TrashWindow'
+import { clipSummary, readClip, writeClip } from './clipboard'
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
 import { delta, isDrag } from './gesture'
 import { boardRefFromHash, isBoard, linksTo, cardInHash, cardLabel, trashInHash, trashPath } from './links'
@@ -182,6 +184,18 @@ const fromDragKind: Record<Exclude<DragKind, 'Group'>, ItemGesture> = {
 const toDragKind = Object.fromEntries(Object.entries(fromDragKind).map(([k, v]) => [v, k])) as Partial<Record<ItemGesture, DragKind>>
 
 /** Where in a card's title text a screen point is, as a character offset; undefined when it isn't on the text. */
+/** Whether a clip's server is the one this page is on (its scheme may differ behind a proxy). */
+function sameHost(url: string) {
+  try {
+    return new URL(url).host === window.location.host
+  } catch {
+    return false
+  }
+}
+
+/** Whether text on the page is selected, which Ctrl/Cmd+C then copies as usual instead of the selected cards. */
+const textSelected = () => (window.getSelection()?.toString().trim() ?? '') !== ''
+
 function caretAt(x: number, y: number): number | undefined {
   const position = document.caretPositionFromPoint?.(x, y)
   const node = position?.offsetNode ?? document.caretRangeFromPoint?.(x, y)?.startContainer
@@ -485,6 +499,19 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         if (expanded) return
         setTool('select')
         setSelection(null)
+      } else if (
+        (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'c'
+        && selected.length > 0 && !textSelected()
+      ) {
+        // Viewers may copy too: the copies go on boards where they can edit.
+        e.preventDefault()
+        if (!e.repeat) copySelected()
+      } else if (
+        (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'x'
+        && !readOnly && selected.length > 0 && !textSelected()
+      ) {
+        e.preventDefault()
+        if (!e.repeat) copySelected(true)
       } else if (readOnly) {
         if (e.key.toLowerCase() === 'v') setTool('select')
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && selected.length > 1) {
@@ -563,9 +590,18 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     focusSearch.current = null
   })
 
-  // Pasting an image puts it on the board where the pointer was, or on the open card when the pointer or focus is there.
+  // Pasting copied cards puts them on the board where the pointer was. Pasting an image puts it on the board there, or on
+  // the open card when the pointer or focus is there.
   useEffect(() => {
     function onPaste(e: ClipboardEvent) {
+      const inField = e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable="true"]')
+      const clip = inField ? null : readClip(e.clipboardData)
+      if (clip) {
+        e.preventDefault()
+        if (readOnly) notify({ text: "You can't add cards to this board.", tone: 'warn' })
+        else pasteClip(clip)
+        return
+      }
       const files = imageFiles(e.clipboardData)
       if (readOnly || files.length === 0) return
       e.preventDefault()
@@ -668,26 +704,87 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     })
   }
 
-  /** Copies a card's content one grid step down and right of it, and selects the copy. Attached images stay behind. */
+  /** Copies a card with everything on it one grid step down and right of it, and selects the copy. */
   function duplicateCard(id: string) {
     const card = board.cards.find((n) => n.id === id)
     if (!card) return
+    const at = snapPoint({ x: card.x + GRID, y: card.y + GRID })
     void settle(
       async () => {
-        const copy = await api.createCard(board.id, {
-          title: card.title,
-          color: card.color,
-          tags: card.tags,
-          // People who have since left the board stay on the original, but can't be put on a new card.
-          assigneeIds: card.assignees.map((a) => a.principalId).filter((id) => board.people.some((p) => p.principalId === id)),
-          components: card.components.map(({ kind, title, text, items, links, x, y, width, height }) => ({ kind, title, text, items, links, x, y, width, height })),
-          ...cardPlace(snapPoint({ x: card.x + GRID, y: card.y + GRID })),
-        })
-        setSelection({ kind: 'card', id: copy.id })
-        return copy
+        const pasted = await api.pasteItems(board.id, await api.copyItems(board.id, { cardIds: [card.id] }), at)
+        setSelection({ kind: 'card', id: pasted.cards[0].id })
+        return pasted
       },
-      (copy) => step('Duplicate card', [created(target.card(copy.id), snap.card(copy))]),
+      (pasted) => step('Duplicate card', pasted.cards.map((copy) => created(target.card(copy.id), snap.card(copy)))),
     )
+  }
+
+  /**
+   * Puts the selection on the clipboard, with everything on and in it (a bucket's items, a card's images), to paste on any
+   * board (also on another server).
+   */
+  function copySelected(cut = false) {
+    const ids = (kind: SelectionKind) => selected.filter((s) => s.kind === kind).map((s) => s.id)
+    const what = { cardIds: ids('card'), bucketIds: ids('bucket'), imageIds: ids('image'), drawingIds: ids('drawing'), cut }
+    // Cut items stay where they are until they are pasted: then they move there.
+    writeClip(api.copyItems(board.id, what)).then(
+      (clip) => notify(cut ? `Cut ${clipSummary(clip)}: paste to move it there` : `Copied ${clipSummary(clip)}`),
+      (error) => notify({ text: `Couldn't ${cut ? 'cut' : 'copy'}: ${errorMessage(error)}`, tone: 'warn' }),
+    )
+  }
+
+  /**
+   * A cut pasted on the board it was cut from: the items still here move, as one step, so their top-left lands at
+   * `at`. Cards keep their numbers, unlike a paste.
+   */
+  function moveCutHere(clip: BoardClip, at: Point) {
+    const loose = (item: { bucketId?: string | null }) => !item.bucketId
+    const tops = [
+      ...(clip.buckets ?? []).map((b) => ({ kind: 'bucket' as const, ...b })),
+      ...clip.cards.filter(loose).map((n) => ({ kind: 'card' as const, ...n })),
+      ...clip.images.filter((i) => !i.cardId && loose(i)).map((i) => ({ kind: 'image' as const, ...i, id: i.id ?? '' })),
+      ...clip.drawings.filter((d) => !d.cardId && loose(d)).map((d) => ({ kind: 'drawing' as const, ...d, id: d.id ?? '' })),
+    ]
+    const here = {
+      bucket: board.buckets,
+      card: board.cards,
+      image: board.images,
+      drawing: board.drawings,
+    }
+    const members = tops.filter((t) => here[t.kind].some((x) => x.id === t.id)).map((t): Selection => ({ kind: t.kind, id: t.id }))
+    if (members.length === 0) {
+      notify({ text: 'These were moved already.', tone: 'warn' })
+      return
+    }
+    const from = snapPoint({ x: Math.min(...tops.map((t) => t.x)), y: Math.min(...tops.map((t) => t.y)) })
+    const to = snapPoint(at)
+    moveGroup(members, undefined, { x: to.x - from.x, y: to.y - from.y })
+    setSelected(members)
+  }
+
+  /**
+   * Adds copied items with their top-left where the pointer was (with no pointer yet, cards go to the first bucket and
+   * anything else to a free spot), and selects them: the buckets and what isn't in them, as the selection rectangle would.
+   */
+  function pasteClip(clip: BoardClip) {
+    const at = lastPointer.current
+    if (clip.cut && clip.source.boardShortId === board.shortId && sameHost(clip.source.url)) {
+      if (at) moveCutHere(clip, at)
+      return
+    }
+    const [paste, describe] = ops.paste(board.id, clip, at ? snapPoint(at) : {})
+    void settle(async () => {
+      const pasted = await paste()
+      const fresh = new Set(pasted.buckets.map((b) => b.id))
+      const outside = (item: { bucketId: string | null }) => !item.bucketId || !fresh.has(item.bucketId)
+      setSelected([
+        ...pasted.buckets.map((b): Selection => ({ kind: 'bucket', id: b.id })),
+        ...pasted.cards.filter(outside).map((n): Selection => ({ kind: 'card', id: n.id })),
+        ...pasted.images.filter((i) => !i.cardId && outside(i)).map((i): Selection => ({ kind: 'image', id: i.id })),
+        ...pasted.drawings.filter((d) => !d.cardId && outside(d)).map((d): Selection => ({ kind: 'drawing', id: d.id })),
+      ])
+      return pasted
+    }, describe)
   }
 
   const renameTag = (tag: BoardTag, name: string) => settle(...ops.renameTag(board.id, tag, name))
@@ -837,10 +934,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }
 
   /**
-   * Drops several items moved together, where the drag shows them. Buckets go first, carrying what is in them, so the
-   * loose items that follow land among them as they are shown.
+   * Drops several items moved together, where the drag shows them (moved on `by`: a cut pasted here). Buckets go first,
+   * carrying what is in them, so the loose items that follow land among them as they are shown.
    */
-  function moveGroup(members: Selection[], label = `Move ${count(members.length, 'item', 'items')}`) {
+  function moveGroup(members: Selection[], label = `Move ${count(members.length, 'item', 'items')}`, by: Point = { x: 0, y: 0 }) {
     const groupBuckets = members.flatMap((m) => (m.kind === 'bucket' ? board.buckets.filter((b) => b.id === m.id) : []))
     const groupCards = members.flatMap((m) => (m.kind === 'card' ? board.cards.filter((n) => n.id === m.id) : []))
     const groupImages = members.flatMap((m) => (m.kind === 'image' ? board.images.filter((i) => i.id === m.id) : []))
@@ -852,7 +949,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       ...groupImages.map((i) => [i.id, imageRect(i)] as const),
       ...groupDrawings.map((d) => [d.id, drawingRect(d)] as const),
     ])
-    const to = (id: string) => ({ x: spots.get(id)!.x, y: spots.get(id)!.y })
+    const to = (id: string) => ({ x: spots.get(id)!.x + by.x, y: spots.get(id)!.y + by.y })
     void runAll(label, undefined, async (changes) => {
       await allOf(groupBuckets.map(async (b) => changes.push(...bucketMove(b, await api.updateBucket(b.id, to(b.id))))))
       await allOf([

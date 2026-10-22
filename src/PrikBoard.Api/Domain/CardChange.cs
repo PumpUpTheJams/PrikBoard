@@ -55,6 +55,18 @@ public enum CardChangeKind
     Deleted,
     /// <summary>The card was restored from the trash.</summary>
     Restored,
+    /// <summary>
+    /// The card was added as a copy of another (pasteItems); before is that card's readable id, after its link: a path on
+    /// this server, or a full URL when it was copied from another PrikBoard server.
+    /// </summary>
+    Copied,
+    /// <summary>
+    /// The card was added as the new place of a card cut from another board (pasteItems); before is that card's readable
+    /// id, after its link. The original is in its board's trash.
+    /// </summary>
+    Moved,
+    /// <summary>The card was cut and pasted on another board, and went to the trash; before is its new readable id, after its link.</summary>
+    MovedAway,
     /// <summary>A change this version of PrikBoard can't describe (recorded by another version); its other fields may be set.</summary>
     Other,
 }

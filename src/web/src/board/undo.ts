@@ -58,6 +58,8 @@ export interface UndoChange {
   after: Snapshot | null
   /** Changed as a side effect (cards carried by a bucket): checked, but written by the bucket's move. */
   implied?: boolean
+  /** The board the item is on, when that isn't the step's own (the originals of a cut, on the board they were cut from). */
+  boardId?: string
 }
 
 export interface UndoEntry {
@@ -231,12 +233,24 @@ const noun: Record<UndoTarget['kind'], string> = {
   tag: 'the tag',
 }
 
+/** The other boards a step's items are on, to load with its own before checking and taking it. */
+export const otherBoards = (entry: UndoEntry, boardId: string) =>
+  [...new Set(entry.changes.flatMap((c) => (c.boardId && c.boardId !== boardId ? [c.boardId] : [])))]
+
 /**
- * Why the step can't be taken on `board` as it is now, or null when it can. `moving` tells whether someone else is
- * dragging an item right now.
+ * Why the step can't be taken on `home` (and the `elsewhere` boards its items may be on) as they are now, or null when
+ * it can. `moving` tells whether someone else is dragging an item right now.
  */
-export function check(entry: UndoEntry, direction: UndoDirection, board: BoardDetail, moving: (id: string) => boolean): string | null {
+export function check(
+  entry: UndoEntry,
+  direction: UndoDirection,
+  home: BoardDetail,
+  moving: (id: string) => boolean,
+  elsewhere: Record<string, BoardDetail> = {},
+): string | null {
   for (const change of entry.changes) {
+    const board = change.boardId && change.boardId !== home.id ? elsewhere[change.boardId] : home
+    if (!board) return 'the other board is no longer open to you'
     const t = change.target
     const expected = direction === 'undo' ? change.after : change.before
     const goal = direction === 'undo' ? change.before : change.after
@@ -267,13 +281,13 @@ export function check(entry: UndoEntry, direction: UndoDirection, board: BoardDe
 }
 
 /** Takes the step: writes the old values back (undo) or the new ones again (redo). */
-export async function apply(entry: UndoEntry, direction: UndoDirection, board: BoardDetail) {
+export async function apply(entry: UndoEntry, direction: UndoDirection, home: BoardDetail, elsewhere: Record<string, BoardDetail> = {}) {
   const changes = direction === 'undo' ? entry.changes.toReversed() : entry.changes
   for (const change of changes) {
     if (change.implied) continue
     const from = direction === 'undo' ? change.after : change.before
     const to = direction === 'undo' ? change.before : change.after
-    await write(change.target, from, to, board)
+    await write(change.target, from, to, (change.boardId && elsewhere[change.boardId]) || home)
     if (change.target.kind === 'bucket' && from && to) await fixCarried(entry, direction, change.target.carry, from, to)
   }
 }

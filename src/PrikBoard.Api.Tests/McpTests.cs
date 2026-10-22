@@ -23,7 +23,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
 
         var tools = (await mcp.ListToolsAsync()).ToDictionary(t => t.Name, t => t.ProtocolTool);
         Assert.Equal(
-            ["add_card_component", "add_image", "begin_image_upload", "bring_bucket_to_front", "collapse_bucket", "create_bucket", "create_card", "create_tag", "delete_card", "delete_card_component", "delete_tag", "empty_trash", "get_board",
+            ["add_card_component", "add_image", "begin_image_upload", "bring_bucket_to_front", "collapse_bucket", "copy_to_board", "create_bucket", "create_card", "create_tag", "delete_card", "delete_card_component", "delete_tag", "empty_trash", "get_board",
              "get_board_rules", "get_card", "get_card_history", "list_boards", "list_deleted_cards", "move_card", "place_cards_in_bucket", "purge_card", "rename_bucket", "restore_card", "restore_tag",
              "search_cards", "set_working", "update_card", "update_card_component", "update_tag"],
             tools.Keys.Order());
@@ -139,6 +139,50 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         Assert.Equal(done.Id, placed.GetProperty("bucket").GetProperty("id").GetGuid());
         Assert.Equal([first.Id, second.Id], placed.GetProperty("cards").EnumerateArray().Select(n => n.GetProperty("id").GetGuid()));
         Assert.All(placed.GetProperty("cards").EnumerateArray(), n => Assert.Equal(done.Id, n.GetProperty("bucketId").GetGuid()));
+    }
+
+    [Fact]
+    public async Task An_agent_copies_cards_to_another_board()
+    {
+        var owner = await factory.CreateSignedInClientAsync("mcp-copy@example.com");
+        var from = await owner.CreateBoardAsync("MCP copy from");
+        var to = await owner.CreateBoardAsync("MCP copy to");
+        var first = await owner.CreateCardAsync(from.Id, "First");
+        var second = await owner.CreateCardAsync(from.Id, "Second");
+        var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor));
+
+        var copied = await CallAsync(mcp, "copy_to_board", new()
+        {
+            ["board"] = to.ShortId, ["cards"] = new[] { first.ReadableId, second.Path }, ["bucket"] = "Doing",
+        });
+
+        var doing = to.Buckets.Single(b => b.Name == "Doing");
+        var cards = copied.GetProperty("cards").EnumerateArray().ToList();
+        Assert.Equal(["First", "Second"], cards.Select(n => n.GetProperty("title").GetString()));
+        Assert.All(cards, n => Assert.Equal(doing.Id, n.GetProperty("bucketId").GetGuid()));
+        Assert.Equal(2, (await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{from.Id}"))!.Cards.Count);
+
+        // A bucket by name, with its cards, to a place on the other board.
+        var withBucket = await CallAsync(mcp, "copy_to_board", new()
+        {
+            ["board"] = to.ShortId, ["from"] = from.ShortId, ["buckets"] = new[] { "To do" }, ["x"] = 0, ["y"] = 4000,
+        });
+        var pastedBucket = Assert.Single(withBucket.GetProperty("buckets").EnumerateArray());
+        Assert.Equal(("To do", 0, 4000), (pastedBucket.GetProperty("name").GetString(), pastedBucket.GetProperty("x").GetInt32(), pastedBucket.GetProperty("y").GetInt32()));
+        Assert.Equal(2, withBucket.GetProperty("cards").GetArrayLength());
+        Assert.All(withBucket.GetProperty("cards").EnumerateArray(),
+            n => Assert.Equal(pastedBucket.GetProperty("id").GetGuid(), n.GetProperty("bucketId").GetGuid()));
+
+        // Moved: the original goes to the trash.
+        var moved = await CallAsync(mcp, "copy_to_board", new() { ["board"] = to.ShortId, ["cards"] = new[] { second.ReadableId }, ["move"] = true });
+        Assert.Equal(second.Id, Assert.Single(moved.GetProperty("moved").GetProperty("cards").EnumerateArray()).GetProperty("id").GetGuid());
+        Assert.DoesNotContain((await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{from.Id}"))!.Cards, n => n.Id == second.Id);
+
+        var elsewhere = await owner.CreateBoardAsync("MCP copy elsewhere");
+        var stranger = await owner.CreateCardAsync(elsewhere.Id, "Stranger");
+        var mixed = await CallRawAsync(mcp, "copy_to_board", new() { ["board"] = to.Id, ["cards"] = new[] { first.ReadableId, stranger.ReadableId } });
+        Assert.True(mixed.IsError);
+        Assert.Contains("one board at a time", Text(mixed));
     }
 
     [Fact]

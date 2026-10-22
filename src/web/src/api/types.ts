@@ -276,6 +276,104 @@ export interface PlacedCards {
   cards: CardDetail[]
 }
 
+/**
+ * Cards copied with copyItems, with everything on them, to paste with pasteItems on any board, on this server or
+ * another. Clients pass it on as it is; only `source` and `cards` are read here (for the clipboard's text).
+ */
+export interface BoardClip {
+  format: 'prikboard-clip'
+  version: number
+  copiedAt: string
+  source: ClipSource
+  cards: ClippedCard[]
+  images: ClippedItem[]
+  drawings: ClippedItem[]
+  tagColors?: Record<string, TagColor> | null
+  appVersion?: string | null
+  /** Buckets with what is in them (from version 2). */
+  buckets?: ClippedBucket[] | null
+  /** Cut rather than copied (from version 3): pasted on another board of the same server, the originals go to the trash. */
+  cut?: boolean
+}
+
+export interface ClipSource {
+  /** The server the items were copied on; card links in the clip are paths on it. */
+  url: string
+  boardShortId: string
+  boardKey: string
+}
+
+/** A card in a clip (the rest of its fields are passed on untouched). */
+export interface ClippedCard {
+  id: string
+  number: number
+  title: string
+  x: number
+  y: number
+  /** The copied bucket it is in. */
+  bucketId?: string | null
+}
+
+/** A bucket in a clip (the rest of its fields are passed on untouched). */
+export interface ClippedBucket {
+  id: string
+  name: string
+  x: number
+  y: number
+}
+
+/** An image or drawing in a clip: on a card in it, or (null) on the board. */
+export interface ClippedItem {
+  /** Its id on its board (from version 3). */
+  id?: string | null
+  cardId: string | null
+  x: number
+  y: number
+  /** On the board: the copied bucket it is in. */
+  bucketId?: string | null
+}
+
+/** What copyItems copies, all on one board. A bucket comes with what is in it. */
+export interface CopyItemsRequest {
+  cardIds?: string[]
+  bucketIds?: string[]
+  imageIds?: string[]
+  drawingIds?: string[]
+  /** Cut them (Editor): pasted on another board of the same server, the originals go to the trash. */
+  cut?: boolean
+}
+
+/**
+ * Where pasted items go: the top-left at x and y (the rest keep their places around it), cards alone into a bucket, or
+ * (neither) cards into the first bucket and anything else to a free spot.
+ */
+export type PastePlace = Point | { bucketId: string } | Record<string, never>
+
+export interface PastedItems {
+  cards: CardDetail[]
+  /** On the new cards, or on the board. */
+  images: ImageDetail[]
+  /** On the new cards, or on the board. */
+  drawings: DrawingDetail[]
+  /** The bucket the cards went into, when one was asked for. */
+  bucket: BucketDetail | null
+  /** The new buckets, back to front. */
+  buckets: BucketDetail[]
+  /** For a cut from another board of this server: the originals, now in that board's trash, as they were. */
+  moved?: MovedOriginals | null
+}
+
+/** The originals of a cut, deleted by the paste (the restore endpoints bring them back). */
+export interface MovedOriginals {
+  boardId: string
+  boardName: string
+  cards: CardDetail[]
+  buckets: BucketDetail[]
+  /** The images that were on the board (those on the cards went with them). */
+  images: ImageDetail[]
+  drawings: DrawingDetail[]
+}
+
 export type AssigneeKind = 'Person' | 'Agent'
 
 export interface Assignee {
@@ -385,6 +483,12 @@ export type CardChangeKind =
   | 'DrawingRemoved'
   | 'Deleted'
   | 'Restored'
+  /** Added as a copy: before is the original's readable id, after its link (a full URL when it was on another server). */
+  | 'Copied'
+  /** Added as the new place of a card cut from another board: before is the original's readable id, after its link. */
+  | 'Moved'
+  /** Cut and pasted on another board (the card went to the trash): before is its new readable id, after its link. */
+  | 'MovedAway'
   /** A change this version can't describe; also how to treat kinds added later. */
   | 'Other'
 

@@ -1,5 +1,6 @@
 import { api } from '../api/client'
 import type {
+  BoardClip,
   BoardTag,
   CardChanges,
   CardColor,
@@ -11,10 +12,13 @@ import type {
   ImageChanges,
   ImageDetail,
   NewCardComponent,
+  PastedItems,
+  PastePlace,
   TagColor,
 } from '../api/types'
+import { countList } from './clipboard'
 import { loadDrawingStrokes, type Reshape } from './drawings'
-import { cardEdit, componentEdit, created, deleted, patched, reshaped, snap, step, target, type UndoEntry } from './undo'
+import { cardEdit, componentEdit, created, deleted, patched, reshaped, snap, step, target, type UndoChange, type UndoEntry } from './undo'
 
 /**
  * A change to the board as a request and the undo step it makes from the result, to hand to a RecordingRun (or the
@@ -22,6 +26,15 @@ import { cardEdit, componentEdit, created, deleted, patched, reshaped, snap, ste
  * mobile layout make the same changes through these, so they are recorded for undo the same way everywhere.
  */
 export type Op<T> = [action: () => Promise<T>, describe: (result: T) => UndoEntry | null]
+
+/** What a paste added, for its toast: "1 bucket, 3 cards and 2 images" (images and drawings on the cards not counted). */
+export const pastedSummary = (pasted: PastedItems) =>
+  countList([
+    [pasted.buckets.length, 'bucket'],
+    [pasted.cards.length, 'card'],
+    [pasted.images.filter((i) => !i.cardId).length, 'image'],
+    [pasted.drawings.filter((d) => !d.cardId).length, 'drawing'],
+  ])
 
 /** Whether a component has nothing in it: removing it then needs no toast to undo it (it still can be). */
 export const isEmptyComponent = (c: CardComponent) => !c.text && !c.items?.length && !c.links?.length && !c.title
@@ -37,6 +50,43 @@ export const ops = {
   editCard: (card: CardDetail, changes: CardChanges): Op<CardDetail> => [
     () => api.updateCard(card.id, changes),
     (after) => cardEdit(card, after, changes),
+  ],
+
+  /**
+   * Adds copied items (a clip) to the board as one step; undo deletes the buckets, cards, and images and drawings on the
+   * board it added (the images and drawings on the cards go with them).
+   */
+  paste: (boardId: string, clip: BoardClip, place: PastePlace, label = 'Paste'): Op<PastedItems> => [
+    () => api.pasteItems(boardId, clip, place),
+    (pasted) => {
+      // A cut's originals went to the trash of the board they were cut from: undo puts them back there.
+      const moved = pasted.moved
+      const away = (change: UndoChange): UndoChange => ({ ...change, boardId: moved!.boardId })
+      const originals = moved
+        ? [
+            ...moved.buckets.map((b) => away(deleted(target.bucket(b.id), snap.bucket(b)))),
+            ...moved.cards.map((n) => away(deleted(target.card(n.id), snap.card(n)))),
+            ...moved.images.map((i) => away(deleted(target.image(i.id), snap.image(i)))),
+            ...moved.drawings.map((d) => away(deleted(target.drawing(d.id), snap.drawing(d)))),
+          ]
+        : []
+      const toast = moved
+        ? `Moved ${pastedSummary(pasted)} from ${moved.boardName}`
+        : clip.cut
+          ? `Pasted copies of ${pastedSummary(pasted)}: the originals stay on their server`
+          : `Pasted ${pastedSummary(pasted)}`
+      return step(
+        moved ? 'Move here' : label,
+        [
+          ...pasted.buckets.map((b) => created(target.bucket(b.id), snap.bucket(b))),
+          ...pasted.cards.map((card) => created(target.card(card.id), snap.card(card))),
+          ...pasted.images.filter((i) => !i.cardId).map((i) => created(target.image(i.id), snap.image(i))),
+          ...pasted.drawings.filter((d) => !d.cardId).map((d) => created(target.drawing(d.id), snap.drawing(d))),
+          ...originals,
+        ],
+        label === 'Paste' ? { toast } : undefined,
+      )
+    },
   ],
 
   deleteCard: (card: CardDetail): Op<void> => [
