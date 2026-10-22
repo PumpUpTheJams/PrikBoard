@@ -55,6 +55,26 @@ public static class DrawingEndpoints
                              "404 when there is no such stroke; 409 for the only stroke (delete the drawing instead).")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        drawings.MapPost("/drawings/{drawingId:guid}/transform", TransformDrawing)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Drawing)
+            .WithName("transformDrawing")
+            .WithSummary("Scale or rotate a drawing")
+            .WithDescription("Scales a drawing (scaleX, scaleY) and then turns it clockwise (rotation, in degrees), both about a pivot " +
+                             "on its canvas (pivotX, pivotY; by default the middle of its box). Its points change and its box follows " +
+                             "them; line widths stay. On the board it joins the bucket containing its new centre. " +
+                             $"409 when it would reach more than {BoardDrawing.MaxSize} px from its corner or leave the board.")
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
+        drawings.MapPut("/drawings/{drawingId:guid}/strokes", SetDrawingStrokes)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Drawing)
+            .WithName("setDrawingStrokes")
+            .WithSummary("Replace a drawing's strokes")
+            .WithDescription("Writes new points for every stroke of a drawing, with its new top-left x and y (snapped to the grid), " +
+                             "for example to put it back as it was before transformDrawing. Give as many strokes as it has, in drawing " +
+                             "order; their inks stay. Points are relative to x and y, as in createDrawing.")
+            .ProducesValidationProblem();
+
         drawings.MapPatch("/drawings/{drawingId:guid}", UpdateDrawing)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Drawing)
             .WithName("updateDrawing")
@@ -253,6 +273,44 @@ public static class DrawingEndpoints
         }
 
         drawing.RemoveStroke(index);
+        await SettleAsync(db, drawing, ct);
+        await transaction.CommitAsync(ct);
+        return TypedResults.Ok(DrawingDetail.From(drawing));
+    }
+
+    internal static async Task<Results<Ok<DrawingDetail>, NotFound, ValidationProblem, ProblemHttpResult>> TransformDrawing(
+        Guid drawingId, TransformDrawingRequest request, PrikBoardDbContext db, CancellationToken ct)
+    {
+        if (request.PivotX is null != request.PivotY is null)
+        {
+            return Invalid(request.PivotX is null ? "pivotX" : "pivotY", "Give pivotX and pivotY together, or neither.");
+        }
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (await LockedDrawingAsync(db, drawingId, ct) is not { } drawing) return TypedResults.NotFound();
+        var pivotX = request.PivotX ?? drawing.X + drawing.Width / 2.0;
+        var pivotY = request.PivotY ?? drawing.Y + drawing.Height / 2.0;
+        if (drawing.Transform(request.ScaleX, request.ScaleY, request.Rotation, pivotX, pivotY) is { } problem)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Drawing too big", detail: problem);
+        }
+        await SettleAsync(db, drawing, ct);
+        await transaction.CommitAsync(ct);
+        return TypedResults.Ok(DrawingDetail.From(drawing));
+    }
+
+    internal static async Task<Results<Ok<DrawingDetail>, NotFound, ValidationProblem>> SetDrawingStrokes(
+        Guid drawingId, SetDrawingStrokesRequest request, PrikBoardDbContext db, CancellationToken ct)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (await LockedDrawingAsync(db, drawingId, ct) is not { } drawing) return TypedResults.NotFound();
+        if (request.Strokes.Count != drawing.Colors.Count)
+        {
+            return Invalid("strokes", $"The drawing has {drawing.Colors.Count} strokes; give the points of each.");
+        }
+        var strokes = request.Strokes.Zip(drawing.Colors, (s, color) => (color, s.StrokeWidth, (IReadOnlyList<double[]>)s.Points)).ToList();
+        if (Build(drawing, strokes, request.X!.Value, request.Y!.Value, "") is { } invalid) return invalid;
+        drawing.Revision++;
         await SettleAsync(db, drawing, ct);
         await transaction.CommitAsync(ct);
         return TypedResults.Ok(DrawingDetail.From(drawing));

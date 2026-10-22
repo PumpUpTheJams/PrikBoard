@@ -97,6 +97,42 @@ public record AddDrawingStrokeRequest(
     [property: AllowedValues(2, 4, 8)] int StrokeWidth = 4);
 
 /// <summary>
+/// Scales and rotates a drawing about a pivot: first scaleX and scaleY, then rotation, both around the pivot (by default
+/// the middle of its box). The strokes' points change, their line widths don't; the drawing's x, y, width and height
+/// follow the new points.
+/// </summary>
+/// <param name="ScaleX">How much wider: 1 keeps the width, 2 doubles it, 0.5 halves it (0.05 to 20). Give scaleY the same value to keep its shape.</param>
+/// <param name="ScaleY">How much taller, like scaleX.</param>
+/// <param name="Rotation">Degrees to turn it clockwise (-360 to 360), after scaling.</param>
+/// <param name="PivotX">The point it scales and turns around, on its canvas (the board, or the card's canvas); give pivotY with it. Default: the middle of its box.</param>
+/// <param name="PivotY">Like pivotX.</param>
+public record TransformDrawingRequest(
+    [property: Range(0.05, 20)] double ScaleX = 1,
+    [property: Range(0.05, 20)] double ScaleY = 1,
+    [property: Range(-360, 360)] double Rotation = 0,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] double? PivotX = null,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] double? PivotY = null);
+
+/// <summary>
+/// New points for every stroke of a drawing, for example to put it back as it was before transformDrawing. Give its new
+/// top-left (snapped to the 20 px grid) and the strokes in drawing order, as many as it has; their inks stay.
+/// </summary>
+/// <param name="X">New left edge, on the drawing's canvas; snapped to the grid.</param>
+/// <param name="Y">New top edge, like x.</param>
+/// <param name="Strokes">Every stroke in drawing order, each with its base width and its points relative to x and y, as in createDrawing.</param>
+public record SetDrawingStrokesRequest(
+    [property: Required, Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X,
+    [property: Required, Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y,
+    [property: Required, MinLength(1), MaxLength(BoardDrawing.MaxStrokes)] List<NewDrawingStroke> Strokes);
+
+/// <summary>One stroke of a drawing to write.</summary>
+/// <param name="StrokeWidth">Base line width in pixels: 2, 4 or 8.</param>
+/// <param name="Points">1 to 5000 points in drawing order, each [x, y, pressure] relative to the drawing's x and y.</param>
+public record NewDrawingStroke(
+    [property: AllowedValues(2, 4, 8)] int StrokeWidth,
+    [property: Required, MinLength(1), MaxLength(BoardDrawing.MaxPoints)] List<double[]> Points);
+
+/// <summary>
 /// Moves or recolors a drawing, or moves it between the board and a card. Omitted (null) fields stay unchanged. X and Y
 /// are on wherever the drawing ends up: the board, or the card's canvas; give both when attaching or detaching. The points
 /// themselves never change.

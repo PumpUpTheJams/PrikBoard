@@ -114,6 +114,40 @@ public class BoardDrawing : ICanvasItem
         Revision++;
     }
 
+    /// <summary>
+    /// Scales the drawing by (<paramref name="scaleX"/>, <paramref name="scaleY"/>) and then turns it
+    /// <paramref name="degrees"/> clockwise, both about (<paramref name="pivotX"/>, <paramref name="pivotY"/>) on its canvas.
+    /// The points themselves change (the line widths don't), and the corner moves to the last grid line half the thickest
+    /// line clear of them, as for a new drawing, so the lines stay exactly where the transform puts them. Returns the
+    /// problem when the result would be bigger than <see cref="MaxSize"/> or leave the board, and changes nothing then.
+    /// </summary>
+    public string? Transform(double scaleX, double scaleY, double degrees, double pivotX, double pivotY)
+    {
+        var radians = degrees * Math.PI / 180;
+        var (cos, sin) = (Math.Cos(radians), Math.Sin(radians));
+        var moved = Strokes.Select(s => s with
+        {
+            Points = [.. s.Points.Select(p =>
+            {
+                var dx = (X + p[0] - pivotX) * scaleX;
+                var dy = (Y + p[1] - pivotY) * scaleY;
+                return new[] { pivotX + dx * cos - dy * sin, pivotY + dx * sin + dy * cos, p[2] };
+            })],
+        }).ToList();
+        var left = moved.Min(s => s.Inset(p => p[0]));
+        var top = moved.Min(s => s.Inset(p => p[1]));
+        var strokes = moved.Select(s => s with { Points = [.. s.Points.Select(p => new[] { Math.Round(p[0] - left, 1), Math.Round(p[1] - top, 1), p[2] })] }).ToList();
+        if (strokes.Any(s => s.Points.Any(p => p[0] > MaxSize || p[1] > MaxSize))) return $"A drawing reaches at most {MaxSize} px from its corner.";
+        if (left < Layout.MinCoordinate || top < Layout.MinCoordinate || left > Layout.MaxCoordinate || top > Layout.MaxCoordinate)
+        {
+            return "The drawing would leave the board.";
+        }
+        (X, Y) = (left, top);
+        SetStrokes(strokes, Colors);
+        Revision++;
+        return null;
+    }
+
     /// <summary>Works out the box and point count from the strokes.</summary>
     private void Measure()
     {

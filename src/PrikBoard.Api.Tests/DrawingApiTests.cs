@@ -473,6 +473,95 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         Assert.Equal((40, 60, InkColor.Lilac, 2), (oldDrawing.X, oldDrawing.Y, Assert.Single(oldDrawing.Colors), await StrokeWidth(oldDrawing)));
     }
 
+    private static readonly double[][] Line = [[10, 10, 0.5], [90, 10, 0.5]];
+
+    [Fact]
+    public async Task Rotating_a_drawing_turns_its_points_about_the_pivot_and_its_box_follows()
+    {
+        var board = await _client.CreateBoardAsync("Rotate");
+        var drawing = await Create(board.Id, new { x = 100, y = 100, points = Line });
+        Assert.Equal((92, 12), (drawing.Width, drawing.Height));
+
+        // The line runs from (110, 110) to (190, 110); a quarter turn about its middle stands it up from (150, 70) to (150, 150).
+        var turned = await Transform(drawing.Id, new { rotation = 90, pivotX = 150, pivotY = 110 });
+
+        Assert.Equal((140, 60, 12, 92), (turned.X, turned.Y, turned.Width, turned.Height));
+        Assert.NotEqual(drawing.ContentUrl, turned.ContentUrl);
+        var stroke = Assert.Single((await _client.GetFromJsonAsync<DrawingContentDetail>(turned.ContentUrl))!.Strokes);
+        Assert.Equal([[10, 10, 0.5], [10, 90, 0.5]], stroke.Points);
+        Assert.Equal(4, stroke.StrokeWidth);
+    }
+
+    [Fact]
+    public async Task Scaling_a_drawing_spreads_its_points_from_the_middle_of_its_box_by_default()
+    {
+        var board = await _client.CreateBoardAsync("Scale");
+        var todo = board.Buckets[0];
+        var (x, y) = (todo.X + 100, todo.Y + 100);
+        var drawing = await Create(board.Id, new { x, y, points = Line });
+        Assert.Equal(todo.Id, drawing.BucketId);
+
+        // Its middle is 46 right of and 6 below its corner: the ends go from 36 and 44 px left and right of it to twice that.
+        var bigger = await Transform(drawing.Id, new { scaleX = 2, scaleY = 2 });
+
+        Assert.Equal((x - 40, y, 176, 16), (bigger.X, bigger.Y, bigger.Width, bigger.Height));
+        var stroke = Assert.Single((await _client.GetFromJsonAsync<DrawingContentDetail>(bigger.ContentUrl))!.Strokes);
+        Assert.Equal([[14, 14, 0.5], [174, 14, 0.5]], stroke.Points);
+        Assert.Equal(todo.Id, bigger.BucketId);
+    }
+
+    [Fact]
+    public async Task Setting_the_strokes_puts_a_transformed_drawing_back_as_it_was()
+    {
+        var board = await _client.CreateBoardAsync("Put back");
+        var drawing = await Create(board.Id, new { x = 100, y = 100, points = Line, color = "Mint" });
+        await AddStroke(drawing.Id, new { x = 100, y = 140, points = Neat, color = "Coral", strokeWidth = 8 });
+        var before = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Drawings.Single();
+        var strokes = (await _client.GetFromJsonAsync<DrawingContentDetail>(before.ContentUrl))!.Strokes;
+
+        await Transform(drawing.Id, new { scaleX = 0.5, scaleY = 1.5, rotation = -30 });
+        var response = await _client.PutAsJsonAsync($"/api/drawings/{drawing.Id}/strokes", new { x = before.X, y = before.Y, strokes });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var back = (await response.Content.ReadFromJsonAsync<DrawingDetail>())!;
+        Assert.Equal((before.X, before.Y, before.Width, before.Height, before.PointCount), (back.X, back.Y, back.Width, back.Height, back.PointCount));
+        Assert.Equal([InkColor.Mint, InkColor.Coral], back.Colors);
+        var content = (await _client.GetFromJsonAsync<DrawingContentDetail>(back.ContentUrl))!;
+        Assert.Equal(strokes.Select(s => (s.StrokeWidth, s.Points)), content.Strokes.Select(s => (s.StrokeWidth, s.Points)));
+
+        // Every stroke needs its points.
+        var tooFew = await _client.PutAsJsonAsync($"/api/drawings/{drawing.Id}/strokes", new { x = 0, y = 0, strokes = strokes.Take(1) });
+        Assert.Equal(HttpStatusCode.BadRequest, tooFew.StatusCode);
+        Assert.Contains("\"strokes\"", await tooFew.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_transform_is_checked_and_a_drawing_cannot_grow_past_its_limit()
+    {
+        var board = await _client.CreateBoardAsync("Transform checks");
+        var drawing = await Create(board.Id, new { x = 0, y = 0, points = new[] { new[] { 10.0, 10.0, 0.5 }, new[] { 600.0, 10.0, 0.5 } } });
+        var url = $"/api/drawings/{drawing.Id}/transform";
+
+        await AssertInvalid(url, new { scaleX = 0 }, "ScaleX");
+        await AssertInvalid(url, new { scaleY = 21 }, "ScaleY");
+        await AssertInvalid(url, new { rotation = 400 }, "Rotation");
+        await AssertInvalid(url, new { rotation = 45, pivotX = 10 }, "pivotY");
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.PostAsJsonAsync($"/api/drawings/{Guid.NewGuid()}/transform", new { rotation = 90 })).StatusCode);
+
+        var huge = await _client.PostAsJsonAsync(url, new { scaleX = 20, scaleY = 20 });
+        Assert.Equal(HttpStatusCode.Conflict, huge.StatusCode);
+        // Nothing changed.
+        var same = Assert.Single(await Drawings(board.Id));
+        Assert.Equal((drawing.Width, drawing.ContentUrl), (same.Width, same.ContentUrl));
+    }
+
+    private async Task<DrawingDetail> Transform(Guid drawingId, object request)
+    {
+        var response = await _client.PostAsJsonAsync($"/api/drawings/{drawingId}/transform", request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<DrawingDetail>())!;
+    }
+
     private async Task<int> StrokeWidth(DrawingDetail drawing) =>
         Assert.Single((await _client.GetFromJsonAsync<DrawingContentDetail>(drawing.ContentUrl))!.Strokes).StrokeWidth;
 
