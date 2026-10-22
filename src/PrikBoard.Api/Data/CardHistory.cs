@@ -56,13 +56,17 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
             change.Entries.Add(entry);
         }
 
+        // A card added with a change of its own (a pasted copy says where it came from) needs no Created entry.
+        var described = db.ChangeTracker.Entries<CardChange>().Where(e => e.State == EntityState.Added).Select(e => e.Entity.CardId).ToHashSet();
+        var created = new HashSet<Guid>();
         var moves = new List<(Guid CardId, Guid BoardId, Guid? From, Guid? To)>();
         foreach (var entry in db.ChangeTracker.Entries<Card>())
         {
             var card = entry.Entity;
             if (entry.State == EntityState.Added)
             {
-                Add(card.Id, card.BoardId, new(CardChangeKind.Created));
+                created.Add(card.Id);
+                if (!described.Contains(card.Id)) Add(card.Id, card.BoardId, new(CardChangeKind.Created));
                 continue;
             }
             if (entry.State != EntityState.Modified) continue;
@@ -100,7 +104,8 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
                 var on = (Guid?)entry.Property("CardId").CurrentValue;
                 if (entry.State == EntityState.Added)
                 {
-                    if (on is { } cardId) Add(cardId, boardId, new(added, After: label(entry.Entity), Ref: id));
+                    // What comes with a card as it is added (a pasted copy's images) is part of adding it.
+                    if (on is { } cardId && !created.Contains(cardId)) Add(cardId, boardId, new(added, After: label(entry.Entity), Ref: id));
                     continue;
                 }
                 if (entry.State != EntityState.Modified) continue;

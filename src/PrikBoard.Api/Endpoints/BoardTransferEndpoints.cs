@@ -19,7 +19,7 @@ namespace PrikBoard.Api.Endpoints;
 public static class BoardTransferEndpoints
 {
     /// <summary>Room for a board with a good number of images; each image is at most 10 MB and travels as base64.</summary>
-    private const long MaxImportBytes = 64 * 1024 * 1024;
+    internal const long MaxImportBytes = 64 * 1024 * 1024;
 
     public static RouteGroupBuilder MapBoardTransferEndpoints(this RouteGroupBuilder api)
     {
@@ -282,7 +282,7 @@ public static class BoardTransferEndpoints
     /// A component as it goes in the file: like a new component, with its place and only the content of its kind, and each link's
     /// url through <paramref name="url"/>.
     /// </summary>
-    private static NewCardComponent Exported(CardComponent component, Func<string, string> url)
+    internal static NewCardComponent Exported(CardComponent component, Func<string, string> url)
     {
         var detail = CardComponentDetail.From(component);
         return new NewCardComponent(component.Kind, component.Title, detail.Text, detail.Items?.ToList(),
@@ -325,13 +325,17 @@ public static class BoardTransferEndpoints
     /// cards[3].priority): a newer PrikBoard wrote them, and binding the file would quietly leave them out. The body is
     /// read again for this (BufferedBody keeps it).
     /// </summary>
-    private static async Task<List<string>> UnknownFieldsAsync(HttpRequest request, JsonSerializerOptions options, CancellationToken ct)
+    private static Task<List<string>> UnknownFieldsAsync(HttpRequest request, JsonSerializerOptions options, CancellationToken ct) =>
+        UnknownFieldsAsync(request, options, typeof(BoardExport), ct);
+
+    /// <summary>The fields in the request body that <paramref name="type"/> doesn't have, as paths, like the export file's check above.</summary>
+    internal static async Task<List<string>> UnknownFieldsAsync(HttpRequest request, JsonSerializerOptions options, Type type, CancellationToken ct)
     {
         if (!request.Body.CanSeek) return [];
         request.Body.Position = 0;
         using var document = await JsonDocument.ParseAsync(request.Body, cancellationToken: ct);
         var unknown = new List<string>();
-        Collect(document.RootElement, options.GetTypeInfo(typeof(BoardExport)), "");
+        Collect(document.RootElement, options.GetTypeInfo(type), "");
         return unknown;
 
         void Collect(JsonElement element, JsonTypeInfo info, string path)

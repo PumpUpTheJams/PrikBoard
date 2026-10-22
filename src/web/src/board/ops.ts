@@ -1,5 +1,6 @@
 import { api } from '../api/client'
 import type {
+  BoardClip,
   BoardTag,
   CardChanges,
   CardColor,
@@ -11,6 +12,8 @@ import type {
   ImageChanges,
   ImageDetail,
   NewCardComponent,
+  PastedItems,
+  PastePlace,
   TagColor,
 } from '../api/types'
 import { loadDrawingStrokes, type Reshape } from './drawings'
@@ -37,6 +40,17 @@ export const ops = {
   editCard: (card: CardDetail, changes: CardChanges): Op<CardDetail> => [
     () => api.updateCard(card.id, changes),
     (after) => cardEdit(card, after, changes),
+  ],
+
+  /** Adds copied cards (a clip) to the board as one step; undo deletes them, with the images and drawings on them. */
+  paste: (boardId: string, clip: BoardClip, place: PastePlace, label = 'Paste'): Op<PastedItems> => [
+    () => api.pasteItems(boardId, clip, place),
+    (pasted) =>
+      step(
+        label,
+        pasted.cards.map((card) => created(target.card(card.id), snap.card(card))),
+        label === 'Paste' ? { toast: pasted.cards.length === 1 ? 'Pasted 1 card' : `Pasted ${pasted.cards.length} cards` } : undefined,
+      ),
   ],
 
   deleteCard: (card: CardDetail): Op<void> => [

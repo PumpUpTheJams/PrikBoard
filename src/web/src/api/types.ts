@@ -276,6 +276,47 @@ export interface PlacedCards {
   cards: CardDetail[]
 }
 
+/**
+ * Cards copied with copyItems, with everything on them, to paste with pasteItems on any board, on this server or
+ * another. Clients pass it on as it is; only `source` and `cards` are read here (for the clipboard's text).
+ */
+export interface BoardClip {
+  format: 'prikboard-clip'
+  version: number
+  copiedAt: string
+  source: ClipSource
+  cards: ClippedCard[]
+  images: unknown[]
+  drawings: unknown[]
+  tagColors?: Record<string, TagColor> | null
+  appVersion?: string | null
+}
+
+export interface ClipSource {
+  /** The server the cards were copied on; card links in the clip are paths on it. */
+  url: string
+  boardShortId: string
+  boardKey: string
+}
+
+/** A card in a clip (the rest of its fields are passed on untouched). */
+export interface ClippedCard {
+  id: string
+  number: number
+  title: string
+}
+
+/** Where pasted cards go: the top-left one at x and y (the rest keep their places around it), into a bucket, or (neither) into the first bucket. */
+export type PastePlace = Point | { bucketId: string } | Record<string, never>
+
+export interface PastedItems {
+  cards: CardDetail[]
+  images: ImageDetail[]
+  drawings: DrawingDetail[]
+  /** The bucket they went into, when one was asked for. */
+  bucket: BucketDetail | null
+}
+
 export type AssigneeKind = 'Person' | 'Agent'
 
 export interface Assignee {
@@ -385,6 +426,8 @@ export type CardChangeKind =
   | 'DrawingRemoved'
   | 'Deleted'
   | 'Restored'
+  /** Added as a copy: before is the original's readable id, after its link (a full URL when it was on another server). */
+  | 'Copied'
   /** A change this version can't describe; also how to treat kinds added later. */
   | 'Other'
 

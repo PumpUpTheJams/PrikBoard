@@ -9,6 +9,7 @@ import type {
   DiscordConnectCode,
   DiscordConnection,
   AuthProvider,
+  BoardClip,
   ServerVersion,
   BoardDetail,
   BoardSummary,
@@ -45,6 +46,8 @@ import type {
   CardChange,
   CardChanges,
   CardDetail,
+  PastedItems,
+  PastePlace,
   PlaceCardsRequest,
   PlacedCards,
   Point,
@@ -199,6 +202,12 @@ export const api = {
   /** Puts cards into free slots of a bucket, in order, growing it towards `grow` when they don't fit. */
   placeCardsInBucket: (bucketId: string, placement: PlaceCardsRequest) =>
     request<PlacedCards>('POST', `/buckets/${bucketId}/cards`, placement),
+
+  /** The cards as a clip, with everything on them (images as base64), for pasteItems here or on another server. Changes nothing. */
+  copyItems: (boardId: string, cardIds: string[]) => request<BoardClip>('POST', `/boards/${boardId}/copy`, { cardIds }),
+  /** Adds the cards in a clip to the board as new cards. */
+  pasteItems: (boardId: string, clip: BoardClip, place: PastePlace = {}) =>
+    request<PastedItems>('POST', `/boards/${boardId}/paste`, { clip, ...place }),
   deleteBucket: (bucketId: string) => request<void>('DELETE', `/buckets/${bucketId}`),
   /** Brings back a bucket deleted in the last 7 days, with the same id. */
   restoreBucket: (bucketId: string) => request<BucketDetail>('POST', `/buckets/${bucketId}/restore`),

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { api } from '../api/client'
+import { api, errorMessage } from '../api/client'
 import type {
+  BoardClip,
   BoardDetail,
   BoardTag,
   BucketDetail,
@@ -29,6 +30,7 @@ import { ExpandedCard, type ExpandedCardHandle } from './ExpandedCard'
 import { BOARD_PEN, inkHex, movePenRing, usePen } from './drawings'
 import { DrawingToolbar, DrawingView, PenRing, StrokeSvg } from './DrawingView'
 import { TrashWindow, type OutgoingCard, type TrashWindowHandle } from './TrashWindow'
+import { readClip, writeClip } from './clipboard'
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
 import { delta, isDrag } from './gesture'
 import { boardRefFromHash, isBoard, linksTo, cardInHash, cardLabel, trashInHash, trashPath } from './links'
@@ -182,6 +184,9 @@ const fromDragKind: Record<Exclude<DragKind, 'Group'>, ItemGesture> = {
 const toDragKind = Object.fromEntries(Object.entries(fromDragKind).map(([k, v]) => [v, k])) as Partial<Record<ItemGesture, DragKind>>
 
 /** Where in a card's title text a screen point is, as a character offset; undefined when it isn't on the text. */
+/** Whether text on the page is selected, which Ctrl/Cmd+C then copies as usual instead of the selected cards. */
+const textSelected = () => (window.getSelection()?.toString().trim() ?? '') !== ''
+
 function caretAt(x: number, y: number): number | undefined {
   const position = document.caretPositionFromPoint?.(x, y)
   const node = position?.offsetNode ?? document.caretRangeFromPoint?.(x, y)?.startContainer
@@ -485,6 +490,13 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         if (expanded) return
         setTool('select')
         setSelection(null)
+      } else if (
+        (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'c'
+        && selected.some((s) => s.kind === 'card') && !textSelected()
+      ) {
+        // Viewers may copy too: the copies go on boards where they can edit.
+        e.preventDefault()
+        if (!e.repeat) copySelected()
       } else if (readOnly) {
         if (e.key.toLowerCase() === 'v') setTool('select')
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && selected.length > 1) {
@@ -563,9 +575,18 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     focusSearch.current = null
   })
 
-  // Pasting an image puts it on the board where the pointer was, or on the open card when the pointer or focus is there.
+  // Pasting copied cards puts them on the board where the pointer was. Pasting an image puts it on the board there, or on
+  // the open card when the pointer or focus is there.
   useEffect(() => {
     function onPaste(e: ClipboardEvent) {
+      const inField = e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable="true"]')
+      const clip = inField ? null : readClip(e.clipboardData)
+      if (clip) {
+        e.preventDefault()
+        if (readOnly) notify({ text: "You can't add cards to this board.", tone: 'warn' })
+        else pasteClip(clip)
+        return
+      }
       const files = imageFiles(e.clipboardData)
       if (readOnly || files.length === 0) return
       e.preventDefault()
@@ -668,26 +689,39 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     })
   }
 
-  /** Copies a card's content one grid step down and right of it, and selects the copy. Attached images stay behind. */
+  /** Copies a card with everything on it one grid step down and right of it, and selects the copy. */
   function duplicateCard(id: string) {
     const card = board.cards.find((n) => n.id === id)
     if (!card) return
+    const at = snapPoint({ x: card.x + GRID, y: card.y + GRID })
     void settle(
       async () => {
-        const copy = await api.createCard(board.id, {
-          title: card.title,
-          color: card.color,
-          tags: card.tags,
-          // People who have since left the board stay on the original, but can't be put on a new card.
-          assigneeIds: card.assignees.map((a) => a.principalId).filter((id) => board.people.some((p) => p.principalId === id)),
-          components: card.components.map(({ kind, title, text, items, links, x, y, width, height }) => ({ kind, title, text, items, links, x, y, width, height })),
-          ...cardPlace(snapPoint({ x: card.x + GRID, y: card.y + GRID })),
-        })
-        setSelection({ kind: 'card', id: copy.id })
-        return copy
+        const pasted = await api.pasteItems(board.id, await api.copyItems(board.id, [card.id]), at)
+        setSelection({ kind: 'card', id: pasted.cards[0].id })
+        return pasted
       },
-      (copy) => step('Duplicate card', [created(target.card(copy.id), snap.card(copy))]),
+      (pasted) => step('Duplicate card', pasted.cards.map((copy) => created(target.card(copy.id), snap.card(copy)))),
     )
+  }
+
+  /** Puts the selected cards on the clipboard, with everything on them, to paste on any board (also on another server). */
+  function copySelected() {
+    const ids = selected.filter((s) => s.kind === 'card').map((s) => s.id)
+    writeClip(api.copyItems(board.id, ids)).then(
+      () => notify(ids.length === 1 ? 'Card copied' : `${ids.length} cards copied`),
+      (error) => notify({ text: `Couldn't copy: ${errorMessage(error)}`, tone: 'warn' }),
+    )
+  }
+
+  /** Adds copied cards where the pointer was (or, with no pointer yet, to the first bucket) and selects them. */
+  function pasteClip(clip: BoardClip) {
+    const at = lastPointer.current
+    const [paste, describe] = ops.paste(board.id, clip, at ? snapPoint(at) : {})
+    void settle(async () => {
+      const pasted = await paste()
+      setSelected(pasted.cards.map((card) => ({ kind: 'card', id: card.id })))
+      return pasted
+    }, describe)
   }
 
   const renameTag = (tag: BoardTag, name: string) => settle(...ops.renameTag(board.id, tag, name))
