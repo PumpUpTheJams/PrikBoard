@@ -194,7 +194,7 @@ public static class CardEndpoints
     /// The board's next card number, counted up in the same statement. That locks the board's row until the transaction
     /// ends, so cards created at the same time get different numbers, and a card that fails to save gives its number back.
     /// </summary>
-    private static async Task<int> TakeNumberAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
+    internal static async Task<int> TakeNumberAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
         (await db.Database.SqlQuery<int>($"""
             UPDATE "Boards" SET "NextCardNumber" = "NextCardNumber" + 1 WHERE "Id" = {boardId} RETURNING "NextCardNumber" - 1 AS "Value"
             """).ToListAsync(ct)).Single();

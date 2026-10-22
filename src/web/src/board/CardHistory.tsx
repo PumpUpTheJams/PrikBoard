@@ -34,7 +34,7 @@ export function CardHistory({ card, attached }: CardHistoryProps) {
   }, [open, card.id, card.updatedAt, card.deletedAt, attached])
 
   // Cards from before the history was kept still say when they were made.
-  const recordsCreation = Array.isArray(changes) && changes.some((c) => c.entries.some((e) => e.kind === 'Created'))
+  const recordsCreation = Array.isArray(changes) && changes.some((c) => c.entries.some((e) => e.kind === 'Created' || e.kind === 'Copied'))
 
   return (
     <section className={`card-history${open ? ' open' : ''}`} aria-label="History">
@@ -174,6 +174,19 @@ function describe(entry: CardChangeEntry): ReactNode {
       return 'deleted it'
     case 'Restored':
       return 'put it back on the board'
+    case 'Copied':
+      return (
+        <>
+          copied it from{' '}
+          {after ? (
+            <a href={after} {...(after.startsWith('/') ? {} : { target: '_blank', rel: 'noreferrer' })}>
+              {before ?? 'another card'}
+            </a>
+          ) : (
+            <b>{before ?? 'another card'}</b>
+          )}
+        </>
+      )
     default:
       // Other, or a kind added to the server after this app was built.
       return 'changed it'

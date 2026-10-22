@@ -453,6 +453,39 @@ public sealed class BoardTools
         return result;
     }
 
+    [McpServerTool(Name = "copy_to_board", Title = "Copy cards to a board", OpenWorld = false)]
+    [Description("Copies cards to a board, the same one or another: new cards, created by you, with the same title, fill, tags, " +
+                 "content, and the images and drawings on them. Assignees stay when they can be assigned there; links between the " +
+                 "copied cards point at the copies. They go into free spots in the bucket (default: the board's first bucket). The " +
+                 "originals stay where they are. Needs the Viewer role on their board and the Editor role on the board they go to.")]
+    public static async Task<PastedItems> CopyToBoard(
+        IHttpContextAccessor accessor,
+        [Description("The board to copy them to: " + BoardForms)] string board,
+        [Description("The cards to copy, all from one board, each: " + CardForms)] List<string> cards,
+        [Description("The bucket on that board to put them in: its name or id. Default: the first bucket.")] string? bucket = null,
+        CancellationToken ct = default)
+    {
+        var http = McpCall.Http(accessor);
+        var targetId = await ResolveBoardAsync(http, board, ct);
+        var cardIds = new List<Guid>();
+        foreach (var card in cards) cardIds.Add(await ResolveCardAsync(http, card, ct));
+        McpCall.Validate(new CopyItemsRequest(cardIds));
+        var sourceIds = new HashSet<Guid>();
+        foreach (var cardId in cardIds.Distinct()) sourceIds.Add(await McpCall.AuthorizeAsync(http, BoardScope.Card, cardId, BoardRole.Viewer));
+        if (sourceIds.Count > 1) throw new McpException("Copy cards from one board at a time.");
+        await McpCall.AuthorizeAsync(http, BoardScope.Board, targetId, BoardRole.Editor);
+
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var files = http.RequestServices.GetRequiredService<FileStore>();
+        Guid? bucketId = bucket is null ? null : await ResolveBucketAsync(db, targetId, bucket, ct);
+        var server = ClipEndpoints.ServerUrl(http.Request);
+        var clip = McpCall.Value<BoardClip>(await ClipEndpoints.BuildClipAsync(db, files, sourceIds.Single(), cardIds, server, ct));
+        var result = McpCall.Value<PastedItems>(
+            await ClipEndpoints.PasteAsync(targetId, new PasteItemsRequest(clip, BucketId: bucketId), server, http.User, db, files, ct));
+        await McpCall.AnnounceAsync(http, targetId);
+        return result;
+    }
+
     [McpServerTool(Name = "set_working", Title = "Mark a card as being worked on", Idempotent = true, OpenWorld = false)]
     [Description("Say you are (or are no longer) working on a card: assigns you and shows a halo around the card " +
                  "while working is true. Call it with false when you are done; you stay assigned. Needs the Editor role.")]
