@@ -16,6 +16,7 @@ import type {
   PastePlace,
   TagColor,
 } from '../api/types'
+import { countList } from './clipboard'
 import { loadDrawingStrokes, type Reshape } from './drawings'
 import { cardEdit, componentEdit, created, deleted, patched, reshaped, snap, step, target, type UndoEntry } from './undo'
 
@@ -25,6 +26,15 @@ import { cardEdit, componentEdit, created, deleted, patched, reshaped, snap, ste
  * mobile layout make the same changes through these, so they are recorded for undo the same way everywhere.
  */
 export type Op<T> = [action: () => Promise<T>, describe: (result: T) => UndoEntry | null]
+
+/** What a paste added, for its toast: "1 bucket, 3 cards and 2 images" (images and drawings on the cards not counted). */
+export const pastedSummary = (pasted: PastedItems) =>
+  countList([
+    [pasted.buckets.length, 'bucket'],
+    [pasted.cards.length, 'card'],
+    [pasted.images.filter((i) => !i.cardId).length, 'image'],
+    [pasted.drawings.filter((d) => !d.cardId).length, 'drawing'],
+  ])
 
 /** Whether a component has nothing in it: removing it then needs no toast to undo it (it still can be). */
 export const isEmptyComponent = (c: CardComponent) => !c.text && !c.items?.length && !c.links?.length && !c.title
@@ -42,14 +52,22 @@ export const ops = {
     (after) => cardEdit(card, after, changes),
   ],
 
-  /** Adds copied cards (a clip) to the board as one step; undo deletes them, with the images and drawings on them. */
+  /**
+   * Adds copied items (a clip) to the board as one step; undo deletes the buckets, cards, and images and drawings on the
+   * board it added (the images and drawings on the cards go with them).
+   */
   paste: (boardId: string, clip: BoardClip, place: PastePlace, label = 'Paste'): Op<PastedItems> => [
     () => api.pasteItems(boardId, clip, place),
     (pasted) =>
       step(
         label,
-        pasted.cards.map((card) => created(target.card(card.id), snap.card(card))),
-        label === 'Paste' ? { toast: pasted.cards.length === 1 ? 'Pasted 1 card' : `Pasted ${pasted.cards.length} cards` } : undefined,
+        [
+          ...pasted.buckets.map((b) => created(target.bucket(b.id), snap.bucket(b))),
+          ...pasted.cards.map((card) => created(target.card(card.id), snap.card(card))),
+          ...pasted.images.filter((i) => !i.cardId).map((i) => created(target.image(i.id), snap.image(i))),
+          ...pasted.drawings.filter((d) => !d.cardId).map((d) => created(target.drawing(d.id), snap.drawing(d))),
+        ],
+        label === 'Paste' ? { toast: `Pasted ${pastedSummary(pasted)}` } : undefined,
       ),
   ],
 

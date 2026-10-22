@@ -10,6 +10,7 @@ import type {
   DiscordConnection,
   AuthProvider,
   BoardClip,
+  CopyItemsRequest,
   ServerVersion,
   BoardDetail,
   BoardSummary,
@@ -203,9 +204,9 @@ export const api = {
   placeCardsInBucket: (bucketId: string, placement: PlaceCardsRequest) =>
     request<PlacedCards>('POST', `/buckets/${bucketId}/cards`, placement),
 
-  /** The cards as a clip, with everything on them (images as base64), for pasteItems here or on another server. Changes nothing. */
-  copyItems: (boardId: string, cardIds: string[]) => request<BoardClip>('POST', `/boards/${boardId}/copy`, { cardIds }),
-  /** Adds the cards in a clip to the board as new cards. */
+  /** The items as a clip, with everything on them (images as base64), for pasteItems here or on another server. Changes nothing. */
+  copyItems: (boardId: string, what: CopyItemsRequest) => request<BoardClip>('POST', `/boards/${boardId}/copy`, what),
+  /** Adds what is in a clip to the board as new items. */
   pasteItems: (boardId: string, clip: BoardClip, place: PastePlace = {}) =>
     request<PastedItems>('POST', `/boards/${boardId}/paste`, { clip, ...place }),
   deleteBucket: (bucketId: string) => request<void>('DELETE', `/buckets/${bucketId}`),

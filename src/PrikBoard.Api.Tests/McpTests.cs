@@ -162,6 +162,17 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         Assert.All(cards, n => Assert.Equal(doing.Id, n.GetProperty("bucketId").GetGuid()));
         Assert.Equal(2, (await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{from.Id}"))!.Cards.Count);
 
+        // A bucket by name, with its cards, to a place on the other board.
+        var withBucket = await CallAsync(mcp, "copy_to_board", new()
+        {
+            ["board"] = to.ShortId, ["from"] = from.ShortId, ["buckets"] = new[] { "To do" }, ["x"] = 0, ["y"] = 4000,
+        });
+        var pastedBucket = Assert.Single(withBucket.GetProperty("buckets").EnumerateArray());
+        Assert.Equal(("To do", 0, 4000), (pastedBucket.GetProperty("name").GetString(), pastedBucket.GetProperty("x").GetInt32(), pastedBucket.GetProperty("y").GetInt32()));
+        Assert.Equal(2, withBucket.GetProperty("cards").GetArrayLength());
+        Assert.All(withBucket.GetProperty("cards").EnumerateArray(),
+            n => Assert.Equal(pastedBucket.GetProperty("id").GetGuid(), n.GetProperty("bucketId").GetGuid()));
+
         var elsewhere = await owner.CreateBoardAsync("MCP copy elsewhere");
         var stranger = await owner.CreateCardAsync(elsewhere.Id, "Stranger");
         var mixed = await CallRawAsync(mcp, "copy_to_board", new() { ["board"] = to.Id, ["cards"] = new[] { first.ReadableId, stranger.ReadableId } });

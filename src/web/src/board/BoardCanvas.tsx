@@ -30,7 +30,7 @@ import { ExpandedCard, type ExpandedCardHandle } from './ExpandedCard'
 import { BOARD_PEN, inkHex, movePenRing, usePen } from './drawings'
 import { DrawingToolbar, DrawingView, PenRing, StrokeSvg } from './DrawingView'
 import { TrashWindow, type OutgoingCard, type TrashWindowHandle } from './TrashWindow'
-import { readClip, writeClip } from './clipboard'
+import { clipSummary, readClip, writeClip } from './clipboard'
 import { draggingFiles, imageFiles, pickImageFiles } from './files'
 import { delta, isDrag } from './gesture'
 import { boardRefFromHash, isBoard, linksTo, cardInHash, cardLabel, trashInHash, trashPath } from './links'
@@ -492,7 +492,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         setSelection(null)
       } else if (
         (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'c'
-        && selected.some((s) => s.kind === 'card') && !textSelected()
+        && selected.length > 0 && !textSelected()
       ) {
         // Viewers may copy too: the copies go on boards where they can edit.
         e.preventDefault()
@@ -696,7 +696,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     const at = snapPoint({ x: card.x + GRID, y: card.y + GRID })
     void settle(
       async () => {
-        const pasted = await api.pasteItems(board.id, await api.copyItems(board.id, [card.id]), at)
+        const pasted = await api.pasteItems(board.id, await api.copyItems(board.id, { cardIds: [card.id] }), at)
         setSelection({ kind: 'card', id: pasted.cards[0].id })
         return pasted
       },
@@ -704,22 +704,36 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     )
   }
 
-  /** Puts the selected cards on the clipboard, with everything on them, to paste on any board (also on another server). */
+  /**
+   * Puts the selection on the clipboard, with everything on and in it (a bucket's items, a card's images), to paste on any
+   * board (also on another server).
+   */
   function copySelected() {
-    const ids = selected.filter((s) => s.kind === 'card').map((s) => s.id)
-    writeClip(api.copyItems(board.id, ids)).then(
-      () => notify(ids.length === 1 ? 'Card copied' : `${ids.length} cards copied`),
+    const ids = (kind: SelectionKind) => selected.filter((s) => s.kind === kind).map((s) => s.id)
+    const what = { cardIds: ids('card'), bucketIds: ids('bucket'), imageIds: ids('image'), drawingIds: ids('drawing') }
+    writeClip(api.copyItems(board.id, what)).then(
+      (clip) => notify(`Copied ${clipSummary(clip)}`),
       (error) => notify({ text: `Couldn't copy: ${errorMessage(error)}`, tone: 'warn' }),
     )
   }
 
-  /** Adds copied cards where the pointer was (or, with no pointer yet, to the first bucket) and selects them. */
+  /**
+   * Adds copied items with their top-left where the pointer was (with no pointer yet, cards go to the first bucket and
+   * anything else to a free spot), and selects them: the buckets and what isn't in them, as the selection rectangle would.
+   */
   function pasteClip(clip: BoardClip) {
     const at = lastPointer.current
     const [paste, describe] = ops.paste(board.id, clip, at ? snapPoint(at) : {})
     void settle(async () => {
       const pasted = await paste()
-      setSelected(pasted.cards.map((card) => ({ kind: 'card', id: card.id })))
+      const fresh = new Set(pasted.buckets.map((b) => b.id))
+      const outside = (item: { bucketId: string | null }) => !item.bucketId || !fresh.has(item.bucketId)
+      setSelected([
+        ...pasted.buckets.map((b): Selection => ({ kind: 'bucket', id: b.id })),
+        ...pasted.cards.filter(outside).map((n): Selection => ({ kind: 'card', id: n.id })),
+        ...pasted.images.filter((i) => !i.cardId && outside(i)).map((i): Selection => ({ kind: 'image', id: i.id })),
+        ...pasted.drawings.filter((d) => !d.cardId && outside(d)).map((d): Selection => ({ kind: 'drawing', id: d.id })),
+      ])
       return pasted
     }, describe)
   }

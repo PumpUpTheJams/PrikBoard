@@ -188,6 +188,93 @@ public class ClipApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         Assert.Single(board2.Cards);
     }
 
+    [Fact]
+    public async Task Buckets_paste_with_what_is_in_them_and_loose_items_keep_their_places()
+    {
+        var owner = await factory.CreateSignedInClientAsync("clip-buckets-items@example.com");
+        var from = await owner.CreateBoardAsync("Bucket source");
+        var to = await owner.CreateBoardAsync("Bucket target");
+
+        var sprint = await CreateBucketAsync(owner, from.Id, new { name = "Sprint", color = "Teal", x = 2000, y = 0, width = 600, height = 400 });
+        var folded = await CreateBucketAsync(owner, from.Id, new { name = "Later", x = 2800, y = 0, width = 400, height = 400 });
+        var inSprint = await CreateRichCardAsync(owner, from.Id, new { title = "In the sprint", bucketId = sprint.Id });
+        await CreateRichCardAsync(owner, from.Id, new { title = "For later", bucketId = folded.Id });
+        var imageIn = await UploadAsync(owner, from.Id, TestImages.Png(200, 100), "?fileName=in.png&x=2300&y=200&width=200");
+        var imageOut = await UploadAsync(owner, from.Id, TestImages.Png(200, 100), "?fileName=out.png&x=3400&y=100&width=200");
+        (await owner.PostAsJsonAsync($"/api/boards/{from.Id}/drawings", new { x = 2040, y = 300, points = Squiggle })).EnsureSuccessStatusCode();
+        (await owner.PatchAsJsonAsync($"/api/buckets/{folded.Id}", new { collapsed = true })).EnsureSuccessStatusCode();
+        // Loose items on the target board: one under where Sprint lands is taken by it, one under Later is not.
+        var underSprint = await CreateRichCardAsync(owner, to.Id, new { title = "Under the sprint", x = 300, y = 3200 });
+        var underFolded = await CreateRichCardAsync(owner, to.Id, new { title = "Under later", x = 840, y = 3040 });
+
+        var copied = await owner.PostAsJsonAsync($"/api/boards/{from.Id}/copy",
+            new { bucketIds = new[] { sprint.Id, folded.Id }, imageIds = new[] { imageOut.Id } });
+        Assert.Equal(HttpStatusCode.OK, copied.StatusCode);
+        var clip = (await copied.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(2, (int)clip["version"]!);
+
+        // The top-left of what is on the board (Sprint's corner) goes to 0, 3000.
+        var pasted = await PasteAsync(owner, to.Id, new { clip, x = 0, y = 3000 });
+        Assert.Null(pasted.Bucket);
+        Assert.Equal(["Sprint", "Later"], pasted.Buckets.Select(b => b.Name));
+        var newSprint = pasted.Buckets[0];
+        var newFolded = pasted.Buckets[1];
+        Assert.Equal((BucketColor.Teal, 0, 3000, 600, 400, false), (newSprint.Color, newSprint.X, newSprint.Y, newSprint.Width, newSprint.Height, newSprint.Collapsed));
+        Assert.Equal((800, 3000, true), (newFolded.X, newFolded.Y, newFolded.Collapsed));
+        Assert.Equal(newSprint.Id, pasted.Cards.Single(n => n.Title == "In the sprint").BucketId);
+        Assert.Equal(newFolded.Id, pasted.Cards.Single(n => n.Title == "For later").BucketId);
+        Assert.Equal((inSprint.X - 2000, inSprint.Y + 3000),
+            (pasted.Cards.Single(n => n.Title == "In the sprint").X, pasted.Cards.Single(n => n.Title == "In the sprint").Y));
+
+        var newIn = pasted.Images.Single(i => i.FileName == "in.png");
+        var newOut = pasted.Images.Single(i => i.FileName == "out.png");
+        Assert.Equal((newSprint.Id, imageIn.X - 2000, imageIn.Y + 3000), (newIn.BucketId, newIn.X, newIn.Y));
+        Assert.Equal((null, imageOut.X - 2000, imageOut.Y + 3000), (newOut.BucketId, newOut.X, newOut.Y));
+        var drawing = Assert.Single(pasted.Drawings);
+        Assert.Equal(newSprint.Id, drawing.BucketId);
+        Assert.Equal((40, 3300), (drawing.X, drawing.Y));
+
+        var board = (await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{to.Id}"))!;
+        Assert.Equal(newSprint.Id, board.Cards.Single(n => n.Id == underSprint.Id).BucketId);
+        Assert.Null(board.Cards.Single(n => n.Id == underFolded.Id).BucketId);
+        // Pasted buckets are on top of the board's own.
+        Assert.True(board.Buckets.Where(b => b.Id != newSprint.Id && b.Id != newFolded.Id).All(b => b.StackedAt < newSprint.StackedAt));
+        Assert.True(newSprint.StackedAt < newFolded.StackedAt);
+    }
+
+    [Fact]
+    public async Task A_clip_with_buckets_or_loose_items_does_not_go_into_a_bucket_and_a_version_1_clip_still_pastes()
+    {
+        var owner = await factory.CreateSignedInClientAsync("clip-v1@example.com");
+        var board = await owner.CreateBoardAsync("Versions");
+        var image = await UploadAsync(owner, board.Id, TestImages.Png(100, 100), "?fileName=loose.png&x=2000&y=2000");
+        var withImage = (await (await owner.PostAsJsonAsync($"/api/boards/{board.Id}/copy", new { imageIds = new[] { image.Id } })).Content.ReadFromJsonAsync<JsonObject>())!;
+        var toDo = board.Buckets.Single(b => b.Name == "To do");
+        var refused = await owner.PostAsJsonAsync($"/api/boards/{board.Id}/paste", new { clip = withImage, bucketId = toDo.Id });
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Contains("bucketId", await refused.Content.ReadAsStringAsync());
+        // Without a place it goes to a free spot.
+        var placed = await PasteAsync(owner, board.Id, new { clip = withImage });
+        Assert.Equal("loose.png", Assert.Single(placed.Images).FileName);
+
+        // As PR 1's servers wrote it: version 1, no buckets, no bucketId on items.
+        var card = await owner.CreateCardAsync(board.Id, "Old style");
+        var old = await CopyAsync(owner, board.Id, card.Id);
+        old["version"] = 1;
+        old.Remove("buckets");
+        foreach (var item in old["cards"]!.AsArray()) item!.AsObject().Remove("bucketId");
+        var pasted = await PasteAsync(owner, board.Id, new { clip = old, x = 0, y = 0 });
+        Assert.Equal("Old style", Assert.Single(pasted.Cards).Title);
+        Assert.Empty(pasted.Buckets);
+    }
+
+    private static async Task<BucketDetail> CreateBucketAsync(HttpClient client, Guid boardId, object bucket)
+    {
+        var response = await client.PostAsJsonAsync($"/api/boards/{boardId}/buckets", bucket);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<BucketDetail>())!;
+    }
+
     private static async Task<CardDetail> CreateRichCardAsync(HttpClient client, Guid boardId, object card)
     {
         var response = await client.PostAsJsonAsync($"/api/boards/{boardId}/cards", card);
