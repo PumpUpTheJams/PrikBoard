@@ -1,7 +1,7 @@
 // Pen strokes: building one from the pointer, the points' cache, and turning points into SVG paths.
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
-import { inkColors, type DrawingDetail, type InkColor, type Point, type StrokePoint } from '../api/types'
+import { inkColors, type DrawingDetail, type DrawingStroke, type InkColor, type Point, type StrokePoint } from '../api/types'
 import { GRID, MAX_COORDINATE, MIN_COORDINATE } from './layout'
 
 /** The inks' colors, as the `--ink-*` tokens in index.css. */
@@ -154,45 +154,61 @@ export function strokePaths(points: StrokePoint[], base: number): { d: string; w
   return paths
 }
 
-/** Points of drawings already fetched (or just drawn here), by id. They never change. */
-const cache = new Map<string, StrokePoint[]>()
-const pending = new Map<string, Promise<StrokePoint[]>>()
+/** Strokes of drawings already fetched (or just drawn here), by content URL, which changes whenever they do. */
+const cache = new Map<string, DrawingStroke[]>()
+const pending = new Map<string, Promise<DrawingStroke[]>>()
+/** What each drawing showed last, so a drawing that changed keeps showing until its new strokes are in. */
+const shown = new Map<string, { x: number; y: number; strokes: DrawingStroke[] }>()
 
-/** Remembers the points of a drawing just made, so it shows without fetching them. */
-export function rememberPoints(id: string, points: StrokePoint[]) {
-  cache.set(id, points)
+/** Remembers the strokes of a drawing just made, so it shows without fetching them. */
+export function rememberStrokes(drawing: DrawingDetail, strokes: DrawingStroke[]) {
+  cache.set(drawing.contentUrl, strokes)
 }
 
-function load(id: string) {
-  let promise = pending.get(id)
+/** A drawing's strokes: from the cache, or fetched once. */
+export function loadDrawingStrokes(drawing: DrawingDetail): Promise<DrawingStroke[]> {
+  const url = drawing.contentUrl
+  const cached = cache.get(url)
+  if (cached) return Promise.resolve(cached)
+  let promise = pending.get(url)
   if (!promise) {
-    promise = api.getDrawingContent(id).then((content) => {
-      cache.set(id, content.points)
-      return content.points
+    promise = api.getDrawingContent(url).then((content) => {
+      cache.set(url, content.strokes)
+      return content.strokes
     })
-    pending.set(id, promise)
+    pending.set(url, promise)
     // A failed fetch can be tried again later.
-    promise.catch(() => pending.delete(id))
+    promise.catch(() => pending.delete(url))
   }
   return promise
 }
 
-/** A drawing's points: from the cache, or fetched once; null until they are there. */
-export function useDrawingPoints(drawing: DrawingDetail): StrokePoint[] | null {
-  const [loaded, setLoaded] = useState<{ id: string; points: StrokePoint[] } | null>(null)
-  const cached = cache.get(drawing.id)
+/**
+ * A drawing's strokes: from the cache, or fetched once; null until they are there. While a drawing's new strokes load,
+ * its old ones stay on screen if it hasn't moved.
+ */
+export function useDrawingStrokes(drawing: DrawingDetail): DrawingStroke[] | null {
+  const [loaded, setLoaded] = useState<{ url: string; strokes: DrawingStroke[] } | null>(null)
+  const url = drawing.contentUrl
+  const cached = cache.get(url)
   useEffect(() => {
-    if (cache.has(drawing.id)) return
+    if (cache.has(url)) return
     let live = true
-    load(drawing.id).then(
-      (points) => live && setLoaded({ id: drawing.id, points }),
+    loadDrawingStrokes(drawing).then(
+      (strokes) => live && setLoaded({ url, strokes }),
       () => {},
     )
     return () => {
       live = false
     }
-  }, [drawing.id])
-  return cached ?? (loaded?.id === drawing.id ? loaded.points : null)
+  }, [drawing, url])
+  const strokes = cached ?? (loaded?.url === url ? loaded.strokes : null)
+  const before = shown.get(drawing.id)
+  if (strokes) {
+    if (before?.strokes !== strokes) shown.set(drawing.id, { x: drawing.x, y: drawing.y, strokes })
+    return strokes
+  }
+  return before && before.x === drawing.x && before.y === drawing.y ? before.strokes : null
 }
 
 /**

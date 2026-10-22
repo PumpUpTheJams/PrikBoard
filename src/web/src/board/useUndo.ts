@@ -110,7 +110,7 @@ export function useUndo({ boardId, history, run, notify, moving, onApplied }: Un
           notify({ text: `Can't ${direction} “${entry.label.toLowerCase()}”: ${reason}`, tone: 'warn' })
           return
         }
-        if (!(await run(() => apply(entry, direction, boardId)))) return
+        if (!(await run(() => apply(entry, direction, board)))) return
         ;(direction === 'undo' ? stacks.redo : stacks.undo).push(entry)
         history.emit()
         onApplied?.(entry, direction)

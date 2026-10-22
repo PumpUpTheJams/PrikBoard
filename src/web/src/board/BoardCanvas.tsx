@@ -224,9 +224,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const { ink, setInk, width: strokeWidth, setWidth: setStrokeWidth } = usePen(BOARD_PEN)
   /** The ring under the pointer that shows the pen's size. */
   const penRing = useRef<HTMLDivElement>(null)
-  /** The stroke being drawn with the pen. */
-  const pen = useStroke((e) => toCanvas(e))
-  const stroke = pen.stroke
+  /** The strokes being drawn with the pen and saved; while it is the tool, they all go into one drawing. */
+  const pen = useStroke((e) => toCanvas(e), tool === 'pen')
+  /** Whether a stroke is being drawn or saved. */
+  const stroke = pen.strokes.length > 0
   /** The selected items: one, or several (Shift or Ctrl/Cmd + click, or the selection rectangle). */
   const [selected, setSelected] = useState<Selection[]>([])
   /** The one item selected, for what works on a single item (its panel, its resize handles); null with none or several. */
@@ -459,7 +460,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
   // Background refreshes would fight with a drag in progress.
   useEffect(
-    () => setPaused(gesture !== null || stroke !== null || cardBusy || deletedBusy),
+    () => setPaused(gesture !== null || stroke || cardBusy || deletedBusy),
     [gesture, stroke, cardBusy, deletedBusy, setPaused],
   )
 
@@ -719,7 +720,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   function recolorDrawing(drawing: DrawingDetail, color: InkColor) {
     void settle(
       () => api.updateDrawing(drawing.id, { color }),
-      (after) => step('Change ink', [patched(target.drawing(drawing.id), snap.drawing(drawing), snap.drawing(after), ['color'])]),
+      (after) => step('Change ink', [patched(target.drawing(drawing.id), snap.drawing(drawing), snap.drawing(after), ['colors'])]),
     )
   }
 
@@ -2317,7 +2318,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               />
             ))}
 
-            {stroke && <StrokeSvg points={stroke.points} color={inkHex[stroke.color]} strokeWidth={stroke.width} at={{ x: 0, y: 0 }} />}
+            {pen.strokes.map((s, i) => (
+              <StrokeSvg key={i} points={s.points} color={inkHex[s.color]} strokeWidth={s.width} at={{ x: 0, y: 0 }} />
+            ))}
 
             {tool === 'pen' && !readOnly && <PenRing ringRef={penRing} width={strokeWidth} zoom={zoom} />}
 
@@ -2405,8 +2408,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         {hint && <div className="canvas-hint">{hint}</div>}
       </div>
       <ViewControls
-        undo={readOnly ? undefined : { label: undo.nextUndo, disabled: !!gesture || !!stroke || cardBusy, onClick: undo.undo }}
-        redo={readOnly ? undefined : { label: undo.nextRedo, disabled: !!gesture || !!stroke || cardBusy, onClick: undo.redo }}
+        undo={readOnly ? undefined : { label: undo.nextUndo, disabled: !!gesture || stroke || cardBusy, onClick: undo.undo }}
+        redo={readOnly ? undefined : { label: undo.nextRedo, disabled: !!gesture || stroke || cardBusy, onClick: undo.redo }}
         zoom={zoom}
         onZoom={(direction) => zoomTo(stepZoom(zoom, direction))}
         onZoomReset={() => zoomTo(1)}

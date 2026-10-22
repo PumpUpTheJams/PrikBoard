@@ -9,7 +9,7 @@ namespace PrikBoard.Api.Contracts;
 /// local to it; importing makes new ones.
 /// </summary>
 /// <param name="Format">Always "prikboard-board". Marks the file as a PrikBoard export.</param>
-/// <param name="Version">Version of this file format, currently 5 (3 and 4 still import). Files from before notes were renamed cards (versions 1 and 2) are refused, and so is a file with a newer version than the server knows, or with fields it doesn't know.</param>
+/// <param name="Version">Version of this file format, currently 6 (3 to 5 still import). Files from before notes were renamed cards (versions 1 and 2) are refused, and so is a file with a newer version than the server knows, or with fields it doesn't know.</param>
 /// <param name="ExportedAt">When the file was made (UTC).</param>
 /// <param name="Name">Board name.</param>
 /// <param name="Description">Board description, or null.</param>
@@ -19,7 +19,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Cards">Cards, the most recently edited last (they are drawn on top). A card's bucket follows from where it sits.</param>
 /// <param name="Images">Images on the canvas and attached to cards, with their bytes.</param>
 /// <param name="TagColors">Colors of the tags that have one (not Default), by tag name. Optional; files without it import with default colors.</param>
-/// <param name="Drawings">Freehand pen strokes on the canvas and on cards, with their points, oldest first. Optional; files without it import without drawings.</param>
+/// <param name="Drawings">Freehand drawings on the canvas and on cards, with their strokes, oldest first. Optional; files without it import without drawings.</param>
 /// <param name="Key">The board's key, shown before card numbers (MPCT-415). Optional; without a valid one the new board takes one from its name.</param>
 /// <param name="AppVersion">The PrikBoard version that made the file (e.g. 0.0.27), named when another server can't read it. Optional.</param>
 public record BoardExport(
@@ -40,7 +40,7 @@ public record BoardExport(
 {
     public const string FormatName = "prikboard-board";
     /// <summary>Raise it with every change to the file's fields, so an older server refuses a file it can't fully read.</summary>
-    public const int CurrentVersion = 5;
+    public const int CurrentVersion = 6;
     public const int OldestVersion = 3;
     public const string TooOldMessage =
         "This file is from before notes were renamed cards (version 1 or 2), and this server reads version 3 and later. " +
@@ -109,13 +109,31 @@ public record ExportedImage(
 /// <param name="CardId">Id of the card (in this file) the drawing is on, or null for a drawing on the canvas.</param>
 /// <param name="X">Left edge on the board's canvas, or on the card's canvas; the points are relative to it.</param>
 /// <param name="Y">Top edge on the board's canvas, or on the card's canvas; the points are relative to it.</param>
-/// <param name="Color">Ink color.</param>
-/// <param name="StrokeWidth">Base line width: 2, 4 or 8.</param>
-/// <param name="Points">The stroke, each point [x, y, pressure] as in createDrawing.</param>
+/// <param name="Strokes">The strokes in drawing order (from version 6).</param>
+/// <param name="Color">Files before version 6, where a drawing was one stroke: its ink. Null from version 6.</param>
+/// <param name="StrokeWidth">Files before version 6: the stroke's base line width. Null from version 6.</param>
+/// <param name="Points">Files before version 6: the stroke's points. Null from version 6.</param>
 public record ExportedDrawing(
     Guid? CardId,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int X,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int Y,
+    [property: MaxLength(BoardDrawing.MaxStrokes)] List<ExportedStroke>? Strokes = null,
+    InkColor? Color = null,
+    int? StrokeWidth = null,
+    [property: MaxLength(BoardDrawing.MaxPoints)] List<double[]>? Points = null)
+{
+    /// <summary>The strokes, from either form.</summary>
+    public IReadOnlyList<(InkColor Color, int Width, IReadOnlyList<double[]> Points)> AllStrokes() =>
+        Strokes is not null
+            ? [.. Strokes.Select(s => (s.Color, s.StrokeWidth, (IReadOnlyList<double[]>)s.Points))]
+            : Points is not null ? [(Color ?? InkColor.Chalk, StrokeWidth ?? 4, Points)] : [];
+}
+
+/// <summary>One stroke of an exported drawing.</summary>
+/// <param name="Color">Ink color.</param>
+/// <param name="StrokeWidth">Base line width: 2, 4 or 8.</param>
+/// <param name="Points">The stroke, each point [x, y, pressure] relative to the drawing's x and y, as in createDrawing.</param>
+public record ExportedStroke(
     InkColor Color,
     int StrokeWidth,
     [property: Required, MaxLength(BoardDrawing.MaxPoints)] List<double[]> Points);

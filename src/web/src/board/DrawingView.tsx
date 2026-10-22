@@ -1,18 +1,40 @@
 import type { CSSProperties, PointerEvent, Ref } from 'react'
-import { inkColors, type DrawingDetail, type InkColor, type Point, type Rect, type StrokePoint } from '../api/types'
+import { inkColors, type DrawingDetail, type DrawingStroke, type InkColor, type Point, type Rect, type StrokePoint } from '../api/types'
 import { keepPress } from './gesture'
-import { inkHex, strokePaths, strokeSizes, useDrawingPoints } from './drawings'
+import { inkHex, strokePaths, strokeSizes, useDrawingStrokes } from './drawings'
 import { TrashIcon } from './icons'
 
-/** A stroke's line, at its place: the parts of the path, plus a wider invisible one that takes presses near the line. */
-export function StrokeSvg({ points, color, strokeWidth, at, hit }: { points: StrokePoint[]; color: string; strokeWidth: number; at: Point; hit?: boolean }) {
+/** A stroke's line being drawn, at its place. */
+export function StrokeSvg({ points, color, strokeWidth, at }: { points: StrokePoint[]; color: string; strokeWidth: number; at: Point }) {
   const paths = strokePaths(points, strokeWidth)
   return (
     <svg className="stroke" style={{ left: at.x, top: at.y }} width={1} height={1} aria-hidden="true">
-      {hit && <path className="stroke-hit" d={paths.map((p) => p.d).join('')} strokeWidth={Math.max(14, strokeWidth * 2)} />}
       {paths.map((p, i) => (
         <path key={i} d={p.d} stroke={color} strokeWidth={p.width} />
       ))}
+    </svg>
+  )
+}
+
+/**
+ * A drawing's strokes at its place, in one SVG, each in its own ink. With `hit`, a wider invisible path along each line
+ * takes presses near it, so pressing any of its lines picks up the whole drawing.
+ */
+export function DrawingSvg({ strokes, colors, at, hit }: { strokes: DrawingStroke[]; colors: InkColor[]; at: Point; hit?: boolean }) {
+  return (
+    <svg className="stroke" style={{ left: at.x, top: at.y }} width={1} height={1} aria-hidden="true">
+      {strokes.map((stroke, i) => {
+        const paths = strokePaths(stroke.points, stroke.strokeWidth)
+        const color = inkHex[colors[i] ?? colors.at(-1) ?? 'Chalk']
+        return (
+          <g key={i}>
+            {hit && <path className="stroke-hit" d={paths.map((p) => p.d).join('')} strokeWidth={Math.max(14, stroke.strokeWidth * 2)} />}
+            {paths.map((p, j) => (
+              <path key={j} d={p.d} stroke={color} strokeWidth={p.width} />
+            ))}
+          </g>
+        )
+      })}
     </svg>
   )
 }
@@ -28,16 +50,16 @@ interface DrawingViewProps {
   onPointerDown: (e: PointerEvent<Element>) => void
 }
 
-/** A pen stroke on the board; pressing its line selects and moves it. */
+/** A drawing on a canvas; pressing any of its lines selects and moves all of it. */
 export function DrawingView({ drawing, rect, selected, lifted, front, onPointerDown }: DrawingViewProps) {
-  const points = useDrawingPoints(drawing)
+  const strokes = useDrawingStrokes(drawing)
   const classes = ['drawing']
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
   if (front) classes.push('in-front')
   return (
     <div className={classes.join(' ')} data-drawing={drawing.id} onPointerDown={onPointerDown}>
-      {points && <StrokeSvg points={points} color={inkHex[drawing.color]} strokeWidth={drawing.strokeWidth} at={rect} hit />}
+      {strokes && <DrawingSvg strokes={strokes} colors={drawing.colors} at={rect} hit />}
       {selected && (
         <div className="drawing-box" aria-hidden="true" style={{ left: rect.x - 6, top: rect.y - 6, width: rect.width + 12, height: rect.height + 12 }}>
           <span className="drawing-handle" style={{ left: -4, top: -4 }} />
@@ -60,7 +82,10 @@ interface DrawingToolbarProps {
   onDelete: () => void
 }
 
-/** Under a selected drawing: its ink, to change it, and a delete button. */
+/** Its one ink, or null when its strokes have different ones. */
+const inkOf = (drawing: DrawingDetail) => (drawing.colors.every((c) => c === drawing.colors[0]) ? drawing.colors[0] : null)
+
+/** Under a selected drawing: who drew it, its ink (to change it, for all its lines at once) and a delete button. */
 export function DrawingToolbar({ drawing, rect, zoom, onRecolor, onDelete }: DrawingToolbarProps) {
   return (
     <div
@@ -70,7 +95,16 @@ export function DrawingToolbar({ drawing, rect, zoom, onRecolor, onDelete }: Dra
       style={{ left: rect.x, top: rect.y + rect.height + 18, transform: `scale(${1 / zoom})` }}
       onPointerDown={keepPress}
     >
-      <InkSwatches value={drawing.color} onChange={onRecolor} />
+      {/* Unnamed on a public board that hides its people. */}
+      {drawing.addedBy && (
+        <>
+          <span className="drawing-author" title={`Drawn by ${drawing.addedBy}`}>
+            drawn by {drawing.addedBy}
+          </span>
+          <span className="toolbar-divider" aria-hidden="true" />
+        </>
+      )}
+      <InkSwatches value={inkOf(drawing)} onChange={onRecolor} />
       <span className="toolbar-divider" aria-hidden="true" />
       <button type="button" className="drawing-delete" aria-label="Delete drawing" title="Delete drawing (Del)" onClick={onDelete}>
         <TrashIcon size={15} />
@@ -80,7 +114,7 @@ export function DrawingToolbar({ drawing, rect, zoom, onRecolor, onDelete }: Dra
 }
 
 /** The twelve inks in two rows: light ones for the board, then dark ones for drawing over a card. */
-export function InkSwatches({ value, onChange }: { value: InkColor; onChange: (color: InkColor) => void }) {
+export function InkSwatches({ value, onChange }: { value: InkColor | null; onChange: (color: InkColor) => void }) {
   return (
     <div className="ink-swatches">
       {inkColors.map((c) => (
@@ -136,22 +170,22 @@ export function PenRing({ ringRef, width, zoom }: { ringRef: Ref<HTMLDivElement>
   )
 }
 
-/** A stroke being dragged outside its canvas, at the pointer: `at` is its top-left on screen, `zoom` the scale to show it at. */
+/** A drawing being dragged outside its canvas, at the pointer: `at` is its top-left on screen, `zoom` the scale to show it at. */
 export function DrawingGhost({ drawing, at, zoom }: { drawing: DrawingDetail; at: Point; zoom: number }) {
-  const points = useDrawingPoints(drawing)
+  const strokes = useDrawingStrokes(drawing)
   return (
     <div className="drag-ghost drawing-ghost" aria-hidden="true" style={{ left: at.x, top: at.y, transform: `scale(${zoom})` }}>
-      {points && <StrokeSvg points={points} color={inkHex[drawing.color]} strokeWidth={drawing.strokeWidth} at={{ x: 0, y: 0 }} />}
+      {strokes && <DrawingSvg strokes={strokes} colors={drawing.colors} at={{ x: 0, y: 0 }} />}
     </div>
   )
 }
 
-/** A board stroke dragged over a card's canvas, where it would land. */
+/** A board drawing dragged over a card's canvas, where it would land. */
 export function IncomingDrawingView({ drawing, at }: { drawing: DrawingDetail; at: Point }) {
-  const points = useDrawingPoints(drawing)
-  return points ? (
+  const strokes = useDrawingStrokes(drawing)
+  return strokes ? (
     <div className="incoming-drawing" aria-hidden="true">
-      <StrokeSvg points={points} color={inkHex[drawing.color]} strokeWidth={drawing.strokeWidth} at={at} />
+      <DrawingSvg strokes={strokes} colors={drawing.colors} at={at} />
     </div>
   ) : null
 }

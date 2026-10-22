@@ -18,8 +18,9 @@ public static class DrawingEndpoints
         drawings.MapPost("/boards/{boardId:guid}/drawings", CreateDrawing)
             .RequireBoardRole(BoardRole.Editor)
             .WithName("createDrawing")
-            .WithSummary("Draw a freehand stroke")
-            .WithDescription("Adds one pen stroke to the board, or to a card's own canvas with cardId. Send its top-left x and y " +
+            .WithSummary("Start a freehand drawing")
+            .WithDescription("Adds a drawing of one pen stroke to the board, or to a card's own canvas with cardId; add more strokes " +
+                             "to it with addDrawingStroke, so a sketch selects, moves and deletes as one. Send its top-left x and y " +
                              "(snapped to the 20 px grid), the points as [x, y, pressure] relative to that corner (not snapped), an ink " +
                              "color and a base stroke width of 2, 4 or 8. The response gives the box the stroke fills; the points " +
                              $"come back from getDrawingContent. A board holds at most {BoardDrawing.MaxPerBoard} drawings (409 beyond that).")
@@ -30,15 +31,35 @@ public static class DrawingEndpoints
             .RequireBoardRole(BoardRole.Viewer, BoardScope.Drawing)
             .AllowVisitors()
             .WithName("getDrawingContent")
-            .WithSummary("Get a drawing's points")
-            .WithDescription("Returns the stroke's points as [x, y, pressure], relative to the drawing's x and y. " +
-                             "A drawing's points never change, so they can be cached.");
+            .WithSummary("Get a drawing's strokes")
+            .WithDescription("Returns the drawing's strokes in drawing order, each with its base width and its points as [x, y, pressure], " +
+                             "relative to the drawing's x and y. Their inks are the drawing's colors. Fetch it from the drawing's contentUrl, " +
+                             "which changes whenever the strokes do, so a response can be cached.");
+
+        drawings.MapPost("/drawings/{drawingId:guid}/strokes", AddDrawingStroke)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Drawing)
+            .WithName("addDrawingStroke")
+            .WithSummary("Add a stroke to a drawing")
+            .WithDescription("Adds a pen stroke to a drawing, which grows to hold it. Send the stroke's own top-left x and y on the " +
+                             "drawing's canvas (the board, or the card's canvas), snapped to the 20 px grid, and its points relative to that, " +
+                             $"as in createDrawing. A drawing holds at most {BoardDrawing.MaxStrokes} strokes and {BoardDrawing.MaxTotalPoints} points, " +
+                             $"and reaches at most {BoardDrawing.MaxSize} px from its corner (409 beyond that).")
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
+        drawings.MapDelete("/drawings/{drawingId:guid}/strokes/{index:int}", DeleteDrawingStroke)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Drawing)
+            .WithName("deleteDrawingStroke")
+            .WithSummary("Take a stroke off a drawing")
+            .WithDescription("Removes the stroke at index (0 is the first drawn) and shrinks the drawing to the strokes left. " +
+                             "404 when there is no such stroke; 409 for the only stroke (delete the drawing instead).")
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         drawings.MapPatch("/drawings/{drawingId:guid}", UpdateDrawing)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Drawing)
             .WithName("updateDrawing")
             .WithSummary("Move or recolor a drawing")
-            .WithDescription("Changes its position or ink, puts it on a card's canvas (cardId, with x and y on that canvas), or " +
+            .WithDescription("Changes its position or ink (color for all its strokes, or colors for each), puts it on a card's canvas (cardId, with x and y on that canvas), or " +
                              "puts a drawing on a card back on the board (detach, with x and y on the board). Omitted fields stay unchanged.")
             .ProducesValidationProblem();
 
@@ -71,11 +92,9 @@ public static class DrawingEndpoints
         {
             BoardId = boardId,
             CardId = card?.Id,
-            Color = request.Color,
-            StrokeWidth = request.StrokeWidth,
             AddedBy = await db.Principals.FindAsync([principal.PrincipalId()], ct),
         };
-        if (Build(drawing, request.Points, request.X!.Value, request.Y!.Value, "") is { } invalid) return invalid;
+        if (Build(drawing, [(request.Color, request.StrokeWidth, request.Points)], request.X!.Value, request.Y!.Value, "") is { } invalid) return invalid;
         Layout.Place(drawing, await ImageEndpoints.StackAsync(db, boardId, ct));
 
         if (await db.Drawings.CountAsync(d => d.BoardId == boardId, ct) >= BoardDrawing.MaxPerBoard)
@@ -90,22 +109,43 @@ public static class DrawingEndpoints
     }
 
     /// <summary>
-    /// Checks and sets <paramref name="drawing"/>'s points (with the size that follows) and places it at x and y: snapped
-    /// on the board, or snapped and kept on the canvas when it is on a card. Errors are keyed <c>{prefix}points[i]</c>.
+    /// Checks and sets <paramref name="drawing"/>'s strokes (with the size that follows), their points relative to x and y,
+    /// and places it there: snapped on the board, or snapped and kept on the canvas when it is on a card. Errors are keyed
+    /// <c>{prefix}points[i]</c>, or <c>{prefix}strokes[s].points[i]</c> for more than one stroke.
     /// </summary>
-    internal static ValidationProblem? Build(BoardDrawing drawing, IReadOnlyList<double[]> points, int x, int y, string prefix)
+    internal static ValidationProblem? Build(
+        BoardDrawing drawing, IReadOnlyList<(InkColor Color, int Width, IReadOnlyList<double[]> Points)> strokes, int x, int y, string prefix)
     {
-        if (!BoardDrawing.StrokeWidths.Contains(drawing.StrokeWidth))
+        if (strokes.Count is 0 or > BoardDrawing.MaxStrokes)
         {
-            return Invalid($"{prefix}strokeWidth", "The stroke width is 2, 4 or 8.");
+            return Invalid($"{prefix}strokes", $"A drawing has 1 to {BoardDrawing.MaxStrokes} strokes.");
         }
-        if (points.Count is 0 or > BoardDrawing.MaxPoints)
+        var checkedStrokes = new List<DrawingStroke>();
+        foreach (var (stroke, i) in strokes.Select((s, i) => (s, i)))
         {
-            return Invalid($"{prefix}points", $"A drawing has 1 to {BoardDrawing.MaxPoints} points.");
+            var (ok, problem) = CheckStroke(stroke.Width, stroke.Points, strokes.Count == 1 ? prefix : $"{prefix}strokes[{i}].");
+            if (problem is not null) return problem;
+            checkedStrokes.Add(ok!);
         }
-        if (drawing.SetPoints(points) is { } bad) return Invalid($"{prefix}points[{bad.Index}]", bad.Message);
+        if (checkedStrokes.Sum(s => s.Points.Length) > BoardDrawing.MaxTotalPoints)
+        {
+            return Invalid($"{prefix}strokes", $"A drawing has at most {BoardDrawing.MaxTotalPoints} points.");
+        }
+        drawing.SetStrokes(checkedStrokes, [.. strokes.Select(s => s.Color)]);
         Place(drawing, x, y);
         return null;
+    }
+
+    /// <summary>Checks one stroke's width and points; errors are keyed <c>{prefix}strokeWidth</c> and <c>{prefix}points[i]</c>.</summary>
+    private static (DrawingStroke? Stroke, ValidationProblem? Problem) CheckStroke(int width, IReadOnlyList<double[]> points, string prefix)
+    {
+        if (!BoardDrawing.StrokeWidths.Contains(width)) return (null, Invalid($"{prefix}strokeWidth", "The stroke width is 2, 4 or 8."));
+        if (points.Count is 0 or > BoardDrawing.MaxPoints)
+        {
+            return (null, Invalid($"{prefix}points", $"A stroke has 1 to {BoardDrawing.MaxPoints} points."));
+        }
+        var (rounded, bad) = BoardDrawing.CheckPoints(points);
+        return bad is { } b ? (null, Invalid($"{prefix}points[{b.Index}]", b.Message)) : (new DrawingStroke(width, rounded!), null);
     }
 
     /// <summary>Snaps x and y; on a card, also keeps the drawing on its canvas, at the last grid line that fits.</summary>
@@ -118,17 +158,18 @@ public static class DrawingEndpoints
         Math.Clamp(Layout.Snap(value), 0, Math.Max(0, (Layout.CardCanvasMax - size) / Layout.Grid * Layout.Grid));
 
     private static async Task<Results<Ok<DrawingContentDetail>, NotFound>> GetDrawingContent(
-        Guid drawingId, HttpResponse response, PrikBoardDbContext db, CancellationToken ct)
+        Guid drawingId, int? v, HttpResponse response, PrikBoardDbContext db, CancellationToken ct)
     {
-        var points = await db.Drawings.AsNoTracking()
+        var content = await db.Drawings.AsNoTracking()
             .Where(d => d.Id == drawingId)
-            .Select(d => d.Content!.Points)
+            .Select(d => new { d.Revision, d.Content!.Strokes })
             .FirstOrDefaultAsync(ct);
-        if (points is null) return TypedResults.NotFound();
+        if (content is null) return TypedResults.NotFound();
 
-        // Points never change for an id, and every request is authenticated, so private caching is safe.
-        response.Headers[HeaderNames.CacheControl] = "private, max-age=31536000, immutable";
-        return TypedResults.Ok(new DrawingContentDetail(drawingId, points));
+        // contentUrl names the revision, so that URL always gets these strokes and can be cached (privately: every request
+        // is authenticated). Any other URL, for an old revision or none, has to ask again.
+        response.Headers[HeaderNames.CacheControl] = v == content.Revision ? "private, max-age=31536000, immutable" : "private, no-cache";
+        return TypedResults.Ok(DrawingContentDetail.From(drawingId, content.Strokes));
     }
 
     internal static async Task<Results<Ok<DrawingDetail>, NotFound, ValidationProblem>> UpdateDrawing(
@@ -139,6 +180,11 @@ public static class DrawingEndpoints
 
         var detach = request.Detach == true;
         if (request.CardId is not null && detach) return Invalid("detach", "Give either a cardId or detach, not both.");
+        if (request.Color is not null && request.Colors is not null) return Invalid("colors", "Give either a color or colors, not both.");
+        if (request.Colors is { } colors && colors.Count != drawing.Colors.Count)
+        {
+            return Invalid("colors", $"The drawing has {drawing.Colors.Count} strokes; give an ink for each.");
+        }
         var moving = (request.CardId is { } to && to != drawing.CardId) || (detach && drawing.CardId is not null);
         if (moving && (request.X is null || request.Y is null))
         {
@@ -163,11 +209,75 @@ public static class DrawingEndpoints
         {
             Layout.Place(drawing, await ImageEndpoints.StackAsync(db, drawing.BoardId, ct));
         }
-        drawing.Color = request.Color ?? drawing.Color;
+        if (request.Color is { } color) drawing.Colors = [.. drawing.Colors.Select(_ => color)];
+        if (request.Colors is { } inks) drawing.Colors = [.. inks];
         drawing.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok(DrawingDetail.From(drawing));
+    }
+
+    internal static async Task<Results<Ok<DrawingDetail>, NotFound, ValidationProblem, ProblemHttpResult>> AddDrawingStroke(
+        Guid drawingId, AddDrawingStrokeRequest request, PrikBoardDbContext db, CancellationToken ct)
+    {
+        var (stroke, invalid) = CheckStroke(request.StrokeWidth, request.Points, "");
+        if (invalid is not null) return invalid;
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (await LockedDrawingAsync(db, drawingId, ct) is not { } drawing) return TypedResults.NotFound();
+        if (drawing.Colors.Count >= BoardDrawing.MaxStrokes || drawing.PointCount + stroke!.Points.Length > BoardDrawing.MaxTotalPoints)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Drawing full",
+                detail: $"A drawing holds at most {BoardDrawing.MaxStrokes} strokes and {BoardDrawing.MaxTotalPoints} points. Start a new drawing.");
+        }
+        if (!drawing.AddStroke(stroke, request.Color, Layout.Snap(request.X!.Value), Layout.Snap(request.Y!.Value)))
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Drawing too big",
+                detail: $"A drawing reaches at most {BoardDrawing.MaxSize} px from its corner. Start a new drawing.");
+        }
+        await SettleAsync(db, drawing, ct);
+        await transaction.CommitAsync(ct);
+        return TypedResults.Ok(DrawingDetail.From(drawing));
+    }
+
+    internal static async Task<Results<Ok<DrawingDetail>, NotFound, ProblemHttpResult>> DeleteDrawingStroke(
+        Guid drawingId, int index, PrikBoardDbContext db, CancellationToken ct)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (await LockedDrawingAsync(db, drawingId, ct) is not { } drawing) return TypedResults.NotFound();
+        if (index < 0 || index >= drawing.Colors.Count) return TypedResults.NotFound();
+        if (drawing.Colors.Count == 1)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Only stroke",
+                detail: "This is the drawing's only stroke. Delete the drawing (deleteDrawing) instead.");
+        }
+
+        drawing.RemoveStroke(index);
+        await SettleAsync(db, drawing, ct);
+        await transaction.CommitAsync(ct);
+        return TypedResults.Ok(DrawingDetail.From(drawing));
+    }
+
+    /// <summary>
+    /// After its strokes changed: keeps the drawing on its card's canvas, lets it join the bucket it now sits in (like a
+    /// drawing that moved) and saves.
+    /// </summary>
+    private static async Task SettleAsync(PrikBoardDbContext db, BoardDrawing drawing, CancellationToken ct)
+    {
+        Place(drawing, drawing.X, drawing.Y);
+        Layout.Place(drawing, await ImageEndpoints.StackAsync(db, drawing.BoardId, ct));
+        drawing.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Locks the drawing's row until the transaction ends, then loads it with its strokes, so strokes added at the same
+    /// time both stay; null when it does not exist.
+    /// </summary>
+    private static async Task<BoardDrawing?> LockedDrawingAsync(PrikBoardDbContext db, Guid drawingId, CancellationToken ct)
+    {
+        await db.Database.ExecuteSqlInterpolatedAsync($"""SELECT 1 FROM "Drawings" WHERE "Id" = {drawingId} FOR UPDATE""", ct);
+        return await db.Drawings.Include(d => d.AddedBy).Include(d => d.Content).FirstOrDefaultAsync(d => d.Id == drawingId, ct);
     }
 
     internal static async Task<Results<NoContent, NotFound>> DeleteDrawing(

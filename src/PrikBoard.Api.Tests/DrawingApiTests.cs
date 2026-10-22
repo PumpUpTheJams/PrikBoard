@@ -29,7 +29,7 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         Assert.Equal((140, 280), (drawing.X, drawing.Y));
         // The box holds the furthest point (rounded up) plus half the stroke width.
         Assert.Equal((103, 32), (drawing.Width, drawing.Height));
-        Assert.Equal((InkColor.Sky, 4, 3), (drawing.Color, drawing.StrokeWidth, drawing.PointCount));
+        Assert.Equal((InkColor.Sky, 3), (Assert.Single(drawing.Colors), drawing.PointCount));
         Assert.Null(drawing.CardId);
         var me = await _client.MeAsync();
         Assert.Equal((me.DisplayName, me.Id), (drawing.AddedBy, drawing.AddedById));
@@ -40,7 +40,9 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         var content = (await response.Content.ReadFromJsonAsync<DrawingContentDetail>())!;
         Assert.Equal(drawing.Id, content.DrawingId);
         // Points are free-form, kept to a tenth of a pixel and a hundredth of pressure.
-        Assert.Equal([[2, 2, 0.5], [40, 10.1, 0.12], [100.2, 30, 1]], content.Points);
+        var stroke = Assert.Single(content.Strokes);
+        Assert.Equal(4, stroke.StrokeWidth);
+        Assert.Equal([[2, 2, 0.5], [40, 10.1, 0.12], [100.2, 30, 1]], stroke.Points);
 
         var snapshot = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
         Assert.Equal(drawing.Id, Assert.Single(snapshot.Drawings).Id);
@@ -54,8 +56,8 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         var plain = await Create(board.Id, new { x = 0, y = 0, points = new[] { new[] { 10.0, 10.0, 0.5 } } });
         var bold = await Create(board.Id, new { x = 0, y = 0, points = new[] { new[] { 10.0, 10.0, 0.5 } }, strokeWidth = 8, color = "Brick" });
 
-        Assert.Equal((InkColor.Chalk, 4, 12, 12), (plain.Color, plain.StrokeWidth, plain.Width, plain.Height));
-        Assert.Equal((InkColor.Brick, 8, 14, 14), (bold.Color, bold.StrokeWidth, bold.Width, bold.Height));
+        Assert.Equal((InkColor.Chalk, 4, 12, 12), (Assert.Single(plain.Colors), await StrokeWidth(plain), plain.Width, plain.Height));
+        Assert.Equal((InkColor.Brick, 8, 14, 14), (Assert.Single(bold.Colors), await StrokeWidth(bold), bold.Width, bold.Height));
     }
 
     [Fact]
@@ -98,12 +100,12 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         var drawing = await Create(board.Id, new { x = 0, y = 0, points = Squiggle });
 
         var moved = await Patch(drawing.Id, new { x = 1201, y = 99, color = "Mint" });
-        Assert.Equal((1200, 100, InkColor.Mint), (moved.X, moved.Y, moved.Color));
+        Assert.Equal((1200, 100, InkColor.Mint), (moved.X, moved.Y, Assert.Single(moved.Colors)));
         var onlyY = await Patch(drawing.Id, new { y = 41 });
         Assert.Equal((1200, 40), (onlyY.X, onlyY.Y));
 
         var attached = await Patch(drawing.Id, new { cardId = card.Id, x = 61, y = 39, color = "Pine" });
-        Assert.Equal((card.Id, 60, 40, InkColor.Pine), (attached.CardId, attached.X, attached.Y, attached.Color));
+        Assert.Equal((card.Id, 60, 40, InkColor.Pine), (attached.CardId, attached.X, attached.Y, Assert.Single(attached.Colors)));
         // On a card's canvas it stays on the canvas, at the last grid line where it fits (10000 - 103 → 9880).
         var pushed = await Patch(drawing.Id, new { x = 20_000, y = 0 });
         Assert.Equal((9880, 0), (pushed.X, pushed.Y));
@@ -118,9 +120,10 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         Assert.Equal(HttpStatusCode.BadRequest, elsewhere.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, noPlace.StatusCode);
 
-        // The points never change.
+        // Moving and recoloring leave the strokes as they are.
+        Assert.Equal(drawing.ContentUrl, detached.ContentUrl);
         var content = (await _client.GetFromJsonAsync<DrawingContentDetail>(drawing.ContentUrl))!;
-        Assert.Equal(3, content.Points.Count);
+        Assert.Equal(3, Assert.Single(content.Strokes).Points.Count);
     }
 
     [Fact]
@@ -138,7 +141,7 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         var restored = await _client.PostAsync($"/api/drawings/{drawing.Id}/restore", null);
         Assert.Equal(HttpStatusCode.OK, restored.StatusCode);
         var back = (await restored.Content.ReadFromJsonAsync<DrawingDetail>())!;
-        Assert.Equal((drawing.Id, 40, 40, InkColor.Coral), (back.Id, back.X, back.Y, back.Color));
+        Assert.Equal((drawing.Id, 40, 40, InkColor.Coral), (back.Id, back.X, back.Y, Assert.Single(back.Colors)));
         Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync(drawing.ContentUrl)).StatusCode);
     }
 
@@ -227,9 +230,9 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         Assert.Equal(2, copy.Drawings.Count);
         var loose = copy.Drawings.Single(d => d.CardId is null);
         var attached = copy.Drawings.Single(d => d.CardId is not null);
-        Assert.Equal((300, 400, InkColor.Lilac, 2), (loose.X, loose.Y, loose.Color, loose.StrokeWidth));
-        Assert.Equal((Assert.Single(copy.Cards).Id, 20, 40, InkColor.Violet), (attached.CardId, attached.X, attached.Y, attached.Color));
-        var points = (await _client.GetFromJsonAsync<DrawingContentDetail>(loose.ContentUrl))!.Points;
+        Assert.Equal((300, 400, InkColor.Lilac, 2), (loose.X, loose.Y, Assert.Single(loose.Colors), await StrokeWidth(loose)));
+        Assert.Equal((Assert.Single(copy.Cards).Id, 20, 40, InkColor.Violet), (attached.CardId, attached.X, attached.Y, Assert.Single(attached.Colors)));
+        var points = Assert.Single((await _client.GetFromJsonAsync<DrawingContentDetail>(loose.ContentUrl))!.Strokes).Points;
         Assert.Equal([[2, 2, 0.5], [40, 10.1, 0.12], [100.2, 30, 1]], points);
 
         // A drawing pointing at a card that isn't in the file, or with bad points, refuses the whole import.
@@ -351,6 +354,133 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         var copy = (await imported.Content.ReadFromJsonAsync<BoardDetail>())!;
         var copyTodo = copy.Buckets.Single(b => b.Name == todo.Name);
         Assert.Equal(copyTodo.Id, Assert.Single(copy.Drawings).BucketId);
+    }
+
+    /// <summary>A stroke the way the web app sends one: on the grid, half a line at full pressure clear of its points.</summary>
+    private static readonly double[][] Neat = [[10, 10, 0.5], [50, 30, 0.5], [90, 10, 0.5]];
+
+    [Fact]
+    public async Task Strokes_added_to_a_drawing_make_one_drawing_that_grows_to_hold_them()
+    {
+        var board = await _client.CreateBoardAsync("Sketch");
+        var drawing = await Create(board.Id, new { x = 100, y = 100, points = Neat, color = "Sky" });
+
+        // A second stroke starting above and left of it moves the corner there and shifts the first stroke's points.
+        var grown = await AddStroke(drawing.Id, new { x = 41, y = 199, points = Neat, color = "Brick", strokeWidth = 8 });
+        Assert.Equal((drawing.Id, 40, 100), (grown.Id, grown.X, grown.Y));
+        Assert.Equal([InkColor.Sky, InkColor.Brick], grown.Colors);
+        Assert.Equal((6, 152, 134), (grown.PointCount, grown.Width, grown.Height));
+        Assert.NotEqual(drawing.ContentUrl, grown.ContentUrl);
+
+        var content = (await _client.GetFromJsonAsync<DrawingContentDetail>(grown.ContentUrl))!;
+        Assert.Equal([4, 8], content.Strokes.Select(s => s.StrokeWidth));
+        Assert.Equal([[70, 10, 0.5], [110, 30, 0.5], [150, 10, 0.5]], content.Strokes[0].Points);
+        Assert.Equal([[10, 110, 0.5], [50, 130, 0.5], [90, 110, 0.5]], content.Strokes[1].Points);
+
+        // The new URL can be cached; the old one now answers with the new strokes, so it must not be.
+        var fresh = await _client.GetAsync(grown.ContentUrl);
+        Assert.Contains("immutable", fresh.Headers.CacheControl!.ToString());
+        var stale = await _client.GetAsync(drawing.ContentUrl);
+        Assert.Contains("no-cache", stale.Headers.CacheControl!.ToString());
+
+        // It stays one item on the board, and moves and recolors as one.
+        Assert.Equal(grown.Id, Assert.Single(await Drawings(board.Id)).Id);
+        var mint = await Patch(drawing.Id, new { color = "Mint" });
+        Assert.Equal([InkColor.Mint, InkColor.Mint], mint.Colors);
+        var mixed = await Patch(drawing.Id, new { colors = new[] { "Coral", "Ink" } });
+        Assert.Equal([InkColor.Coral, InkColor.Ink], mixed.Colors);
+        var wrongCount = await _client.PatchAsJsonAsync($"/api/drawings/{drawing.Id}", new { colors = new[] { "Coral" } });
+        var both = await _client.PatchAsJsonAsync($"/api/drawings/{drawing.Id}", new { color = "Sky", colors = new[] { "Coral", "Ink" } });
+        Assert.Equal(HttpStatusCode.BadRequest, wrongCount.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, both.StatusCode);
+    }
+
+    [Fact]
+    public async Task Taking_off_the_stroke_just_added_gives_back_the_drawing_as_it_was()
+    {
+        var board = await _client.CreateBoardAsync("Undo a stroke");
+        var drawing = await Create(board.Id, new { x = 100, y = 100, points = Neat, color = "Sky" });
+        var grown = await AddStroke(drawing.Id, new { x = 0, y = 0, points = Neat, color = "Coral" });
+        Assert.Equal((0, 0), (grown.X, grown.Y));
+
+        var back = await _client.DeleteAsync($"/api/drawings/{drawing.Id}/strokes/1");
+        Assert.Equal(HttpStatusCode.OK, back.StatusCode);
+        var shrunk = (await back.Content.ReadFromJsonAsync<DrawingDetail>())!;
+        Assert.Equal((drawing.X, drawing.Y, drawing.Width, drawing.Height), (shrunk.X, shrunk.Y, shrunk.Width, shrunk.Height));
+        Assert.Equal([InkColor.Sky], shrunk.Colors);
+        var content = (await _client.GetFromJsonAsync<DrawingContentDetail>(shrunk.ContentUrl))!;
+        Assert.Equal(Neat, Assert.Single(content.Strokes).Points);
+
+        // The first stroke can go too, as long as another is left.
+        await AddStroke(drawing.Id, new { x = 300, y = 100, points = Neat, color = "Mint" });
+        var second = (await (await _client.DeleteAsync($"/api/drawings/{drawing.Id}/strokes/0")).Content.ReadFromJsonAsync<DrawingDetail>())!;
+        Assert.Equal((300, 100, InkColor.Mint), (second.X, second.Y, Assert.Single(second.Colors)));
+
+        Assert.Equal(HttpStatusCode.Conflict, (await _client.DeleteAsync($"/api/drawings/{drawing.Id}/strokes/0")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.DeleteAsync($"/api/drawings/{drawing.Id}/strokes/1")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.DeleteAsync($"/api/drawings/{drawing.Id}/strokes/-1")).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_stroke_is_checked_like_a_new_drawing_and_a_drawing_has_a_size_limit()
+    {
+        var board = await _client.CreateBoardAsync("Stroke checks");
+        var card = await _client.CreateCardAsync(board.Id, "Canvas");
+        var drawing = await Create(board.Id, new { x = 0, y = 0, points = Neat });
+        var url = $"/api/drawings/{drawing.Id}/strokes";
+
+        await AssertInvalid(url, new { x = 0, y = 0, points = Array.Empty<double[]>() }, "Points");
+        await AssertInvalid(url, new { x = 0, y = 0, points = new[] { new[] { 1.0, 2.0 } } }, "points[0]");
+        await AssertInvalid(url, new { x = 0, y = 0, points = Neat, strokeWidth = 3 }, "StrokeWidth");
+        await AssertInvalid(url, new { y = 0, points = Neat }, "X");
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.PostAsJsonAsync($"/api/drawings/{Guid.NewGuid()}/strokes", new { x = 0, y = 0, points = Neat })).StatusCode);
+
+        // A stroke too far from the rest would make the drawing bigger than a card's canvas.
+        var far = await _client.PostAsJsonAsync(url, new { x = BoardDrawing.MaxSize, y = 0, points = Neat });
+        Assert.Equal(HttpStatusCode.Conflict, far.StatusCode);
+
+        // On a card, the corner is on the card's canvas.
+        var onCard = await Create(board.Id, new { x = 200, y = 200, points = Neat, cardId = card.Id });
+        var grown = await AddStroke(onCard.Id, new { x = 20, y = 400, points = Neat });
+        Assert.Equal((card.Id, 20, 200), (grown.CardId, grown.X, grown.Y));
+    }
+
+    [Fact]
+    public async Task A_drawing_with_several_strokes_travels_with_an_exported_board_and_old_files_still_import()
+    {
+        var board = await _client.CreateBoardAsync("Multi");
+        var drawing = await Create(board.Id, new { x = 100, y = 100, points = Neat, color = "Sky" });
+        await AddStroke(drawing.Id, new { x = 200, y = 100, points = Neat, color = "Coral", strokeWidth = 8 });
+
+        var file = await _client.GetStringAsync($"/api/boards/{board.Id}/export");
+        var imported = await _client.PostAsync("/api/boards/import", Json(file));
+        Assert.Equal(HttpStatusCode.Created, imported.StatusCode);
+        var copy = Assert.Single((await imported.Content.ReadFromJsonAsync<BoardDetail>())!.Drawings);
+        Assert.Equal((100, 100, 6), (copy.X, copy.Y, copy.PointCount));
+        Assert.Equal([InkColor.Sky, InkColor.Coral], copy.Colors);
+        var content = (await _client.GetFromJsonAsync<DrawingContentDetail>(copy.ContentUrl))!;
+        Assert.Equal([4, 8], content.Strokes.Select(s => s.StrokeWidth));
+
+        // A version 4 or 5 file has one stroke per drawing, as color, strokeWidth and points.
+        var old = $$"""
+            {"format":"prikboard-board","version":4,"exportedAt":"2026-10-20T10:00:00Z","name":"Old","description":null,"rules":null,
+             "buckets":[],"tags":[],"cards":[],"images":[],
+             "drawings":[{"cardId":null,"x":40,"y":60,"color":"Lilac","strokeWidth":2,"points":[[10,10,0.5],[30,20,0.5]]}]}
+            """;
+        var fromOld = await _client.PostAsync("/api/boards/import", Json(old));
+        Assert.Equal(HttpStatusCode.Created, fromOld.StatusCode);
+        var oldDrawing = Assert.Single((await fromOld.Content.ReadFromJsonAsync<BoardDetail>())!.Drawings);
+        Assert.Equal((40, 60, InkColor.Lilac, 2), (oldDrawing.X, oldDrawing.Y, Assert.Single(oldDrawing.Colors), await StrokeWidth(oldDrawing)));
+    }
+
+    private async Task<int> StrokeWidth(DrawingDetail drawing) =>
+        Assert.Single((await _client.GetFromJsonAsync<DrawingContentDetail>(drawing.ContentUrl))!.Strokes).StrokeWidth;
+
+    private async Task<DrawingDetail> AddStroke(Guid drawingId, object request)
+    {
+        var response = await _client.PostAsJsonAsync($"/api/drawings/{drawingId}/strokes", request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<DrawingDetail>())!;
     }
 
     private async Task<IReadOnlyList<DrawingDetail>> Drawings(Guid boardId) =>

@@ -6,6 +6,7 @@ import type {
   DrawingChanges,
   DrawingDetail,
   ImageChanges,
+  NewDrawingStroke,
   ImageDetail,
   CardComponent,
   CardComponentChanges,
@@ -32,6 +33,11 @@ export type UndoTarget =
   | { kind: 'bucket'; id: string; carry?: BucketCarry }
   | { kind: 'image'; id: string }
   | { kind: 'drawing'; id: string }
+  /**
+   * A stroke added to drawing `id` as its `index`th. `stroke` has its x and y measured from the drawing's corner before
+   * it was added, so a redo puts it back on the drawing wherever that is now.
+   */
+  | { kind: 'stroke'; id: string; index: number; stroke: NewDrawingStroke }
   | { kind: 'tag'; id: string }
 
 /** What a moved bucket took along: cards, and images and drawings on the board. */
@@ -79,6 +85,7 @@ export const target = {
   bucket: (id: string, carry?: BucketCarry): UndoTarget => ({ kind: 'bucket', id, carry }),
   image: (id: string): UndoTarget => ({ kind: 'image', id }),
   drawing: (id: string): UndoTarget => ({ kind: 'drawing', id }),
+  stroke: (drawingId: string, index: number, stroke: NewDrawingStroke): UndoTarget => ({ kind: 'stroke', id: drawingId, index, stroke }),
   tag: (id: string): UndoTarget => ({ kind: 'tag', id }),
 }
 
@@ -108,7 +115,9 @@ export const snap = {
   }),
   bucket: (b: BucketDetail): Snapshot => ({ name: b.name, x: b.x, y: b.y, width: b.width, height: b.height, collapsed: b.collapsed }),
   image: (i: ImageDetail): Snapshot => ({ cardId: i.cardId, x: i.x, y: i.y, width: i.width, caption: i.caption }),
-  drawing: (d: DrawingDetail): Snapshot => ({ cardId: d.cardId, x: d.x, y: d.y, color: d.color }),
+  drawing: (d: DrawingDetail): Snapshot => ({ cardId: d.cardId, x: d.x, y: d.y, colors: d.colors }),
+  /** A stroke that is there: whether it is still the drawing's last (only then can it be taken off again). */
+  stroke: (d: DrawingDetail, index: number): Snapshot | null => (d.colors.length > index ? { last: d.colors.length === index + 1 } : null),
   tag: (t: BoardTag): Snapshot => ({ name: t.name, color: t.color }),
 }
 
@@ -182,6 +191,10 @@ function read(board: BoardDetail, t: UndoTarget): Snapshot | null {
       const drawing = board.drawings.find((d) => d.id === t.id)
       return drawing ? snap.drawing(drawing) : null
     }
+    case 'stroke': {
+      const drawing = board.drawings.find((d) => d.id === t.id)
+      return drawing ? snap.stroke(drawing, t.index) : null
+    }
     case 'tag': {
       const tag = board.tags.find((x) => x.id === t.id)
       return tag ? snap.tag(tag) : null
@@ -195,6 +208,7 @@ const noun: Record<UndoTarget['kind'], string> = {
   bucket: 'the bucket',
   image: 'the image',
   drawing: 'the drawing',
+  stroke: 'the line',
   tag: 'the tag',
 }
 
@@ -209,6 +223,7 @@ export function check(entry: UndoEntry, direction: UndoDirection, board: BoardDe
     const goal = direction === 'undo' ? change.before : change.after
     const now = read(board, t)
     if (t.kind === 'component' && goal && !board.cards.some((n) => n.id === t.cardId)) return 'the card was deleted since'
+    if (t.kind === 'stroke' && !board.drawings.some((d) => d.id === t.id)) return 'the drawing was deleted since'
     if (expected === null) {
       if (now !== null) return `${noun[t.kind]} is back already`
     } else {
@@ -233,13 +248,13 @@ export function check(entry: UndoEntry, direction: UndoDirection, board: BoardDe
 }
 
 /** Takes the step: writes the old values back (undo) or the new ones again (redo). */
-export async function apply(entry: UndoEntry, direction: UndoDirection, boardId: string) {
+export async function apply(entry: UndoEntry, direction: UndoDirection, board: BoardDetail) {
   const changes = direction === 'undo' ? entry.changes.toReversed() : entry.changes
   for (const change of changes) {
     if (change.implied) continue
     const from = direction === 'undo' ? change.after : change.before
     const to = direction === 'undo' ? change.before : change.after
-    await write(change.target, from, to, boardId)
+    await write(change.target, from, to, board)
     if (change.target.kind === 'bucket' && from && to) await fixCarried(entry, direction, change.target.carry, from, to)
   }
 }
@@ -247,7 +262,18 @@ export async function apply(entry: UndoEntry, direction: UndoDirection, boardId:
 /** Text fields are cleared with an empty string. */
 const text = (value: unknown) => (value ?? '') as string
 
-async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, boardId: string) {
+async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, board: BoardDetail) {
+  const boardId = board.id
+  if (t.kind === 'stroke') {
+    if (to === null) {
+      await api.deleteDrawingStroke(t.id, t.index)
+    } else if (from === null) {
+      // check() made sure the drawing is there.
+      const drawing = board.drawings.find((d) => d.id === t.id)!
+      await api.addDrawingStroke(t.id, { ...t.stroke, x: drawing.x + t.stroke.x, y: drawing.y + t.stroke.y })
+    }
+    return
+  }
   if (to === null) {
     if (t.kind === 'card') await api.deleteCard(t.id)
     else if (t.kind === 'component') await api.deleteCardComponent(t.cardId, t.id)
@@ -319,7 +345,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
         else changes.detach = true
       }
       if ('x' in to) Object.assign(changes, { x: to.x, y: to.y })
-      if ('color' in to) changes.color = to.color as DrawingChanges['color']
+      if ('colors' in to) changes.colors = to.colors as DrawingChanges['colors']
       await api.updateDrawing(t.id, changes)
       return
     }
