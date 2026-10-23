@@ -4062,6 +4062,225 @@ a.button.primary:hover {
   white-space: nowrap;
 }
 
+/* An avatar in the top bar whose pointer is on the board: a click goes to their thumbtack. */
+.presence-avatar.pickable {
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  transition: transform 0.12s ease-out;
+}
+
+.presence-avatar.pickable:hover,
+.presence-avatar.pickable:focus-visible {
+  position: relative;
+  z-index: 1;
+  transform: translateY(-2px);
+}
+
+/*
+ * Others' pointers: a thumbtack whose needle tip sits on the point, with their picture on the head. Inside the zoomed
+ * canvas, so it is scaled back (--unzoom) to keep its size on screen. Free, it hovers tilted above the board with its
+ * shadow far off; pricked into what they drag, it stands up, its needle sinks in and its shadow tightens.
+ */
+.tack {
+  /* How big the pin is drawn, from its 36 × 70 drawing. */
+  --pin: 0.55;
+  position: absolute;
+  z-index: 30;
+  width: 0;
+  height: 0;
+  transform: scale(var(--unzoom));
+  transform-origin: 0 0;
+  pointer-events: none;
+  transition:
+    left 0.08s linear,
+    top 0.08s linear,
+    opacity 0.6s;
+}
+
+.tack.pricked {
+  transition: opacity 0.6s;
+}
+
+.tack.idle {
+  opacity: 0.35;
+}
+
+.tack-body {
+  position: absolute;
+  bottom: 0;
+  left: -18px;
+  width: 36px;
+  height: 70px;
+  transform: rotate(24deg) scale(var(--pin));
+  transform-origin: 50% 100%;
+  transition: transform 0.16s ease-out;
+}
+
+/* Pricked, the pin stands up and its needle sinks in: the pin moves down by as much as is cut off its bottom. */
+.tack.pricked .tack-body {
+  transform: rotate(6deg) scale(var(--pin));
+  animation: tack-prick 0.3s ease-out;
+}
+
+.tack-pin {
+  position: absolute;
+  inset: 0;
+  clip-path: inset(0);
+  transition:
+    transform 0.16s ease-out,
+    clip-path 0.16s ease-out;
+}
+
+.tack.pricked .tack-pin {
+  clip-path: inset(0 0 13px 0);
+  transform: translateY(13px);
+}
+
+.tack-svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.tack-plastic {
+  fill: var(--who);
+}
+
+/* The picture beside the pin's cap, upright whichever way the pin leans; it follows the cap as the pin stands up. */
+.tack-head {
+  position: absolute;
+  top: -46px;
+  left: 20px;
+  width: 20px;
+  height: 20px;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1.5px var(--bar),
+    0 0 0 3px var(--who);
+  font-size: 8px;
+  transition:
+    left 0.16s ease-out,
+    top 0.16s ease-out;
+}
+
+.tack.pricked .tack-head {
+  top: -38px;
+  left: 12px;
+}
+
+.tack-shadow {
+  position: absolute;
+  top: -3px;
+  left: 2px;
+  width: 15px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.35);
+  filter: blur(3px);
+  transition:
+    transform 0.16s ease-out,
+    opacity 0.16s ease-out;
+}
+
+.tack.pricked .tack-shadow {
+  opacity: 0.7;
+  transform: translate(-4px, 1px) scale(0.6);
+}
+
+.tack-dent {
+  position: absolute;
+  top: -3px;
+  left: -3px;
+  width: 6px;
+  height: 6px;
+  border: 1px solid rgb(0 0 0 / 0.45);
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.16s;
+}
+
+.tack.pricked .tack-dent {
+  opacity: 1;
+}
+
+.tack.focused .tack-head {
+  animation: tack-pulse 0.8s ease-out 3;
+}
+
+.tack-name {
+  position: absolute;
+  bottom: 30px;
+  left: 46px;
+  transition:
+    left 0.16s ease-out,
+    bottom 0.16s ease-out;
+  max-width: 180px;
+  overflow: hidden;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--who);
+  color: #14161a;
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: tack-name 0.2s ease-out;
+}
+
+.tack.pricked .tack-name {
+  bottom: 22px;
+  left: 38px;
+}
+
+@keyframes tack-prick {
+  0% {
+    transform: rotate(24deg) scale(var(--pin));
+  }
+  60% {
+    transform: rotate(1deg) scale(var(--pin));
+  }
+}
+
+@keyframes tack-pulse {
+  0% {
+    box-shadow:
+      0 0 0 1.5px var(--bar),
+      0 0 0 3px var(--who),
+      0 0 0 3px color-mix(in srgb, var(--who) 70%, transparent);
+  }
+  100% {
+    box-shadow:
+      0 0 0 1.5px var(--bar),
+      0 0 0 3px var(--who),
+      0 0 0 14px transparent;
+  }
+}
+
+@keyframes tack-name {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tack,
+  .tack-body,
+  .tack-pin,
+  .tack-head,
+  .tack-shadow,
+  .presence-avatar.pickable {
+    transition: none;
+  }
+
+  .tack.pricked .tack-body,
+  .tack.focused .tack-head,
+  .tack-name {
+    animation: none;
+  }
+}
+
 /* Access tokens (Account dialog) */
 
 .token-row {

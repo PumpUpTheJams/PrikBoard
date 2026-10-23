@@ -84,7 +84,7 @@ public static class BoardEndpoints
             .Where(m => m.PrincipalId == caller.MemberId)
             .OrderByDescending(m => m.Board!.CreatedAt)
             .Select(m => new BoardSummary(m.Board!.Id, m.Board.ShortId, m.Board.Key, m.Board.Name, m.Board.Description,
-                m.Board.CreatedAt, m.Board.UpdatedAt, m.Role, m.Board.IsPublic, m.Board.PublicShowsPeople))
+                m.Board.CreatedAt, m.Board.UpdatedAt, m.Role, m.Board.IsPublic, m.Board.PublicShowsPeople, m.Board.ShowCursors))
             .ToListAsync(ct);
         return TypedResults.Ok(boards
             .Select(b => caller.Apply(b.Id, b.YourRole) is { } role ? b with { YourRole = role } : null)
@@ -202,6 +202,8 @@ public static class BoardEndpoints
                               || (request.PublicShowsPeople is { } shows && shows != board.PublicShowsPeople);
         board.IsPublic = request.IsPublic ?? board.IsPublic;
         board.PublicShowsPeople = request.PublicShowsPeople ?? board.PublicShowsPeople;
+        var cursorsChanged = request.ShowCursors is { } cursors && cursors != board.ShowCursors;
+        board.ShowCursors = request.ShowCursors ?? board.ShowCursors;
         board.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
@@ -210,6 +212,7 @@ public static class BoardEndpoints
         await events.BoardsChangedForMembersAsync(db, boardId, ct);
         // Visitors look again: gone when it is no longer public, and with or without people.
         if (visitorsChanged) await events.VisitorsChangedAsync(boardId);
+        if (cursorsChanged) events.CursorsChanged(boardId, board.ShowCursors);
         return TypedResults.Ok(BoardSummary.From(board, http.BoardRole()));
     }
 

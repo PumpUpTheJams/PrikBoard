@@ -62,7 +62,7 @@ public sealed record BoardPresence(Guid BoardId, List<LiveViewer> Viewers, int G
 /// <param name="Key">Identifies this connection in drag messages, so a client can tell its own tabs apart.</param>
 /// <param name="Viewers">Who is on the board, including you (see BoardPresence).</param>
 /// <param name="Guests">See BoardPresence.</param>
-/// <param name="Visiting">You joined as a visitor of a public board, not as a member: you hear about changes and presence, not drags.</param>
+/// <param name="Visiting">You joined as a visitor of a public board, not as a member: you hear about changes and presence, not drags or pointers.</param>
 public sealed record JoinedBoard(Guid BoardId, BoardRole Role, Guid Key, List<LiveViewer> Viewers, int Guests = 0, bool Visiting = false);
 
 /// <summary>Something on the board was saved; re-read it with getBoard.</summary>
@@ -80,8 +80,15 @@ public sealed record BoardChange(Guid BoardId, Guid By);
 /// For Group: every item moving by this distance, the one held among them (at most <see cref="MaxItems"/>). Items in a
 /// bucket that moves aren't listed: the bucket carries them.
 /// </param>
+/// <param name="Grab">Where the pointer holds the item Id, so others can show the pointer pinned into it.</param>
 public sealed record DragUpdate(
-    DragKind Kind, Guid Id, double Dx, double Dy, ResizeHandle Handle = ResizeHandle.BottomRight, List<Guid>? Items = null)
+    DragKind Kind,
+    Guid Id,
+    double Dx,
+    double Dy,
+    ResizeHandle Handle = ResizeHandle.BottomRight,
+    List<Guid>? Items = null,
+    DragGrab? Grab = null)
 {
     /// <summary>The most items one Group drag lists.</summary>
     public const int MaxItems = 1000;
@@ -97,6 +104,7 @@ public sealed record DragUpdate(
 /// <param name="Dy">Pointer travel since the drag started, in canvas pixels.</param>
 /// <param name="Handle">For Resize and ImageResize: the corner or edge being dragged.</param>
 /// <param name="Items">For Group: every item moving by this distance (see <see cref="DragUpdate"/>).</param>
+/// <param name="Grab">Where the pointer holds the item Id, when the dragging client says.</param>
 public sealed record RemoteDrag(
     Guid Key,
     Guid PrincipalId,
@@ -106,4 +114,29 @@ public sealed record RemoteDrag(
     double Dx,
     double Dy,
     ResizeHandle Handle = ResizeHandle.BottomRight,
-    List<Guid>? Items = null);
+    List<Guid>? Items = null,
+    DragGrab? Grab = null);
+
+/// <summary>
+/// Where on the dragged item the pointer took hold of it, as fractions of the item's width and height when the drag
+/// started (0,0 its top-left corner, 1,1 its bottom-right). It stays at the same fraction of the item as it moves or resizes.
+/// </summary>
+/// <param name="X">From 0 (the left edge) to 1 (the right edge).</param>
+/// <param name="Y">From 0 (the top edge) to 1 (the bottom edge).</param>
+public sealed record DragGrab(double X, double Y)
+{
+    [JsonIgnore]
+    public bool IsValid => X is >= 0 and <= 1 && Y is >= 0 and <= 1;
+}
+
+/// <summary>Where this connection's pointer is on the joined board (MoveCursor), at most every few dozen milliseconds.</summary>
+/// <param name="X">Canvas pixels, like the x of a card.</param>
+/// <param name="Y">Canvas pixels, like the y of a card.</param>
+public sealed record CursorUpdate(double X, double Y);
+
+/// <summary>Another member's pointer on the joined board. Their name and picture are in Presence.</summary>
+/// <param name="Key">The connection pointing; CursorHidden names the same key.</param>
+/// <param name="PrincipalId">Who is pointing.</param>
+/// <param name="X">Canvas pixels.</param>
+/// <param name="Y">Canvas pixels.</param>
+public sealed record RemoteCursor(Guid Key, Guid PrincipalId, double X, double Y);

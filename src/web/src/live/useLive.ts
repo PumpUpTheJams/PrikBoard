@@ -1,15 +1,30 @@
 import { HubConnectionBuilder, HubConnectionState, LogLevel, type HubConnection } from '@microsoft/signalr'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { setLiveConnectionId } from '../api/client'
-import type { BoardChange, BoardPresence, DragUpdate, JoinedBoard, LiveViewer, RemoteDrag } from '../api/types'
+import type { BoardChange, BoardPresence, CursorUpdate, DragUpdate, JoinedBoard, LiveViewer, RemoteCursor, RemoteDrag } from '../api/types'
 
-/** How often a drag in progress is sent; the server drops updates closer together than 25 ms. */
-const DRAG_SEND_MS = 50
+/** How often a drag in progress or the pointer is sent; the server drops updates closer together than 25 ms. */
+const SEND_MS = 50
 /** A drag nobody updated for this long is dropped (its tab probably froze or lost the network). */
 const STALE_DRAG_MS = 5000
+/** How often a drag held still is sent again, so the others don't drop it as stale. */
+const DRAG_HEARTBEAT_MS = 2000
 
 /** Someone else's drag; `endedAt` is set once they let go, and the item stays put until the board reloads. */
 export type LiveDrag = RemoteDrag & { updatedAt: number; endedAt?: number }
+
+/** Someone else's pointer on the open board, and when it last moved. */
+export type LiveCursor = RemoteCursor & { updatedAt: number }
+
+/**
+ * Others' pointers on the open board. They move many times a second, so they are kept outside React state: only what
+ * subscribes (the thumbtacks) draws again. `principals`: who has one, as a string that only changes when that does.
+ */
+export interface CursorStore {
+  list: () => LiveCursor[]
+  principals: () => string
+  subscribe: (listener: () => void) => () => void
+}
 
 export interface LiveHandlers {
   /** Someone else saved a change to the open board. */
@@ -28,12 +43,17 @@ export interface LiveState {
   drags: LiveDrag[]
   /** Sends your drag in progress (throttled), or null when it ends. */
   sendDrag: (update: DragUpdate | null) => void
+  /** Others' pointers on the open board (members only, and only while the board shows cursors). */
+  cursors: CursorStore
+  /** Sends where your pointer is on the board (throttled), or null when it left the board. */
+  sendCursor: (point: CursorUpdate | null) => void
   /** Call after the board reloaded: drags that ended are now shown where they landed. */
   boardLoaded: () => void
 }
 
 /**
- * Live updates for the open board over SignalR (/api/live): reloads when others save, who is here, and others' drags.
+ * Live updates for the open board over SignalR (/api/live): reloads when others save, who is here, and others' drags
+ * and pointers.
  * The connection reconnects on its own; while it is down the board falls back to polling.
  */
 export function useLive(boardId: string | null, handlers: LiveHandlers): LiveState {
@@ -42,6 +62,7 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
   const [presence, setPresence] = useState<BoardPresence | null>(null)
   // Tagged with their board, so switching boards drops them without a reset.
   const [drags, setDrags] = useState<{ boardId: string | null; list: LiveDrag[] }>({ boardId: null, list: [] })
+  const [cursors] = useState(cursorStore)
   const handlersRef = useRef(handlers)
   const boardRef = useRef(boardId)
 
@@ -80,6 +101,12 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
         list: current.list.map((d) => (d.key === key && !d.endedAt ? { ...d, endedAt: Date.now() } : d)),
       })),
     )
+    hub.on('CursorMoved', (cursor: RemoteCursor) =>
+      cursors.set([...cursors.list().filter((c) => c.key !== cursor.key), { ...cursor, updatedAt: Date.now() }]),
+    )
+    hub.on('CursorHidden', (key: string) => {
+      if (cursors.list().some((c) => c.key === key)) cursors.set(cursors.list().filter((c) => c.key !== key))
+    })
 
     const opened = () => {
       setLiveConnectionId(hub.connectionId)
@@ -89,6 +116,8 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
     hub.onreconnecting(() => {
       setLiveConnectionId(null)
       setConnected(false)
+      // Nobody tells a dropped connection that pointers went away.
+      cursors.set([])
     })
     hub.onreconnected(() => {
       opened()
@@ -114,7 +143,7 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
       connection.current = null
       void hub.stop()
     }
-  }, [])
+  }, [cursors])
 
   async function join(hub: HubConnection, id: string) {
     if (hub.state !== HubConnectionState.Connected) return
@@ -130,11 +159,12 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
   // Follow the open board. (Connecting and reconnecting join the board that is open then.)
   useEffect(() => {
     boardRef.current = boardId
+    cursors.set([])
     const hub = connection.current
     if (!hub || hub.state !== HubConnectionState.Connected) return
     if (boardId) void join(hub, boardId)
     else void hub.invoke('Leave').catch(() => {})
-  }, [boardId])
+  }, [boardId, cursors])
 
   // Forget drags whose tab went quiet.
   const dragCount = drags.list.length
@@ -150,45 +180,50 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
     return () => window.clearInterval(timer)
   }, [dragCount])
 
-  // Throttled drag sending: the latest update goes out at most every DRAG_SEND_MS.
-  const pending = useRef<DragUpdate | null>(null)
-  const timer = useRef<number | null>(null)
-  const dragging = useRef(false)
+  // Throttled sending: the latest drag update or pointer goes out at most every SEND_MS.
+  const send = useCallback((method: string, ...args: unknown[]) => {
+    const hub = connection.current
+    if (hub?.state === HubConnectionState.Connected) void hub.send(method, ...args).catch(() => {})
+  }, [])
+  const drag = useThrottled<DragUpdate>((update) => send('Drag', update))
+  const cursor = useThrottled<CursorUpdate>((point) => send('MoveCursor', point))
+  /** The drag in progress, sent again now and then while it is held still; null when there is none. */
+  const dragging = useRef<{ update: DragUpdate; heartbeat: number } | null>(null)
+  const pointing = useRef(false)
 
   const sendDrag = useCallback(
     (update: DragUpdate | null) => {
-      const send = (method: string, ...args: unknown[]) => {
-        const hub = connection.current
-        if (hub?.state === HubConnectionState.Connected) void hub.send(method, ...args).catch(() => {})
-      }
-      const flush = () => {
-        if (pending.current) send('Drag', pending.current)
-        pending.current = null
-      }
-
       if (update) {
-        dragging.current = true
-        pending.current = update
-        if (timer.current !== null) return
-        flush()
-        const tick = () => {
-          if (!pending.current) {
-            timer.current = null
-            return
-          }
-          flush()
-          timer.current = window.setTimeout(tick, DRAG_SEND_MS)
+        if (dragging.current) dragging.current.update = update
+        else {
+          const heartbeat = window.setInterval(() => dragging.current && drag.push(dragging.current.update), DRAG_HEARTBEAT_MS)
+          dragging.current = { update, heartbeat }
         }
-        timer.current = window.setTimeout(tick, DRAG_SEND_MS)
+        drag.push(update)
       } else if (dragging.current) {
-        dragging.current = false
-        if (timer.current !== null) window.clearTimeout(timer.current)
-        timer.current = null
-        flush()
+        window.clearInterval(dragging.current.heartbeat)
+        dragging.current = null
+        drag.flush()
         send('DragEnd')
       }
     },
-    [],
+    [drag, send],
+  )
+  // A drag still held when the board view closes stops beating.
+  useEffect(() => () => window.clearInterval(dragging.current?.heartbeat), [])
+
+  const sendCursor = useCallback(
+    (point: CursorUpdate | null) => {
+      if (point) {
+        pointing.current = true
+        cursor.push(point)
+      } else if (pointing.current) {
+        pointing.current = false
+        cursor.cancel()
+        send('HideCursor')
+      }
+    },
+    [cursor, send],
   )
 
   const boardLoaded = useCallback(() => {
@@ -201,6 +236,76 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
     guests: presence?.boardId === boardId ? presence.guests : 0,
     drags: drags.boardId === boardId ? drags.list : [],
     sendDrag,
+    cursors,
+    sendCursor,
     boardLoaded,
   }
+}
+
+function cursorStore() {
+  let list: LiveCursor[] = []
+  let principals = ''
+  const listeners = new Set<() => void>()
+  return {
+    list: () => list,
+    principals: () => principals,
+    subscribe(listener: () => void) {
+      listeners.add(listener)
+      return () => void listeners.delete(listener)
+    },
+    set(next: LiveCursor[]) {
+      if (next.length === 0 && list.length === 0) return
+      list = next
+      principals = [...new Set(next.map((c) => c.principalId))].toSorted().join(' ')
+      for (const listener of listeners) listener()
+    },
+  }
+}
+
+/**
+ * Sends the latest value pushed at most every SEND_MS: the first one at once, then whatever came last. `flush` sends
+ * what is still waiting and stops; `cancel` drops it.
+ */
+function useThrottled<T>(send: (value: T) => void) {
+  const sendRef = useRef(send)
+  useEffect(() => {
+    sendRef.current = send
+  })
+  const [throttle] = useState(() => {
+    let pending: T | null = null
+    let timer: number | null = null
+    const flush = () => {
+      if (pending !== null) sendRef.current(pending)
+      pending = null
+    }
+    const stop = () => {
+      if (timer !== null) window.clearTimeout(timer)
+      timer = null
+    }
+    const tick = () => {
+      if (pending === null) {
+        timer = null
+        return
+      }
+      flush()
+      timer = window.setTimeout(tick, SEND_MS)
+    }
+    return {
+      push(value: T) {
+        pending = value
+        if (timer !== null) return
+        flush()
+        timer = window.setTimeout(tick, SEND_MS)
+      },
+      flush() {
+        stop()
+        flush()
+      },
+      cancel() {
+        stop()
+        pending = null
+      },
+    }
+  })
+  return throttle
 }

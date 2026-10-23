@@ -1,4 +1,4 @@
-import type { BoardDetail, BucketDetail, CardDetail, DragKind, DrawingDetail, ImageDetail, Point, Rect, ResizeHandle } from '../api/types'
+import type { BoardDetail, BucketDetail, CardDetail, DragGrab, DragKind, DrawingDetail, ImageDetail, Point, Rect, ResizeHandle } from '../api/types'
 import type { LiveDrag } from '../live/useLive'
 import type { Gesture, ItemGesture } from './boardGesture'
 import { cardBox, itemsOf, kindOf, placeOf, type Selection, type SelectionKind } from './boardItems'
@@ -94,12 +94,21 @@ export function isLifted(dragging: DragGesture | null, id: string): boolean {
 }
 
 /** Your drag in progress as others are told about it, as a string so an unchanged drag sends nothing; null for none. */
-export function sentDrag(dragging: DragGesture | null): string | null {
+export function sentDrag(board: BoardDetail, dragging: DragGesture | null): string | null {
   if (!dragging || dragging.done) return null
   const { x: dx, y: dy } = delta(dragging)
-  if (dragging.kind === 'group') return JSON.stringify({ kind: 'Group', id: dragging.id, dx, dy, items: dragging.members.map((m) => m.id) })
+  const grab = grabOf(board, dragging)
+  if (dragging.kind === 'group') return JSON.stringify({ kind: 'Group', id: dragging.id, dx, dy, items: dragging.members.map((m) => m.id), grab })
   const kind = toDragKind[dragging.kind]
-  return kind ? JSON.stringify({ kind, id: dragging.id, dx, dy, handle: dragging.handle }) : null
+  return kind ? JSON.stringify({ kind, id: dragging.id, dx, dy, handle: dragging.handle, grab }) : null
+}
+
+/** Where the pointer took hold of the item it drags, as fractions of where the item was before the drag (see DragGrab). */
+function grabOf(board: BoardDetail, dragging: DragGesture): DragGrab | undefined {
+  const rect = liveGeometry(board, [], null).liveRect(dragging.kind === 'group' ? dragging.held : itemKindOf[dragging.kind], dragging.id)
+  if (!rect || rect.width <= 0 || rect.height <= 0) return undefined
+  const fraction = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 1000) / 1000
+  return { x: fraction((dragging.start.x - rect.x) / rect.width), y: fraction((dragging.start.y - rect.y) / rect.height) }
 }
 
 /**
@@ -192,5 +201,11 @@ export function liveGeometry(board: BoardDetail, drags: ActiveDrag[], arrange: A
     })
   }
 
-  return { dragOf, bucketRect, cardPoint, imageRect, drawingRect, liveRect, remoteRects }
+  /** Where the item someone else holds in their drag is right now (for a group: the one pressed). */
+  function heldRect(drag: LiveDrag): Rect | null {
+    const kind = drag.kind === 'Group' ? kindOf(board, drag.id) : itemKindOf[fromDragKind[drag.kind]]
+    return kind ? liveRect(kind, drag.id) : null
+  }
+
+  return { dragOf, bucketRect, cardPoint, imageRect, drawingRect, liveRect, remoteRects, heldRect }
 }

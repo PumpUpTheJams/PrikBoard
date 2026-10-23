@@ -12,7 +12,9 @@ public sealed class LiveViewers
     /// <summary>
     /// One connection. Replaced as a whole on change, so readers never see half an update. Someone not signed in gets a
     /// random principal id for this connection. <paramref name="Visitor"/>: on a public board without being a member;
-    /// <paramref name="ShowsPeople"/>: whether that board shows its people to visitors.
+    /// <paramref name="ShowsPeople"/>: whether that board shows its people to visitors; <paramref name="Cursors"/>: whether
+    /// this member's pointer may go to the others on the board (its ShowCursors); <paramref name="Cursor"/>: where it last
+    /// was, for those who join later (null when it isn't on the board).
     /// </summary>
     public sealed record Entry(
         string ConnectionId,
@@ -26,7 +28,10 @@ public sealed class LiveViewers
         BoardRole Role = BoardRole.Viewer,
         long LastDragAt = 0,
         bool Visitor = false,
-        bool ShowsPeople = false);
+        bool ShowsPeople = false,
+        bool Cursors = false,
+        long LastCursorAt = 0,
+        CursorUpdate? Cursor = null);
 
     private readonly Lock gate = new();
     private readonly Dictionary<string, Entry> connections = [];
@@ -65,6 +70,20 @@ public sealed class LiveViewers
         }
     }
 
+    /// <summary>
+    /// Keeps where this connection points, and whether that may go out now (as <see cref="TakeDragTurn"/> for drags).
+    /// </summary>
+    public bool TakeCursorTurn(string connectionId, CursorUpdate cursor, long now, long interval)
+    {
+        lock (gate)
+        {
+            if (!connections.TryGetValue(connectionId, out var entry)) return false;
+            var turn = now - entry.LastCursorAt >= interval;
+            connections[connectionId] = entry with { Cursor = cursor, LastCursorAt = turn ? now : entry.LastCursorAt };
+            return turn;
+        }
+    }
+
     public Entry? Remove(string connectionId)
     {
         lock (gate) return connections.Remove(connectionId, out var entry) ? entry : null;
@@ -74,6 +93,12 @@ public sealed class LiveViewers
     public List<Entry> OfPrincipal(Guid principalId, Guid? boardId = null)
     {
         lock (gate) return connections.Values.Where(e => e.PrincipalId == principalId && (boardId is null || e.BoardId == boardId)).ToList();
+    }
+
+    /// <summary>The members' connections on a board.</summary>
+    public List<Entry> MembersOn(Guid boardId)
+    {
+        lock (gate) return connections.Values.Where(e => e.BoardId == boardId && !e.Visitor).ToList();
     }
 
     /// <summary>The visitors' connections on a public board.</summary>

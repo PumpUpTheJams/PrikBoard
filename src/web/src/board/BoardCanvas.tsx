@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type RefObject } from 'react'
 import { api } from '../api/client'
-import type { BoardDetail, BucketDetail, CardColor, CardDetail, DragUpdate, Point, Rect, ResizeHandle } from '../api/types'
-import type { LiveDrag } from '../live/useLive'
+import type { BoardDetail, BucketDetail, CardColor, CardDetail, CursorUpdate, DragUpdate, LiveViewer, Point, Rect, ResizeHandle } from '../api/types'
+import type { CursorStore, LiveDrag } from '../live/useLive'
 import { Toast } from '../components/Toast'
 import { BoardFilters } from './BoardFilters'
 import { CardGhost, NewCardGhost, RemoteDragOutlines, Slot } from './BoardGhosts'
@@ -19,12 +19,14 @@ import { DrawingToolbar, DrawingView, PenRing, StrokeSvg } from './DrawingView'
 import { dropTargetsFor, NO_DROPS, released, useDropProbe, type DropTargets } from './dropTargets'
 import { ExpandedCard, type ExpandedCardHandle } from './ExpandedCard'
 import { isDrag } from './gesture'
-import { MIN_BUCKET_HEIGHT, MIN_BUCKET_WIDTH, backToFront, bucketUnder, bucketUnderCard, collapsedRect, isLooseDrawing, layersBackToFront, snapPoint, spanRect } from './layout'
+import { MAX_COORDINATE, MIN_BUCKET_HEIGHT, MIN_BUCKET_WIDTH, MIN_COORDINATE, backToFront, bucketUnder, bucketUnderCard, collapsedRect, isLooseDrawing, layersBackToFront, snapPoint, spanRect } from './layout'
 import { activeDrags, draggingOf, gridFor, isLifted, itemKindOf, liveGeometry, sentDrag } from './liveGeometry'
 import { ops, recordingRun, settling } from './ops'
+import { RemoteCursors } from './RemoteCursors'
 import { resizeCursor } from './resizeCursor'
 import { adds, bounds, contains, mergePicked, togglePicked, touches, useSelection, useSpaceHeld } from './selection'
 import { SelectionToolbar } from './SelectionToolbar'
+import { tackOf, tacksOf } from './tacks'
 import { shakeDetector } from './shake'
 import { tagColorsOf, type TagColorPreview } from './tagColors'
 import { ToolRail } from './ToolRail'
@@ -53,6 +55,66 @@ const hints: Partial<Record<Tool, string>> = {
   pen: 'Draw anywhere on the board. Esc or V to stop',
 }
 
+/** How long a thumbtack picked in the top bar pulses and shows its name. */
+const FOCUS_MS = 2400
+
+/**
+ * Tells the others where your pointer is on the board (`onCursor`): as it moves, and as the view scrolls or zooms under
+ * a pointer that stays put. Not while a drag is sent (`dragged`; the drag pins the thumbtack), and gone when the pointer
+ * leaves the board, the tab goes to the background, or the board stops showing cursors.
+ */
+function usePointing({ scrollRef, toCanvas, onCursor, dragged }: {
+  scrollRef: RefObject<HTMLDivElement | null>
+  toCanvas: (e: { clientX: number; clientY: number }) => Point
+  onCursor?: (point: CursorUpdate | null) => void
+  dragged: boolean
+}) {
+  /** Where the pointer is over the board, in screen pixels; null when it isn't. */
+  const client = useRef<Point | null>(null)
+  const latest = useRef({ toCanvas, onCursor, dragged })
+  useEffect(() => {
+    latest.current = { toCanvas, onCursor, dragged }
+  })
+  const send = useCallback(() => {
+    const { toCanvas, onCursor, dragged } = latest.current
+    if (!onCursor || dragged || !client.current) return
+    const at = toCanvas({ clientX: client.current.x, clientY: client.current.y })
+    const clamp = (v: number) => Math.round(Math.min(MAX_COORDINATE, Math.max(MIN_COORDINATE, v)))
+    onCursor({ x: clamp(at.x), y: clamp(at.y) })
+  }, [])
+
+  // After a drag, the thumbtack comes off the item and follows the pointer again.
+  useEffect(() => {
+    if (!dragged) send()
+  }, [dragged, send])
+
+  useEffect(() => {
+    if (!onCursor) return
+    const el = scrollRef.current
+    const hidden = () => {
+      if (document.visibilityState === 'hidden') onCursor(null)
+    }
+    el?.addEventListener('scroll', send, { passive: true })
+    document.addEventListener('visibilitychange', hidden)
+    return () => {
+      el?.removeEventListener('scroll', send)
+      document.removeEventListener('visibilitychange', hidden)
+      onCursor(null)
+    }
+  }, [onCursor, scrollRef, send])
+
+  return {
+    point(at: Point) {
+      client.current = at
+      send()
+    },
+    leave() {
+      client.current = null
+      latest.current.onCursor?.(null)
+    },
+  }
+}
+
 /** Where in a card's title text a screen point is, as a character offset; undefined when it isn't on the text. */
 function caretAt(x: number, y: number): number | undefined {
   const position = document.caretPositionFromPoint?.(x, y)
@@ -77,10 +139,18 @@ interface BoardCanvasProps {
   remoteDrags?: LiveDrag[]
   /** Your drag in progress, for the others to see; null when it ends. */
   onDrag?: (update: DragUpdate | null) => void
+  /** Other people's pointers (live updates); shown as thumbtacks for those in `viewers`. */
+  cursors?: CursorStore
+  /** The others on the board, whose pointers and drags show as their thumbtacks; none when the board shows no cursors. */
+  viewers?: LiveViewer[]
+  /** Where your pointer is on the board, for the others to see; null when it left. Omitted when the board shows no cursors. */
+  onCursor?: (point: CursorUpdate | null) => void
+  /** Someone picked in the top bar: the view goes to their thumbtack. `n` counts the picks, so picking them again goes again. */
+  focus?: { principalId: string; n: number } | null
 }
 
 /** The board: its buckets, cards, images and drawings on a freeform canvas, with the tool rail and floating windows around it. */
-export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = [], onDrag }: BoardCanvasProps) {
+export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = [], onDrag, cursors, viewers = [], onCursor, focus }: BoardCanvasProps) {
   /** Viewers can look around and open cards, but not change anything. */
   const readOnly = board.yourRole === 'Viewer'
   const [tool, setTool] = useState<Tool>('select')
@@ -235,10 +305,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   // Live geometry: the server's layout, with the drags in progress applied on top (yours wins over someone else's).
   const dragging = draggingOf(gesture)
   const drags = activeDrags(board, dragging, arrangeDrop?.spots, remoteDrags)
-  const { bucketRect, cardPoint, imageRect, drawingRect, liveRect, remoteRects } = liveGeometry(board, drags, dragging ? arrangeDrop : null)
+  const { bucketRect, cardPoint, imageRect, drawingRect, liveRect, remoteRects, heldRect } = liveGeometry(board, drags, dragging ? arrangeDrop : null)
   const lifting = (id: string) => isLifted(dragging, id)
   // Tell the others about your drag while it is in progress (as a string, so an unchanged drag sends nothing).
-  const sent = sentDrag(dragging)
+  const sent = sentDrag(board, dragging)
   useEffect(() => onDrag?.(sent ? (JSON.parse(sent) as DragUpdate) : null), [sent, onDrag])
 
   /**
@@ -438,6 +508,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
   function onCanvasPointerMove(e: PointerEvent) {
     lastPointer.current = toCanvas(e)
+    // Touch has no pointer to show, only drags (which pin the thumbtack).
+    if (e.pointerType !== 'touch') pointing.point({ x: e.clientX, y: e.clientY })
     if (tool === 'pen') movePenRing(penRing.current, toCanvas(e), e.pointerType)
     if (pan.move(e)) return
     if (pen.drawing()) {
@@ -568,6 +640,27 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   ])
   const { origin, extent } = canvas
   useReveal(search, { scrollRef, boardTop, board, zoom, origin, cardPoint })
+  const pointing = usePointing({ scrollRef, toCanvas, onCursor, dragged: sent !== null })
+
+  // Someone picked in the top bar: glide to their thumbtack, which pulses and shows their name for a moment.
+  const [focusedTack, setFocusedTack] = useState<string | null>(null)
+  const goTo = useRef<(principalId: string) => void>(() => {})
+  useEffect(() => {
+    goTo.current = (principalId) => {
+      const tack = cursors && tackOf(tacksOf(cursors.list(), remoteDrags, viewers, heldRect), principalId)
+      if (!tack) return
+      canvas.navigate(tack.at, { smooth: true })
+      setFocusedTack(tack.key)
+    }
+  })
+  useEffect(() => {
+    if (focus) goTo.current(focus.principalId)
+  }, [focus])
+  useEffect(() => {
+    if (!focusedTack) return
+    const timer = window.setTimeout(() => setFocusedTack(null), FOCUS_MS)
+    return () => window.clearTimeout(timer)
+  }, [focusedTack, focus])
 
   /** Image files dropped on the board go where they were dropped. */
   const fileDrop = useFileDrop(!readOnly, (files, e) => {
@@ -696,7 +789,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               if (second && first === second) expand(second)
             }}
             onPointerMove={onCanvasPointerMove}
-            onPointerLeave={() => movePenRing(penRing.current, null)}
+            onPointerLeave={() => {
+              movePenRing(penRing.current, null)
+              pointing.leave()
+            }}
             onPointerUp={onCanvasPointerUp}
             onPointerCancel={() => {
               setGesture(null)
@@ -840,7 +936,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               />
             )}
 
-            <RemoteDragOutlines drags={remoteDrags.filter((r) => !r.endedAt && r.id !== dragging?.id)} rectsOf={remoteRects} />
+            <RemoteDragOutlines drags={remoteDrags.filter((r) => !r.endedAt && r.id !== dragging?.id)} rectsOf={remoteRects} unnamed={!!onCursor} />
+            {cursors && onCursor && (
+              <RemoteCursors cursors={cursors} drags={remoteDrags} viewers={viewers} heldRect={heldRect} zoom={zoom} focused={focusedTack} />
+            )}
 
             {marquee && (
               <div className="marquee" aria-hidden="true" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />

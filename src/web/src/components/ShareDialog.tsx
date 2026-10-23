@@ -102,6 +102,7 @@ export function ShareDialog({ board, onClose, onLeft, onChanged }: ShareDialogPr
 
         {owner && <InviteLinks boardId={board.id} invites={invites} attempt={attempt} />}
         {owner && <PublicLink board={board} attempt={attempt} onChanged={onChanged} />}
+        {owner && <LiveCursors board={board} attempt={attempt} onChanged={onChanged} />}
         {error && <p className="widget-error" role="alert">{error}</p>}
       </div>
     </Dialog>
@@ -147,6 +148,27 @@ function PublicLink({
         Visitors don't need an account. They can look, search and open cards, but not change anything or see deleted items.
       </p>
       {board.isPublic && <CopyField label="Public link" value={link} copier={copier} />}
+    </section>
+  )
+}
+
+/** For owners: whether the members looking at the board see each other's pointers as thumbtacks. */
+function LiveCursors({ board, attempt, onChanged }: { board: BoardSummary; attempt: Attempt; onChanged: (board: BoardSummary) => void }) {
+  return (
+    <section className="dialog-section">
+      <h3>Live cursors</h3>
+      <label className="check-row">
+        <input
+          type="checkbox"
+          checked={board.showCursors}
+          onChange={(e) => {
+            const showCursors = e.target.checked
+            void attempt(async () => onChanged(await api.updateBoard(board.id, { showCursors })))
+          }}
+        />
+        Show everyone's pointer as a thumbtack
+      </label>
+      <p className="dialog-hint">Members see where the others point and what they drag. Visitors of a public board never see them.</p>
     </section>
   )
 }

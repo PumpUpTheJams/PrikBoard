@@ -1,6 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { api, ApiError, errorMessage, setUnauthorizedHandler } from './api/client'
-import type { BoardDetail, BoardSummary, Caller, SetupStatus } from './api/types'
+import type { BoardDetail, BoardSummary, Caller, LiveViewer, SetupStatus } from './api/types'
 import { BoardCanvas } from './board/BoardCanvas'
 import { CardIcon, PeopleIcon } from './board/icons'
 import { pickBoardFile, saveFile } from './board/files'
@@ -254,6 +254,12 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   // Someone's finished drag stays where they dropped it until the reload shows where it landed.
   useEffect(() => boardLoaded(), [board, boardLoaded])
   const othersHere = live.viewers.filter((v) => v.principalId !== user.id)
+  /** Who points at the board or drags on it now, if it shows cursors: their avatar in the top bar goes to their thumbtack. */
+  const pointers = useSyncExternalStore(live.cursors.subscribe, live.cursors.principals)
+  const pickable = activeBoard?.showCursors
+    ? new Set([...pointers.split(' ').filter(Boolean), ...live.drags.filter((d) => !d.endedAt).map((d) => d.principalId)])
+    : undefined
+  const [focus, setFocus] = useState<{ principalId: string; n: number } | null>(null)
   /** Whether someone else is dragging an item right now (undo waits for that). */
   const movedByOthers = (id: string) => live.drags.some((r) => !r.endedAt && (r.id === id || r.items?.includes(id)))
 
@@ -488,7 +494,12 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
         </div>
 
         <div className="topbar-end">
-          <Presence viewers={othersHere} guests={live.guests} />
+          <Presence
+            viewers={othersHere}
+            guests={live.guests}
+            pickable={pickable}
+            onPick={(principalId) => setFocus((current) => ({ principalId, n: (current?.n ?? 0) + 1 }))}
+          />
           <span className="topbar-divider" aria-hidden="true" />
           <SettingsMenu
             user={user}
@@ -514,6 +525,8 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
           undoHistory={undoHistory}
           setPaused={setPaused}
           live={live}
+          othersHere={othersHere}
+          focus={focus}
           onCreateBoard={createBoard}
           onBack={() => selectBoard(null)}
           onLeaveAdmin={leaveAdmin}
@@ -537,6 +550,10 @@ interface WorkspaceMainProps {
   undoHistory: UndoHistory
   setPaused: BoardState['setPaused']
   live: LiveState
+  /** The others on the open board. */
+  othersHere: LiveViewer[]
+  /** Someone picked in the top bar, whose thumbtack the board goes to. */
+  focus: { principalId: string; n: number } | null
   onCreateBoard: (name: string) => Promise<boolean>
   /** Leaves a board you can't open, for none. */
   onBack: () => void
@@ -546,7 +563,7 @@ interface WorkspaceMainProps {
 
 /** What the desktop shows under the top bar: the admin page, the open board, or why there is none. */
 function WorkspaceMain(props: WorkspaceMainProps) {
-  const { user, adminView, boards, missing, activeBoard, board, run, undoHistory, setPaused, live } = props
+  const { user, adminView, boards, missing, activeBoard, board, run, undoHistory, setPaused, live, othersHere, focus } = props
   const { onCreateBoard, onBack, onLeaveAdmin, onYouChanged } = props
 
   if (adminView) {
@@ -577,6 +594,10 @@ function WorkspaceMain(props: WorkspaceMainProps) {
       setPaused={setPaused}
       remoteDrags={live.drags}
       onDrag={live.sendDrag}
+      cursors={live.cursors}
+      viewers={othersHere}
+      onCursor={activeBoard.showCursors ? live.sendCursor : undefined}
+      focus={focus}
     />
   )
 }

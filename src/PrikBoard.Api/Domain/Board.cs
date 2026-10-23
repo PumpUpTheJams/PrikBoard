@@ -35,6 +35,11 @@ public partial class Board
     public bool IsPublic { get; set; }
     /// <summary>Whether visitors of a public board see who is on it (names and pictures), or only anonymous circles and a count.</summary>
     public bool PublicShowsPeople { get; set; }
+    /// <summary>
+    /// Whether members on the board see each other's pointers live (as thumbtacks in the web app). Visitors of a public board
+    /// never do. Only owners change it.
+    /// </summary>
+    public bool ShowCursors { get; set; } = true;
 
     public List<Bucket> Buckets { get; set; } = [];
     public List<Card> Cards { get; set; } = [];
