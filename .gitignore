@@ -437,3 +437,6 @@ src/PrikBoard.Api/files/
 *.db
 *.db-wal
 *.db-shm
+
+# Boards generated for measuring (tools/perf)
+tools/perf/out/
