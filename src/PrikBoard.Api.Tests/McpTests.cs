@@ -242,6 +242,12 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         Assert.Equal(board.Buckets.Single(b => b.Name == "Done").Id, moved.GetProperty("bucketId").GetGuid());
         Assert.StartsWith("Deleted.", Text(await CallRawAsync(mcp, "delete_card", new() { ["card"] = "REFS-1" })));
         Assert.Contains("Not found", Text(await CallRawAsync(mcp, "get_card", new() { ["card"] = "REFS-1" })));
+        // A deleted card's history, by readable id and path as well as by id.
+        foreach (var value in new[] { "REFS-1", card.Path, card.Id.ToString() })
+        {
+            var history = await CallAsync(mcp, "get_card_history", new() { ["card"] = value });
+            Assert.Equal("Deleted", history[0].GetProperty("entries")[0].GetProperty("kind").GetString());
+        }
         await CallAsync(mcp, "restore_card", new() { ["card"] = "REFS-1" });
 
         Assert.Contains("not a card", Text(await CallRawAsync(mcp, "get_card", new() { ["card"] = "REFS-01" })));

@@ -137,14 +137,15 @@ public sealed partial class BoardTools
     [McpServerTool(Name = "get_card_history", Title = "Get a card's history", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Who changed what on a card and when, newest first: title, color, tags, assignees, the agent-working flag, " +
                  "moves between buckets, components added, changed or removed, images and drawings added or removed, copies and " +
-                 "moves to other boards, and deleting and restoring it. Works for cards in the trash too, given by id." + DataText)]
+                 "moves to other boards, and deleting and restoring it. Works for cards in the trash too." + DataText)]
     public static async Task<List<CardChangeDetail>> GetCardHistory(
         IHttpContextAccessor accessor,
         [Description(CardHelp)] string card,
         [Description("At most this many changes (default 100, at most 500).")] int? limit = null,
         CancellationToken ct = default)
     {
-        var (_, db, _, cardId) = await CardCallAsync(accessor, card, BoardRole.Viewer, ct);
+        // Deleted cards too, by readable id and path as well (numbers are never reused, so those still name one card).
+        var (_, db, _, cardId) = await CardCallAsync(accessor, card, BoardRole.Viewer, ct, deleted: true);
         return McpCall.Value<List<CardChangeDetail>>(await CardEndpoints.ListCardHistory(cardId, limit, db, ct));
     }
 
