@@ -161,8 +161,11 @@ app.Services.GetRequiredService<KeyedHasher>();
 
 await using (var scope = app.Services.CreateAsyncScope())
 {
-    await StartupMigration.RunAsync(scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>(), files,
+    var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+    await StartupMigration.RunAsync(db, files,
         app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(StartupMigration)), CancellationToken.None);
+    // The sign-in providers' schemes, from configuration and from the setup.
+    await app.Services.GetRequiredService<SignInProviders>().LoadAsync(db, CancellationToken.None);
 }
 
 app.UseExceptionHandler();

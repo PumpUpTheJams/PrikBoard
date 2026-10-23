@@ -32,6 +32,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
     public DbSet<DiscordGuild> DiscordGuilds => Set<DiscordGuild>();
     public DbSet<DiscordBoardChannels> DiscordBoardChannels => Set<DiscordBoardChannels>();
     public DbSet<DiscordConnectGrant> DiscordConnectGrants => Set<DiscordConnectGrant>();
+    public DbSet<SignInProvider> SignInProviders => Set<SignInProvider>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -243,6 +244,17 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             upload.HasOne<Principal>().WithMany().HasForeignKey(u => u.MemberId).OnDelete(DeleteBehavior.Cascade);
             upload.HasOne<AccessToken>().WithMany().HasForeignKey(u => u.AccessTokenId).OnDelete(DeleteBehavior.Cascade);
             upload.HasIndex(u => u.PrincipalId);
+        });
+
+        modelBuilder.Entity<SignInProvider>(provider =>
+        {
+            provider.Property(p => p.Id).HasMaxLength(SignInProvider.IdMaxLength);
+            provider.Property(p => p.Type).HasConversion<string>().HasMaxLength(20);
+            provider.Property(p => p.DisplayName).HasMaxLength(SignInProvider.DisplayNameMaxLength);
+            provider.Property(p => p.Authority).HasMaxLength(500);
+            provider.Property(p => p.ClientId).HasMaxLength(500);
+            provider.PrimitiveCollection(p => p.Scopes).IsRequired();
+            provider.Property(p => p.GitHubAppUrl).HasMaxLength(500);
         });
 
         modelBuilder.Entity<UserIdentity>(identity =>

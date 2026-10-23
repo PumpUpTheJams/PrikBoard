@@ -5,7 +5,10 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OAuth;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Validators;
@@ -118,24 +121,16 @@ public static partial class AuthSetup
             })
             .AddScheme<AuthenticationSchemeOptions, AccessTokenHandler>(AccessTokenScheme, null);
 
-        foreach (var (id, provider) in config.Providers)
-        {
-            if (string.IsNullOrWhiteSpace(provider.ClientId)) continue;
-            if (!IdPattern().IsMatch(id))
-            {
-                throw new InvalidOperationException($"Auth provider id '{id}' must use lowercase letters, digits and dashes.");
-            }
-
-            switch (provider.Type)
-            {
-                case ProviderType.OpenIdConnect:
-                    AddOpenIdConnect(auth, id, provider);
-                    break;
-                case ProviderType.GitHub:
-                    AddGitHub(auth, id, provider);
-                    break;
-            }
-        }
+        // Sign-in provider schemes come and go while the app runs (SignInProviders), so they are not registered here. These
+        // are the services AddOpenIdConnect and AddOAuth would add for them.
+        builder.Services.AddSingleton<SignInProviders>();
+        builder.Services.AddSingleton<SignInProviders.SchemeOptions>();
+        builder.Services.AddSingleton<IConfigureOptions<OpenIdConnectOptions>>(services => services.GetRequiredService<SignInProviders.SchemeOptions>());
+        builder.Services.AddSingleton<IConfigureOptions<OAuthOptions>>(services => services.GetRequiredService<SignInProviders.SchemeOptions>());
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IPostConfigureOptions<OpenIdConnectOptions>, OpenIdConnectPostConfigureOptions>());
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IPostConfigureOptions<OAuthOptions>, OAuthPostConfigureOptions<OAuthOptions, OAuthHandler<OAuthOptions>>>());
+        builder.Services.TryAddTransient<OpenIdConnectHandler>();
+        builder.Services.TryAddTransient<OAuthHandler<OAuthOptions>>();
 
         foreach (var (id, issuer) in issuers)
         {
@@ -265,60 +260,51 @@ public static partial class AuthSetup
         });
     }
 
-    private static void AddOpenIdConnect(AuthenticationBuilder auth, string id, ProviderOptions provider)
+    /// <summary>The settings of an OpenID Connect provider's scheme; see <see cref="SignInProviders.SchemeOptions"/>.</summary>
+    internal static void ConfigureOpenIdConnect(OpenIdConnectOptions options, string id, ProviderOptions provider)
     {
-        if (string.IsNullOrWhiteSpace(provider.Authority))
+        options.Authority = provider.Authority;
+        options.ClientId = provider.ClientId;
+        options.ClientSecret = provider.ClientSecret;
+        options.ResponseType = "code";
+        // Not form_post (the default): a provider's cross-site post back carries no SameSite=Lax session cookie,
+        // so linking a sign-in could not find the session. A redirect with the code in the query does carry it.
+        options.ResponseMode = OpenIdConnectResponseMode.Query;
+        options.CallbackPath = CallbackPath(id);
+        options.SignInScheme = CookieScheme;
+        options.GetClaimsFromUserInfoEndpoint = true;
+        // Keep the standard claim names (sub, email, ...) rather than the legacy WS-Federation URIs.
+        options.MapInboundClaims = false;
+        options.Scope.Clear();
+        foreach (var scope in new[] { "openid", "profile", "email" }.Concat(provider.Scopes).Distinct()) options.Scope.Add(scope);
+
+        // Microsoft's multi-tenant endpoints (common, organizations, consumers) issue tokens whose issuer
+        // names the user's own tenant, so the issuer cannot be compared against the metadata as is.
+        if (new Uri(provider.Authority!).Host.Equals("login.microsoftonline.com", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException($"Auth provider '{id}' needs an Authority (the OpenID Connect issuer URL).");
+            options.TokenValidationParameters.IssuerValidator =
+                AadIssuerValidator.GetAadIssuerValidator(provider.Authority).Validate;
         }
 
-        auth.AddOpenIdConnect(id, provider.DisplayName ?? id, options =>
-        {
-            options.Authority = provider.Authority;
-            options.ClientId = provider.ClientId;
-            options.ClientSecret = provider.ClientSecret;
-            options.ResponseType = "code";
-            // Not form_post (the default): a provider's cross-site post back carries no SameSite=Lax session cookie,
-            // so linking a sign-in could not find the session. A redirect with the code in the query does carry it.
-            options.ResponseMode = OpenIdConnectResponseMode.Query;
-            options.CallbackPath = CallbackPath(id);
-            options.SignInScheme = CookieScheme;
-            options.GetClaimsFromUserInfoEndpoint = true;
-            // Keep the standard claim names (sub, email, ...) rather than the legacy WS-Federation URIs.
-            options.MapInboundClaims = false;
-            options.Scope.Clear();
-            foreach (var scope in new[] { "openid", "profile", "email" }.Concat(provider.Scopes).Distinct()) options.Scope.Add(scope);
-
-            // Microsoft's multi-tenant endpoints (common, organizations, consumers) issue tokens whose issuer
-            // names the user's own tenant, so the issuer cannot be compared against the metadata as is.
-            if (new Uri(provider.Authority).Host.Equals("login.microsoftonline.com", StringComparison.OrdinalIgnoreCase))
-            {
-                options.TokenValidationParameters.IssuerValidator =
-                    AadIssuerValidator.GetAadIssuerValidator(provider.Authority).Validate;
-            }
-
-            options.Events.OnTicketReceived = context => UserSignIn.OnTicketReceived(context, id);
-            options.Events.OnRemoteFailure = UserSignIn.OnRemoteFailure;
-        });
+        options.Events.OnTicketReceived = context => UserSignIn.OnTicketReceived(context, id);
+        options.Events.OnRemoteFailure = UserSignIn.OnRemoteFailure;
     }
 
-    private static void AddGitHub(AuthenticationBuilder auth, string id, ProviderOptions provider)
+    /// <summary>The settings of a GitHub provider's scheme (an OAuth App or a GitHub App); see <see cref="SignInProviders.SchemeOptions"/>.</summary>
+    internal static void ConfigureGitHub(OAuthOptions options, string id, ProviderOptions provider)
     {
-        auth.AddOAuth(id, provider.DisplayName ?? "GitHub", options =>
-        {
-            options.ClientId = provider.ClientId!;
-            options.ClientSecret = provider.ClientSecret!;
-            options.CallbackPath = CallbackPath(id);
-            options.SignInScheme = CookieScheme;
-            options.AuthorizationEndpoint = "https://github.com/login/oauth/authorize";
-            options.TokenEndpoint = "https://github.com/login/oauth/access_token";
-            options.UserInformationEndpoint = "https://api.github.com/user";
-            foreach (var scope in new[] { "read:user", "user:email" }.Concat(provider.Scopes).Distinct()) options.Scope.Add(scope);
+        options.ClientId = provider.ClientId!;
+        options.ClientSecret = provider.ClientSecret!;
+        options.CallbackPath = CallbackPath(id);
+        options.SignInScheme = CookieScheme;
+        options.AuthorizationEndpoint = "https://github.com/login/oauth/authorize";
+        options.TokenEndpoint = "https://github.com/login/oauth/access_token";
+        options.UserInformationEndpoint = "https://api.github.com/user";
+        foreach (var scope in new[] { "read:user", "user:email" }.Concat(provider.Scopes).Distinct()) options.Scope.Add(scope);
 
-            options.Events.OnCreatingTicket = AddGitHubClaims;
-            options.Events.OnTicketReceived = context => UserSignIn.OnTicketReceived(context, id);
-            options.Events.OnRemoteFailure = UserSignIn.OnRemoteFailure;
-        });
+        options.Events.OnCreatingTicket = AddGitHubClaims;
+        options.Events.OnTicketReceived = context => UserSignIn.OnTicketReceived(context, id);
+        options.Events.OnRemoteFailure = UserSignIn.OnRemoteFailure;
     }
 
     /// <summary>Maps the GitHub profile to the OpenID Connect claim names that <see cref="UserSignIn"/> expects.</summary>
@@ -366,6 +352,9 @@ public static partial class AuthSetup
         context.Response.StatusCode = status;
         return Task.CompletedTask;
     }
+
+    /// <summary>Whether a sign-in provider or token issuer id uses only lowercase letters, digits and dashes.</summary>
+    internal static bool IsValidId(string id) => IdPattern().IsMatch(id);
 
     [GeneratedRegex("^[a-z0-9][a-z0-9-]*$")]
     private static partial Regex IdPattern();

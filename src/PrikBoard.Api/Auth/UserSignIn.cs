@@ -3,7 +3,6 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Options;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
 
@@ -178,10 +177,10 @@ public static partial class UserSignIn
         var email = external.FindFirstValue("email");
         var emailVerified = external.FindFirstValue("email_verified");
         // Only an email the provider vouches for may make someone findable; an explicit false always wins.
-        var options = context.HttpContext.RequestServices.GetRequiredService<IOptions<AuthOptions>>().Value;
+        var providers = context.HttpContext.RequestServices.GetRequiredService<SignInProviders>();
         var trusted = string.Equals(emailVerified, "true", StringComparison.OrdinalIgnoreCase)
                       || (!string.Equals(emailVerified, "false", StringComparison.OrdinalIgnoreCase)
-                          && options.Providers.TryGetValue(provider, out var settings) && settings.EmailsAreVerified);
+                          && providers.Find(provider)?.Options.EmailsAreVerified == true);
         var verifiedEmail = trusted ? email : null;
 
         if (context.Properties?.Items.TryGetValue(LinkUserItem, out var linkUser) == true && linkUser is not null)
