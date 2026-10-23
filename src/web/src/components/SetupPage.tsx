@@ -125,7 +125,7 @@ export function SetupPage({ user, status, onUnlocked, onDone }: SetupPageProps) 
 
       {step === 'checks' && (
         <>
-          <h1>{user ? `You’re the admin, ${user.displayName}` : 'Checks'}</h1>
+          <h1>{user ? 'You’re the admin now!' : 'Checks'}</h1>
           <p>Here is how PrikBoard runs. Fix anything that failed; warnings can wait.</p>
           <SystemChecks />
           <div className="dialog-actions">
