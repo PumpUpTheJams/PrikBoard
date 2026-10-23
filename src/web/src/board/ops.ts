@@ -129,7 +129,8 @@ export function bucketMove(board: BoardDetail, bucket: BucketDetail, moved: Buck
   const carry = { cards: carried.map((n) => n.id), images: carriedImages.map((i) => i.id), drawings: carriedDrawings.map((d) => d.id) }
   return [
     patched(target.bucket(bucket.id, carry), snap.bucket(bucket), snap.bucket(moved), ['x', 'y']),
-    ...carried.map((n) => patched(target.card(n.id), { x: n.x, y: n.y }, along(n), ['x', 'y'], true)),
+    // A card's place always comes with its bucket (see `patched`), and a carried card stays in this one.
+    ...carried.map((n) => patched(target.card(n.id), { x: n.x, y: n.y, bucketId: n.bucketId }, { ...along(n), bucketId: n.bucketId }, ['x', 'y'], true)),
     ...carriedImages.map((i) => patched(target.image(i.id), { x: i.x, y: i.y }, along(i), ['x', 'y'], true)),
     ...carriedDrawings.map((dr) => patched(target.drawing(dr.id), { x: dr.x, y: dr.y }, along(dr), ['x', 'y'], true)),
   ]
