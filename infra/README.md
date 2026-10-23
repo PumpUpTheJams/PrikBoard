@@ -31,6 +31,12 @@ Everything has a default; these override it, as environment variables on the app
 - `Auth__Providers__{id}__...`: sign-in providers in configuration instead of the setup (read-only there), and `Auth__Tokens__Issuers__{id}__Authority` for trusted token issuers.
 - `Setup__Recovery=true`: print a setup key although users exist, to fix the sign-in providers.
 - `DataProtection__KeysPath`: keep the Data Protection keys outside the data folder.
+- `OpenTelemetry__Endpoint`: an OTLP collector's base URL (e.g. `http://otel-collector:4317`); when set, the app sends its logs, traces (requests, outgoing HTTP, database) and metrics there. `OpenTelemetry__Protocol` is `grpc` (default) or `http/protobuf` (port 4318), and `OpenTelemetry__Headers` takes `key=value,key2=value2`, for an API key. Off by default.
+- `Serilog__MinimumLevel__Default`, `Serilog__MinimumLevel__Override__{category}`: more or less logging (see below).
+
+## Logs
+
+The app logs to the console (`docker compose logs app`) through [Serilog](https://serilog.net), and only what matters: its own messages (the setup key, generated hash key, moved and purged files, sign-in provider problems), warnings and errors from the framework, startup and migrations, and one line per request that fails with a 5xx or takes longer than a second. Database queries and other framework chatter are left out. The levels are in the `Serilog` section of [`appsettings.json`](../src/PrikBoard.Api/appsettings.json); to see the SQL, for example, set `Serilog__MinimumLevel__Override__Microsoft.EntityFrameworkCore.Database.Command=Information`. The Discord bot works the same way.
 
 ## Open decisions
 
