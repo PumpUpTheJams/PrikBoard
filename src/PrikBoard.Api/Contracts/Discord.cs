@@ -13,7 +13,7 @@ public sealed record DiscordBoardChoice(Guid BoardId, bool WholeServer = false);
 /// <param name="CodeChallenge">The bot's PKCE code challenge from the link: base64url SHA-256 of its code verifier (S256), 43 characters.</param>
 /// <param name="Boards">The boards to connect (1 to 50), each for the channel where /prikboard connect was run or for the whole server.</param>
 public sealed record ApproveDiscordConnectRequest(
-    [property: Required, StringLength(43, MinimumLength = 43)] string CodeChallenge,
+    [property: Required, StringLength(AppSignInGrant.CodeChallengeLength, MinimumLength = AppSignInGrant.CodeChallengeLength)] string CodeChallenge,
     [property: Required, MinLength(1), MaxLength(DiscordConnectGrant.MaxBoards)] List<DiscordBoardChoice> Boards);
 
 /// <summary>The one-time code to paste into Discord with /prikboard finish. It works for 5 minutes, once, and only in the server that started connecting.</summary>

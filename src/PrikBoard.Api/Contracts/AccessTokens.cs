@@ -44,7 +44,7 @@ public sealed record CreatedAccessToken(string Token, AccessTokenDetail Details)
 /// <param name="RedirectUri">Where the app listens for the code: a loopback address (http://127.0.0.1, localhost or [::1] with a port). Omit when you will paste the code into the app.</param>
 public sealed record ApproveAppSignInRequest(
     [property: Required, StringLength(100, MinimumLength = 1)] string Name,
-    [property: Required, StringLength(43, MinimumLength = 43)] string CodeChallenge,
+    [property: Required, StringLength(AppSignInGrant.CodeChallengeLength, MinimumLength = AppSignInGrant.CodeChallengeLength)] string CodeChallenge,
     [property: StringLength(200)] string? RedirectUri = null);
 
 /// <summary>The one-time code for the app. It works for 5 minutes, once, and only with the app's code verifier.</summary>

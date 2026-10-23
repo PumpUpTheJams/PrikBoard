@@ -32,6 +32,9 @@ public class DiscordGuild
 /// </summary>
 public class DiscordBoardChannels
 {
+    /// <summary>Channels one board can be limited to in a server; beyond that, connect it to the whole server.</summary>
+    public const int MaxChannels = 50;
+
     public required string GuildId { get; set; }
     public Guid BoardId { get; set; }
 
