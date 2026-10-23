@@ -83,6 +83,9 @@ export interface BoardPerson {
 /** File types the API accepts for images. */
 export const imageTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
 
+/** The largest image file the API accepts (ImageFormats.MaxBytes). */
+export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
 export interface ImageDetail {
   id: string
   boardId: string
