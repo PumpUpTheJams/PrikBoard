@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import { api, errorMessage } from '../../web/src/api/client'
-import type { BoardTree, Node } from './boardTree'
+import { titleOf, type BoardTree, type Node } from './boardTree'
 
 const required = (value: string) => (value.trim() ? undefined : 'Enter a title')
 
@@ -65,7 +65,7 @@ export function registerCardCommands(tree: BoardTree): vscode.Disposable[] {
         description: bucket.id === node.card.bucketId ? 'current' : undefined,
         bucketId: bucket.id,
       })),
-      { title: `Move "${node.card.title || 'Untitled card'}" to` },
+      { title: `Move "${titleOf(node.card)}" to` },
     )
     if (!picked || picked.bucketId === node.card.bucketId) return
     await run(() => api.moveCard(node.card.id, { bucketId: picked.bucketId }))
@@ -86,7 +86,7 @@ export function registerCardCommands(tree: BoardTree): vscode.Disposable[] {
   const deleteCard = async (node?: Node) => {
     if (node?.kind !== 'card') return
     const answer = await vscode.window.showWarningMessage(
-      `Delete "${node.card.title || 'Untitled card'}"?`,
+      `Delete "${titleOf(node.card)}"?`,
       { modal: true, detail: 'It can be put back from Deleted items in the web app for 7 days.' },
       'Delete',
     )

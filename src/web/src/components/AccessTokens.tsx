@@ -2,7 +2,9 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { api, errorMessage } from '../api/client'
 import type { AccessToken, BoardRole, BoardSummary, CreatedAccessToken } from '../api/types'
 import { SparkleIcon, UserIcon } from '../board/icons'
+import { useCopy } from '../board/useCopy'
 import { ConfirmDialog } from './ConfirmDialog'
+import { CopyField } from './CopyField'
 import { Select, type SelectOption } from './Select'
 
 const accessOptions: SelectOption<BoardRole>[] = [
@@ -209,39 +211,21 @@ function TokenForm({ boards, onCreated, onCancel }: { boards: BoardSummary[]; on
 
 /** The token, once, with ready-to-paste setup for an MCP client and for the REST API. */
 function NewToken({ created, onDone }: { created: CreatedAccessToken; onDone: () => void }) {
-  const [copied, setCopied] = useState<string | null>(null)
+  const copier = useCopy()
   const origin = window.location.origin
   const mcp = `claude mcp add --transport http prikboard ${origin}/mcp --header "Authorization: Bearer ${created.token}"`
   const curl = `curl -H "Authorization: Bearer ${created.token}" ${origin}/api/boards`
-
-  async function copy(what: string, text: string) {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(what)
-    } catch {
-      setCopied(null)
-    }
-  }
-
-  const field = (what: string, label: string, text: string) => (
-    <div className="copy-field">
-      <input readOnly aria-label={label} value={text} onFocus={(e) => e.target.select()} />
-      <button type="button" className="ghost small" onClick={() => void copy(what, text)}>
-        {copied === what ? 'Copied' : 'Copy'}
-      </button>
-    </div>
-  )
 
   return (
     <div className="token-created" role="status">
       <p className="dialog-text">
         <strong>Copy “{created.details.name}” now.</strong> You won’t see it again.
       </p>
-      {field('token', 'Access token', created.token)}
+      <CopyField label="Access token" value={created.token} copier={copier} />
       <p className="dialog-hint">Claude Code (MCP):</p>
-      {field('mcp', 'Claude Code command', mcp)}
+      <CopyField label="Claude Code command" value={mcp} copier={copier} />
       <p className="dialog-hint">REST API:</p>
-      {field('curl', 'curl example', curl)}
+      <CopyField label="curl example" value={curl} copier={copier} />
       <div className="dialog-actions">
         <button type="button" className="primary" onClick={onDone}>
           Done

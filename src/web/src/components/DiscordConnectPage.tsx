@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, errorMessage } from '../api/client'
 import type { BoardSummary, DiscordConnectCode } from '../api/types'
 import { CardIcon } from '../board/icons'
+import { useCopy } from '../board/useCopy'
 import type { DiscordConnectRequest } from './discord'
 import { Select, type SelectOption } from './Select'
 
@@ -26,7 +27,7 @@ export function DiscordConnectPage({ request, onDone }: DiscordConnectPageProps)
   const [boards, setBoards] = useState<BoardSummary[] | null>(null)
   const [chosen, setChosen] = useState<Record<string, Reach>>({})
   const [code, setCode] = useState<DiscordConnectCode | null>(null)
-  const [copied, setCopied] = useState(false)
+  const { copied, copy } = useCopy()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const complete = request.codeChallenge.length === 43
@@ -62,15 +63,6 @@ export function DiscordConnectPage({ request, onDone }: DiscordConnectPageProps)
 
   const command = code ? `/prikboard finish code:${code.code}` : ''
 
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(command)
-      setCopied(true)
-    } catch {
-      setCopied(false)
-    }
-  }
-
   return (
     <div className="sign-in">
       <div className="sign-in-card discord-connect">
@@ -94,7 +86,7 @@ export function DiscordConnectPage({ request, onDone }: DiscordConnectPageProps)
             {/* Wraps instead of scrolling, so the whole code shows: it is too long for one line. */}
             <div className="copy-field discord-command">
               <code aria-label="Discord command">{command}</code>
-              <button type="button" className="ghost small" onClick={() => void copy()}>
+              <button type="button" className="ghost small" onClick={() => void copy(command)}>
                 {copied ? 'Copied' : 'Copy'}
               </button>
             </div>

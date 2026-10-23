@@ -52,6 +52,45 @@ async function probe(address: string) {
   return Array.isArray(body) ? undefined : `${address} does not look like PrikBoard (no sign-in at /api/auth/providers)`
 }
 
+/** Asks for the PrikBoard address until it is valid and PrikBoard answers there; undefined when canceled. */
+function askForServerAddress() {
+  return new Promise<string | undefined>((resolve) => {
+    const box = vscode.window.createInputBox()
+    box.title = 'PrikBoard address'
+    box.prompt = 'The address you open PrikBoard at in your browser'
+    box.placeholder = 'https://prikboard.example.com'
+    box.value = serverChosen() ? serverUrl() : ''
+    box.ignoreFocusOut = true
+    let settled = false
+    box.onDidChangeValue((value) => (box.validationMessage = value.trim() ? checkAddress(value) : undefined))
+    box.onDidAccept(async () => {
+      const candidate = box.value.trim().replace(/\/+$/, '')
+      const invalid = checkAddress(candidate)
+      if (invalid || box.busy) {
+        box.validationMessage = invalid
+        return
+      }
+      box.busy = true
+      box.enabled = false
+      const problem = await probe(candidate)
+      box.busy = false
+      box.enabled = true
+      if (problem) {
+        box.validationMessage = problem
+        return
+      }
+      settled = true
+      resolve(candidate)
+      box.hide()
+    })
+    box.onDidHide(() => {
+      if (!settled) resolve(undefined)
+      box.dispose()
+    })
+    box.show()
+  })
+}
+
 /** The sign-in through the issuer, from the settings; null while the authority or the client id is missing. */
 function oidcConfig(): OidcConfig | null {
   const authority = setting('oidc.authority', '').trim()
@@ -124,41 +163,7 @@ export class Auth implements vscode.Disposable {
    * cleared. Signs out when the server changes, since the credential belongs to the old one. Returns false when canceled.
    */
   async chooseServer() {
-    const address = await new Promise<string | undefined>((resolve) => {
-      const box = vscode.window.createInputBox()
-      box.title = 'PrikBoard address'
-      box.prompt = 'The address you open PrikBoard at in your browser'
-      box.placeholder = 'https://prikboard.example.com'
-      box.value = serverChosen() ? serverUrl() : ''
-      box.ignoreFocusOut = true
-      let settled = false
-      box.onDidChangeValue((value) => (box.validationMessage = value.trim() ? checkAddress(value) : undefined))
-      box.onDidAccept(async () => {
-        const candidate = box.value.trim().replace(/\/+$/, '')
-        const invalid = checkAddress(candidate)
-        if (invalid || box.busy) {
-          box.validationMessage = invalid
-          return
-        }
-        box.busy = true
-        box.enabled = false
-        const problem = await probe(candidate)
-        box.busy = false
-        box.enabled = true
-        if (problem) {
-          box.validationMessage = problem
-          return
-        }
-        settled = true
-        resolve(candidate)
-        box.hide()
-      })
-      box.onDidHide(() => {
-        if (!settled) resolve(undefined)
-        box.dispose()
-      })
-      box.show()
-    })
+    const address = await askForServerAddress()
     if (address === undefined) return false
 
     if (this.signedIn && address !== serverUrl()) await this.signOut()

@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { api, errorMessage } from '../api/client'
 import type { Caller } from '../api/types'
 import { CardIcon } from '../board/icons'
+import { useCopy } from '../board/useCopy'
 import type { ConnectRequest } from './connect'
+import { CopyField } from './CopyField'
 
 /** Same rule as the server (AppSignInEndpoints.IsLoopback): the app on this machine, never another site. */
 function isLoopback(address: string) {
@@ -35,7 +37,7 @@ interface ConnectPageProps {
 export function ConnectPage({ request, user, onDone }: ConnectPageProps) {
   const [code, setCode] = useState<string | null>(null)
   const [returning, setReturning] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const copier = useCopy()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const paste = request.redirectUri === null
@@ -72,15 +74,6 @@ export function ConnectPage({ request, user, onDone }: ConnectPageProps) {
     onDone()
   }
 
-  async function copy(text: string) {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-    } catch {
-      setCopied(false)
-    }
-  }
-
   return (
     <div className="sign-in">
       <div className="sign-in-card">
@@ -105,12 +98,7 @@ export function ConnectPage({ request, user, onDone }: ConnectPageProps) {
         ) : code ? (
           <>
             <h1>Paste this code into VS Code</h1>
-            <div className="copy-field">
-              <input readOnly aria-label="Sign-in code" value={code} onFocus={(e) => e.target.select()} />
-              <button type="button" className="ghost small" onClick={() => void copy(code)}>
-                {copied ? 'Copied' : 'Copy'}
-              </button>
-            </div>
+            <CopyField label="Sign-in code" value={code} copier={copier} />
             <p className="sign-in-error" role="alert">
               Only paste it into VS Code that you started yourself. PrikBoard never asks you to send it to anyone. It works once, for
               5 minutes.

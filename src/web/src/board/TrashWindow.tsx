@@ -2,17 +2,19 @@ import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useSt
 import { createPortal } from 'react-dom'
 import { api, errorMessage } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { plural } from '../components/plural'
 import type { ImageDetail, CardDetail, Point, TrashContents } from '../api/types'
 import { isDrag } from './gesture'
-import { CloseIcon, MinusIcon, PlusIcon, SearchIcon, TrashIcon } from './icons'
+import { CloseIcon, SearchIcon, TrashIcon } from './icons'
 import { fitGrid, GRID, CARD_HEIGHT, CARD_WIDTH } from './layout'
-import { pop } from './motion'
 import { Card } from './Card'
 import { matchCard, searchTerms } from './search'
 import type { TagColors } from './tagColors'
 import { useFloatingWindow } from './useFloatingWindow'
+import { WindowResizeHandles } from './WindowResizeHandles'
 import { useZoom } from './useZoom'
-import { stepZoom, ZOOM_LEVELS } from './zoom'
+import { stepZoom } from './zoom'
+import { ZoomButtons } from './ZoomButtons'
 
 /** What the board needs from the open trash: whether a card dragged on the board is over it, and a pop when one went in. */
 export interface TrashWindowHandle {
@@ -81,7 +83,7 @@ export function TrashWindow(props: TrashWindowProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
-  const { rect, moving, startMove, startResize } = useFloatingWindow(dialogRef, 'prikboard.trashWindow.window')
+  const { style, moving, startMove, startResize, contains, pop } = useFloatingWindow(dialogRef, 'prikboard.trashWindow.window')
   const { zoom, zoomTo } = useZoom(scrollRef, NO_INSET)
   const [contents, setContents] = useState<TrashContents | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -127,12 +129,7 @@ export function TrashWindow(props: TrashWindowProps) {
     return () => observer.disconnect()
   }, [])
 
-  const contains = (client: Point) => {
-    const r = dialogRef.current?.getBoundingClientRect()
-    return !!r && client.x >= r.left && client.x < r.right && client.y >= r.top && client.y < r.bottom
-  }
-
-  useImperativeHandle(handle, () => ({ contains, pop: () => pop(dialogRef.current, 1.015) }))
+  useImperativeHandle(handle, () => ({ contains, pop }))
 
   const terms = useMemo(() => searchTerms(query), [query])
   const all = (contents?.cards ?? []).filter((n) => !gone.has(n.id))
@@ -204,7 +201,7 @@ export function TrashWindow(props: TrashWindowProps) {
     <article
       ref={dialogRef}
       className={`expanded trash-window${moving ? ' moving' : ''}${dropOver ? ' drop-over' : ''}`}
-      style={rect ? { left: rect.x, top: rect.y, width: rect.width, height: rect.height } : { visibility: 'hidden' }}
+      style={style}
       role="dialog"
       aria-modal="false"
       aria-label="Deleted items"
@@ -251,7 +248,7 @@ export function TrashWindow(props: TrashWindowProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          {terms.length > 0 && <span className="trash-search-count">{shown.length === 1 ? '1 match' : `${shown.length} matches`}</span>}
+          {terms.length > 0 && <span className="trash-search-count">{plural(shown.length, 'match', 'matches')}</span>}
         </label>
       </header>
 
@@ -306,28 +303,10 @@ export function TrashWindow(props: TrashWindowProps) {
           </p>
         ) : null}
 
-        <div className="zoom-controls card-zoom">
-          <button type="button" className="rail-button small" aria-label="Zoom out" disabled={zoom <= ZOOM_LEVELS[0]} onClick={() => zoomTo(stepZoom(zoom, -1))}>
-            <MinusIcon />
-          </button>
-          <button type="button" className="zoom-level" title="Reset to 100%" onClick={() => zoomTo(1)}>
-            {Math.round(zoom * 100)}%
-          </button>
-          <button
-            type="button"
-            className="rail-button small"
-            aria-label="Zoom in"
-            disabled={zoom >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}
-            onClick={() => zoomTo(stepZoom(zoom, 1))}
-          >
-            <PlusIcon />
-          </button>
-        </div>
+        <ZoomButtons className="card-zoom" zoom={zoom} onStep={(direction) => zoomTo(stepZoom(zoom, direction))} onReset={() => zoomTo(1)} />
       </div>
 
-      <span className="window-resize e" aria-hidden="true" onPointerDown={startResize('e')} />
-      <span className="window-resize s" aria-hidden="true" onPointerDown={startResize('s')} />
-      <span className="window-resize se" aria-hidden="true" onPointerDown={startResize('se')} />
+      <WindowResizeHandles onResize={startResize} />
 
       {/* A card on its way out follows the pointer: at the window's zoom inside it, at the board's outside. */}
       {dragging &&

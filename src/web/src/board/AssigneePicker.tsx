@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { Assignee, BoardPerson } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { PickerWindow, type PickerRow } from '../components/PickerWindow'
-import { MAX_ASSIGNEES, useDraftList } from './tags'
+import { knownPeople, MAX_ASSIGNEES, toggleIn, useDraftList } from './tags'
 
 /** How many people the window lists at a time; type to find the others. */
 const SHOWN = 5
@@ -27,10 +27,9 @@ export function AssigneePicker({ anchor, assignees, people, onChange, onClose }:
   const [query, setQuery] = useState('')
 
   // Everyone with a name: the board's people, plus anyone on the card who has since left the board.
-  const known = new Map<string, Pick<Assignee, 'name' | 'kind' | 'avatarUrl'>>(people.map((p) => [p.principalId, p]))
-  for (const a of assignees) if (!known.has(a.principalId)) known.set(a.principalId, a)
+  const known = knownPeople(people, assignees)
   const full = draft.length >= MAX_ASSIGNEES
-  const toggle = (id: string) => change(draft.includes(id) ? draft.filter((x) => x !== id) : [...draft, id])
+  const toggle = (id: string) => change(toggleIn(draft, id))
 
   const wanted = query.trim().toLowerCase()
   const matches = people.filter((p) => p.name.toLowerCase().includes(wanted))

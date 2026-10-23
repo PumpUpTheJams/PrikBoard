@@ -1,5 +1,6 @@
-import { useLayoutEffect, useState, type PointerEvent, type RefObject } from 'react'
-import type { Rect } from '../api/types'
+import { useCallback, useLayoutEffect, useState, type CSSProperties, type PointerEvent, type RefObject } from 'react'
+import type { Point, Rect } from '../api/types'
+import { pop as popElement } from './motion'
 
 /** Where the expanded card's size and place are kept, per browser (not per card). Other windows pass their own key. */
 const STORAGE_KEY = 'prikboard.expandedCard.window'
@@ -40,7 +41,8 @@ function clamp(r: Rect, containerWidth: number, containerHeight: number): Rect {
 
 /**
  * A window floating over its offset parent (the board), moved by a press passed to `startMove` and resized from its right and
- * bottom edges. Its last size and place are remembered in localStorage. Null until the board has been measured.
+ * bottom edges (WindowResizeHandles). Its last size and place are remembered in localStorage. `rect` is null, and
+ * `style` hides the window, until the board has been measured.
  */
 export function useFloatingWindow(windowRef: RefObject<HTMLElement | null>, storageKey = STORAGE_KEY) {
   const [rect, setRect] = useState<Rect | null>(null)
@@ -100,5 +102,19 @@ export function useFloatingWindow(windowRef: RefObject<HTMLElement | null>, stor
     track(e, (s, dx, dy) => ({ ...s, width: edge === 's' ? s.width : s.width + dx, height: edge === 'e' ? s.height : s.height + dy }))
   }
 
-  return { rect, moving, startMove, startResize }
+  const style: CSSProperties = rect ? { left: rect.x, top: rect.y, width: rect.width, height: rect.height } : { visibility: 'hidden' }
+
+  /** Whether a screen point is over the window. */
+  const contains = useCallback(
+    (client: Point) => {
+      const r = windowRef.current?.getBoundingClientRect()
+      return !!r && client.x >= r.left && client.x < r.right && client.y >= r.top && client.y < r.bottom
+    },
+    [windowRef],
+  )
+
+  /** A little pop of the window, when something dropped on it went in. */
+  const pop = useCallback(() => popElement(windowRef.current, 1.015), [windowRef])
+
+  return { rect, style, moving, startMove, startResize, contains, pop }
 }
