@@ -52,12 +52,12 @@ export function VisitorPage({ boardRef, onMissing, onSignIn, onBack }: VisitorPa
   const onLost = useCallback(() => missing.current(), [])
   const refreshBoard = useRef(() => {})
   const live = useLive(boardId, { onBoardChanged: () => refreshBoard.current(), onBoardsChanged: () => {} })
-  const { board, run, setPaused, refresh } = useBoard(boardId, setError, onLost, live.connected)
+  const { board, run, setPaused, refresh, loads } = useBoard(boardId, setError, onLost, live.connected)
   useEffect(() => {
     refreshBoard.current = refresh
   }, [refresh])
   const { boardLoaded } = live
-  useEffect(() => boardLoaded(), [board, boardLoaded])
+  useEffect(() => boardLoaded(), [loads, boardLoaded])
 
   // Guests count you too; when the board hides its people, they are everyone looking.
   const others = Math.max(0, live.guests - 1)

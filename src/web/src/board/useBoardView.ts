@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, type RefObject } from 'react'
 import type { Point, Rect } from '../api/types'
-import { useScrollView } from './canvasHooks'
+import { useScrollStore } from './canvasHooks'
 import { reducedMotion } from './motion'
 import { bounds, insideClient } from './selection'
 import { useZoom } from './useZoom'
@@ -25,10 +25,10 @@ interface BoardViewOptions {
  * (screen pixels), so any part of the board, its top-left corner too, can be scrolled to the middle of the screen.
  */
 export function useBoardView({ scrollRef, canvasRef, searching, onZoom }: BoardViewOptions) {
-  /** The scroll viewport, in screen pixels. */
-  const view = useScrollView(scrollRef)
+  /** The scroll viewport, in screen pixels: its size as state, where it is scrolled to in `view` (a scroll renders nothing here). */
+  const { size, view } = useScrollStore(scrollRef)
   // While searching there is more room above, so a card at the top can be scrolled below the list of results.
-  const margin = { x: Math.round(view.width / 2), y: Math.round(Math.max(view.height / 2, searching ? SEARCH_MARGIN : 0)) }
+  const margin = { x: Math.round(size.width / 2), y: Math.round(Math.max(size.height / 2, searching ? SEARCH_MARGIN : 0)) }
   /** Where the canvas's top-left corner is in the scrolled area: the margin, plus room for the tool rail on the left. */
   const corner = { x: margin.x + RAIL_INSET, y: margin.y }
   // The wheel zooms the board (Shift + wheel scrolls).
@@ -94,12 +94,17 @@ export function useCanvasExtent({ scrollRef, view, corner, zoom }: ReturnType<ty
     extent,
     /** The middle of what is on screen, in canvas pixels. */
     viewportCenter(): Point {
-      return { x: (view.x - origin.x + view.width / 2) / zoom, y: (view.y - origin.y + view.height / 2) / zoom }
+      const v = view.get()
+      return { x: (v.x - origin.x + v.width / 2) / zoom, y: (v.y - origin.y + v.height / 2) / zoom }
     },
-    /** All of the board and the part on screen, in canvas pixels, for the minimap. */
+    /**
+     * All of the board, and the part on screen for the minimap to follow by itself (`view`, in screen pixels; `viewport`
+     * turns it into canvas pixels).
+     */
     minimap: {
       extent: { x: low.x, y: low.y, width: extent.width - low.x, height: extent.height - low.y },
-      viewport: { x: (view.x - origin.x) / zoom, y: (view.y - origin.y) / zoom, width: view.width / zoom, height: view.height / zoom },
+      view,
+      viewport: (v: Rect): Rect => ({ x: (v.x - origin.x) / zoom, y: (v.y - origin.y) / zoom, width: v.width / zoom, height: v.height / zoom }),
     },
     /** Scrolls so a canvas point (picked on the minimap) is in the middle of the screen; `smooth` glides there. */
     navigate(center: Point, { smooth = false } = {}) {
