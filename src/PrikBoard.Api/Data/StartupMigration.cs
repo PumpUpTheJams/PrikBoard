@@ -1,6 +1,8 @@
 using System.Reflection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Storage;
 using PrikBoard.Api.Data.Migrations;
 using PrikBoard.Api.Domain;
 
@@ -18,7 +20,13 @@ public static class StartupMigration
 
     public static async Task RunAsync(PrikBoardDbContext db, FileStore files, ILogger logger, CancellationToken ct)
     {
-        var applied = await db.Database.CanConnectAsync(ct) ? (await db.Database.GetAppliedMigrationsAsync(ct)).ToHashSet() : [];
+        // A first start finds no database or no history table yet. Npgsql then reads the history anyway and treats the
+        // failed query as no migrations, but the failure is still logged as an error (as is a connection to a missing
+        // database), so create both up front.
+        var database = db.GetService<IRelationalDatabaseCreator>();
+        if (!await database.ExistsAsync(ct)) await database.CreateAsync(ct);
+        await db.Database.ExecuteSqlRawAsync(db.GetService<IHistoryRepository>().GetCreateIfNotExistsScript(), ct);
+        var applied = (await db.Database.GetAppliedMigrationsAsync(ct)).ToHashSet();
         // Never once DropDatabaseBlobs is applied: migrating to an earlier target would revert the migrations after it.
         if (!applied.Contains(IdOf<DropDatabaseBlobs>()))
         {
