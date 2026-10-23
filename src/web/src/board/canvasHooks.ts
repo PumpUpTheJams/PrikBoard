@@ -24,6 +24,8 @@ export function useScrollView(scrollRef: RefObject<HTMLDivElement | null>): Rect
 export interface ScrollView {
   get: () => Rect
   subscribe: (listener: () => void) => () => void
+  /** Reads the viewport again now, for a scroll position set in code (a zoom) before its scroll event arrives. */
+  refresh: () => void
 }
 
 /**
@@ -37,6 +39,10 @@ export function useScrollStore(scrollRef: RefObject<HTMLDivElement | null>): { s
     const listeners = new Set<() => void>()
     return {
       get: () => current,
+      refresh() {
+        const el = scrollRef.current
+        if (el) this.set({ x: el.scrollLeft, y: el.scrollTop, width: el.clientWidth, height: el.clientHeight })
+      },
       subscribe(listener: () => void) {
         listeners.add(listener)
         return () => listeners.delete(listener)
@@ -50,7 +56,7 @@ export function useScrollStore(scrollRef: RefObject<HTMLDivElement | null>): { s
   })
   useLayoutEffect(() => {
     const el = scrollRef.current!
-    const scrolled = () => view.set({ x: el.scrollLeft, y: el.scrollTop, width: el.clientWidth, height: el.clientHeight })
+    const scrolled = () => view.refresh()
     const resized = () => {
       scrolled()
       setSize((s) => (s.width === el.clientWidth && s.height === el.clientHeight ? s : { width: el.clientWidth, height: el.clientHeight }))

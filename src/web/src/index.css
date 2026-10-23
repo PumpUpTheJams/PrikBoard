@@ -990,6 +990,54 @@ main {
   outline-offset: 3px;
 }
 
+/*
+ * Zoomed far out (FAR_ZOOM), a card is only its fill, a big title and a mark per tag (FarCard), and cards drop their
+ * shadows, folded corner and hover growth: painting those for a whole board at once is what makes zooming out slow.
+ */
+.card.far {
+  gap: 8px;
+  padding: 14px;
+}
+
+.card-far-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.card-far-tags {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+}
+
+/* Default tags are a shade of the fill, as their chips are. */
+.card-far-tag {
+  width: 28px;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--tag, color-mix(in srgb, var(--ink) 28%, transparent));
+}
+
+.canvas.far .card {
+  box-shadow: none;
+  transition: none;
+}
+
+.canvas.far .card::after {
+  display: none;
+}
+
+.canvas.far.tool-select .card:hover:not(.lifted) {
+  transform: none;
+  box-shadow: none;
+}
+
 .card.selected {
   outline: 2px solid var(--accent);
   outline-offset: 3px;

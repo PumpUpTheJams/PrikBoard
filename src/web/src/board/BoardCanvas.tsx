@@ -10,6 +10,7 @@ import { bucketCounts, bucketOf, cardBox, drawOrder, kindOf, NOTHING_IN, type Se
 import type { Gesture, GestureTarget, GroupGesture, ItemDrag, ItemGesture } from './boardGesture'
 import { BoardSearch } from './BoardSearch'
 import { BoardTrash } from './BoardTrash'
+import { CardIndex } from './CardIndex'
 import { BoardBucket, BoardCard, BoardCollapsedBucket, BoardDrawing, BoardImage, type BoardItemHandlers } from './boardItemViews'
 import type { BucketCount } from './BucketView'
 import { usePan, useFileDrop } from './canvasHooks'
@@ -18,7 +19,7 @@ import { DrawingToolbar, PenRing, StrokeSvg } from './DrawingView'
 import { dropTargetsFor, NO_DROPS, released, useDropProbe, type DropTargets } from './dropTargets'
 import { ExpandedCard, type ExpandedCardHandle } from './ExpandedCard'
 import { isDrag } from './gesture'
-import { MAX_COORDINATE, MIN_BUCKET_HEIGHT, MIN_BUCKET_WIDTH, MIN_COORDINATE, backToFront, bucketUnder, bucketUnderCard, collapsedRect, isLooseDrawing, layersBackToFront, snapPoint, spanRect } from './layout'
+import { MAX_COORDINATE, MIN_BUCKET_HEIGHT, MIN_BUCKET_WIDTH, MIN_COORDINATE, backToFront, bucketUnder, bucketUnderCard, collapsedRect, intersects, isLooseDrawing, layersBackToFront, snapPoint, spanRect } from './layout'
 import { activeDrags, draggingOf, gridFor, itemKindOf, liveGeometry, sentDrag } from './liveGeometry'
 import { ops, recordingRun, settling } from './ops'
 import { RemoteCursors } from './RemoteCursors'
@@ -47,7 +48,8 @@ import { useToast } from './useToast'
 import { useTrashWindow } from './useTrashWindow'
 import { useUndo, type UndoHistory } from './useUndo'
 import { ViewControls } from './ViewControls'
-import { stepZoom } from './zoom'
+import { useVisibleWindow } from './visibleWindow'
+import { FAR_ZOOM, stepZoom } from './zoom'
 
 const hints: Partial<Record<Tool, string>> = {
   card: 'Click anywhere to stick a card',
@@ -633,6 +635,14 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     },
     toggleBucket: (bucket) => edits.toggleCollapsed(bucket),
   })
+  /** What the hidden list of every card calls back (CardIndex): a card focused there is selected and brought on screen. */
+  const indexHandlers = useStableHandlers({
+    focusCard(card: CardDetail) {
+      setSelection({ kind: 'card', id: card.id })
+      search.revealSoon(card.id)
+    },
+    openCard: expand,
+  })
   const drawingView = ({ drawing, rect }: (typeof drawings)[number], front: boolean) => (
     <BoardDrawing
       key={drawing.id}
@@ -664,6 +674,13 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     ...drawings.map((d) => d.rect),
   ])
   const { origin, extent } = canvas
+  /** The part of the board around the screen (useVisibleWindow): only what touches it is on the page, unless it is kept. */
+  const near = useVisibleWindow(boardView.view, zoom, origin)
+  /** On the page wherever they are: what is selected, moving, edited or looked at, so focus and gestures stay with them. */
+  const kept = new Set([...selected.map((s) => s.id), ...liftedIds, ...remoteIds, ...[titleEdit?.id, quickEdit?.cardId, current].filter((id): id is string => !!id)])
+  const onPage = (id: string, rect: Rect) => kept.has(id) || intersects(near, rect)
+  /** Zoomed far out, cards show only their fill, title and tag colors. */
+  const far = zoom < FAR_ZOOM
   useReveal(search, { scrollRef, boardTop, board, zoom, origin, cardPoint })
   const pointing = usePointing({ scrollRef, toCanvas, onCursor })
 
@@ -801,7 +818,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         >
           <div
             ref={canvasRef}
-            className={`canvas tool-${tool}${pan.panning ? ' panning' : spaceHeld ? ' space-pan' : ''}`}
+            className={`canvas tool-${tool}${far ? ' far' : ''}${pan.panning ? ' panning' : spaceHeld ? ' space-pan' : ''}`}
             style={{
               left: origin.x,
               top: origin.y,
@@ -847,7 +864,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             {layers.map((layer, i) => {
               if (layer.kind === 'drawing') {
                 const below = i < frontLayer ? drawingsById.get(layer.id) : undefined
-                return below && drawingView(below, false)
+                return below && onPage(below.drawing.id, below.rect) ? drawingView(below, false) : null
               }
               const shown = bucketsById.get(layer.id)
               if (!shown) return null
@@ -888,7 +905,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               />
             )}
 
-            {images.map(({ image, rect }) => (
+            {images.filter(({ image, rect }) => onPage(image.id, rect)).map(({ image, rect }) => (
               <BoardImage
                 key={image.id}
                 image={image}
@@ -906,7 +923,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             {outgoingPlace && <Slot rect={cardBox(outgoingPlace)} />}
             {draggedItem && <Slot rect={draggedItem.home} />}
 
-            {cards.map(({ card, point }) => (
+            {cards.filter(({ card, point }) => onPage(card.id, cardBox(point))).map(({ card, point }) => (
               <BoardCard
                 key={card.id}
                 card={card}
@@ -927,12 +944,15 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                 editingTitle={titleEdit?.id === card.id}
                 titleCaret={titleEdit?.id === card.id ? titleEdit.caret : undefined}
                 readOnly={readOnly}
+                far={far}
                 handlers={itemHandlers}
               />
             ))}
 
-            {drawings.filter(({ drawing }) => !isLooseDrawing(drawing)).map((shown) => drawingView(shown, inFront(shown.drawing)))}
-            {looseAbove.map((shown) => drawingView(shown, true))}
+            {drawings
+              .filter(({ drawing, rect }) => !isLooseDrawing(drawing) && onPage(drawing.id, rect))
+              .map((shown) => drawingView(shown, inFront(shown.drawing)))}
+            {looseAbove.filter(({ drawing, rect }) => onPage(drawing.id, rect)).map((shown) => drawingView(shown, true))}
 
             {/* Above everything while it is drawn; once saved, the drawing takes its place in the stack. */}
             <div className="pen-strokes">
@@ -975,6 +995,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         </div>
       </div>
 
+      <CardIndex cards={visibleCards} buckets={board.buckets} onFocusCard={indexHandlers.focusCard} onOpenCard={indexHandlers.openCard} />
       <ToolRail
         tool={tool}
         onToolChange={setTool}

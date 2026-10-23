@@ -87,6 +87,9 @@ export function useCanvasExtent({ scrollRef, view, corner, zoom }: ReturnType<ty
     el.scrollTop += (lastLow.current.y - low.y) * zoom
     lastLow.current = { x: low.x, y: low.y }
   }, [low.x, low.y, zoom, scrollRef])
+  // A zoom or a change of the margin or the canvas's top-left moved the scroll position in code: what follows it (the
+  // minimap, the part of the board on the page) catches up before the browser paints, not on the scroll event after.
+  useLayoutEffect(() => view.refresh())
 
   return {
     low,

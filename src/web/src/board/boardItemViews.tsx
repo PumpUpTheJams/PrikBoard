@@ -4,6 +4,8 @@ import type { ItemGesture } from './boardGesture'
 import { BoardImageView } from './BoardImageView'
 import { BucketView, CollapsedBucketView, type BucketCount } from './BucketView'
 import { Card } from './Card'
+import { CARD_HEIGHT, CARD_WIDTH } from './layout'
+import { cardLabel } from './links'
 import type { Reshape } from './drawings'
 import { DrawingView } from './DrawingView'
 import type { SearchTerm } from './search'
@@ -45,11 +47,14 @@ interface BoardCardProps {
   editingTitle: boolean
   titleCaret: number | undefined
   readOnly: boolean
+  /** The board is zoomed far out (below FAR_ZOOM): only the fill, title and tag colors show. */
+  far: boolean
   handlers: BoardItemHandlers
 }
 
 /** A card on the board. */
-export const BoardCard = memo(function BoardCard({ card, readOnly, handlers: h, ...shown }: BoardCardProps) {
+export const BoardCard = memo(function BoardCard({ card, readOnly, far, handlers: h, ...shown }: BoardCardProps) {
+  if (far) return <FarCard card={card} {...shown} onPointerDown={(e) => h.pointerDown(e, 'card', card.id)} onExpand={() => h.expand(card.id)} />
   return (
     <Card
       card={card}
@@ -63,6 +68,51 @@ export const BoardCard = memo(function BoardCard({ card, readOnly, handlers: h, 
     />
   )
 })
+
+type FarCardProps = Pick<BoardCardProps, 'card' | 'point' | 'tagColors' | 'selected' | 'lifted' | 'front' | 'dimmed' | 'current' | 'dropTarget'> & {
+  onPointerDown: (e: PointerEvent<HTMLDivElement>) => void
+  onExpand: () => void
+}
+
+/**
+ * A card when the board is zoomed far out: its fill, title and a mark in each tag's color, without buttons, avatars or
+ * shadows, so a whole board of them stays light. It is pressed, dragged and opened like any card; its title can't be
+ * edited in place, as it is too small there to aim at.
+ */
+function FarCard({ card, point, tagColors, selected, lifted, front, dimmed, current, dropTarget, onPointerDown, onExpand }: FarCardProps) {
+  const name = cardLabel(card)
+  const classes = ['card', 'far', `fill-${card.color.toLowerCase()}`]
+  if (selected) classes.push('selected')
+  if (lifted) classes.push('lifted')
+  if (front) classes.push('in-front')
+  if (card.agentWorking) classes.push('agent-working')
+  if (dimmed) classes.push('dimmed')
+  if (current) classes.push('search-current')
+  if (dropTarget) classes.push('drop-target')
+  return (
+    <div
+      className={classes.join(' ')}
+      style={{ left: point.x, top: point.y, width: CARD_WIDTH, height: CARD_HEIGHT }}
+      role="group"
+      data-card={card.id}
+      aria-label={card.agentWorking ? `${name} (agent working)` : name}
+      tabIndex={0}
+      onPointerDown={onPointerDown}
+      onDoubleClick={onExpand}
+      onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && onExpand()}
+    >
+      <span className="card-far-title">{name}</span>
+      {card.tags.length > 0 && (
+        <span className="card-far-tags" aria-hidden="true">
+          {card.tags.map((tag) => {
+            const color = tagColors.get(tag)
+            return <span key={tag} className={`card-far-tag${color && color !== 'Default' ? ` tag-color-${color.toLowerCase()}` : ''}`} />
+          })}
+        </span>
+      )}
+    </div>
+  )
+}
 
 interface BoardImageProps {
   image: ImageDetail
