@@ -139,6 +139,25 @@ export function bucketMove(board: BoardDetail, bucket: BucketDetail, moved: Buck
 /** Whether a component is empty. Removing an empty one shows no undo toast, though it can still be undone. */
 export const isEmptyComponent = (c: CardComponent) => !c.text && !c.items?.length && !c.links?.length && !c.title
 
+const blank = (text: string | null | undefined) => !text?.trim()
+
+/**
+ * Whether a card has nothing on it (Card.IsBlank on the server, plus no images or drawings): deleting it deletes it
+ * for good, so there is nothing to undo.
+ */
+export function isBlankCard(board: Pick<BoardDetail, 'images' | 'drawings'>, card: CardDetail) {
+  const blankComponent = (c: CardComponent) =>
+    blank(c.title) && blank(c.text) && (c.items ?? []).every((i) => blank(i.text)) && (c.links ?? []).every((l) => blank(l.title) && blank(l.url))
+  return (
+    blank(card.title) &&
+    card.tags.length === 0 &&
+    card.assignees.length === 0 &&
+    card.components.every(blankComponent) &&
+    !board.images.some((i) => i.cardId === card.id) &&
+    !board.drawings.some((d) => d.cardId === card.id)
+  )
+}
+
 export const ops = {
   /** A new card in a bucket (the server finds it a free spot, growing a full bucket), or at a point on the board. */
   addCard: (boardId: string, place: { bucketId: string } | { x: number; y: number }, color?: CardColor): Op<CardDetail> => [
@@ -189,9 +208,10 @@ export const ops = {
     },
   ],
 
-  deleteCard: (card: CardDetail): Op<void> => [
+  /** Deletes a card into the trash; one with nothing on it (`isBlankCard`) goes for good, without an undo step. */
+  deleteCard: (card: CardDetail, board: Pick<BoardDetail, 'images' | 'drawings'>): Op<void> => [
     () => api.deleteCard(card.id),
-    () => step('Delete card', [deleted(target.card(card.id), snap.card(card))], { toast: 'Card deleted' }),
+    () => (isBlankCard(board, card) ? null : step('Delete card', [deleted(target.card(card.id), snap.card(card))], { toast: 'Card deleted' })),
   ],
 
   /** Moves a card into a bucket, in a free spot there; `toast` confirms it with an Undo button. */

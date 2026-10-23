@@ -29,6 +29,12 @@ public class Card
     public List<CardComponent> Components { get; set; } = [];
     /// <summary>Set while an AI agent is actively working on the card; the board shows a halo.</summary>
     public bool AgentWorking { get; set; }
+    /// <summary>
+    /// While <see cref="AgentWorking"/>: the assignee the agent works for, whose avatar shows it. That is the person whose
+    /// access token the agent uses (agents behind a person's token are never assignees themselves), or an agent without
+    /// such an owner; null when it isn't known (the flag set by hand or by an import).
+    /// </summary>
+    public Guid? AgentWorkingForId { get; set; }
     public int X { get; set; }
     public int Y { get; set; }
     /// <summary>The user or agent that added the card to the board; null for older cards, or once they no longer exist.</summary>
@@ -38,4 +44,11 @@ public class Card
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     /// <summary>When it was deleted; it can be restored until <see cref="Data.Tombstones.Retention"/> has passed. Hidden by the query filter while set.</summary>
     public DateTimeOffset? DeletedAt { get; set; }
+
+    /// <summary>
+    /// Whether there is nothing on the card worth keeping: no title, tags, assignees or text in its components. Its
+    /// images and drawings are rows of their own, so a caller checks those too (deleteCard deletes such a card for good).
+    /// </summary>
+    public bool IsBlank() =>
+        string.IsNullOrWhiteSpace(Title) && Tags.Count == 0 && AssigneeIds.Count == 0 && Components.All(c => c.IsBlank());
 }

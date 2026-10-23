@@ -40,7 +40,7 @@ public sealed partial class BoardTools
     internal const string NewCardAssigneesHelp = "People and agents to assign (at most 10): their names or principal ids, from people in get_board.";
     internal const string ChecklistHelp = "Checklist items, as a Checklist component.";
     internal const string NewCardLinksHelp = "Links with a title and a url, as a Links component: an absolute http(s) URL, or another card's path (path in get_card) to link that card.";
-    internal const string WorkingHelp = "True when you start working on it right away: assigns you and shows the working halo, as set_working does.";
+    internal const string WorkingHelp = "True when you start working on it right away: assigns you (as the person whose token you use) and shows the working halo, as set_working does.";
     private const string ComponentHelp = "The component: its id, its title, or its kind (Text, Checklist or Links) when the card has one component of that kind.";
     private const string BucketIdHelp = "The bucket id (in get_board).";
     private const string ImageCardHelp = "Attach the image to this card: " + CardForms;
@@ -137,14 +137,15 @@ public sealed partial class BoardTools
     [McpServerTool(Name = "get_card_history", Title = "Get a card's history", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Who changed what on a card and when, newest first: title, color, tags, assignees, the agent-working flag, " +
                  "moves between buckets, components added, changed or removed, images and drawings added or removed, copies and " +
-                 "moves to other boards, and deleting and restoring it. Works for cards in the trash too, given by id." + DataText)]
+                 "moves to other boards, and deleting and restoring it. Works for cards in the trash too." + DataText)]
     public static async Task<List<CardChangeDetail>> GetCardHistory(
         IHttpContextAccessor accessor,
         [Description(CardHelp)] string card,
         [Description("At most this many changes (default 100, at most 500).")] int? limit = null,
         CancellationToken ct = default)
     {
-        var (_, db, _, cardId) = await CardCallAsync(accessor, card, BoardRole.Viewer, ct);
+        // Deleted cards too, by readable id and path as well (numbers are never reused, so those still name one card).
+        var (_, db, _, cardId) = await CardCallAsync(accessor, card, BoardRole.Viewer, ct, deleted: true);
         return McpCall.Value<List<CardChangeDetail>>(await CardEndpoints.ListCardHistory(cardId, limit, db, ct));
     }
 
@@ -203,10 +204,10 @@ public sealed partial class BoardTools
         var assigneeIds = card.Assignees is null ? null : await ResolveAssigneesAsync(http, db, boardId, card.Assignees, [], ct);
         if (card.Working)
         {
-            // Whoever passed the Editor check reaches the board, so they can be assigned.
-            var me = http.User.PrincipalId();
+            // Whoever passed the Editor check reaches the board, and so does the owner of their token, so they can be assigned.
+            var worksFor = await CardEndpoints.WorksForAsync(db, http.User, ct);
             assigneeIds ??= [];
-            if (!assigneeIds.Contains(me)) assigneeIds.Add(me);
+            if (!assigneeIds.Contains(worksFor)) assigneeIds.Add(worksFor);
         }
 
         List<NewCardComponent> components = [];
@@ -239,7 +240,7 @@ public sealed partial class BoardTools
         }
         var request = new UpdateCardRequest(title, color, tags, assigneeIds, agentWorking);
         McpCall.Validate(request);
-        var result = McpCall.Value<CardDetail>(await CardEndpoints.UpdateCard(cardId, request, db, ct));
+        var result = McpCall.Value<CardDetail>(await CardEndpoints.UpdateCard(cardId, request, http.User, db, ct));
         await McpCall.AnnounceAsync(http, boardId);
         return await ViewAsync(http, result, content: false, ct);
     }
@@ -392,7 +393,7 @@ public sealed partial class BoardTools
         IHttpContextAccessor accessor,
         [Description(CardHelp)] string card,
         [Description("The bucket to move it to: its name (for example \"Done\") or id.")] string bucket,
-        [Description("True when you start working on it (assigns you, shows the halo), false when you stop; leave it out to keep it as it is.")] bool? working = null,
+        [Description("True when you start working on it (assigns you as the person whose token you use, shows the halo), false when you stop; leave it out to keep it as it is.")] bool? working = null,
         CancellationToken ct = default)
     {
         var (http, db, boardId, cardId) = await CardCallAsync(accessor, card, BoardRole.Editor, ct);
@@ -483,8 +484,9 @@ public sealed partial class BoardTools
     }
 
     [McpServerTool(Name = "set_working", Title = "Mark a card as being worked on", Idempotent = true, OpenWorld = false)]
-    [Description("Says you are (or are no longer) working on a card. True assigns you and shows a halo around the card; " +
-                 "call it with false when you are done, which removes the halo (you stay assigned). Needs the Editor role.")]
+    [Description("Says you are (or are no longer) working on a card. True assigns the person whose token you use (you are never " +
+                 "assigned yourself) and shows a halo around the card and their avatar; call it with false when you are done, which " +
+                 "removes the halos (they stay assigned). Needs the Editor role.")]
     public static async Task<CardView> SetWorking(
         IHttpContextAccessor accessor,
         [Description(CardHelp)] string card,
@@ -499,13 +501,16 @@ public sealed partial class BoardTools
 
     [McpServerTool(Name = "delete_card", Title = "Delete a card", Destructive = true, OpenWorld = false)]
     [Description("Deletes a card with its images and drawings; restore_card brings them back within " + Tombstones.RetentionText + ". " +
+                 "A card with nothing on it (no title, tags, assignees, content, images or drawings) is deleted for good instead. " +
                  "Prefer moving finished work to \"Done\". Needs the Editor role.")]
     public static async Task<string> DeleteCard(IHttpContextAccessor accessor, [Description(CardHelp)] string card, CancellationToken ct)
     {
         var (http, db, boardId, cardId) = await CardCallAsync(accessor, card, BoardRole.Editor, ct);
         McpCall.Succeeded(await CardEndpoints.DeleteCard(cardId, http.User, db, ct));
         await McpCall.AnnounceAsync(http, boardId);
-        return $"Deleted. restore_card brings it back within {Tombstones.RetentionText}.";
+        return await db.Cards.WithDeleted().AnyAsync(n => n.Id == cardId, ct)
+            ? $"Deleted. restore_card brings it back within {Tombstones.RetentionText}."
+            : "Deleted for good: there was nothing on it.";
     }
 
     [McpServerTool(Name = "restore_card", Title = "Restore a deleted card", OpenWorld = false)]

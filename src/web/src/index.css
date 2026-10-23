@@ -538,6 +538,55 @@ main {
   background: var(--line);
 }
 
+/* The board menu: your boards on the left, the open board's settings on the right (stacked on narrow screens). */
+.menu-panel.board-menu {
+  flex-direction: row;
+  gap: 6px;
+  max-width: calc(100vw - 32px);
+}
+
+.board-menu-column {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 260px;
+  min-width: 0;
+}
+
+/* A long list of boards scrolls on its own, so the rest of the menu stays in view. */
+.board-menu-boards {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: calc(100dvh - 220px);
+  overflow-y: auto;
+}
+
+.board-menu-settings {
+  padding-left: 6px;
+  border-left: 1px solid var(--line);
+}
+
+@media (max-width: 560px) {
+  .menu-panel.board-menu {
+    flex-direction: column;
+  }
+
+  .board-menu-column {
+    width: auto;
+  }
+
+  .board-menu-settings {
+    padding: 6px 0 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .board-menu-boards {
+    max-height: 40dvh;
+  }
+}
+
 .quick-add {
   display: flex;
   gap: 6px;
@@ -1180,8 +1229,10 @@ main {
 .edge.e { right: -10px; }
 .edge.w { left: -10px; }
 
-.card-slot {
+/* Where a dragged item was or lands: above the front bucket's fill (`.in-front`), below lifted items. */
+.item-slot {
   position: absolute;
+  z-index: 1;
   border: 1.5px dashed var(--slot);
   border-radius: 4px;
 }
@@ -1856,6 +1907,12 @@ input.editable {
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: -0.015em;
+}
+
+/* An empty title's suggestion in the card's own dark shade, not the browser's grey. */
+.band-title::placeholder {
+  color: var(--ink-soft);
+  opacity: 1;
 }
 
 .band-tags,
@@ -2922,7 +2979,15 @@ a.button.primary:hover {
 }
 
 .drawing.lifted {
+  z-index: 2;
   opacity: 0.6;
+}
+
+/* Tilted like a lifted card, around the middle of its box (`--pivot`), with a shadow under its lines. */
+.drawing.lifted > .stroke {
+  transform: rotate(3deg) scale(1.03);
+  transform-origin: var(--pivot);
+  filter: drop-shadow(0 14px 18px rgba(0, 0, 0, 0.5));
 }
 
 .drawing.lifted .stroke-hit {
@@ -3170,6 +3235,7 @@ a.button.primary:hover {
 }
 
 .board-image.lifted .board-image-frame {
+  transform: rotate(3deg) scale(1.03);
   box-shadow: 0 28px 60px rgba(0, 0, 0, 0.55);
 }
 
@@ -4507,11 +4573,35 @@ button.picker-color:hover,
   color: var(--accent);
 }
 
+/* The field, with the rest of a suggestion greyed out behind it (BoardSearch's ghost). */
+.search-field {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  margin-left: 6px;
+}
+
+.search-ghost {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: var(--subtle);
+  font-size: 13px;
+  line-height: 40px;
+  white-space: pre;
+  pointer-events: none;
+}
+
+.search-ghost-typed {
+  visibility: hidden;
+}
+
 .board-search input {
+  position: relative;
   flex: 1;
   min-width: 0;
   height: 40px;
-  margin-left: 6px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -4671,7 +4761,8 @@ button.picker-color:hover,
   gap: 4px;
 }
 
-.search-results-foot kbd {
+.search-results-foot kbd,
+.search-suggestions-key kbd {
   display: inline-grid;
   place-items: center;
   min-width: 18px;
@@ -5339,7 +5430,7 @@ button.picker-color:hover,
 .bucket.in-front,
 .card.in-front:not(.lifted, .link-copied),
 .board-image.in-front:not(.lifted),
-.drawing.in-front {
+.drawing.in-front:not(.lifted) {
   z-index: 1;
 }
 
@@ -6295,4 +6386,136 @@ button.picker-color:hover,
 
 .app.mobile .toast-region {
   bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Tooltips for every title (components/Tooltips), above everything else. */
+.tooltip {
+  position: fixed;
+  z-index: 100;
+  max-width: 320px;
+  padding: 5px 8px;
+  border: 1px solid var(--dialog-line);
+  border-radius: 6px;
+  background: var(--dialog);
+  box-shadow: var(--float-shadow);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+/* Suggestions for the word being typed in the board search: prefixes, then the values a prefix can take. */
+.search-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--float-shadow);
+  pointer-events: auto;
+}
+
+.search-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 26px;
+}
+
+.search-suggestion:hover {
+  background: var(--hover);
+}
+
+/* The one Tab takes. */
+.search-suggestion.first {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+/* A suggested color's fill, or a suggested tag's color (as in the tag filter). */
+.search-suggestion .link-swatch {
+  width: 12px;
+  height: 10px;
+}
+
+.search-suggestion .tag-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+}
+
+.search-suggestion-label {
+  overflow: hidden;
+  font-family: var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-suggestion-hint {
+  color: var(--subtle);
+  white-space: nowrap;
+}
+
+.search-suggestions-key {
+  margin-left: auto;
+  color: var(--subtle);
+  font-size: 11px;
+}
+
+/*
+ * An agent at work on the card for this person (agentWorkingFor): a lilac ring that turns, around a glow that breathes
+ * with the card's halo. The ring is the border, painted by a turning conic gradient under the face (padding-box).
+ */
+@property --agent-turn {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.avatar.agent-at-work {
+  --agent-face: #20242c;
+  position: relative;
+  z-index: 1;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--agent-face), var(--agent-face)) padding-box,
+    conic-gradient(from var(--agent-turn), #c4a7ff, #7c5cff, #f1e9ff, #9b7bff, #c4a7ff) border-box;
+  box-shadow: 0 0 0 1px rgba(124, 92, 255, 0.35), 0 0 6px rgba(196, 167, 255, 0.35);
+  animation: agent-turn 2.4s linear infinite, agent-breathe 2.4s ease-in-out infinite;
+}
+
+.avatar.agent.agent-at-work {
+  --agent-face: #2a2140;
+}
+
+@keyframes agent-turn {
+  to {
+    --agent-turn: 360deg;
+  }
+}
+
+@keyframes agent-breathe {
+  50% {
+    box-shadow: 0 0 0 3px rgba(196, 167, 255, 0.28), 0 0 14px 3px rgba(167, 133, 255, 0.55);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar.agent-at-work {
+    animation: none;
+  }
 }

@@ -50,7 +50,7 @@ export function useBoardEdits(options: BoardEditsOptions) {
     if (!card) return Promise.resolve(false)
     if (expanded?.id === id) setExpanded(null)
     setSelection(null)
-    return settle(...ops.deleteCard(card))
+    return settle(...ops.deleteCard(card, board))
   }
 
   function deleteImage(id: string) {

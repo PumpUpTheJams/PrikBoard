@@ -4,6 +4,7 @@ using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
+using PrikBoard.Api.Endpoints;
 
 namespace PrikBoard.Api.Mcp;
 
@@ -263,10 +264,20 @@ public sealed partial class BoardTools
         var missing = current.Except(people.Select(p => p.Id)).ToList();
         if (missing.Count > 0) people.AddRange(await db.Principals.AsNoTracking().Where(p => missing.Contains(p.Id)).ToListAsync(ct));
 
+        // An agent behind a person's token naming itself means the person it works for, who is assigned instead.
+        var me = http.User.PrincipalId();
+        var worksFor = await CardEndpoints.WorksForAsync(db, http.User, ct);
+        var self = worksFor == me ? null : await db.Principals.AsNoTracking().FirstOrDefaultAsync(p => p.Id == me, ct);
+
         var ids = new List<Guid>();
         foreach (var value in values)
         {
             var name = value.Trim();
+            if (self is not null && (name.Equals(self.ShownName, StringComparison.OrdinalIgnoreCase) || (Guid.TryParse(name, out var mine) && mine == me)))
+            {
+                ids.Add(worksFor);
+                continue;
+            }
             var matches = Guid.TryParse(name, out var id)
                 ? people.Where(p => p.Id == id).ToList()
                 : people.Where(p => p.ShownName.Equals(name, StringComparison.OrdinalIgnoreCase)).ToList();

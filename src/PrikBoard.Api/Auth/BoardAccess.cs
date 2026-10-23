@@ -106,21 +106,16 @@ public static class BoardAccess
     }
 
     /// <summary>
-    /// Who can be assigned to cards on a board: its members (people and issuer agents) plus the agents of members'
-    /// personal access tokens that reach the board (not expired, and not limited to other boards). Keep this in line
-    /// with <see cref="BoardCaller.Apply"/> and the expiry check in <see cref="AccessTokenHandler"/>. Connected Discord
-    /// servers are members but only preview links, so they are left out.
+    /// Who can be assigned to cards on a board: its members (people and issuer agents). The agents of members' personal
+    /// access tokens are not: they work for the token's owner, who is assigned instead (CardEndpoints.WorksForAsync), and
+    /// their avatar shows the agent at work. Connected Discord servers are members but only preview links, so they are
+    /// left out.
     /// </summary>
     public static IQueryable<Guid> AssignableIds(PrikBoardDbContext db, Guid boardId)
     {
-        var now = DateTimeOffset.UtcNow;
         var members = db.BoardMembers.Where(m => m.BoardId == boardId).Select(m => m.PrincipalId);
         var discord = db.Agents.Where(a => a.Issuer == Agent.DiscordIssuer).Select(a => a.Id);
-        var tokenAgents = db.AccessTokens
-            .Where(t => t.Kind == AccessTokenKind.Agent && t.AgentId != null && members.Contains(t.OwnerId) && t.ExpiresAt > now
-                        && (t.BoardIds == null || t.BoardIds.Contains(boardId)))
-            .Select(t => t.AgentId!.Value);
-        return members.Where(id => !discord.Contains(id)).Concat(tokenAgents);
+        return members.Where(id => !discord.Contains(id));
     }
 
     /// <summary>The principals behind <see cref="AssignableIds"/>.</summary>

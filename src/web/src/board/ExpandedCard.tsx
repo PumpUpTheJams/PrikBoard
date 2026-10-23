@@ -245,6 +245,7 @@ export function ExpandedCard(props: ExpandedCardProps) {
             />
             <AssigneeChips
               assignees={card.assignees}
+              workingFor={card.agentWorking ? card.agentWorkingFor : null}
               highlight={highlight}
               onRemove={(a) => void onChange({ assigneeIds: card.assignees.filter((x) => x !== a).map((x) => x.principalId) })}
               onAdd={(anchor) => setPicking({ kind: 'people', anchor })}
@@ -364,6 +365,8 @@ export function TagChips({ tags, tagColors, highlight, onRemove, onAdd }: TagChi
 
 interface AssigneeChipsProps {
   assignees: Assignee[]
+  /** Whom an agent is working for right now: their avatar shows it. */
+  workingFor?: string | null
   /** Search words to mark. */
   highlight?: SearchTerm[]
   onRemove: (assignee: Assignee) => void
@@ -371,12 +374,12 @@ interface AssigneeChipsProps {
   onAdd: (anchor: DOMRect) => void
 }
 
-function AssigneeChips({ assignees, highlight, onRemove, onAdd }: AssigneeChipsProps) {
+function AssigneeChips({ assignees, workingFor, highlight, onRemove, onAdd }: AssigneeChipsProps) {
   return (
     <div className="band-assignees">
       {assignees.map((a) => (
         <span key={a.principalId} className="band-assignee">
-          <Avatar assignee={a} />
+          <Avatar assignee={a} working={!!workingFor && a.principalId === workingFor} />
           <Highlight text={a.name} terms={highlight} field="assignee" />
           <button type="button" className="chip-remove" aria-label={`Unassign ${a.name}`} onClick={() => onRemove(a)}>
             <CloseIcon size={10} />

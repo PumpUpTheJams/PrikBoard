@@ -74,6 +74,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
     public async Task An_agent_reads_the_board_and_moves_work_along_by_bucket_name()
     {
         var owner = await factory.CreateSignedInClientAsync("mcp-flow@example.com");
+        await owner.RenameAsync("Owen");
         var board = await owner.CreateBoardAsync("MCP flow");
         var card = await owner.CreateCardAsync(board.Id, "Write the release notes");
         var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor, "Claude Code"));
@@ -95,9 +96,10 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         var saved = (await owner.GetFromJsonAsync<CardDetail>($"/api/cards/{card.Id}"))!;
         Assert.Equal(doing.Id, saved.BucketId);
         Assert.True(saved.AgentWorking);
-        var agentId = overview.GetProperty("people").EnumerateArray()
-            .Single(p => p.GetProperty("name").GetString() == "Claude Code").GetProperty("principalId").GetGuid();
-        Assert.Contains(saved.Assignees, a => a == new Assignee(agentId, "Claude Code", AssigneeKind.Agent, null));
+        // The agent works for the person whose token it uses: they are assigned, and the card says whom it works for.
+        var ownerId = (await owner.MeAsync()).Id;
+        Assert.Equal([new Assignee(ownerId, "Owen", AssigneeKind.Person, null)], saved.Assignees);
+        Assert.Equal(ownerId, saved.AgentWorkingFor);
         Assert.Equal(saved.CreatedBy, overview.GetProperty("buckets")[0].GetProperty("cards")[0].GetProperty("createdBy").GetString());
 
         // Its history says the agent did it.
@@ -242,6 +244,12 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         Assert.Equal(board.Buckets.Single(b => b.Name == "Done").Id, moved.GetProperty("bucketId").GetGuid());
         Assert.StartsWith("Deleted.", Text(await CallRawAsync(mcp, "delete_card", new() { ["card"] = "REFS-1" })));
         Assert.Contains("Not found", Text(await CallRawAsync(mcp, "get_card", new() { ["card"] = "REFS-1" })));
+        // A deleted card's history, by readable id and path as well as by id.
+        foreach (var value in new[] { "REFS-1", card.Path, card.Id.ToString() })
+        {
+            var history = await CallAsync(mcp, "get_card_history", new() { ["card"] = value });
+            Assert.Equal("Deleted", history[0].GetProperty("entries")[0].GetProperty("kind").GetString());
+        }
         await CallAsync(mcp, "restore_card", new() { ["card"] = "REFS-1" });
 
         Assert.Contains("not a card", Text(await CallRawAsync(mcp, "get_card", new() { ["card"] = "REFS-01" })));
@@ -271,6 +279,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
     public async Task Agents_assign_people_by_name()
     {
         var owner = await factory.CreateSignedInClientAsync("mcp-assign-owner@example.com");
+        await owner.RenameAsync("Owen");
         var mila = await factory.CreateSignedInClientAsync("mcp-assign-mila@example.com");
         await mila.RenameAsync("Mila V.");
         var board = await owner.CreateBoardAsync("MCP assign");
@@ -282,8 +291,9 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         {
             ["board"] = board.Id, ["title"] = "Pair up", ["assignees"] = new[] { "mila v.", "Claude Code" }, ["tags"] = new[] { "Pairing" },
         });
+        // An agent naming itself is assigned as the person it works for.
         var names = created.GetProperty("assignees").EnumerateArray().Select(a => a.GetString());
-        Assert.Equal(["Mila V.", "Claude Code"], names);
+        Assert.Equal(["Mila V.", "Owen"], names);
         var saved = (await owner.GetFromJsonAsync<CardDetail>($"/api/cards/{created.GetProperty("id").GetGuid()}"))!;
         Assert.Equal(milaId, saved.Assignees[0].PrincipalId);
 
@@ -547,6 +557,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
     public async Task Get_board_is_compact_and_only_counts_the_cards_of_collapsed_buckets()
     {
         var owner = await factory.CreateSignedInClientAsync("mcp-compact@example.com");
+        await owner.RenameAsync("Owen");
         var board = await owner.CreateBoardAsync("MCP compact");
         await owner.CreateCardAsync(board.Id, "Plain");
         var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor, "Claude Code"));
@@ -569,7 +580,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         foreach (var name in new[] { "tags", "assignees", "hasContent", "agentWorking", "checklist" }) Assert.False(plain.TryGetProperty(name, out _), name);
         var tagged = cards["Tagged"];
         Assert.Equal(["ui"], tagged.GetProperty("tags").EnumerateArray().Select(t => t.GetString()));
-        Assert.Equal(["Claude Code"], tagged.GetProperty("assignees").EnumerateArray().Select(a => a.GetString()));
+        Assert.Equal(["Owen"], tagged.GetProperty("assignees").EnumerateArray().Select(a => a.GetString()));
         Assert.True(tagged.GetProperty("hasContent").GetBoolean());
 
         var folded = overview.GetProperty("buckets").EnumerateArray().Single(b => b.GetProperty("name").GetString() == "Done");
@@ -579,13 +590,14 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         var shipped = await CallAsync(mcp, "search_cards", new() { ["board"] = board.Id, ["bucket"] = "Done" });
         Assert.Equal("Shipped", Assert.Single(shipped.EnumerateArray()).GetProperty("title").GetString());
 
+        // You are the person you work for, as whom you are assigned.
         var me = overview.GetProperty("people").EnumerateArray().Single(p => p.TryGetProperty("isYou", out _));
-        Assert.Equal("Claude Code", me.GetProperty("name").GetString());
+        Assert.Equal("Owen", me.GetProperty("name").GetString());
         Assert.All(overview.GetProperty("people").EnumerateArray(), p => Assert.False(p.TryGetProperty("avatarUrl", out _)));
     }
 
     [Fact]
-    public async Task Create_card_with_working_assigns_the_agent_and_shows_the_halo()
+    public async Task Create_card_with_working_assigns_the_owner_and_shows_the_halo()
     {
         var owner = await factory.CreateSignedInClientAsync("mcp-working-create@example.com");
         await owner.RenameAsync("Rosa");
@@ -597,7 +609,10 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
             ["board"] = board.ShortId, ["title"] = "Start right away", ["assignees"] = new[] { "Rosa" }, ["working"] = true,
         });
         Assert.True(created.GetProperty("agentWorking").GetBoolean());
-        Assert.Equal(["Rosa", "Claude Code"], created.GetProperty("assignees").EnumerateArray().Select(a => a.GetString()));
+        // Rosa is the one the agent works for, already assigned.
+        Assert.Equal(["Rosa"], created.GetProperty("assignees").EnumerateArray().Select(a => a.GetString()));
+        var saved = (await owner.GetFromJsonAsync<CardDetail>($"/api/cards/{created.GetProperty("id").GetGuid()}"))!;
+        Assert.Equal((await owner.MeAsync()).Id, saved.AgentWorkingFor);
 
         var plain = await CallAsync(mcp, "create_card", new() { ["board"] = board.ShortId, ["title"] = "Later" });
         Assert.False(plain.TryGetProperty("agentWorking", out _));
@@ -688,6 +703,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
     public async Task Create_cards_adds_several_at_once_or_none()
     {
         var owner = await factory.CreateSignedInClientAsync("mcp-batch@example.com");
+        await owner.RenameAsync("Owen");
         var board = await owner.CreateBoardAsync("MCP batch");
         var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor, "Claude Code"));
 
@@ -704,7 +720,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         Assert.Equal(["First", "Second", "Third"], created.Select(c => c.GetProperty("title").GetString()));
         Assert.Equal(["To do", "Doing", "Doing"], created.Select(c => c.GetProperty("bucket").GetString()));
         Assert.Equal([1, 2, 3], created.Select(c => int.Parse(c.GetProperty("readableId").GetString()!.Split('-')[1])));
-        Assert.Equal(["Claude Code"], created[1].GetProperty("assignees").EnumerateArray().Select(a => a.GetString()));
+        Assert.Equal(["Owen"], created[1].GetProperty("assignees").EnumerateArray().Select(a => a.GetString()));
 
         // They don't land on each other.
         var cards = (await owner.GetFromJsonAsync<List<CardDetail>>($"/api/boards/{board.Id}/cards"))!;
@@ -724,6 +740,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
     public async Task Move_card_can_start_and_stop_work_in_the_same_call()
     {
         var owner = await factory.CreateSignedInClientAsync("mcp-move-working@example.com");
+        await owner.RenameAsync("Owen");
         var board = await owner.CreateBoardAsync("MCP move working");
         var card = await owner.CreateCardAsync(board.Id, "Task");
         var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor, "Claude Code"));
@@ -731,7 +748,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         var started = await CallAsync(mcp, "move_card", new() { ["card"] = card.Id, ["bucket"] = "Doing", ["working"] = true });
         Assert.Equal("Doing", started.GetProperty("bucket").GetString());
         Assert.True(started.GetProperty("agentWorking").GetBoolean());
-        Assert.Equal(["Claude Code"], started.GetProperty("assignees").EnumerateArray().Select(a => a.GetString()));
+        Assert.Equal(["Owen"], started.GetProperty("assignees").EnumerateArray().Select(a => a.GetString()));
 
         var done = await CallAsync(mcp, "move_card", new() { ["card"] = card.Id, ["bucket"] = "Done", ["working"] = false });
         Assert.Equal("Done", done.GetProperty("bucket").GetString());

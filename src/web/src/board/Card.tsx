@@ -123,7 +123,11 @@ export function Card(props: CardProps) {
     </span>
   ))
   const people =
-    card.assignees.length > 0 ? <AvatarStack assignees={card.assignees} /> : <span className="avatar-slot" aria-hidden="true" />
+    card.assignees.length > 0 ? (
+      <AvatarStack assignees={card.assignees} workingFor={card.agentWorking ? card.agentWorkingFor : null} />
+    ) : (
+      <span className="avatar-slot" aria-hidden="true" />
+    )
   const contents = card.components.length + images
   const summary = contentSummary(card, images)
   // The corner's buttons act on their own click: pressing one doesn't start a drag (keepPress still lets the middle

@@ -46,17 +46,22 @@ export const snapPoint = ({ x, y }: Point): Point => ({ x: onBoard(snap(x)), y: 
 export const backToFront = (buckets: BucketDetail[]) => buckets.toSorted((a, b) => Date.parse(a.stackedAt) - Date.parse(b.stackedAt))
 
 /**
- * The bucket a card dropped at `card` joins: the topmost one containing its center (Layout.Place on the server). The
- * card then stays in it while buckets move around it. `buckets` is back to front (`backToFront`). A collapsed bucket
- * takes no new cards, as on the server; it only counts for its own card (`own`). `front`, the bucket this screen shows
- * in front, wins wherever it contains the center: the drop names it (`bucketId` with `x` and `y`), so the card joins it.
+ * The bucket a card, image or drawing dropped at `item` joins: the topmost one containing its center (Layout.Place on
+ * the server). The item then stays in it while buckets move around it. `buckets` is back to front (`backToFront`). A
+ * collapsed bucket takes no new items, as on the server; it only counts for its own item (`own`). `front`, the bucket
+ * this screen shows in front, wins wherever it contains the center: a card's drop names it (`bucketId` with `x` and
+ * `y`), so the card joins it; for images and drawings it is the topmost open bucket the server picks anyway.
  */
-export function bucketUnderCard(buckets: BucketDetail[], card: Point, own?: string | null, front?: string | null): BucketDetail | undefined {
-  const cx = card.x + CARD_WIDTH / 2
-  const cy = card.y + CARD_HEIGHT / 2
+export function bucketUnder(buckets: BucketDetail[], item: Rect, own?: string | null, front?: string | null): BucketDetail | undefined {
+  const cx = item.x + item.width / 2
+  const cy = item.y + item.height / 2
   const under = buckets.filter((b) => cx >= b.x && cx < b.x + b.width && cy >= b.y && cy < b.y + b.height && (!b.collapsed || b.id === own))
   return under.find((b) => b.id === front) ?? under.at(-1)
 }
+
+/** The bucket a card dropped at `card` joins (`bucketUnder`). */
+export const bucketUnderCard = (buckets: BucketDetail[], card: Point, own?: string | null, front?: string | null) =>
+  bucketUnder(buckets, { ...card, width: CARD_WIDTH, height: CARD_HEIGHT }, own, front)
 
 const COLUMN_STEP = CARD_WIDTH + GRID
 const ROW_STEP = CARD_HEIGHT + GRID

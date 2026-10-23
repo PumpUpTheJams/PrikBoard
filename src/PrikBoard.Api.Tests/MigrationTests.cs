@@ -70,7 +70,8 @@ public class MigrationTests : IAsyncLifetime
 
         var linked = await db.Cards.Where(n => n.Id == card).Select(n => n.AssigneeIds).SingleAsync();
         // Mila keeps the place of her first mention ("mila v.") and her second is dropped, as are the outsider (not on this board) and "Nobody".
-        Assert.Equal([mila, agent, unnamed], linked);
+        // Her token's agent was linked too, until AgentsWorkForOwners gave its place to her, already there.
+        Assert.Equal([mila, unnamed], linked);
         Assert.Empty(await db.Cards.Where(n => n.Id == untouched).Select(n => n.AssigneeIds).SingleAsync());
     }
 }

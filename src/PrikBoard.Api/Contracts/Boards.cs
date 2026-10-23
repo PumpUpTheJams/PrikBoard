@@ -108,7 +108,7 @@ public record BoardDetail(
 /// <param name="PrincipalId">Their principal id, for assigneeIds in createCard and updateCard.</param>
 /// <param name="Name">Their current display name.</param>
 /// <param name="Kind">Person or Agent.</param>
-/// <param name="IsYou">Whether this is the caller.</param>
+/// <param name="IsYou">Whether this is the caller; for an agent behind a person's access token, that person, whom it works for and is assigned as.</param>
 /// <param name="OwnerId">For the agent of a personal access token: the person whose token it is. Null otherwise.</param>
 /// <param name="AvatarUrl">The person's chosen picture (see getAvatar); null without one.</param>
 public record BoardPerson(Guid PrincipalId, string Name, AssigneeKind Kind, bool IsYou, Guid? OwnerId, string? AvatarUrl)

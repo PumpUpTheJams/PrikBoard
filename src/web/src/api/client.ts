@@ -62,6 +62,7 @@ import type {
   SignInProviderDetail,
   SystemCheck,
 } from './types'
+import { MAX_IMAGE_BYTES } from './types'
 
 export class ApiError extends Error {
   readonly status: number
@@ -135,22 +136,39 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return (text ? JSON.parse(text) : undefined) as T
 }
 
+/** What an answer without a message of its own means. */
+const statusMessages: Record<number, string> = {
+  413: 'That is too large for the server.',
+  502: "The server can't be reached right now.",
+  503: "The server can't be reached right now.",
+  504: 'The server took too long to answer.',
+}
+
 /** Sends the request and throws an ApiError unless the answer is a success. */
 async function send(method: string, path: string, body?: unknown): Promise<Response> {
   const headers: Record<string, string> = { ...(await config.headers?.()) }
   if (body !== undefined) headers['Content-Type'] = body instanceof Blob ? body.type : 'application/json'
   if (method !== 'GET' && liveConnectionId) headers['X-PrikBoard-Live'] = liveConnectionId
-  const response = await fetch(`${config.baseUrl ?? ''}/api${path}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body),
-  })
+  let response: Response
+  try {
+    response = await fetch(`${config.baseUrl ?? ''}/api${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body),
+    })
+  } catch (error) {
+    // The server drops the connection on a body over its request limit, before it can answer.
+    if (body instanceof Blob && error instanceof TypeError) throw new ApiError(0, "The file didn't reach the server. It may be too large.")
+    throw error
+  }
 
   if (response.status === 401) onUnauthorized()
   if (!response.ok) {
     const problem = (await response.json().catch(() => null)) as ProblemDetails | null
     const firstError = problem?.errors && Object.values(problem.errors)[0]?.[0]
-    throw new ApiError(response.status, firstError ?? problem?.detail ?? problem?.title ?? response.statusText, problem?.errors)
+    // Without a problem (a proxy's answer, say) there may be no status text either: HTTP/2 has none.
+    const message = firstError ?? problem?.detail ?? problem?.title ?? (response.statusText || statusMessages[response.status])
+    throw new ApiError(response.status, message ?? `The server answered ${response.status}.`, problem?.errors)
   }
 
   return response
@@ -276,7 +294,12 @@ export const api = {
   restoreBoardTag: (boardId: string, tagId: string) => request<BoardTag>('POST', `/boards/${boardId}/tags/${tagId}/restore`),
 
   /** Uploads a file onto the board, or attached to a card with cardId; at x/y (on the card's canvas with cardId) or a free spot. */
-  uploadImage: (boardId: string, file: File, placement: ImagePlacement = {}) => {
+  uploadImage: async (boardId: string, file: File, placement: ImagePlacement = {}) => {
+    // Refused before it is sent: the server would only say so after the whole upload, if a proxy lets it through at all.
+    if (file.size > MAX_IMAGE_BYTES) {
+      const size = (bytes: number) => `${Math.round((bytes / 1024 / 1024) * 10) / 10} MB`
+      throw new ApiError(413, `${file.name} is ${size(file.size)}; images can be at most ${size(MAX_IMAGE_BYTES)}.`)
+    }
     const query = new URLSearchParams({ fileName: file.name })
     for (const [key, value] of Object.entries(placement)) if (value !== undefined) query.set(key, String(value))
     return request<ImageDetail>('POST', `/boards/${boardId}/images?${query}`, file)

@@ -5,7 +5,7 @@ using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
 
-/// <summary>Assignees are board members (and their token agents) by principal id; cards remember who created them.</summary>
+/// <summary>Assignees are board members by principal id (a token's agent works for its owner); cards remember who created them.</summary>
 public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiFactory>
 {
     [Fact]
@@ -17,17 +17,16 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         var board = await owner.CreateBoardAsync("People");
         var elsewhere = await owner.CreateBoardAsync("Elsewhere");
         await owner.ShareAsync(board.Id, mila, BoardRole.Viewer);
-        var (_, claude) = await factory.TokenAsync(owner, "Claude Code");
+        // Token agents work for their owners, who are assigned instead, so they aren't listed.
+        await factory.TokenAsync(owner, "Claude Code");
         await factory.TokenAsync(owner, "Limited", boardIds: [elsewhere.Id]);
         await factory.TokenAsync(stranger, "Stranger's agent");
-        var ownerId = (await owner.MeAsync()).Id;
 
         var people = (await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.People;
 
         Assert.Equal(
-            [("Owen", AssigneeKind.Person, true, (Guid?)null), ("Mila V.", AssigneeKind.Person, false, null), ("Claude Code", AssigneeKind.Agent, false, ownerId)],
+            [("Owen", AssigneeKind.Person, true, (Guid?)null), ("Mila V.", AssigneeKind.Person, false, null)],
             people.Select(p => (p.Name, p.Kind, p.IsYou, p.OwnerId)));
-        Assert.Equal(claude.Details.AgentId, people[2].PrincipalId);
         // Viewers see the same list, with themselves first.
         Assert.Equal("Mila V.", (await mila.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.People[0].Name);
     }
@@ -69,10 +68,8 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         Assert.Equal(HttpStatusCode.BadRequest, strangerResponse.StatusCode);
         Assert.Contains("assigneeIds", await strangerResponse.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.BadRequest, limitedResponse.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, reachingResponse.StatusCode);
-        Assert.Equal(
-            [new Assignee(reaching.Details.AgentId!.Value, "Reaching", AssigneeKind.Agent, null)],
-            (await reachingResponse.Content.ReadFromJsonAsync<CardDetail>())!.Assignees);
+        // Not even a token agent that reaches the board: it works for its owner, who is assigned instead.
+        Assert.Equal(HttpStatusCode.BadRequest, reachingResponse.StatusCode);
     }
 
     [Fact]
@@ -133,7 +130,8 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
     {
         var owner = await SignInAsync("working-owner@example.com", "Owen");
         var board = await owner.CreateBoardAsync("Working");
-        var (agent, token) = await factory.TokenAsync(owner, "Claude Code");
+        var (agent, _) = await factory.TokenAsync(owner, "Claude Code");
+        var ownerId = (await owner.MeAsync()).Id;
         var card = await owner.CreateCardAsync(board.Id, "Do it");
         var url = $"/api/cards/{card.Id}/working";
 
@@ -141,12 +139,15 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         var again = await (await agent.PostAsJsonAsync(url, new { working = true })).Content.ReadFromJsonAsync<CardDetail>();
         var stopped = await (await agent.PostAsJsonAsync(url, new { working = false })).Content.ReadFromJsonAsync<CardDetail>();
 
-        var me = new Assignee(token.Details.AgentId!.Value, "Claude Code", AssigneeKind.Agent, null);
+        // The agent works for the person whose token it uses: they are assigned, and their avatar shows the agent at work.
+        var owen = new Assignee(ownerId, "Owen", AssigneeKind.Person, null);
         Assert.True(started!.AgentWorking);
-        Assert.Equal([me], started.Assignees);
-        Assert.Equal([me], again!.Assignees);
+        Assert.Equal([owen], started.Assignees);
+        Assert.Equal(ownerId, started.AgentWorkingFor);
+        Assert.Equal([owen], again!.Assignees);
         Assert.False(stopped!.AgentWorking);
-        Assert.Equal([me], stopped.Assignees);
+        Assert.Null(stopped.AgentWorkingFor);
+        Assert.Equal([owen], stopped.Assignees);
 
         var (reader, _) = await factory.TokenAsync(owner, "Reader", BoardRole.Viewer);
         Assert.Equal(HttpStatusCode.Forbidden, (await reader.PostAsJsonAsync(url, new { working = true })).StatusCode);

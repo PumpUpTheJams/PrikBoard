@@ -128,7 +128,8 @@ public static class BoardEndpoints
         await db.SaveChangesAsync(ct);
         var people = await BoardAccess.PeopleAsync(db, board.Id, ct);
         return TypedResults.Created($"/api/boards/{board.Id}",
-            BoardDetail.From(board, caller.Apply(board.Id, BoardRole.Owner)!.Value, new Dictionary<Guid, Principal>(), people, principal.PrincipalId()));
+            BoardDetail.From(board, caller.Apply(board.Id, BoardRole.Owner)!.Value, new Dictionary<Guid, Principal>(), people,
+                await CardEndpoints.WorksForAsync(db, principal, ct)));
     }
 
     internal static Task<Results<Ok<BoardDetail>, NotFound>> GetBoard(
@@ -156,7 +157,9 @@ public static class BoardEndpoints
             return TypedResults.Ok(BoardDetail.From(board, http.BoardRole(), principals, [], Guid.Empty).ForVisitors(board.PublicShowsPeople));
         }
         var people = await BoardAccess.PeopleAsync(db, boardId, ct);
-        return TypedResults.Ok(BoardDetail.From(board, http.BoardRole(), principals, people, http.User.PrincipalId()));
+        // An agent behind a person's token is that person here: it works for them and is assigned as them.
+        var you = await CardEndpoints.WorksForAsync(db, http.User, ct);
+        return TypedResults.Ok(BoardDetail.From(board, http.BoardRole(), principals, people, you));
     }
 
     private static async Task<Results<Ok<BoardDetail>, NotFound>> GetBoardByShortId(
