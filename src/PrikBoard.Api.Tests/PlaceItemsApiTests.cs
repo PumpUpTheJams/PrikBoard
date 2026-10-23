@@ -6,7 +6,7 @@ using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
 
-public class PlaceCardsApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiFactory>, IAsyncLifetime
+public class PlaceItemsApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiFactory>, IAsyncLifetime
 {
     private HttpClient _client = null!;
 
@@ -112,13 +112,81 @@ public class PlaceCardsApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
     }
 
     [Fact]
+    public async Task Images_and_drawings_go_into_a_collapsed_bucket_too()
+    {
+        var board = await _client.CreateBoardAsync("Folded items");
+        var done = board.Buckets[2];
+        (await _client.PatchAsJsonAsync($"/api/buckets/{done.Id}", new { collapsed = true })).EnsureSuccessStatusCode();
+        var image = await Upload(board.Id, "?x=1000&y=1000&width=160");
+        var drawing = await Draw(board.Id, 1400, 1000);
+
+        var placed = await Place(done.Id, new { imageIds = new[] { image.Id }, drawingIds = new[] { drawing.Id } });
+
+        // Cards first, then images, then drawings: the image takes the top-left room, the drawing the room below it.
+        Assert.Empty(placed.Cards);
+        Assert.Equal((done.Id, 620, 60), (placed.Images[0].BucketId, placed.Images[0].X, placed.Images[0].Y));
+        Assert.Equal(done.Id, placed.Drawings[0].BucketId);
+        Assert.True(placed.Drawings[0].Y >= 60 + image.Height + 20, "The drawing goes a grid step below the image.");
+        var after = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
+        Assert.Equal(done.Id, after.Images.Single(i => i.Id == image.Id).BucketId);
+        Assert.Equal(done.Id, after.Drawings.Single(d => d.Id == drawing.Id).BucketId);
+    }
+
+    [Fact]
+    public async Task Items_are_packed_at_their_own_size()
+    {
+        var board = await _client.CreateBoardAsync("Sizes");
+        var todo = board.Buckets[0];
+        var card = await CreateCard(board.Id, new { title = "Card", x = 1000, y = 1000 });
+        // Narrower than a card: two fit side by side where no card would.
+        var left = await Upload(board.Id, "?x=1000&y=1400&width=80", 80, 50);
+        var right = await Upload(board.Id, "?x=1200&y=1400&width=80", 80, 50);
+
+        var placed = await Place(todo.Id, new { cardIds = new[] { card.Id }, imageIds = new[] { left.Id, right.Id } });
+
+        Assert.Equal((60, 60), (placed.Cards[0].X, placed.Cards[0].Y));
+        Assert.Equal([(60, 200), (160, 200)], placed.Images.Select(i => (i.X, i.Y)));
+        Assert.All(placed.Images, i => Assert.Equal(todo.Id, i.BucketId));
+    }
+
+    [Fact]
+    public async Task An_image_wider_than_the_bucket_grows_it_sideways()
+    {
+        var board = await _client.CreateBoardAsync("Wide");
+        var done = board.Buckets[2];
+        var wide = await Upload(board.Id, "?x=1000&y=1400&width=400", 400, 100);
+
+        var placed = await Place(done.Id, new { imageIds = new[] { wide.Id } });
+
+        Assert.True(placed.Bucket.Width >= 400 + 40, "The bucket grows to the right until the image fits.");
+        Assert.Equal((done.X + 20, done.Y + 20), (placed.Images[0].X, placed.Images[0].Y));
+    }
+
+    [Fact]
+    public async Task Nothing_to_place_and_items_on_a_card_are_refused()
+    {
+        var board = await _client.CreateBoardAsync("Refused");
+        var card = await CreateCard(board.Id, new { title = "Holder" });
+        var attached = await Upload(board.Id, $"?cardId={card.Id}");
+        var bucket = board.Buckets[0].Id;
+
+        var empty = await _client.PostAsJsonAsync($"/api/buckets/{bucket}/items", new { });
+        var onCard = await _client.PostAsJsonAsync($"/api/buckets/{bucket}/items", new { imageIds = new[] { attached.Id } });
+
+        Assert.Equal(HttpStatusCode.BadRequest, empty.StatusCode);
+        Assert.Contains("cardIds", await empty.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.BadRequest, onCard.StatusCode);
+        Assert.Contains("imageIds", await onCard.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task Cards_of_another_board_are_refused()
     {
         var board = await _client.CreateBoardAsync("Mine");
         var other = await _client.CreateBoardAsync("Other");
         var stranger = await _client.CreateCardAsync(other.Id, "Elsewhere");
 
-        var response = await _client.PostAsJsonAsync($"/api/buckets/{board.Buckets[0].Id}/cards", new { cardIds = new[] { stranger.Id } });
+        var response = await _client.PostAsJsonAsync($"/api/buckets/{board.Buckets[0].Id}/items", new { cardIds = new[] { stranger.Id } });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Contains("cardIds", await response.Content.ReadAsStringAsync());
@@ -131,10 +199,27 @@ public class PlaceCardsApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
         return (await response.Content.ReadFromJsonAsync<CardDetail>())!;
     }
 
-    private async Task<PlacedCards> Place(Guid bucketId, object request)
+    private async Task<PlacedItems> Place(Guid bucketId, object request)
     {
-        var response = await _client.PostAsJsonAsync($"/api/buckets/{bucketId}/cards", request);
+        var response = await _client.PostAsJsonAsync($"/api/buckets/{bucketId}/items", request);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        return (await response.Content.ReadFromJsonAsync<PlacedCards>())!;
+        return (await response.Content.ReadFromJsonAsync<PlacedItems>())!;
     }
+
+    private async Task<ImageDetail> Upload(Guid boardId, string query, int width = 160, int height = 100)
+    {
+        var response = await _client.PostAsync($"/api/boards/{boardId}/images{query}",
+            new ByteArrayContent(TestImages.Png(width, height)) { Headers = { ContentType = new MediaTypeHeaderValue("image/png") } });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<ImageDetail>())!;
+    }
+
+    private async Task<DrawingDetail> Draw(Guid boardId, int x, int y)
+    {
+        var response = await _client.PostAsJsonAsync($"/api/boards/{boardId}/drawings", new { x, y, points = Squiggle });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<DrawingDetail>())!;
+    }
+
+    private static readonly double[][] Squiggle = [[2, 2, 0.5], [40, 10, 0.5], [100, 30, 1]];
 }

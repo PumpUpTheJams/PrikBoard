@@ -61,26 +61,48 @@ export function bucketUnderCard(buckets: BucketDetail[], card: Point, own?: stri
 const COLUMN_STEP = CARD_WIDTH + GRID
 const ROW_STEP = CARD_HEIGHT + GRID
 
+/** The size of an item packed into a bucket. */
+export interface Size {
+  width: number
+  height: number
+}
+
 /**
- * Where cards put into a bucket by id go (Layout.PackIn on the server): the first `count` places on the 20 px grid
- * inside it, row by row, a grid step clear of `taken` (the bucket's own cards and images, and loose ones) and of each
- * other. When there aren't enough, the bucket grows a row or column at a time towards `grow` (left and up move that edge
- * out), over its neighbors too, and downwards once that side reaches the limit. Returns the grown bucket and the places.
+ * Where items put into a bucket by id go (Layout.PackIn on the server), one for each of `sizes` in turn: the first place
+ * on the 20 px grid inside it, row by row, a grid step clear of `taken` (the bucket's own items and loose ones) and of
+ * the items placed before it. When one doesn't fit, the bucket grows a row or column of card slots at a time towards
+ * `grow` (or across, for an item too wide or too tall that way; left and up move that edge out), over its neighbors too,
+ * and downwards once that side reaches the limit. Returns the grown bucket and the places.
  */
-export function packIn(bucket: Rect, count: number, taken: Rect[], grow: GrowSide): { bucket: Rect; spots: Point[] } {
+export function packIn(bucket: Rect, sizes: Size[], taken: Rect[], grow: GrowSide): { bucket: Rect; spots: Point[] } {
   let rect = { x: bucket.x, y: bucket.y, width: bucket.width, height: bucket.height }
   // The free room it has fills first; growing only makes room for the rest.
-  const spots: Point[] = []
-  const pack = () => {
+  const spots: (Point | null)[] = sizes.map(() => null)
+  const firstFree = (size: Size, from: Point, inTheWay: Rect[]): Point | null => {
     const right = rect.x + Math.max(rect.width, MIN_BUCKET_WIDTH) - GRID
     const bottom = rect.y + Math.max(rect.height, MIN_BUCKET_HEIGHT) - GRID
-    for (let y = rect.y + GRID; y + CARD_HEIGHT <= bottom && spots.length < count; y += GRID) {
-      for (let x = rect.x + GRID; x + CARD_WIDTH <= right && spots.length < count; x += GRID) {
-        const around = { x: x - GRID, y: y - GRID, width: CARD_WIDTH + 2 * GRID, height: CARD_HEIGHT + 2 * GRID }
-        const placed = spots.map((s) => ({ ...s, width: CARD_WIDTH, height: CARD_HEIGHT }))
-        if (!taken.some((t) => intersects(t, around)) && !placed.some((p) => intersects(p, around))) spots.push({ x, y })
+    for (let y = from.y; y + size.height <= bottom; y += GRID) {
+      for (let x = y === from.y ? from.x : rect.x + GRID; x + size.width <= right; x += GRID) {
+        const around = { x: x - GRID, y: y - GRID, width: size.width + 2 * GRID, height: size.height + 2 * GRID }
+        if (!inTheWay.some((t) => intersects(t, around))) return { x, y }
       }
     }
+    return null
+  }
+  const pack = () => {
+    // Items placed before the bucket grew keep their places.
+    const inTheWay = [...taken, ...spots.flatMap((s, i) => (s ? [{ ...s, ...sizes[i] }] : []))]
+    let last: Rect | null = null
+    sizes.forEach((size, i) => {
+      if (spots[i]) return
+      // None of the places before the last one this pass found suit an item of its size, so the search goes on from there.
+      const from = last && last.width === size.width && last.height === size.height ? last : { x: rect.x + GRID, y: rect.y + GRID }
+      const spot = firstFree(size, from, inTheWay)
+      spots[i] = spot
+      if (!spot) return
+      last = { ...spot, ...size }
+      inTheWay.push(last)
+    })
   }
   const grown = (side: GrowSide): Rect | null => {
     const columns = Math.floor((Math.max(rect.width, MIN_BUCKET_WIDTH) - GRID) / COLUMN_STEP)
@@ -97,15 +119,22 @@ export function packIn(bucket: Rect, count: number, taken: Rect[], grow: GrowSid
       ? { ...rect, y: rect.y - ROW_STEP, height: rect.height + ROW_STEP }
       : null
   }
+  /** The bucket grown for an item that found no place, as Layout.GrowFor does. */
+  const grownFor = (size: Size): Rect | null => {
+    const tooWide = size.width > Math.max(rect.width, MIN_BUCKET_WIDTH) - 2 * GRID
+    const tooTall = size.height > Math.max(rect.height, MIN_BUCKET_HEIGHT) - 2 * GRID
+    const vertical = grow === 'Down' || grow === 'Up'
+    const across = vertical ? (tooWide ? (grown('Right') ?? grown('Left')) : null) : tooTall ? (grown('Down') ?? grown('Up')) : null
+    return across ?? grown(grow) ?? grown('Down')
+  }
   pack()
-  while (spots.length < count) {
-    const next = grown(grow) ?? grown('Down')
-    if (!next) break
-    rect = next
+  for (let next = spots.indexOf(null); next >= 0; next = spots.indexOf(null)) {
+    const bigger = grownFor(sizes[next])
+    if (!bigger) break
+    rect = bigger
     pack()
   }
-  while (spots.length < count) spots.push({ x: rect.x + GRID, y: rect.y + GRID })
-  return { bucket: rect, spots }
+  return { bucket: rect, spots: spots.map((s) => s ?? { x: rect.x + GRID, y: rect.y + GRID }) }
 }
 
 /** The square a collapsed bucket folds into, in the top-right corner of `rect` (where the bucket is now, also mid-drag). */

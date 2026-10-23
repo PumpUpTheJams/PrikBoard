@@ -257,19 +257,26 @@ export interface BucketDetail {
   stackedAt: string
 }
 
-/** The side a bucket grows towards when cards put into it don't fit; Left and Up move its edge out. */
+/** The side a bucket grows towards when items put into it don't fit; Left and Up move its edge out. */
 export type GrowSide = 'Down' | 'Right' | 'Left' | 'Up'
 
-/** placeCardsInBucket: the cards to put into the bucket's free room, in order, and where it grows when full (default Down). */
-export interface PlaceCardsRequest {
-  cardIds: string[]
+/**
+ * placeItemsInBucket: what to put into the bucket's free room (cards first, then images, then drawings, each in order)
+ * and where it grows when full (default Down). Images and drawings must be on the board itself.
+ */
+export interface PlaceItemsRequest {
+  cardIds?: string[]
+  imageIds?: string[]
+  drawingIds?: string[]
   grow?: GrowSide
 }
 
-/** The bucket (possibly grown) and the cards put into it, in the order given. */
-export interface PlacedCards {
+/** The bucket (possibly grown) and the items put into it, in the order given. */
+export interface PlacedItems {
   bucket: BucketDetail
   cards: CardDetail[]
+  images: ImageDetail[]
+  drawings: DrawingDetail[]
 }
 
 /**

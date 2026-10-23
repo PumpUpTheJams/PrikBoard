@@ -173,7 +173,7 @@ public sealed partial class BoardTools
         };
     }
 
-    /// <summary>The boards the caller can reach, looked up once per call (place_cards_in_bucket resolves many cards).</summary>
+    /// <summary>The boards the caller can reach, looked up once per call (place_in_bucket resolves many cards).</summary>
     private static async Task<List<Guid>> ReachableBoardsAsync(HttpContext http, PrikBoardDbContext db, CancellationToken ct)
     {
         if (http.Items[ReachableBoardsItem] is List<Guid> known) return known;

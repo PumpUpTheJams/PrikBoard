@@ -70,17 +70,27 @@ public record UpdateBucketRequest(
     bool? Collapsed = null);
 
 /// <summary>
-/// Puts cards into a bucket, in its free room row by row (in the order given), a grid step clear of the cards and images
-/// already there (its own and loose ones). When they don't fit, the bucket grows towards <c>grow</c> a row or column at a
-/// time, over neighboring buckets too.
+/// Puts cards, images and drawings into a bucket, in its free room row by row (cards first, then images, then drawings,
+/// each in the order given), a grid step clear of what is already there (its own items and loose ones). When they don't
+/// fit, the bucket grows towards <c>grow</c> a row or column at a time, over neighboring buckets too.
 /// </summary>
-/// <param name="CardIds">The cards, all on the bucket's board, in the order they fill the free slots.</param>
+/// <param name="CardIds">Cards on the bucket's board.</param>
+/// <param name="ImageIds">Images on the bucket's board itself (not attached to a card).</param>
+/// <param name="DrawingIds">Drawings on the bucket's board itself (not on a card).</param>
 /// <param name="Grow">The side the bucket grows towards when it is full: Down (default), Right, Left or Up. Left and Up move its left or top edge out; what is in it stays.</param>
-public record PlaceCardsRequest(
-    [property: Required, MinLength(1), MaxLength(2000)] List<Guid> CardIds,
-    GrowSide? Grow = null);
+public record PlaceItemsRequest(
+    [property: MaxLength(PlaceItemsRequest.MaxEach)] List<Guid>? CardIds = null,
+    [property: MaxLength(PlaceItemsRequest.MaxEach)] List<Guid>? ImageIds = null,
+    [property: MaxLength(PlaceItemsRequest.MaxEach)] List<Guid>? DrawingIds = null,
+    GrowSide? Grow = null)
+{
+    /// <summary>The most ids each list takes.</summary>
+    public const int MaxEach = 2000;
+}
 
-/// <summary>The bucket (possibly grown) and the cards put into it.</summary>
-/// <param name="Bucket">The bucket after the cards went in.</param>
+/// <summary>The bucket (possibly grown) and the items put into it.</summary>
+/// <param name="Bucket">The bucket after the items went in.</param>
 /// <param name="Cards">The cards in their new places, in the order given.</param>
-public record PlacedCards(BucketDetail Bucket, List<CardDetail> Cards);
+/// <param name="Images">The images in their new places, in the order given.</param>
+/// <param name="Drawings">The drawings in their new places, in the order given.</param>
+public record PlacedItems(BucketDetail Bucket, List<CardDetail> Cards, List<ImageDetail> Images, List<DrawingDetail> Drawings);

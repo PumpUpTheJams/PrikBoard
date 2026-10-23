@@ -1,7 +1,7 @@
 import type { BoardDetail, BucketDetail, CardDetail, DragKind, DrawingDetail, ImageDetail, Point, Rect, ResizeHandle } from '../api/types'
 import type { LiveDrag } from '../live/useLive'
 import type { Gesture, ItemGesture } from './boardGesture'
-import { cardBox, itemsOf, kindOf, type Selection, type SelectionKind } from './boardItems'
+import { cardBox, itemsOf, kindOf, placeOf, type Selection, type SelectionKind } from './boardItems'
 import type { ArrangeDrop } from './dropTargets'
 import { delta, isDrag } from './gesture'
 import { CARD_HEIGHT, CARD_WIDTH, GRID, MIN_COORDINATE, bucketSize, collapsedRect, onBoard, resizeFrom, resizeImage, snapPoint } from './layout'
@@ -45,15 +45,15 @@ export function draggingOf(gesture: Gesture | null): DragGesture | null {
 
 /**
  * Several items moving together each move by the same distance; cards lined up in a grid go to their place in it,
- * moving on with the pointer, and cards going into a bucket (`spots`) wait in theirs.
+ * moving on with the pointer, and items going into a bucket (`spots`) wait in theirs.
  */
 function groupDrags(board: BoardDetail, members: Selection[], d: Point, grid?: Record<string, Point>, spots?: Record<string, Point>): ActiveDrag[] {
   return members.map(({ kind, id }) => {
     const spot = spots?.[id]
     const cell = spot ?? grid?.[id]
-    const card = cell && board.cards.find((n) => n.id === id)
+    const at = cell && placeOf(board, kind, id)
     const along = spot ? { x: 0, y: 0 } : d
-    return { kind, id, d: card ? { x: cell.x - card.x + along.x, y: cell.y - card.y + along.y } : d, handle: 'BottomRight' }
+    return { kind, id, d: at ? { x: cell.x - at.x + along.x, y: cell.y - at.y + along.y } : d, handle: 'BottomRight' }
   })
 }
 

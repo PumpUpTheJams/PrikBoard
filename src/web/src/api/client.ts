@@ -48,8 +48,8 @@ import type {
   CardDetail,
   PastedItems,
   PastePlace,
-  PlaceCardsRequest,
-  PlacedCards,
+  PlaceItemsRequest,
+  PlacedItems,
   Point,
   Rect,
   TagChanges,
@@ -199,9 +199,9 @@ export const api = {
     request<BucketDetail>('PATCH', `/buckets/${bucketId}`, changes),
   /** Puts a bucket on top of the others, for everyone (no item changes bucket). */
   bringBucketToFront: (bucketId: string) => request<BucketDetail>('POST', `/buckets/${bucketId}/front`),
-  /** Puts cards into a bucket's free room, in order, growing it towards `grow` when they don't fit. */
-  placeCardsInBucket: (bucketId: string, placement: PlaceCardsRequest) =>
-    request<PlacedCards>('POST', `/buckets/${bucketId}/cards`, placement),
+  /** Puts cards, images and drawings into a bucket's free room, each at its own size, growing it towards `grow` when they don't fit. */
+  placeItemsInBucket: (bucketId: string, placement: PlaceItemsRequest) =>
+    request<PlacedItems>('POST', `/buckets/${bucketId}/items`, placement),
 
   /** The items as a clip, with everything on them (images as base64), for pasteItems here or on another server. Changes nothing. */
   copyItems: (boardId: string, what: CopyItemsRequest) => request<BoardClip>('POST', `/boards/${boardId}/copy`, what),

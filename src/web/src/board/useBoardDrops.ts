@@ -2,10 +2,11 @@ import type { RefObject } from 'react'
 import { api } from '../api/client'
 import type { BoardDetail, BucketDetail, CardDetail, DrawingDetail, GrowSide, ImageDetail, Point, Rect } from '../api/types'
 import type { Gesture, GroupGesture, ItemDrag } from './boardGesture'
-import { count, itemsOf, type Selection } from './boardItems'
+import { bucketItemsOf, count, itemsOf, type BucketItems, type Selection } from './boardItems'
 import { linkCards, NO_DROPS, released, type ArrangeDrop, type AttachDrop, type DropProbeState, type DropTargets, type LinkDrop } from './dropTargets'
 import type { ExpandedCardHandle } from './ExpandedCard'
 import { CARD_HEIGHT, CARD_WIDTH, GRID, onCardCanvas } from './layout'
+import { itemKindOf } from './liveGeometry'
 import { pop, reducedMotion } from './motion'
 import { bucketMove, ops, runAll } from './ops'
 import { bounds } from './selection'
@@ -48,7 +49,7 @@ interface BoardDropsOptions {
   drawingRect: (drawing: DrawingDetail) => Rect
   deleteCard: (id: string) => Promise<boolean>
   deleteSelected: () => Promise<boolean>
-  putCards: (bucket: BucketDetail, cards: CardDetail[], grow: GrowSide, along: Selection[]) => Promise<boolean>
+  putItems: (bucket: BucketDetail, items: BucketItems, grow: GrowSide) => Promise<boolean>
   moveGroup: (members: Selection[], label?: string) => void
 }
 
@@ -56,7 +57,7 @@ interface BoardDropsOptions {
 export function useBoardDrops(options: BoardDropsOptions) {
   const { board, expanded, cardHandle, trashHandle, canvasRef, drops, arrangeDrop, setDrops, probe, setGesture } = options
   const { selected, setSelected, setSelection, setBinned, runRec, settle, notify, toCanvas, cardPlace, toFront } = options
-  const { bucketRect, cardPoint, imageRect, drawingRect, deleteCard, deleteSelected, putCards, moveGroup } = options
+  const { bucketRect, cardPoint, imageRect, drawingRect, deleteCard, deleteSelected, putItems, moveGroup } = options
 
   const cardElement = (id: string) => canvasRef.current?.querySelector(`[data-card="${id}"]`)
 
@@ -232,21 +233,19 @@ export function useBoardDrops(options: BoardDropsOptions) {
         return
       }
       const cards = itemsOf(board, g.members, 'card').toSorted((a, b) => a.y - b.y || a.x - b.x)
-      if (fold && cards.length === g.members.length) {
+      if (fold) {
         // Out of sight with the others, each in a free spot the server finds.
         setGesture({ ...g, done: true })
         setSelected([])
-        void putCards(fold, cards, 'Down', []).then(popFold(fold.id))
+        void putItems(fold, bucketItemsOf(board, g.members), 'Down').then(popFold(fold.id))
         return
       }
       if (arrange) {
-        // When they don't fit, the bucket grows over its neighbors too, so the server puts it on top. Images and
-        // drawings dropped with them land where they are dropped.
+        // In the spots shown while dragging (the same order as there). When they don't fit, the bucket grows over its
+        // neighbors too, so the server puts it on top.
         setGesture({ ...g, done: true })
         toFront(arrange.bucket.id, false)
-        const spot = (card: CardDetail) => arrange.spots[card.id]
-        const ordered = cards.toSorted((a, b) => spot(a).y - spot(b).y || spot(a).x - spot(b).x)
-        void putCards(arrange.bucket, ordered, arrange.side, g.members.filter((m) => m.kind === 'image' || m.kind === 'drawing'))
+        void putItems(arrange.bucket, bucketItemsOf(board, g.members), arrange.side)
         return
       }
       const link = probe.linkDropFor(g, client)
@@ -260,7 +259,7 @@ export function useBoardDrops(options: BoardDropsOptions) {
     /** Drops one item dragged by itself; anywhere else than on a drop target it moves (or keeps its new size). */
     dropItem(g: ItemDrag, client: Point) {
       const intoDeleted = drops.deleted !== null
-      const fold = g.kind === 'card' && drops.fold ? board.buckets.find((b) => b.id === drops.fold) : undefined
+      const fold = drops.fold ? board.buckets.find((b) => b.id === drops.fold) : undefined
       setDrops(released)
       if (probe.cancels(g, client)) {
         setGesture(null)
@@ -272,10 +271,9 @@ export function useBoardDrops(options: BoardDropsOptions) {
         return
       }
       if (fold) {
-        // Out of sight with the others, in a free spot as the server finds one.
+        // Out of sight with the others, in a free spot the server finds.
         setGesture({ ...g, done: true })
-        const card = board.cards.find((n) => n.id === g.id)!
-        void settle(...ops.moveCardInto(card, fold.id)).then(popFold(fold.id))
+        void putItems(fold, bucketItemsOf(board, [{ kind: itemKindOf[g.kind], id: g.id }]), 'Down').then(popFold(fold.id))
         return
       }
       const link = probe.linkDropFor(g, client)

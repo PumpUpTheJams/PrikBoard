@@ -50,7 +50,7 @@ public class BucketStackingApiTests(PrikBoardApiFactory factory) : IClassFixture
         Assert.Equal(doing.Id, await TopAfter(await client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { name = "Later" })));
         Assert.Equal(doing.Id, await TopAfter(await client.PatchAsJsonAsync($"/api/buckets/{done.Id}", new { collapsed = true })));
         Assert.Equal(done.Id, await TopAfter(await client.PatchAsJsonAsync($"/api/buckets/{done.Id}", new { collapsed = false })));
-        Assert.Equal(todo.Id, await TopAfter(await client.PostAsJsonAsync($"/api/buckets/{todo.Id}/cards", new { cardIds = new[] { card.Id } })));
+        Assert.Equal(todo.Id, await TopAfter(await client.PostAsJsonAsync($"/api/buckets/{todo.Id}/items", new { cardIds = new[] { card.Id } })));
     }
 
     [Fact]

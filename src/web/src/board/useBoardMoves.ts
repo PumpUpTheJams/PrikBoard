@@ -1,6 +1,6 @@
 import { api } from '../api/client'
 import { cardColors, type BoardDetail, type BucketDetail, type CardDetail, type DrawingDetail, type GrowSide, type ImageDetail, type Point, type Rect } from '../api/types'
-import { cardBox, count, itemsOf, type Selection } from './boardItems'
+import { cardBox, count, itemsOf, packed, type BucketItems, type Selection } from './boardItems'
 import { CARD_HEIGHT, CARD_WIDTH, GRID, snapPoint } from './layout'
 import { allOf, bucketMove, runAll } from './ops'
 import type { CardSort } from './SelectionToolbar'
@@ -100,34 +100,33 @@ export function useBoardMoves(options: BoardMovesOptions) {
   }
 
   /**
-   * Puts cards into a bucket's free spots in one request (the server finds them, growing the bucket towards `grow` when
-   * they don't fit), after moving the images and drawings that came along to where they were dropped.
+   * Puts cards, images and drawings into a bucket's free room in one request: the server finds their spots, each at its
+   * own size, growing the bucket towards `grow` when they don't fit.
    */
-  function putCards(bucket: BucketDetail, cards: CardDetail[], grow: GrowSide, along: Selection[]) {
-    const alongImages = itemsOf(board, along, 'image')
-    const alongDrawings = itemsOf(board, along, 'drawing')
-    const spots = new Map<string, Point>([
-      ...alongImages.map((i) => [i.id, imageRect(i)] as const),
-      ...alongDrawings.map((d) => [d.id, drawingRect(d)] as const),
-    ])
-    const to = (id: string) => ({ x: spots.get(id)!.x, y: spots.get(id)!.y })
-    return runAll(settle, `Put ${count(cards.length, 'card', 'cards')} in ${bucket.name}`, undefined, async (changes) => {
-      await allOf([
-        ...alongImages.map(async (i) => {
-          const moved = await api.updateImage(i.id, to(i.id))
-          changes.push(patched(target.image(i.id), snap.image(i), snap.image(moved), ['x', 'y']))
-        }),
-        ...alongDrawings.map(async (d) => {
-          const moved = await api.updateDrawing(d.id, to(d.id))
-          changes.push(patched(target.drawing(d.id), snap.drawing(d), snap.drawing(moved), ['x', 'y']))
-        }),
-      ])
-      const placed = await api.placeCardsInBucket(bucket.id, { cardIds: cards.map((n) => n.id), grow })
-      // Undo reverses the order: the cards go back first, then the bucket shrinks to its old size.
+  function putItems(bucket: BucketDetail, items: BucketItems, grow: GrowSide) {
+    const all = packed(items)
+    const onlyCards = all.length === items.cards.length
+    const label = `Put ${onlyCards ? count(all.length, 'card', 'cards') : count(all.length, 'item', 'items')} in ${bucket.name}`
+    return runAll(settle, label, undefined, async (changes) => {
+      const placed = await api.placeItemsInBucket(bucket.id, {
+        cardIds: items.cards.map((n) => n.id),
+        imageIds: items.images.map((i) => i.id),
+        drawingIds: items.drawings.map((d) => d.id),
+        grow,
+      })
+      // Undo reverses the order: the items go back first, then the bucket shrinks to its old size.
       changes.push(patched(target.bucket(bucket.id), snap.bucket(bucket), snap.bucket(placed.bucket), ['x', 'y', 'width', 'height']))
       for (const after of placed.cards) {
-        const before = cards.find((n) => n.id === after.id)
+        const before = items.cards.find((n) => n.id === after.id)
         if (before) changes.push(patched(target.card(after.id), snap.card(before), snap.card(after), ['x', 'y']))
+      }
+      for (const after of placed.images) {
+        const before = items.images.find((i) => i.id === after.id)
+        if (before) changes.push(patched(target.image(after.id), snap.image(before), snap.image(after), ['x', 'y']))
+      }
+      for (const after of placed.drawings) {
+        const before = items.drawings.find((d) => d.id === after.id)
+        if (before) changes.push(patched(target.drawing(after.id), snap.drawing(before), snap.drawing(after), ['x', 'y']))
       }
     })
   }
@@ -164,5 +163,5 @@ export function useBoardMoves(options: BoardMovesOptions) {
     )
   }
 
-  return { deleteSelected, moveGroup, putCards, sortCards }
+  return { deleteSelected, moveGroup, putItems, sortCards }
 }

@@ -247,7 +247,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const probe = useDropProbe({ board, expanded, cardHandle: expandedRef, trash, railTrash: trashRef, toCanvas, drawn, stacked, front, ...geometry })
   const { onTrash, cardAt } = probe
   const moves = useBoardMoves({ board, selected, setSelected, expanded, closeCard: () => setExpanded(null), settle, cardPlace, ...geometry })
-  const { deleteSelected, moveGroup, putCards } = moves
+  const { deleteSelected, moveGroup, putItems } = moves
 
   const edits = useBoardEdits({
     board,
@@ -317,7 +317,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     drawingRect,
     deleteCard,
     deleteSelected,
-    putCards,
+    putItems,
     moveGroup,
   })
 

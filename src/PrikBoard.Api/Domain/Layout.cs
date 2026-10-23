@@ -194,38 +194,85 @@ public static class Layout
     }
 
     /// <summary>
-    /// Where cards put into a bucket by id go (placeCardsInBucket): the first <paramref name="count"/> places on the 20 px
-    /// grid inside it, row by row, a gap clear of what is <paramref name="taken"/> (the bucket's own cards and images, and
-    /// loose ones) and of each other, so any room big enough for a card is used. The cards join the bucket by id wherever
-    /// they sit, so other buckets' items don't count. When they don't fit, the bucket grows a row or column at a time
-    /// towards <paramref name="grow"/>, over its neighbors too, as in <see cref="FreeSpotsIn"/>.
+    /// Where items put into a bucket by id go (placeItemsInBucket), one for each of <paramref name="sizes"/> in turn: the
+    /// first place on the 20 px grid inside it, row by row, a gap clear of what is <paramref name="taken"/> (the bucket's
+    /// own items and loose ones) and of the items placed before it, so any room big enough for the item is used. The items
+    /// join the bucket by id wherever they sit, so other buckets' items don't count. When they don't fit, the bucket grows a
+    /// row or column of card slots at a time towards <paramref name="grow"/> (or the way an item too wide or too tall
+    /// needs), over its neighbors too, as in <see cref="FreeSpotsIn"/>. An item that can't be placed at all goes to the
+    /// top-left corner.
     /// </summary>
-    public static List<(int X, int Y)> PackIn(Bucket bucket, int count, IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, GrowSide grow)
+    public static List<(int X, int Y)> PackIn(
+        Bucket bucket, IReadOnlyList<(int Width, int Height)> sizes, IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, GrowSide grow)
     {
         // Fill the room it has first; only the rest goes into the room it grows by.
-        var spots = new List<(int X, int Y)>();
-        Pack(bucket, count, taken, spots);
-        while (spots.Count < count && (Grow(bucket, grow) || Grow(bucket, GrowSide.Down))) Pack(bucket, count, taken, spots);
-        while (spots.Count < count) spots.Add((bucket.X + Gap, bucket.Y + Gap));
-        return spots;
+        var spots = new (int X, int Y)?[sizes.Count];
+        Pack(bucket, sizes, taken, spots);
+        while (FirstUnplaced(spots) is { } next && GrowFor(bucket, sizes[next], grow)) Pack(bucket, sizes, taken, spots);
+        return [.. spots.Select(spot => spot ?? (bucket.X + Gap, bucket.Y + Gap))];
     }
 
-    /// <summary>Adds free places for cards inside a bucket as it is now to <paramref name="spots"/>, row by row on the 20 px grid, up to <paramref name="count"/>.</summary>
-    private static void Pack(Bucket bucket, int count, IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, List<(int X, int Y)> spots)
+    private static int? FirstUnplaced((int X, int Y)?[] spots)
     {
-        var right = bucket.X + Math.Max(bucket.Width, MinBucketWidth) - Gap;
-        var bottom = bucket.Y + Math.Max(bucket.Height, MinBucketHeight) - Gap;
+        var index = Array.FindIndex(spots, spot => spot is null);
+        return index < 0 ? null : index;
+    }
+
+    /// <summary>Gives each item without a place in <paramref name="spots"/> the first free one inside the bucket as it is now.</summary>
+    private static void Pack(
+        Bucket bucket, IReadOnlyList<(int Width, int Height)> sizes, IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken,
+        (int X, int Y)?[] spots)
+    {
         // Every place with the gap around it lies inside the bucket, so only what reaches into the bucket can be in the way.
         var inTheWay = Touching(taken, Bounds(bucket));
-        for (var y = bucket.Y + Gap; y + CardHeight <= bottom && spots.Count < count; y += Grid)
+        // Items placed before the bucket grew keep their places.
+        for (var i = 0; i < spots.Length; i++)
         {
-            for (var x = bucket.X + Gap; x + CardWidth <= right && spots.Count < count; x += Grid)
+            if (spots[i] is { } spot) inTheWay.Add((spot.X, spot.Y, sizes[i].Width, sizes[i].Height));
+        }
+        (int X, int Y, int Width, int Height)? last = null;
+        for (var i = 0; i < spots.Length; i++)
+        {
+            if (spots[i] is not null) continue;
+            // None of the places before the last one this pass found suit an item of its size, so the search goes on from there.
+            var from = last is { } l && (l.Width, l.Height) == sizes[i] ? (l.X, l.Y) : (bucket.X + Gap, bucket.Y + Gap);
+            spots[i] = FirstFree(bucket, sizes[i], from, inTheWay);
+            if (spots[i] is not { } spot) continue;
+            last = (spot.X, spot.Y, sizes[i].Width, sizes[i].Height);
+            inTheWay.Add(last.Value);
+        }
+    }
+
+    /// <summary>The first place for an item of <paramref name="size"/> inside the bucket from <paramref name="from"/> on, row by row, a gap clear of <paramref name="inTheWay"/>.</summary>
+    private static (int X, int Y)? FirstFree(
+        Bucket bucket, (int Width, int Height) size, (int X, int Y) from, List<(int X, int Y, int Width, int Height)> inTheWay)
+    {
+        var left = bucket.X + Gap;
+        var right = bucket.X + Math.Max(bucket.Width, MinBucketWidth) - Gap;
+        var bottom = bucket.Y + Math.Max(bucket.Height, MinBucketHeight) - Gap;
+        for (var y = from.Y; y + size.Height <= bottom; y += Grid)
+        {
+            for (var x = y == from.Y ? from.X : left; x + size.Width <= right; x += Grid)
             {
-                var around = (x - Gap, y - Gap, CardWidth + 2 * Gap, CardHeight + 2 * Gap);
-                if (AnyIntersects(inTheWay, around) || AnyCardIntersects(spots, around)) continue;
-                spots.Add((x, y));
+                var around = (x - Gap, y - Gap, size.Width + 2 * Gap, size.Height + 2 * Gap);
+                if (!AnyIntersects(inTheWay, around)) return (x, y);
             }
         }
+        return null;
+    }
+
+    /// <summary>
+    /// Grows the bucket for an item that found no place: towards <paramref name="grow"/>, except across when the item is
+    /// wider or taller than the bucket's room that way, then downwards once that side reaches the limit.
+    /// </summary>
+    private static bool GrowFor(Bucket bucket, (int Width, int Height) size, GrowSide grow)
+    {
+        var tooWide = size.Width > Math.Max(bucket.Width, MinBucketWidth) - 2 * Gap;
+        var tooTall = size.Height > Math.Max(bucket.Height, MinBucketHeight) - 2 * Gap;
+        var vertical = grow is GrowSide.Down or GrowSide.Up;
+        if (vertical && tooWide && (Grow(bucket, GrowSide.Right) || Grow(bucket, GrowSide.Left))) return true;
+        if (!vertical && tooTall && (Grow(bucket, GrowSide.Down) || Grow(bucket, GrowSide.Up))) return true;
+        return Grow(bucket, grow) || Grow(bucket, GrowSide.Down);
     }
 
     private const int ColumnStep = CardWidth + Gap;
@@ -382,15 +429,6 @@ public static class Layout
         foreach (var other in rects)
         {
             if (Intersects(other, rect)) return true;
-        }
-        return false;
-    }
-
-    private static bool AnyCardIntersects(List<(int X, int Y)> cards, (int X, int Y, int Width, int Height) rect)
-    {
-        foreach (var (x, y) in cards)
-        {
-            if (Intersects((x, y, CardWidth, CardHeight), rect)) return true;
         }
         return false;
     }

@@ -406,14 +406,17 @@ public sealed partial class BoardTools
         return await ViewAsync(http, result, content: false, ct);
     }
 
-    [McpServerTool(Name = "place_cards_in_bucket", Title = "Put several cards into a bucket", OpenWorld = false)]
-    [Description("Moves several cards of the bucket's board into it at once, into free spots row by row in the order given, " +
-                 "around what is already there; a collapsed bucket takes them too. When they don't fit, the bucket grows (down " +
-                 "unless grow says otherwise). The bucket comes to the front. Needs the Editor role.")]
-    public static async Task<PlacedCards> PlaceCardsInBucket(
+    [McpServerTool(Name = "place_in_bucket", Title = "Put cards, images and drawings into a bucket", OpenWorld = false)]
+    [Description("Moves several cards, images and drawings of the bucket's board into it at once, each at its own size, into " +
+                 "free spots row by row around what is already there: cards first, then images, then drawings, each in the order " +
+                 "given. A collapsed bucket takes them too. When they don't fit, the bucket grows (down unless grow says " +
+                 "otherwise). The bucket comes to the front. Needs the Editor role.")]
+    public static async Task<PlacedItems> PlaceInBucket(
         IHttpContextAccessor accessor,
         [Description("The bucket to put them in: its name (for example \"Done\") or id.")] string bucket,
-        [Description("The cards, in the order they fill the free spots, each: " + CardForms)] List<string> cards,
+        [Description("The cards, in the order they fill the free spots, each: " + CardForms)] List<string>? cards = null,
+        [Description("Ids of images on the board itself (not on a card), e.g. from add_image.")] List<Guid>? images = null,
+        [Description("Ids of drawings on the board itself (not on a card).")] List<Guid>? drawings = null,
         [Description(BoardHelp)] string? board = null,
         [Description("The side the bucket grows towards when it is full: Down (default), Right, Left or Up.")] GrowSide? grow = null,
         CancellationToken ct = default)
@@ -421,10 +424,10 @@ public sealed partial class BoardTools
         var (http, db, boardId) = await BoardCallAsync(accessor, board, BoardRole.Editor, ct);
         var bucketId = await ResolveBucketAsync(http, db, boardId, bucket, ct);
         var cardIds = new List<Guid>();
-        foreach (var card in cards) cardIds.Add(await ResolveCardAsync(http, card, ct));
-        var request = new PlaceCardsRequest(cardIds, grow);
+        foreach (var card in cards ?? []) cardIds.Add(await ResolveCardAsync(http, card, ct));
+        var request = new PlaceItemsRequest(cardIds, images, drawings, grow);
         McpCall.Validate(request);
-        var result = McpCall.Value<PlacedCards>(await BucketEndpoints.PlaceCardsInBucket(bucketId, request, db, ct));
+        var result = McpCall.Value<PlacedItems>(await BucketEndpoints.PlaceItemsInBucket(bucketId, request, db, ct));
         await McpCall.AnnounceAsync(http, boardId);
         return result;
     }

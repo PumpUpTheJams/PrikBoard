@@ -239,7 +239,7 @@ public static class ClipEndpoints
         var others = await db.Cards.Where(n => n.BoardId == boardId).ToListAsync(ct);
         List<Bucket> newBuckets = [];
         // Into a bucket they go where there is room, growing it downwards when it is full.
-        if (bucket is not null) await BucketEndpoints.PackCardsAsync(db, bucket, buckets, others, cards, GrowSide.Down, ct);
+        if (bucket is not null) await BucketEndpoints.PackItemsAsync(db, bucket, buckets, others, new(cards, [], []), GrowSide.Down, ct);
         else newBuckets = await PlaceOnBoardAsync(db, boardId, request, cards, images, drawings, buckets, others, now, ct);
 
         var number = cards.Count == 0 ? 0 : await CardEndpoints.TakeNumberAsync(db, boardId, ct, cards.Count);
