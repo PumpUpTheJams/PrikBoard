@@ -1909,6 +1909,12 @@ input.editable {
   letter-spacing: -0.015em;
 }
 
+/* An empty title's suggestion in the card's own dark shade, not the browser's grey. */
+.band-title::placeholder {
+  color: var(--ink-soft);
+  opacity: 1;
+}
+
 .band-tags,
 .band-assignees {
   display: flex;
