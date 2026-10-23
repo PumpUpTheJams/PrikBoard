@@ -50,7 +50,7 @@ public static class CardComponentEndpoints
         Guid cardId, NewCardComponent request, PrikBoardDbContext db, CancellationToken ct)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        if (await LockedCardAsync(db, cardId, ct) is not { } card) return TypedResults.NotFound();
+        if (await CardEndpoints.LockedCardAsync(db, cardId, ct) is not { } card) return TypedResults.NotFound();
         if (card.Components.Count >= CardComponent.MaxComponents)
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Too many components",
@@ -82,7 +82,7 @@ public static class CardComponentEndpoints
         Guid cardId, Guid componentId, UpdateCardComponentRequest request, PrikBoardDbContext db, CancellationToken ct)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        if (await LockedCardAsync(db, cardId, ct) is not { } card) return TypedResults.NotFound();
+        if (await CardEndpoints.LockedCardAsync(db, cardId, ct) is not { } card) return TypedResults.NotFound();
         if (card.Components.Find(b => b.Id == componentId) is not { } component) return TypedResults.NotFound();
 
         if (Misfit(component.Kind, request.Text, request.Items, request.Links, "") is { } misfit) return misfit;
@@ -109,7 +109,7 @@ public static class CardComponentEndpoints
         Guid cardId, Guid componentId, PrikBoardDbContext db, CancellationToken ct)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        if (await LockedCardAsync(db, cardId, ct) is not { } card) return TypedResults.NotFound();
+        if (await CardEndpoints.LockedCardAsync(db, cardId, ct) is not { } card) return TypedResults.NotFound();
         if (card.Components.RemoveAll(b => b.Id == componentId) == 0) return TypedResults.NotFound();
 
         card.UpdatedAt = DateTimeOffset.UtcNow;
@@ -273,8 +273,4 @@ public static class CardComponentEndpoints
 
     private static List<LinkEntry> Links(IEnumerable<CardLink> links) =>
         links.Select(l => new LinkEntry { Title = l.Title.Trim(), Url = l.Url.Trim() }).ToList();
-
-    /// <summary>Locks the card's row until the transaction ends, then loads it; null when it does not exist.</summary>
-    private static Task<Card?> LockedCardAsync(PrikBoardDbContext db, Guid cardId, CancellationToken ct) =>
-        db.Cards.FromSql($"""SELECT * FROM "Cards" WHERE "Id" = {cardId} FOR UPDATE""").FirstOrDefaultAsync(ct);
 }

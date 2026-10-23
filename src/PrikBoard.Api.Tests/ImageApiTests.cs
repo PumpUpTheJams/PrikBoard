@@ -248,6 +248,28 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
+    public async Task Images_uploaded_while_their_card_is_deleted_go_with_it_or_are_refused()
+    {
+        var board = await CreateBoard("Upload race");
+        var cardResponse = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Going away" });
+        var card = (await cardResponse.Content.ReadFromJsonAsync<CardDetail>())!;
+        await Upload(board.Id, TestImages.Png(300, 200), "image/png", $"?cardId={card.Id}");
+
+        // Big enough to still be coming in when the delete lands.
+        byte[] png = [.. TestImages.Png(300, 200), .. new byte[512 * 1024]];
+        var uploads = Enumerable.Range(0, 6).Select(_ => Post($"/api/boards/{board.Id}/images?cardId={card.Id}", png, "image/png")).ToList();
+        var delete = _client.DeleteAsync($"/api/cards/{card.Id}");
+        var responses = await Task.WhenAll(uploads);
+        (await delete).EnsureSuccessStatusCode();
+
+        Assert.All(responses, r => Assert.Contains(r.StatusCode, new[] { HttpStatusCode.Created, HttpStatusCode.BadRequest }));
+        var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
+        Assert.Empty(snapshot!.Images);
+        var trash = (await _client.GetFromJsonAsync<TrashContents>($"/api/boards/{board.Id}/trash"))!;
+        Assert.Equal(1 + responses.Count(r => r.StatusCode == HttpStatusCode.Created), trash.Images.Count(i => i.CardId == card.Id));
+    }
+
+    [Fact]
     public async Task Images_on_a_card_have_a_place_on_its_canvas_clear_of_its_components()
     {
         var board = await CreateBoard("Card canvas");

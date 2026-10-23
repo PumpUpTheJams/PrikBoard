@@ -90,7 +90,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
                 .WithMany()
                 .HasForeignKey(n => n.BucketId)
                 .OnDelete(DeleteBehavior.SetNull);
-            card.HasIndex(n => n.BoardId);
+            // Also the board's index for its cards (the foreign key), so there is no separate one on BoardId.
             // Unfiltered, unlike the tag names: a deleted card keeps its number, and gets it back when restored.
             card.HasIndex(n => new { n.BoardId, n.Number }).IsUnique();
             card.HasQueryFilter(SoftDelete, n => n.DeletedAt == null);
@@ -117,6 +117,8 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             image.HasOne<Card>().WithMany().HasForeignKey(i => i.CardId).OnDelete(DeleteBehavior.Cascade);
             // Like a card, an image in a purged bucket stays on the board, loose.
             image.HasOne<Bucket>().WithMany().HasForeignKey(i => i.BucketId).OnDelete(DeleteBehavior.SetNull);
+            // On a card or in a bucket, never both (Layout.Place).
+            image.ToTable(t => t.HasCheckConstraint("CK_Images_CardOrBucket", "\"CardId\" IS NULL OR \"BucketId\" IS NULL"));
             // Files are deleted by the sweep once nothing refers to them (FileStore.SweepAsync), never by a cascade.
             image.HasOne(i => i.File).WithOne().HasForeignKey<BoardImage>(i => i.FileId).OnDelete(DeleteBehavior.Restrict);
             image.HasIndex(i => i.BoardId);
@@ -142,6 +144,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             drawing.HasOne<Card>().WithMany().HasForeignKey(d => d.CardId).OnDelete(DeleteBehavior.Cascade);
             // Like a card, a drawing in a purged bucket stays on the board, loose.
             drawing.HasOne<Bucket>().WithMany().HasForeignKey(d => d.BucketId).OnDelete(DeleteBehavior.SetNull);
+            drawing.ToTable(t => t.HasCheckConstraint("CK_Drawings_CardOrBucket", "\"CardId\" IS NULL OR \"BucketId\" IS NULL"));
             drawing.HasOne(d => d.Content).WithOne().HasForeignKey<DrawingContent>(c => c.DrawingId).OnDelete(DeleteBehavior.Cascade);
             drawing.HasIndex(d => d.BoardId);
             drawing.HasIndex(d => d.CardId);

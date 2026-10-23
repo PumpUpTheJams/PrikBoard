@@ -241,6 +241,7 @@ public static class CardEndpoints
             await CardComponentEndpoints.ShortenLinksAsync(db, boardId, card.Components, ct);
             cards.Add(card);
         }
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var tags = cards.SelectMany(c => c.Tags).Distinct().ToList();
         if (await TagEndpoints.EnsureBoardTagsAsync(db, boardId, tags, ct) is { } tooManyTags) return tooManyTags;
 
@@ -258,7 +259,6 @@ public static class CardEndpoints
         }
         TrackMoved(db, others, placed);
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var number = await TakeNumberAsync(db, boardId, ct, cards.Count);
         foreach (var card in cards) card.Number = number++;
         db.Cards.AddRange(cards);
@@ -309,6 +309,27 @@ public static class CardEndpoints
             UPDATE "Boards" SET "NextCardNumber" = "NextCardNumber" + {count} WHERE "Id" = {boardId} RETURNING "NextCardNumber" - {count} AS "Value"
             """).ToListAsync(ct)).Single();
 
+    /// <summary>
+    /// Locks the card's row until the transaction ends, then loads it as it is now; null when it does not exist or is
+    /// deleted. Use it to change a card from what is on it (components, assignees), so concurrent changes all count.
+    /// </summary>
+    internal static async Task<Card?> LockedCardAsync(PrikBoardDbContext db, Guid cardId, CancellationToken ct)
+    {
+        var tracked = db.Cards.Local.Any(n => n.Id == cardId);
+        var card = await db.Cards.FromSql($"""SELECT * FROM "Cards" WHERE "Id" = {cardId} FOR UPDATE""").FirstOrDefaultAsync(ct);
+        // A query hands back a card the context tracks as it was read then (MCP tools call several handlers on one context).
+        if (card is not null && tracked) await db.Entry(card).ReloadAsync(ct);
+        return card;
+    }
+
+    /// <summary>
+    /// Locks the card's row until the transaction ends; false when it is not a live card on the board. Check this right
+    /// before saving an image or drawing on a card: a card deleted meanwhile has its attachments deleted with it
+    /// (<see cref="Tombstones.DeleteCardsAsync"/>), so one saved after that would stay live on a deleted card.
+    /// </summary>
+    internal static Task<bool> LockLiveCardAsync(PrikBoardDbContext db, Guid cardId, Guid boardId, CancellationToken ct) =>
+        db.Cards.FromSql($"""SELECT * FROM "Cards" WHERE "Id" = {cardId} FOR UPDATE""").AnyAsync(n => n.BoardId == boardId, ct);
+
     internal static async Task<Results<Ok<CardDetail>, NotFound>> GetCard(
         Guid cardId, PrikBoardDbContext db, CancellationToken ct)
     {
@@ -335,6 +356,8 @@ public static class CardEndpoints
             return unassignable;
         }
         if (ApplyLists(card, request.Tags, request.AssigneeIds) is { } invalid) return invalid;
+        // New tags join the board under its lock, held until the card is saved (TagEndpoints.EnsureBoardTagsAsync).
+        await using var transaction = request.Tags is null ? null : await db.Database.BeginTransactionAsync(ct);
         if (request.Tags is not null && await TagEndpoints.EnsureBoardTagsAsync(db, card.BoardId, card.Tags, ct) is { } tooManyTags)
         {
             return tooManyTags;
@@ -350,6 +373,7 @@ public static class CardEndpoints
         card.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         return TypedResults.Ok(await DetailAsync(db, card, ct));
     }
 
@@ -367,8 +391,9 @@ public static class CardEndpoints
     internal static async Task<Results<Ok<CardDetail>, NotFound, ProblemHttpResult>> SetCardWorking(
         Guid cardId, SetWorkingRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
     {
-        var card = await db.Cards.FindAsync([cardId], ct);
-        if (card is null) return TypedResults.NotFound();
+        // Locked, so people starting on it at the same time are all assigned.
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (await LockedCardAsync(db, cardId, ct) is not { } card) return TypedResults.NotFound();
 
         // Whoever passed the Editor check reaches the board, and so does the owner of their token, so they can be assigned.
         var worksFor = await WorksForAsync(db, principal, ct);
@@ -386,6 +411,7 @@ public static class CardEndpoints
         card.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
         return TypedResults.Ok(await DetailAsync(db, card, ct));
     }
 
@@ -494,15 +520,20 @@ public static class CardEndpoints
     internal static async Task<Results<Ok<CardDetail>, NotFound, ValidationProblem, ProblemHttpResult>> RestoreCard(
         Guid cardId, RestoreCardRequest? request, PrikBoardDbContext db, CancellationToken ct)
     {
+        if (Problems.XWithoutY(request?.X, request?.Y) is { } apart) return apart;
+        var boardId = await db.Cards.WithDeleted().Where(n => n.Id == cardId).Select(n => (Guid?)n.BoardId).FirstOrDefaultAsync(ct);
+        if (boardId is null) return TypedResults.NotFound();
+
+        // Tags are renamed and deleted under the board's lock, on deleted cards too, so the card read after it has current ones.
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await MemberEndpoints.LockBoard(db, boardId.Value, ct);
         var card = await db.Cards.WithDeleted().FirstOrDefaultAsync(n => n.Id == cardId, ct);
         if (card is null) return TypedResults.NotFound();
         if (card.DeletedAt is not { } stamp) return Problems.NotDeleted("card");
-        if (Problems.XWithoutY(request?.X, request?.Y) is { } apart) return apart;
 
         // Tags deleted meanwhile were taken off the card as well, so this only fills a gap.
         if (await TagEndpoints.EnsureBoardTagsAsync(db, card.BoardId, card.Tags, ct) is { } tooManyTags) return tooManyTags;
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         card.DeletedAt = null;
         await Tombstones.RestoreWithCardAsync(db, cardId, stamp, ct);
         var stacked = await BucketEndpoints.StackAsync(db, card.BoardId, ct);

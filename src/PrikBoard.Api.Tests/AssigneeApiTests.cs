@@ -153,6 +153,23 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         Assert.Equal(HttpStatusCode.Forbidden, (await reader.PostAsJsonAsync(url, new { working = true })).StatusCode);
     }
 
+    [Fact]
+    public async Task People_who_start_on_a_card_at_the_same_time_are_all_assigned()
+    {
+        var owner = await SignInAsync("working-race-owner@example.com", "Owen");
+        var board = await owner.CreateBoardAsync("Working race");
+        var members = await Task.WhenAll(Enumerable.Range(0, 5).Select(i => SignInAsync($"working-race-{i}@example.com", $"Member {i}")));
+        foreach (var member in members) await owner.ShareAsync(board.Id, member, BoardRole.Editor);
+        var card = await owner.CreateCardAsync(board.Id, "Everyone on it");
+
+        var responses = await Task.WhenAll(members.Select(m => m.PostAsJsonAsync($"/api/cards/{card.Id}/working", new { working = true })));
+
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+        var ids = await Task.WhenAll(members.Select(async m => (await m.MeAsync()).Id));
+        var assigned = (await owner.GetFromJsonAsync<CardDetail>($"/api/cards/{card.Id}"))!.Assignees.Select(a => a.PrincipalId);
+        Assert.Equal(ids.Order(), assigned.Order());
+    }
+
     private async Task<HttpClient> SignInAsync(string email, string name)
     {
         var client = await factory.CreateSignedInClientAsync(email);
