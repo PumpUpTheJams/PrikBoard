@@ -153,6 +153,41 @@ public class TagApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardA
         Assert.Equal(HttpStatusCode.Created, existingOnCard.StatusCode);
     }
 
+    [Fact]
+    public async Task Renames_at_the_same_time_as_card_saves_leave_no_card_with_a_tag_the_board_lacks()
+    {
+        var client = await factory.CreateSignedInClientAsync("tags-race@example.com");
+        var board = await client.CreateBoardAsync("Tags race");
+        var tagged = await Task.WhenAll(Enumerable.Range(0, 3).Select(i => CreateCard(client, board.Id, $"Tagged {i}", "ui")));
+        var plain = await Task.WhenAll(Enumerable.Range(0, 3).Select(i => CreateCard(client, board.Id, $"Plain {i}")));
+        var ui = (await TagsAsync(client, board.Id)).Single(t => t.Name == "ui");
+
+        // Each rename reads the tag's name, and each card save checks its tags against the board's, while the others write.
+        var renames = Enumerable.Range(0, 6).Select(i => client.PatchAsJsonAsync($"/api/boards/{board.Id}/tags/{ui.Id}", new { name = $"name-{i}" }));
+        var saves = plain.Select(n => client.PatchAsJsonAsync($"/api/cards/{n.Id}", new { tags = new[] { "ui" } }));
+        var responses = await Task.WhenAll(renames.Concat(saves));
+
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+        var names = (await TagsAsync(client, board.Id)).Select(t => t.Name).ToHashSet();
+        foreach (var card in tagged.Concat(plain))
+        {
+            var tags = (await CardAsync(client, card.Id)).Tags;
+            Assert.Single(tags);
+            Assert.Subset(names, tags.ToHashSet());
+        }
+    }
+
+    [Fact]
+    public async Task Cards_created_at_the_same_time_with_a_new_tag_add_it_once()
+    {
+        var client = await factory.CreateSignedInClientAsync("tags-new-race@example.com");
+        var board = await client.CreateBoardAsync("New tag race");
+
+        await Task.WhenAll(Enumerable.Range(0, 8).Select(i => CreateCard(client, board.Id, $"Card {i}", "fresh")));
+
+        Assert.Equal([("fresh", 8)], (await TagsAsync(client, board.Id)).Select(t => (t.Name, t.CardCount)));
+    }
+
     private static async Task<CardDetail> CreateCard(HttpClient client, Guid boardId, string title, params string[] tags)
     {
         var response = await client.PostAsJsonAsync($"/api/boards/{boardId}/cards", new { title, tags });

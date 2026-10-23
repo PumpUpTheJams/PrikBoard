@@ -243,7 +243,10 @@ namespace PrikBoard.Api.Data.Migrations
 
                     b.HasIndex("CardId");
 
-                    b.ToTable("Drawings");
+                    b.ToTable("Drawings", t =>
+                        {
+                            t.HasCheckConstraint("CK_Drawings_CardOrBucket", "\"CardId\" IS NULL OR \"BucketId\" IS NULL");
+                        });
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.BoardImage", b =>
@@ -311,7 +314,10 @@ namespace PrikBoard.Api.Data.Migrations
                     b.HasIndex("FileId")
                         .IsUnique();
 
-                    b.ToTable("Images");
+                    b.ToTable("Images", t =>
+                        {
+                            t.HasCheckConstraint("CK_Images_CardOrBucket", "\"CardId\" IS NULL OR \"BucketId\" IS NULL");
+                        });
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.BoardInvite", b =>
@@ -529,8 +535,6 @@ namespace PrikBoard.Api.Data.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("BoardId");
 
                     b.HasIndex("BucketId");
 

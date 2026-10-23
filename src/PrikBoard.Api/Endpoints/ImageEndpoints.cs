@@ -134,9 +134,14 @@ public static class ImageEndpoints
         await PlaceAsync(db, image, card, x, y, ct);
         Layout.Place(image, await BucketEndpoints.StackAsync(db, boardId, ct));
 
+        // On a card: saved under its lock, so a card deleted while the file came in doesn't get a live image (completeImageUpload
+        // already has a transaction, which spends the URL only with a saved image).
+        await using var transaction = cardId is null || db.Database.CurrentTransaction is not null ? null : await db.Database.BeginTransactionAsync(ct);
+        if (cardId is { } id && !await CardEndpoints.LockLiveCardAsync(db, id, boardId, ct)) return Problems.CardNotOnBoard();
         await files.WriteAsync(image.File!, data, ct);
         db.Images.Add(image);
         await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         return TypedResults.Created($"/api/images/{image.Id}", ImageDetail.From(image));
     }
 
@@ -305,7 +310,12 @@ public static class ImageEndpoints
         image.Caption = PatchText.Apply(image.Caption, request.Caption);
         image.UpdatedAt = DateTimeOffset.UtcNow;
 
+        // Onto a card: saved under its lock, so the card can't be deleted in between and leave this image live.
+        var onto = moving ? image.CardId : null;
+        await using var transaction = onto is null ? null : await db.Database.BeginTransactionAsync(ct);
+        if (onto is { } cardId && !await CardEndpoints.LockLiveCardAsync(db, cardId, image.BoardId, ct)) return Problems.CardNotOnBoard();
         await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         return TypedResults.Ok(ImageDetail.From(image));
     }
 

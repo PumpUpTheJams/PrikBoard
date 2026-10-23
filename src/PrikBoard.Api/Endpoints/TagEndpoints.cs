@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
@@ -73,6 +74,7 @@ public static class TagEndpoints
     {
         if (Normalized(request.Name) is not { } name) return InvalidName(request.Name);
 
+        await using var transaction = await LockTagsAsync(db, boardId, ct);
         var existing = await db.BoardTags.Where(t => t.BoardId == boardId).Select(t => t.Name).ToListAsync(ct);
         if (existing.Contains(name)) return Exists(name);
         if (existing.Count >= BoardTag.MaxPerBoard) return TooMany();
@@ -80,12 +82,14 @@ public static class TagEndpoints
         var tag = new BoardTag { BoardId = boardId, Name = name, Color = request.Color ?? TagColor.Default };
         db.BoardTags.Add(tag);
         await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
         return TypedResults.Created($"/api/boards/{boardId}/tags/{tag.Id}", BoardTagDetail.From(tag, 0));
     }
 
     internal static async Task<Results<Ok<BoardTagDetail>, NotFound, ValidationProblem, ProblemHttpResult>> UpdateBoardTag(
         Guid boardId, Guid tagId, UpdateTagRequest request, PrikBoardDbContext db, CancellationToken ct)
     {
+        await using var transaction = await LockTagsAsync(db, boardId, ct);
         var tag = await db.BoardTags.FirstOrDefaultAsync(t => t.Id == tagId && t.BoardId == boardId, ct);
         if (tag is null) return TypedResults.NotFound();
 
@@ -98,7 +102,6 @@ public static class TagEndpoints
             if (name != old && await db.BoardTags.AnyAsync(t => t.BoardId == boardId && t.Name == name, ct)) return Exists(name);
         }
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         tag.Name = name;
         if (request.Color is { } color) tag.Color = color;
         await db.SaveChangesAsync(ct);
@@ -116,10 +119,10 @@ public static class TagEndpoints
     internal static async Task<Results<NoContent, NotFound>> DeleteBoardTag(
         Guid boardId, Guid tagId, PrikBoardDbContext db, CancellationToken ct)
     {
+        await using var transaction = await LockTagsAsync(db, boardId, ct);
         var tag = await db.BoardTags.FirstOrDefaultAsync(t => t.Id == tagId && t.BoardId == boardId, ct);
         if (tag is null) return TypedResults.NotFound();
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         // Deleted cards count too: they get the tag back if they are restored before the tag is.
         tag.RemovedFromCardIds = await db.Cards.WithDeleted()
             .Where(n => n.BoardId == boardId && n.Tags.Contains(tag.Name))
@@ -136,6 +139,7 @@ public static class TagEndpoints
     internal static async Task<Results<Ok<BoardTagDetail>, NotFound, ProblemHttpResult>> RestoreBoardTag(
         Guid boardId, Guid tagId, PrikBoardDbContext db, CancellationToken ct)
     {
+        await using var transaction = await LockTagsAsync(db, boardId, ct);
         var tag = await db.BoardTags.WithDeleted()
             .FirstOrDefaultAsync(t => t.Id == tagId && t.BoardId == boardId, ct);
         if (tag is null) return TypedResults.NotFound();
@@ -146,7 +150,6 @@ public static class TagEndpoints
         if (existing.Count >= BoardTag.MaxPerBoard) return TooMany();
 
         var cardIds = tag.RemovedFromCardIds ?? [];
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         tag.DeletedAt = null;
         tag.RemovedFromCardIds = null;
         await db.SaveChangesAsync(ct);
@@ -165,13 +168,31 @@ public static class TagEndpoints
     private const int MaxTagsPerCard = 10;
 
     /// <summary>
+    /// Begins a transaction that holds the board's row until it ends. Tag names live on the board and in every card's
+    /// tags, so whatever reads or writes them (the tag endpoints, <see cref="EnsureBoardTagsAsync"/>) takes this lock
+    /// first: a rename then can't miss a card saved meanwhile, and two cards adding the same new tag don't both insert it.
+    /// </summary>
+    private static async Task<IDbContextTransaction> LockTagsAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct)
+    {
+        var transaction = await db.Database.BeginTransactionAsync(ct);
+        await MemberEndpoints.LockBoard(db, boardId, ct);
+        return transaction;
+    }
+
+    /// <summary>
     /// Adds the names a card is about to get that the board does not have yet (saved with the card).
     /// Returns a problem when that would take the board over <see cref="BoardTag.MaxPerBoard"/>.
+    /// Call it inside the transaction that saves the card: it locks the board row until then (see <see cref="LockTagsAsync"/>).
     /// </summary>
     internal static async Task<ValidationProblem?> EnsureBoardTagsAsync(
         PrikBoardDbContext db, Guid boardId, IReadOnlyCollection<string> names, CancellationToken ct)
     {
         if (names.Count == 0) return null;
+        if (db.Database.CurrentTransaction is null)
+        {
+            throw new InvalidOperationException("EnsureBoardTagsAsync locks the board's tags until the card is saved, so it needs a transaction.");
+        }
+        await MemberEndpoints.LockBoard(db, boardId, ct);
         var existing = await db.BoardTags.Where(t => t.BoardId == boardId).Select(t => t.Name).ToListAsync(ct);
         var added = names.Except(existing).ToList();
         if (added.Count == 0) return null;

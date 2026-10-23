@@ -135,8 +135,12 @@ public static class DrawingEndpoints
                 detail: $"A board holds at most {BoardDrawing.MaxPerBoard} drawings. Delete some first.");
         }
 
+        // On a card: saved under its lock, so the card can't be deleted in between and leave this drawing live.
+        await using var transaction = drawing.CardId is null ? null : await db.Database.BeginTransactionAsync(ct);
+        if (drawing.CardId is { } cardId && !await CardEndpoints.LockLiveCardAsync(db, cardId, boardId, ct)) return Problems.CardNotOnBoard();
         db.Drawings.Add(drawing);
         await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         return TypedResults.Created($"/api/drawings/{drawing.Id}", DrawingDetail.From(drawing));
     }
 
@@ -246,7 +250,12 @@ public static class DrawingEndpoints
         if (request.Colors is { } inks) drawing.Colors = [.. inks];
         drawing.UpdatedAt = DateTimeOffset.UtcNow;
 
+        // Onto a card: saved under its lock, so the card can't be deleted in between and leave this drawing live.
+        var onto = moving ? drawing.CardId : null;
+        await using var transaction = onto is null ? null : await db.Database.BeginTransactionAsync(ct);
+        if (onto is { } cardId && !await CardEndpoints.LockLiveCardAsync(db, cardId, drawing.BoardId, ct)) return Problems.CardNotOnBoard();
         await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         return TypedResults.Ok(DrawingDetail.From(drawing));
     }
 

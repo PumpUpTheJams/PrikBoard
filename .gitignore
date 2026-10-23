@@ -432,3 +432,8 @@ FodyWeavers.xsd
 
 # Images and avatars of a local API (Storage:Path in Development)
 src/PrikBoard.Api/files/
+
+# SQLite databases from before PostgreSQL
+*.db
+*.db-wal
+*.db-shm

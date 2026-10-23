@@ -230,9 +230,8 @@ public static class ClipEndpoints
             return Problems.Invalid("clip.drawings", $"A board holds at most {BoardDrawing.MaxPerBoard} drawings, and these would pass that. Delete some first.");
         }
         if (BuildDrawings(clip, boardId, me, now, copies, out var drawings) is { } invalidDrawing) return invalidDrawing;
-        if (await AddTagsAsync(db, boardId, clip, cards, ct) is { } tooManyTags) return tooManyTags;
-
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (await AddTagsAsync(db, boardId, clip, cards, ct) is { } tooManyTags) return tooManyTags;
         var bucket = request.BucketId is { } bucketId ? await LockBucketAsync(db, boardId, bucketId, ct) : null;
         if (request.BucketId is not null && bucket is null) return Problems.Invalid("bucketId", "The bucket does not exist on this board.");
         var buckets = await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct);
