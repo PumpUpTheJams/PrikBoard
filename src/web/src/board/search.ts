@@ -88,6 +88,8 @@ export interface SearchSuggestion {
   label: string
   /** What it is: the prefix's field, or a fill's plain color word. */
   hint?: string
+  /** What it adds to the word typed so far, when it starts with that word: shown greyed out after it in the field. */
+  rest?: string
 }
 
 /** The prefixes suggested, in this order, by their main names. */
@@ -115,7 +117,8 @@ export function searchSuggestions(query: string, caret: number, values: SearchVa
   const prefixed = /(\p{L}+):("[^"]*|[^\s"]*)$/u.exec(before)
   const field = prefixed && prefixes[fold(prefixed[1])]
   if (prefixed && field) {
-    const typed = fold(prefixed[2].replace(/^"/, ''))
+    const raw = prefixed[2].replace(/^"/, '')
+    const typed = fold(raw)
     const start = before.length - prefixed[0].length
     const options =
       field === 'color'
@@ -132,6 +135,7 @@ export function searchSuggestions(query: string, caret: number, values: SearchVa
         insert: `${prefixed[1]}:${/\s/.test(o.value) ? `"${o.value}"` : o.value} `,
         label: o.value,
         hint: o.hint || undefined,
+        rest: fold(o.value).startsWith(typed) ? o.value.slice(raw.length) : undefined,
       }))
   }
 
@@ -140,7 +144,7 @@ export function searchSuggestions(query: string, caret: number, values: SearchVa
   const typed = fold(word)
   return (Object.keys(prefixHints) as SearchPrefix[])
     .filter((p) => p.startsWith(typed))
-    .map((p) => ({ start: caret - word.length, end, insert: `${p}:`, label: `${p}:`, hint: prefixHints[p] }))
+    .map((p) => ({ start: caret - word.length, end, insert: `${p}:`, label: `${p}:`, hint: prefixHints[p], rest: word ? `${p}:`.slice(word.length) : undefined }))
 }
 
 /** Whether a term searches a kind of field: a prefixed term only its own kind, others every kind but the color. */

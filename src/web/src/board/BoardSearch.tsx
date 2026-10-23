@@ -51,6 +51,8 @@ export function BoardSearch(props: BoardSearchProps) {
   const showList = listOpen && searching
   const index = results.findIndex((r) => r.card.id === current)
   const suggestions = listOpen && caret !== null ? searchSuggestions(query, Math.min(caret, query.length), values) : []
+  /** The rest of the first suggestion, greyed out after the text when the cursor is at its end. */
+  const ghost = caret === query.length ? suggestions[0]?.rest : undefined
 
   /** Puts a suggestion in the query, with the text cursor after it. */
   function take({ start, end, insert }: SearchSuggestion) {
@@ -81,7 +83,15 @@ export function BoardSearch(props: BoardSearchProps) {
         onMouseDown={(e) => e.target instanceof Element && e.target.closest('button') && e.preventDefault()}
       >
         <SearchIcon />
-        <input
+        <span className="search-field">
+          {ghost && (
+            // The typed text, invisible, keeps the suggestion's rest right after it.
+            <span className="search-ghost" aria-hidden="true">
+              <span className="search-ghost-typed">{query}</span>
+              {ghost}
+            </span>
+          )}
+          <input
           ref={inputRef}
           type="search"
           role="combobox"
@@ -108,7 +118,8 @@ export function BoardSearch(props: BoardSearchProps) {
             if (!(e.relatedTarget instanceof Node && e.currentTarget.closest('.board-top')?.contains(e.relatedTarget))) onListOpenChange(false)
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Tab' && !e.shiftKey && suggestions.length > 0) {
+            // Tab takes the first suggestion, and → at the end of the text the one greyed out there, as in a shell.
+            if ((e.key === 'Tab' && !e.shiftKey && suggestions.length > 0) || (e.key === 'ArrowRight' && ghost)) {
               e.preventDefault()
               take(suggestions[0])
             } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -123,7 +134,8 @@ export function BoardSearch(props: BoardSearchProps) {
               onClose()
             }
           }}
-        />
+          />
+        </span>
         <span className={`search-count${searching && results.length === 0 ? ' none' : ''}`} aria-live="polite">
           {!searching ? '' : results.length === 0 ? 'No matches' : `${index + 1} of ${results.length}`}
         </span>
