@@ -27,7 +27,7 @@ No local Node here: run web checks in Docker, e.g. `sg docker -c 'docker run --r
 
 `dotnet run --project src/PrikBoard.Discord` runs the Discord bot (needs `Discord:BotToken`, `PrikBoard:ApiUrl`, `PrikBoard:PublicUrl`; or `docker compose --profile discord up -d`). The link-preview PNGs in `src/web/public` are rendered from `src/web/icons` (see its README).
 
-`.claude/launch.json` defines `api` and `web` preview servers. The frontend has no test suite. Set `PRIKBOARD_API_URL` to point the Vite proxy at a different API.
+`.claude/launch.json` defines `api` and `web` preview servers. The frontend has no test suite. Set `PRIKBOARD_API_URL` to point the Vite proxy at a different API. In a worktree, the Development file store (`src/PrikBoard.Api/files`) is the worktree's own, empty folder while the compose database is shared, so existing images and avatars 404 in its dev app; that's expected.
 
 ## Architecture
 
