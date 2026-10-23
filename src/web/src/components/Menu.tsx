@@ -8,13 +8,14 @@ interface MenuProps {
   label: string
   trigger: ReactNode
   triggerClassName?: string
+  panelClassName?: string
   align?: 'start' | 'end'
   /** Menu content; call `close` after an action. */
   children: (close: () => void) => ReactNode
 }
 
 /** A trigger button with a popover panel that closes on Escape or a click outside. */
-export function Menu({ label, trigger, triggerClassName, align = 'start', children }: MenuProps) {
+export function Menu({ label, trigger, triggerClassName, panelClassName, align = 'start', children }: MenuProps) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const close = () => setOpen(false)
@@ -48,7 +49,7 @@ export function Menu({ label, trigger, triggerClassName, align = 'start', childr
         {trigger}
       </button>
       {open && (
-        <div className={`menu-panel menu-${align}`} role="menu" aria-label={label}>
+        <div className={`menu-panel menu-${align}${panelClassName ? ` ${panelClassName}` : ''}`} role="menu" aria-label={label}>
           <CloseMenu.Provider value={close}>{children(close)}</CloseMenu.Provider>
         </div>
       )}
