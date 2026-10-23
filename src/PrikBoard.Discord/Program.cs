@@ -1,7 +1,26 @@
 using Microsoft.AspNetCore.DataProtection;
 using PrikBoard.Discord;
+using Serilog;
+using Serilog.Sinks.OpenTelemetry;
 
 var builder = Host.CreateApplicationBuilder(args);
+// Levels and console output in the Serilog section of appsettings.json; logs also go to OpenTelemetry:Endpoint when set.
+builder.Services.AddSerilog((services, log) =>
+{
+    log.ReadFrom.Configuration(builder.Configuration).ReadFrom.Services(services).Enrich.FromLogContext();
+    if (builder.Configuration["OpenTelemetry:Endpoint"] is not { Length: > 0 } otlp) return;
+    log.WriteTo.OpenTelemetry(options =>
+    {
+        options.Endpoint = otlp;
+        options.Protocol = builder.Configuration["OpenTelemetry:Protocol"] == "http/protobuf" ? OtlpProtocol.HttpProtobuf : OtlpProtocol.Grpc;
+        options.Headers = (builder.Configuration["OpenTelemetry:Headers"] ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(header => header.Split('=', 2, StringSplitOptions.TrimEntries))
+            .Where(pair => pair is [{ Length: > 0 }, _])
+            .ToDictionary(pair => pair[0], pair => pair[1]);
+        options.ResourceAttributes = new Dictionary<string, object> { ["service.name"] = "prikboard-discord" };
+    });
+});
 builder.Services.Configure<BotOptions>(builder.Configuration.GetSection("Discord"));
 builder.Services.Configure<PrikBoardOptions>(builder.Configuration.GetSection("PrikBoard"));
 

@@ -17,6 +17,7 @@ using ModelContextProtocol.Protocol;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddPrikBoardLogging();
 
 builder.Services.AddSingleton<CardHistory>();
 builder.Services.AddDbContextPool<PrikBoardDbContext>((services, options) => options
@@ -179,6 +180,8 @@ await using (var scope = app.Services.CreateAsyncScope())
         app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(SetupKey)), CancellationToken.None);
 }
 
+// Outside the exception handler, so it sees the status the client gets.
+app.UsePrikBoardRequestLogging();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 // The container image serves the built web app from wwwroot; in development Vite serves it. Routing is in the URL hash,
