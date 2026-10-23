@@ -1180,8 +1180,10 @@ main {
 .edge.e { right: -10px; }
 .edge.w { left: -10px; }
 
-.card-slot {
+/* Where a dragged item was or lands: above the front bucket's fill (`.in-front`), below lifted items. */
+.item-slot {
   position: absolute;
+  z-index: 1;
   border: 1.5px dashed var(--slot);
   border-radius: 4px;
 }
@@ -2922,7 +2924,15 @@ a.button.primary:hover {
 }
 
 .drawing.lifted {
+  z-index: 2;
   opacity: 0.6;
+}
+
+/* Tilted like a lifted card, around the middle of its box (`--pivot`), with a shadow under its lines. */
+.drawing.lifted > .stroke {
+  transform: rotate(3deg) scale(1.03);
+  transform-origin: var(--pivot);
+  filter: drop-shadow(0 14px 18px rgba(0, 0, 0, 0.5));
 }
 
 .drawing.lifted .stroke-hit {
@@ -3170,6 +3180,7 @@ a.button.primary:hover {
 }
 
 .board-image.lifted .board-image-frame {
+  transform: rotate(3deg) scale(1.03);
   box-shadow: 0 28px 60px rgba(0, 0, 0, 0.55);
 }
 
@@ -5339,7 +5350,7 @@ button.picker-color:hover,
 .bucket.in-front,
 .card.in-front:not(.lifted, .link-copied),
 .board-image.in-front:not(.lifted),
-.drawing.in-front {
+.drawing.in-front:not(.lifted) {
   z-index: 1;
 }
 

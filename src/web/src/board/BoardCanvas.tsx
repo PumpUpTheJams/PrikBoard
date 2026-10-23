@@ -4,7 +4,7 @@ import type { BoardDetail, BucketDetail, CardColor, CardDetail, DragUpdate, Poin
 import type { LiveDrag } from '../live/useLive'
 import { Toast } from '../components/Toast'
 import { BoardFilters } from './BoardFilters'
-import { CardGhost, CardSlot, NewCardGhost, RemoteDragOutlines } from './BoardGhosts'
+import { CardGhost, NewCardGhost, RemoteDragOutlines, Slot } from './BoardGhosts'
 import { BoardImageView } from './BoardImageView'
 import { BoardPanels, type QuickEdit } from './BoardPanels'
 import { bucketOf, cardBox, type Selection } from './boardItems'
@@ -19,7 +19,7 @@ import { DrawingToolbar, DrawingView, PenRing, StrokeSvg } from './DrawingView'
 import { dropTargetsFor, NO_DROPS, released, useDropProbe, type DropTargets } from './dropTargets'
 import { ExpandedCard, type ExpandedCardHandle } from './ExpandedCard'
 import { isDrag } from './gesture'
-import { MIN_BUCKET_HEIGHT, MIN_BUCKET_WIDTH, backToFront, bucketUnderCard, collapsedRect, snapPoint, spanRect } from './layout'
+import { MIN_BUCKET_HEIGHT, MIN_BUCKET_WIDTH, backToFront, bucketUnder, bucketUnderCard, collapsedRect, snapPoint, spanRect } from './layout'
 import { activeDrags, draggingOf, gridFor, isLifted, itemKindOf, liveGeometry, sentDrag } from './liveGeometry'
 import { ops, recordingRun, settling } from './ops'
 import { resizeCursor } from './resizeCursor'
@@ -576,6 +576,25 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const outgoingPlace = trash.outgoing ? trash.landing(trash.outgoing) : null
   const resizing = gesture && (gesture.kind === 'resize' || gesture.kind === 'image-resize') && !gesture.done ? gesture : null
   const draggedCard = dragging?.kind === 'card' ? cards.find((n) => n.card.id === dragging.id) : undefined
+  /**
+   * A card, image or drawing being dragged by itself: its bucket, its saved place (outlined while it moves) and where it
+   * is shown now. Not once it is dropped: an image may be on its way into a card.
+   */
+  const draggedItem = (() => {
+    if (dragging?.done) return undefined
+    switch (dragging?.kind) {
+      case 'card':
+        return draggedCard && { bucketId: draggedCard.card.bucketId, home: cardBox(draggedCard.card), now: cardBox(draggedCard.point) }
+      case 'image': {
+        const found = images.find((i) => i.image.id === dragging.id)
+        return found && { bucketId: found.image.bucketId, home: found.image, now: found.rect }
+      }
+      case 'drawing': {
+        const found = drawings.find((d) => d.drawing.id === dragging.id)
+        return found && { bucketId: found.drawing.bucketId, home: found.drawing, now: found.rect }
+      }
+    }
+  })()
   /** Several selected items being dragged together (the trash can shows for them too). */
   const draggedGroup = dragging?.kind === 'group' && !dragging.done
   /** Around several selected cards, for the toolbar above them; null with fewer than two. */
@@ -583,10 +602,11 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const selectedCardsRect = selectedCards.length >= 2 ? bounds(selectedCards.map((n) => cardBox(n.point))) : null
   /** The card a dragged image would be attached to (not while it is over the open card's window). */
   const imageTarget = dragging?.kind === 'image' && !dragging.done && !incoming ? cardAt(dragging.current) : undefined
-  /** The bucket a card being dragged, or a new one carried from the rail, would go into. */
-  const cardDropped = draggedCard && !linkDrop && !overTrash && !deletedDrop && !foldDrop
-  const dropTarget = cardDropped
-    ? bucketUnderCard(stacked, draggedCard.point, draggedCard.card.bucketId, front)
+  /** Whether the item dragged goes elsewhere than a place on the board: into a card, the open card, the trash or a collapsed bucket. */
+  const elsewhere = linkDrop || overTrash || deletedDrop || foldDrop || imageTarget || incoming || incomingDrawing
+  /** The bucket an item being dragged, or a new card carried from the rail, would go into. */
+  const dropTarget = draggedItem && !elsewhere
+    ? bucketUnder(stacked, draggedItem.now, draggedItem.bucketId, front)
     : newCard.spot
       ? bucketUnderCard(stacked, newCard.spot, null, front)
       : undefined
@@ -724,9 +744,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               />
             ))}
 
-            {newCard.spot && <CardSlot at={newCard.spot} />}
-            {outgoingPlace && <CardSlot at={outgoingPlace} />}
-            {draggedCard && <CardSlot at={draggedCard.card} />}
+            {newCard.spot && <Slot rect={cardBox(newCard.spot)} />}
+            {outgoingPlace && <Slot rect={cardBox(outgoingPlace)} />}
+            {draggedItem && <Slot rect={draggedItem.home} />}
 
             {cards.map(({ card, point }) => (
               <Card

@@ -157,7 +157,12 @@ export function DrawingView({ drawing, rect, selected, lifted, front, onPointerD
   const handlers = { onPointerMove: move, onPointerUp: end, onPointerCancel: cancel, onLostPointerCapture: cancel }
 
   return (
-    <div className={classes.join(' ')} data-drawing={drawing.id} onPointerDown={onPointerDown}>
+    <div
+      className={classes.join(' ')}
+      data-drawing={drawing.id}
+      style={lifted ? ({ '--pivot': `${box.width / 2}px ${box.height / 2}px` } as CSSProperties) : undefined}
+      onPointerDown={onPointerDown}
+    >
       {strokes && <DrawingSvg strokes={strokes} colors={drawing.colors} at={box} hit={!gesture} />}
       {selected && (
         <div className="drawing-box" aria-hidden="true" style={{ left: box.x - 6, top: box.y - 6, width: box.width + 12, height: box.height + 12 }}>

@@ -7,9 +7,9 @@ import { Card } from './Card'
 import { CARD_HEIGHT, CARD_WIDTH } from './layout'
 import type { TagColors } from './tagColors'
 
-/** Where a card lands or was: an outline of its size at a canvas point. */
-export function CardSlot({ at }: { at: Point }) {
-  return <div className="card-slot" aria-hidden="true" style={{ left: at.x, top: at.y, width: CARD_WIDTH, height: CARD_HEIGHT }} />
+/** Where an item lands or was: an outline of its rectangle on the canvas. */
+export function Slot({ rect }: { rect: Rect }) {
+  return <div className="item-slot" aria-hidden="true" style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }} />
 }
 
 interface CardGhostProps {
