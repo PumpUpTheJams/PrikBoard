@@ -21,7 +21,12 @@ cd infra/compose && docker compose up -d          # self-hosting: app + PostgreS
 
 dotnet tool restore                               # pinned dotnet-ef from .config/dotnet-tools.json
 dotnet ef migrations add <Name> --project src/PrikBoard.Api --output-dir Data/Migrations
+
+node tools/perf/make-board.mjs --out=tools/perf/out/perf-board.json   # a big board to import, for measuring (tools/perf/README.md)
+PRIKBOARD_PERF=1 dotnet test PrikBoard.slnx -c Release --filter "FullyQualifiedName~PerfBenchmarks"   # server timings; skipped without PRIKBOARD_PERF
 ```
+
+Measure performance changes before and after with `tools/perf` (see its README): `measure.js` times scrolling, dragging, zooming and reloading on the open board in a production build (`npm run preview`), and `serve-board.mjs` serves a saved board without signing in (`perf-api` and `perf-web` launch configs).
 
 No local Node here: run web checks in Docker, e.g. `sg docker -c 'docker run --rm -u "$(id -u):$(id -g)" -e npm_config_cache=/tmp/.npm -v "$PWD/src/web":/app -w /app node:22 sh -c "npm run lint && npm run build"'` (the `web-docker` launch config runs the dev server the same way). A fresh worktree has no `node_modules`: run `npm ci` in the same container first (`sh -c "npm ci && npm run lint && npm run build"`), or oxlint is "not found".
 
