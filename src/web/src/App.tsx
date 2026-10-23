@@ -8,6 +8,7 @@ import { boardRefFromHash, isBoard } from './board/links'
 import { useBoard, type BoardState } from './board/useBoard'
 import { UndoHistory } from './board/useUndo'
 import { useLive, type LiveState } from './live/useLive'
+import { rememberBoard, rememberedBoard } from './lastBoard'
 import { MobileLayout, useLayoutMode } from './layoutMode'
 import { MobileWorkspace } from './mobile/MobileWorkspace'
 import { AccountDialog, DisplayNameDialog } from './components/AccountDialogs'
@@ -44,10 +45,12 @@ const setupFromHash = () => window.location.hash === '#/setup'
 /** The board in the address isn't in your list: still being looked up once more, or not one you can open. */
 type MissingBoard = 'checking' | 'gone' | null
 
-/** The board in the address, or else (`fallBack`) the newest one. */
-function pickActiveBoard(boards: BoardSummary[] | null, selectedId: string | null, fallBack: boolean) {
+/** The board in the address, or else (`fallBack`) the one open last (`remembered`), or the newest one. */
+function pickActiveBoard(boards: BoardSummary[] | null, selectedId: string | null, fallBack: boolean, remembered: string | null) {
   if (!boards) return null
-  return boards.find((b) => isBoard(b, selectedId)) ?? (fallBack ? (boards[0] ?? null) : null)
+  const selected = boards.find((b) => isBoard(b, selectedId))
+  if (selected || !fallBack) return selected ?? null
+  return boards.find((b) => b.shortId === remembered) ?? boards[0] ?? null
 }
 
 export default function App() {
@@ -217,9 +220,9 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
     void loadBoards().finally(() => setRecheckedId(selectedId))
   }, [selectedMissing, selectedId, recheckedId, loadBoards])
 
-  // Fall back to the newest board when nothing is selected (the mobile layout lists the boards instead). A board you
-  // can't open gets the sad page.
-  const activeBoard = adminView || selectedMissing ? null : pickActiveBoard(boards, selectedId, !mobile)
+  // Fall back to the board open last on this device, or the newest one, when nothing is selected (the mobile layout
+  // lists the boards instead). A board you can't open gets the sad page.
+  const activeBoard = adminView || selectedMissing ? null : pickActiveBoard(boards, selectedId, !mobile, rememberedBoard(user.id))
   const missing: MissingBoard = selectedMissing ? (recheckedId === selectedId ? 'gone' : 'checking') : null
   const isOwner = activeBoard?.yourRole === 'Owner'
 
@@ -262,8 +265,10 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   /** The board open before the admin page, to go back to from there. */
   const lastBoard = useRef<string | null>(null)
   useEffect(() => {
-    if (activeBoard) lastBoard.current = activeBoard.shortId
-  }, [activeBoard])
+    if (!activeBoard) return
+    lastBoard.current = activeBoard.shortId
+    rememberBoard(user.id, activeBoard.shortId)
+  }, [activeBoard, user.id])
 
   /**
    * Leaves the admin page for the board that was open before it. The list is loaded again first, since boards and roles

@@ -27,7 +27,7 @@ No local Node here: run web checks in Docker, e.g. `sg docker -c 'docker run --r
 
 `dotnet run --project src/PrikBoard.Discord` runs the Discord bot (needs `Discord:BotToken`, `PrikBoard:ApiUrl`, `PrikBoard:PublicUrl`; or `docker compose --profile discord up -d`). The link-preview PNGs in `src/web/public` are rendered from `src/web/icons` (see its README).
 
-`.claude/launch.json` defines `api` and `web` preview servers. The frontend has no test suite. Set `PRIKBOARD_API_URL` to point the Vite proxy at a different API.
+`.claude/launch.json` defines `api` and `web` preview servers. The frontend has no test suite. Set `PRIKBOARD_API_URL` to point the Vite proxy at a different API. In a worktree, the Development file store (`src/PrikBoard.Api/files`) is the worktree's own, empty folder while the compose database is shared, so existing images and avatars 404 in its dev app; that's expected.
 
 ## Architecture
 
@@ -116,3 +116,4 @@ The tests are xUnit integration tests over HTTP only. `PrikBoardApiFactory` (a `
 
 - Nothing is deployed. `infra/compose` runs the one image (root `Dockerfile`; the API serves the SPA from `wwwroot`, with nginx's old cache and framing headers) next to PostgreSQL, published on localhost only because forwarded headers are trusted; Caddy (`https` profile) adds HTTPS. One instance only.
 - Connection string key: `ConnectionStrings:PrikBoard` (env var `ConnectionStrings__PrikBoard`). File store: `Storage:Path` (env var `Storage__Path`), required outside Development.
+- Logging is Serilog (`Telemetry.cs`): minimum levels in the `Serilog` section of appsettings.json (framework and EF Core at Warning, so no SQL), request logging only for 5xx and requests over 1 s. OpenTelemetry (logs, traces, metrics over OTLP) is on only when `OpenTelemetry:Endpoint` is set; an endpoint set in code is used as is, so HTTP needs `/v1/{signal}` (`OtlpSettings.Configure`).

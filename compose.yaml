@@ -1,5 +1,7 @@
 # Local development database. Start with `docker compose up -d`; data lives in the `postgres-data` volume and
-# survives `docker compose down` (only `docker compose down -v` deletes it).
+# survives `docker compose down` (only `docker compose down -v` deletes it). The fixed project name makes every
+# checkout and worktree share this one database instead of starting another on the same port.
+name: prikboard
 services:
   postgres:
     image: postgres:17
@@ -25,7 +27,9 @@ services:
     profiles: [discord]
     build: src/PrikBoard.Discord
     environment:
-      Discord__BotToken: ${DISCORD_BOT_TOKEN:?Set DISCORD_BOT_TOKEN to the bot's token}
+      # Not ${DISCORD_BOT_TOKEN:?...}: Compose checks that even without the profile, breaking `docker compose up -d`.
+      # The bot says itself when the token is missing.
+      Discord__BotToken: ${DISCORD_BOT_TOKEN:-}
       PrikBoard__ApiUrl: http://host.docker.internal:5080
       PrikBoard__PublicUrl: ${PRIKBOARD_PUBLIC_URL:-http://localhost:5173}
     extra_hosts:
