@@ -479,6 +479,8 @@ export interface CardDetail {
   path: string
   /** When it was deleted, for cards in the trash; null (or missing) otherwise. */
   deletedAt?: string | null
+  /** While agentWorking: the assignee the agent works for (the person whose access token it uses), whose avatar shows it; null when not known. */
+  agentWorkingFor?: string | null
 }
 
 export type CardChangeKind =

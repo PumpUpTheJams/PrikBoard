@@ -12,7 +12,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Title">Short title shown on the card.</param>
 /// <param name="Color">Card fill.</param>
 /// <param name="Tags">The card's tags by name, e.g. "backend"; each is one of the board's tags.</param>
-/// <param name="Assignees">People and agents working on the card, in display order, with their current names.</param>
+/// <param name="Assignees">People (and agents of a token issuer) working on the card, in display order, with their current names.</param>
 /// <param name="Components">The card's content, shown when the card is expanded: text, checklists and lists of links, laid out on the card's own canvas. Change them with addCardComponent, updateCardComponent and deleteCardComponent.</param>
 /// <param name="AgentWorking">True while an AI agent is actively working on the card. The board shows a lilac halo around it.</param>
 /// <param name="X">Left edge in canvas pixels, a multiple of the 20 px grid.</param>
@@ -23,6 +23,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="UpdatedAt">When the card was last edited or moved (UTC). The most recently updated card is drawn on top.</param>
 /// <param name="Path">Where the web app shows this card, relative to the site, e.g. "/#/boards/k3x9m2/cards/415" (the board's short id and the card's number). It never changes. Use it as a link's url to link this card from another card, and getCardByNumber to look it up.</param>
 /// <param name="DeletedAt">When the card was deleted (UTC), for cards in the trash (listDeletedCards); null otherwise.</param>
+/// <param name="AgentWorkingFor">While agentWorking: the principal id of the assignee the agent works for, the person whose access token it uses (or an agent of its own). The web app shows it on their avatar. Null when not working or not known.</param>
 public record CardDetail(
     Guid Id,
     int Number,
@@ -42,7 +43,8 @@ public record CardDetail(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     string Path,
-    DateTimeOffset? DeletedAt = null)
+    DateTimeOffset? DeletedAt = null,
+    Guid? AgentWorkingFor = null)
 {
     /// <summary>
     /// Maps a card on <paramref name="board"/>; <paramref name="principals"/> holds its creator and assignees (see
@@ -56,13 +58,14 @@ public record CardDetail(
             card.AgentWorking, card.X, card.Y,
             card.CreatedById is { } by && principals.TryGetValue(by, out var creator) ? creator.ShownName : null,
             card.CreatedById, card.CreatedAt, card.UpdatedAt,
-            CardLinks.CardPath(board.ShortId, card.Number), card.DeletedAt);
+            CardLinks.CardPath(board.ShortId, card.Number), card.DeletedAt,
+            card.AgentWorking ? card.AgentWorkingForId : null);
 }
 
 /// <summary>A person or AI agent assigned to a card.</summary>
 /// <param name="PrincipalId">Their principal id: what assigneeIds in createCard and updateCard take (see people in getBoard).</param>
 /// <param name="Name">Their current display name, e.g. "Jaap V." or "Claude Code"; "Unknown" once they no longer exist. People are shown by their initials.</param>
-/// <param name="Kind">Person or Agent. Agents are first-class assignees that can own work.</param>
+/// <param name="Kind">Person or Agent. An agent behind a person's access token works for that person and is never assigned itself; agents of a token issuer can be.</param>
 /// <param name="AvatarUrl">The person's chosen picture (see getAvatar), shown instead of their initials; null without one.</param>
 public record Assignee(Guid PrincipalId, string Name, AssigneeKind Kind, string? AvatarUrl)
 {

@@ -176,7 +176,7 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
               disabled={readOnly}
               onClick={(e) => setPicking({ kind: 'people', anchor: e.currentTarget.getBoundingClientRect() })}
             >
-              <AvatarStack assignees={card.assignees} max={5} size="md" />
+              <AvatarStack assignees={card.assignees} max={5} size="md" workingFor={card.agentWorking ? card.agentWorkingFor : null} />
             </button>
           )}
           {!readOnly && (

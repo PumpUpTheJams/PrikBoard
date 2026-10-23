@@ -29,6 +29,12 @@ public class Card
     public List<CardComponent> Components { get; set; } = [];
     /// <summary>Set while an AI agent is actively working on the card; the board shows a halo.</summary>
     public bool AgentWorking { get; set; }
+    /// <summary>
+    /// While <see cref="AgentWorking"/>: the assignee the agent works for, whose avatar shows it. That is the person whose
+    /// access token the agent uses (agents behind a person's token are never assignees themselves), or an agent without
+    /// such an owner; null when it isn't known (the flag set by hand or by an import).
+    /// </summary>
+    public Guid? AgentWorkingForId { get; set; }
     public int X { get; set; }
     public int Y { get; set; }
     /// <summary>The user or agent that added the card to the board; null for older cards, or once they no longer exist.</summary>

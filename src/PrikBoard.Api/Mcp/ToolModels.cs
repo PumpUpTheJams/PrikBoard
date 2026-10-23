@@ -43,7 +43,7 @@ public sealed record BucketOverview(Guid Id, string Name, int CardCount, IReadOn
 /// <param name="PrincipalId">Their principal id.</param>
 /// <param name="Name">Their current name; tools take it to assign them.</param>
 /// <param name="Kind">Person or Agent.</param>
-/// <param name="IsYou">True for you; left out for everyone else.</param>
+/// <param name="IsYou">True for you: the person whose token you use, whom you work for and are assigned as; left out for everyone else.</param>
 /// <param name="OwnerId">For the agent of a personal access token: the person whose token it is.</param>
 public sealed record BoardPersonSummary(Guid PrincipalId, string Name, AssigneeKind Kind, bool? IsYou, Guid? OwnerId)
 {

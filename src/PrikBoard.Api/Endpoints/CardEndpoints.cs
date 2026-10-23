@@ -72,7 +72,8 @@ public static class CardEndpoints
             .WithSummary("Start or stop working on a card")
             .WithDescription("With working true, assigns you (the caller) to the card and shows a halo around it; " +
                              "with false, the halo goes and you stay assigned. Agents call this when they start and finish a card. " +
-                             "409 when the card already has the most assignees it can have.")
+                             "An agent behind a person's access token works for that person: they are assigned instead (agentWorkingFor " +
+                             "names them, and the web app shows it on their avatar). 409 when the card already has the most assignees it can have.")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         cards.MapPost("/cards/{cardId:guid}/move", MoveCard)
@@ -212,6 +213,8 @@ public static class CardEndpoints
         if (await BoardRefAsync(db, boardId, ct) is not { } board) return TypedResults.NotFound();
         ValidationProblem Keyed(ValidationProblem problem, int i) => batch ? Prefixed(problem, $"cards[{i}].") : problem;
 
+        // An agent starting on a card right away works for its owner (or itself), as with setCardWorking.
+        Guid? worksFor = principal.IsToken() && requests.Any(r => r.AgentWorking == true) ? await WorksForAsync(db, principal, ct) : null;
         var cards = new List<Card>();
         for (var i = 0; i < requests.Count; i++)
         {
@@ -222,6 +225,7 @@ public static class CardEndpoints
                 Title = request.Title.Trim(),
                 Color = request.Color ?? CardColor.Butter,
                 AgentWorking = request.AgentWorking ?? false,
+                AgentWorkingForId = request.AgentWorking == true ? worksFor : null,
                 CreatedById = principal.PrincipalId(),
             };
             if (!assigneesChecked && request.AssigneeIds is not null
@@ -320,7 +324,7 @@ public static class CardEndpoints
     }
 
     internal static async Task<Results<Ok<CardDetail>, NotFound, ValidationProblem>> UpdateCard(
-        Guid cardId, UpdateCardRequest request, PrikBoardDbContext db, CancellationToken ct)
+        Guid cardId, UpdateCardRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
     {
         var card = await db.Cards.FindAsync([cardId], ct);
         if (card is null) return TypedResults.NotFound();
@@ -338,10 +342,26 @@ public static class CardEndpoints
         card.Title = request.Title?.Trim() ?? card.Title;
         card.Color = request.Color ?? card.Color;
         card.AgentWorking = request.AgentWorking ?? card.AgentWorking;
+        // An agent setting it works for its owner (or itself); set by a person, nobody in particular; cleared, nobody.
+        if (request.AgentWorking is { } working)
+        {
+            card.AgentWorkingForId = working && principal.IsToken() ? await WorksForAsync(db, principal, ct) : null;
+        }
         card.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok(await DetailAsync(db, card, ct));
+    }
+
+    /// <summary>
+    /// Who a caller's work on a card is for, and so who is assigned for it: an agent behind a person's access token works
+    /// for that person (it is never assigned itself); anyone else for themselves.
+    /// </summary>
+    internal static async Task<Guid> WorksForAsync(PrikBoardDbContext db, ClaimsPrincipal principal, CancellationToken ct)
+    {
+        var me = principal.PrincipalId();
+        var owner = await db.Agents.Where(a => a.Id == me).Select(a => a.OwnerId).FirstOrDefaultAsync(ct);
+        return owner ?? me;
     }
 
     internal static async Task<Results<Ok<CardDetail>, NotFound, ProblemHttpResult>> SetCardWorking(
@@ -350,18 +370,19 @@ public static class CardEndpoints
         var card = await db.Cards.FindAsync([cardId], ct);
         if (card is null) return TypedResults.NotFound();
 
-        // Whoever passed the Editor check reaches the board, so they can be assigned.
-        var me = principal.PrincipalId();
-        if (request.Working && !card.AssigneeIds.Contains(me))
+        // Whoever passed the Editor check reaches the board, and so does the owner of their token, so they can be assigned.
+        var worksFor = await WorksForAsync(db, principal, ct);
+        if (request.Working && !card.AssigneeIds.Contains(worksFor))
         {
             if (card.AssigneeIds.Count >= MaxAssignees)
             {
                 return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Too many assignees",
                     detail: $"The card already has {MaxAssignees} assignees; remove one first.");
             }
-            card.AssigneeIds = [.. card.AssigneeIds, me];
+            card.AssigneeIds = [.. card.AssigneeIds, worksFor];
         }
         card.AgentWorking = request.Working;
+        card.AgentWorkingForId = request.Working ? worksFor : null;
         card.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);

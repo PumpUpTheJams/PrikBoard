@@ -470,6 +470,9 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Property<bool>("AgentWorking")
                         .HasColumnType("boolean");
 
+                    b.Property<Guid?>("AgentWorkingForId")
+                        .HasColumnType("uuid");
+
                     b.PrimitiveCollection<List<Guid>>("AssigneeIds")
                         .IsRequired()
                         .HasColumnType("uuid[]");

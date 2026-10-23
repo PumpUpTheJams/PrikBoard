@@ -6475,3 +6475,47 @@ button.picker-color:hover,
   color: var(--subtle);
   font-size: 11px;
 }
+
+/*
+ * An agent at work on the card for this person (agentWorkingFor): a lilac ring that turns, around a glow that breathes
+ * with the card's halo. The ring is the border, painted by a turning conic gradient under the face (padding-box).
+ */
+@property --agent-turn {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.avatar.agent-at-work {
+  --agent-face: #20242c;
+  position: relative;
+  z-index: 1;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--agent-face), var(--agent-face)) padding-box,
+    conic-gradient(from var(--agent-turn), #c4a7ff, #7c5cff, #f1e9ff, #9b7bff, #c4a7ff) border-box;
+  box-shadow: 0 0 0 1px rgba(124, 92, 255, 0.35), 0 0 6px rgba(196, 167, 255, 0.35);
+  animation: agent-turn 2.4s linear infinite, agent-breathe 2.4s ease-in-out infinite;
+}
+
+.avatar.agent.agent-at-work {
+  --agent-face: #2a2140;
+}
+
+@keyframes agent-turn {
+  to {
+    --agent-turn: 360deg;
+  }
+}
+
+@keyframes agent-breathe {
+  50% {
+    box-shadow: 0 0 0 3px rgba(196, 167, 255, 0.28), 0 0 14px 3px rgba(167, 133, 255, 0.55);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar.agent-at-work {
+    animation: none;
+  }
+}
