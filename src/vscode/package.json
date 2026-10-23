@@ -72,6 +72,11 @@
         "icon": "$(link-external)"
       },
       {
+        "command": "prikboard.openLink",
+        "title": "Show Linked Card",
+        "category": "PrikBoard"
+      },
+      {
         "command": "prikboard.newCard",
         "title": "New Card",
         "category": "PrikBoard",
@@ -128,6 +133,10 @@
           "when": "false"
         },
         {
+          "command": "prikboard.openLink",
+          "when": "false"
+        },
+        {
           "command": "prikboard.newCard",
           "when": "false"
         },
@@ -176,7 +185,7 @@
       "view/item/context": [
         {
           "command": "prikboard.openInBrowser",
-          "when": "view == prikboard.boards && viewItem =~ /^(board|card)/",
+          "when": "view == prikboard.boards && viewItem =~ /^(board|card|link[.]card)/",
           "group": "inline"
         },
         {

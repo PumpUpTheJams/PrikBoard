@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import { Auth, setting } from './auth'
-import { BoardTree, type Node } from './boardTree'
+import { BoardTree, cardRouteOf, type Node } from './boardTree'
 import { registerCardCommands } from './commands'
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -48,6 +48,23 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('prikboard.refresh', () => tree.refresh()),
     vscode.commands.registerCommand('prikboard.openInBrowser', (node?: Node) => {
       const url = node && tree.urlOf(node)
+      if (url) void vscode.env.openExternal(vscode.Uri.parse(url))
+    }),
+    // Clicking a link to a card shows that card in the tree, or opens it in the browser when it isn't there.
+    vscode.commands.registerCommand('prikboard.openLink', async (node?: Node) => {
+      if (node?.kind !== 'link') return
+      const route = cardRouteOf(node.link)
+      if (!route) return
+      const card = await tree.cardNode(route, node.under.where !== undefined).catch(() => undefined)
+      if (card) {
+        try {
+          await view.reveal(card, { select: true, focus: true })
+          return
+        } catch {
+          // The row couldn't be found; the browser still shows the card.
+        }
+      }
+      const url = tree.urlOf(node)
       if (url) void vscode.env.openExternal(vscode.Uri.parse(url))
     }),
     ...registerCardCommands(tree),
