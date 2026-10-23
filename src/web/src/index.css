@@ -538,6 +538,55 @@ main {
   background: var(--line);
 }
 
+/* The board menu: your boards on the left, the open board's settings on the right (stacked on narrow screens). */
+.menu-panel.board-menu {
+  flex-direction: row;
+  gap: 6px;
+  max-width: calc(100vw - 32px);
+}
+
+.board-menu-column {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 260px;
+  min-width: 0;
+}
+
+/* A long list of boards scrolls on its own, so the rest of the menu stays in view. */
+.board-menu-boards {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: calc(100dvh - 220px);
+  overflow-y: auto;
+}
+
+.board-menu-settings {
+  padding-left: 6px;
+  border-left: 1px solid var(--line);
+}
+
+@media (max-width: 560px) {
+  .menu-panel.board-menu {
+    flex-direction: column;
+  }
+
+  .board-menu-column {
+    width: auto;
+  }
+
+  .board-menu-settings {
+    padding: 6px 0 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .board-menu-boards {
+    max-height: 40dvh;
+  }
+}
+
 .quick-add {
   display: flex;
   gap: 6px;
