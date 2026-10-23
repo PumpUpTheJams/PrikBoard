@@ -25,8 +25,8 @@ public class AccessToken
     public User? Owner { get; set; }
 
     /// <summary>
-    /// The agent an <see cref="AccessTokenKind.Agent"/> token acts as (its display name is the token's name), or a
-    /// <see cref="AccessTokenKind.Discord"/> token's server. Null for app tokens.
+    /// The agent an <see cref="AccessTokenKind.Agent"/> token acts as (its display name is the token's name). Null for
+    /// app tokens.
     /// </summary>
     public Guid? AgentId { get; set; }
     public Agent? Agent { get; set; }
@@ -63,9 +63,5 @@ public enum AccessTokenKind
     /// <summary>The owner themselves, from a PrikBoard app they signed in (the VS Code extension).</summary>
     App = 2,
 
-    /// <summary>
-    /// A Discord server's agent (<see cref="DiscordGuild"/>), read-only, for the PrikBoard Discord bot. It uses the
-    /// agent's own memberships, not the owner's: the owner only approved it, and it counts toward their tokens.
-    /// </summary>
-    Discord = 3,
+    // 3 was Discord, for the Discord bot when it ran on its own; the DiscordBotInApi migration deleted those tokens.
 }

@@ -1,10 +1,10 @@
 using System.Text.RegularExpressions;
 
-namespace PrikBoard.Discord;
+namespace PrikBoard.Api.Integrations;
 
 /// <summary>
-/// Finds candidate PrikBoard links in a message: anything starting with the configured public URL. The match is loose on
-/// purpose; the API decides what a link is (getLinkPreview).
+/// Finds candidate PrikBoard links in a Discord message: anything starting with the public URL. The match is loose on
+/// purpose; <see cref="LinkPreviews"/> decides what a link is.
 /// </summary>
 public sealed class LinkFinder
 {

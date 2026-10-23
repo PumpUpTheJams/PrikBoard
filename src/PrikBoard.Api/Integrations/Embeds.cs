@@ -1,10 +1,11 @@
 using Discord;
+using PrikBoard.Api.Domain;
 
-namespace PrikBoard.Discord;
+namespace PrikBoard.Api.Integrations;
 
 /// <summary>
-/// The embeds the bot posts. All of them carry the PrikBoard icon and name as author, so they read as the same thing as
-/// the anonymous link preview chat apps build from index.html. No images and no avatars.
+/// The embeds the Discord bot posts. All of them carry the PrikBoard icon and name as author, so they read as the same
+/// thing as the anonymous link preview chat apps build from index.html. No images and no avatars.
 /// </summary>
 public sealed class Embeds(string publicUrl)
 {
@@ -15,8 +16,8 @@ public sealed class Embeds(string publicUrl)
 
     public Embed For(LinkPreview preview, string pastedUrl) => preview.Kind switch
     {
-        "Card" => Card(preview),
-        "Board" => Board(preview),
+        LinkPreviewKind.Card => Card(preview),
+        LinkPreviewKind.Board => Board(preview),
         _ => Invite(preview, pastedUrl),
     };
 
@@ -40,7 +41,7 @@ public sealed class Embeds(string publicUrl)
     // No board description: an invite shows what PrikBoard's own invite page shows before you join, nothing more.
     private Embed Invite(LinkPreview invite, string pastedUrl)
     {
-        var who = invite.InvitedBy is { Length: > 0 } name ? $"{name} invited you" : "You're invited";
+        var who = invite.InvitedBy is { Length: > 0 } name ? $"{Format.Sanitize(name)} invited you" : "You're invited";
         var expires = invite.ExpiresAt is { } at ? $" · expires <t:{at.ToUnixTimeSeconds()}:D>" : "";
         return Base()
             .WithTitle(Cut($"You're invited to join {invite.BoardName}", EmbedBuilder.MaxTitleLength))
@@ -53,12 +54,12 @@ public sealed class Embeds(string publicUrl)
     private EmbedBuilder Base() => new EmbedBuilder().WithAuthor("PrikBoard", $"{_site}/icon-512.png", _site + "/");
 
     /// <summary>The card fills of the web app (index.css, --fill-*).</summary>
-    private static Color Fill(string? color) => color switch
+    private static Color Fill(CardColor? color) => color switch
     {
-        "Mint" => new Color(0x9fe0c0),
-        "Sky" => new Color(0x9ccbf5),
-        "Coral" => new Color(0xf4a99a),
-        "Lilac" => new Color(0xcdb8f5),
+        CardColor.Mint => new Color(0x9fe0c0),
+        CardColor.Sky => new Color(0x9ccbf5),
+        CardColor.Coral => new Color(0xf4a99a),
+        CardColor.Lilac => new Color(0xcdb8f5),
         _ => new Color(0xf3d77a),
     };
 

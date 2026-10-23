@@ -1,198 +1,259 @@
-using System.Buffers.Text;
+using System.Collections.Concurrent;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
+using PrikBoard.Api.Integrations;
 
 namespace PrikBoard.Api.Tests;
 
-/// <summary>A test server whose links live at <see cref="PublicUrl"/>, as the Discord bot sees them pasted.</summary>
+/// <summary>
+/// A test server whose Discord bot never reaches Discord: <see cref="Gateway"/> stands in for its connection, and a fake
+/// Discord API answers the token check, accepting <see cref="Token"/>.
+/// </summary>
 public class DiscordApiFactory : PrikBoardApiFactory
 {
     public const string PublicUrl = "https://board.example";
+    public const string Token = "MTUw.good.bot-token";
+    public const string TokenWithoutIntent = "MTUw.no-intent.bot-token";
+    public const string ApplicationId = "1500000000000000001";
+
+    public FakeDiscordGateway Gateway { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         base.ConfigureWebHost(builder);
-        builder.UseSetting("Discord:PublicUrl", PublicUrl);
-        // Every exchange in this class comes from the same (missing) address, so its limit is raised.
-        builder.UseSetting("RateLimits:DiscordConnectsPerMinute", "1000");
+        builder.ConfigureTestServices(services =>
+        {
+            services.AddSingleton<IDiscordGateway>(Gateway);
+            services.AddHttpClient<DiscordApplications>().ConfigurePrimaryHttpMessageHandler(() => new FakeDiscordApi());
+        });
+    }
+
+    private class FakeDiscordApi : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsolutePath != "/api/v10/applications/@me" || request.Headers.Authorization?.Scheme != "Bot")
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            }
+            // Bit 19: the Message Content intent, below 100 servers.
+            var flags = request.Headers.Authorization.Parameter switch
+            {
+                Token => 1 << 19,
+                TokenWithoutIntent => 0,
+                _ => -1,
+            };
+            return Task.FromResult(flags < 0
+                ? new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                : new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new
+                    {
+                        id = ApplicationId, name = "PrikBoard app", bot_public = true, flags, bot = new { username = "PrikBot" },
+                    }),
+                });
+        }
     }
 }
 
+/// <summary>The bot's connection as the tests set it: in the servers of <see cref="InServers"/>, online once it has a token.</summary>
+public sealed class FakeDiscordGateway : IDiscordGateway
+{
+    public DiscordBotState State { get; private set; }
+    public string? Problem => null;
+    public DiscordApplication? Application { get; private set; }
+    public ConcurrentDictionary<string, DiscordServerInfo> InServers { get; } = new();
+    public IReadOnlyList<DiscordServerInfo> Servers => InServers.Values.OrderBy(s => s.Name).ToList();
+
+    /// <summary>What <see cref="DiscordBot"/> handed over last.</summary>
+    public string? Token { get; private set; }
+    public string? PublicUrl { get; private set; }
+
+    public Task ApplyAsync(string? token, string? publicUrl)
+    {
+        (Token, PublicUrl) = (token, publicUrl);
+        State = token is null ? DiscordBotState.Off : DiscordBotState.Online;
+        Application = token is null ? null : new DiscordApplication(DiscordApiFactory.ApplicationId, "PrikBot", false);
+        return Task.CompletedTask;
+    }
+
+    public Task<bool> LeaveAsync(string guildId) => Task.FromResult(InServers.TryRemove(guildId, out _));
+}
+
 /// <summary>
-/// The Discord bot's side of PrikBoard (docs/discord.md): connecting a server to boards, and previewing pasted links
-/// with the server's read-only token.
+/// The Discord bot (docs/discord.md): admins set it up while PrikBoard runs, board owners pick the servers and channels
+/// that preview their boards, and pasted links preview only where they may.
 /// </summary>
 public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordApiFactory>
 {
-    private const string OwnOrigin = "http://localhost";
     private const string Channel = "1100000000000000001";
     private const string OtherChannel = "1100000000000000002";
+    private const string HiddenChannel = "1100000000000000003";
     private static int _guilds;
 
-    /// <summary>A guild id of its own per test, since the tests in this class share a database.</summary>
-    private static string NewGuildId() => (1200000000000000000 + Interlocked.Increment(ref _guilds)).ToString();
+    /// <summary>The first user of the class's database, so its admin, as every test signs it in first.</summary>
+    private Task<HttpClient> Admin() => factory.CreateSignedInClientAsync("discord-admin@example.com");
+
+    /// <summary>A server of its own per test, since the tests in this class share the bot, with two channels the bot may post in.</summary>
+    private string BotJoinsServer(string name = "Night owls")
+    {
+        var id = (1200000000000000000 + Interlocked.Increment(ref _guilds)).ToString();
+        factory.Gateway.InServers[id] = new DiscordServerInfo(id, name, [new(Channel, "general"), new(OtherChannel, "dev")]);
+        return id;
+    }
 
     [Fact]
-    public async Task Connecting_makes_the_server_a_read_only_viewer_with_a_token_of_its_own()
+    public async Task Admins_set_up_the_bot_and_it_connects_at_once()
     {
-        var owner = await factory.CreateSignedInClientAsync("discord-owner@example.com");
-        var board = await owner.CreateBoardAsync("Roadmap");
-        var ownerId = (await owner.MeAsync()).Id;
-        var guildId = NewGuildId();
+        var admin = await Admin();
+        var other = await factory.CreateSignedInClientAsync("discord-not-admin@example.com");
+        var (agent, _) = await factory.TokenAsync(admin, "Admin's agent");
+        foreach (var client in new[] { other, agent })
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/admin/discord")).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await client.PutAsJsonAsync("/api/admin/discord", new { botToken = DiscordApiFactory.Token })).StatusCode);
+        }
+        // From scratch, whichever test set the bot up before.
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync("/api/admin/discord")).StatusCode);
 
-        var (connected, bot) = await ConnectAsync(owner, guildId, "Night owls", [new(board.Id)]);
-        Assert.StartsWith("pb_pat_", connected.Token);
-        Assert.Equal(DateTimeOffset.UtcNow.AddDays(365).Date, connected.ExpiresAt.UtcDateTime.Date);
-        var connection = Assert.Single(connected.Boards);
-        Assert.Equal((board.Id, "Roadmap"), (connection.BoardId, connection.BoardName));
+        // Discord has to accept the token, with the Message Content intent on.
+        var wrong = await admin.PutAsJsonAsync("/api/admin/discord", new { botToken = "MTUw.wrong.token" });
+        Assert.Equal(HttpStatusCode.BadRequest, wrong.StatusCode);
+        Assert.Contains("botToken", await wrong.Content.ReadAsStringAsync());
+        var noIntent = await admin.PutAsJsonAsync("/api/admin/discord", new { botToken = DiscordApiFactory.TokenWithoutIntent });
+        Assert.Contains("Message Content", await noIntent.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutAsJsonAsync("/api/admin/discord", new { publicUrl = "https://board.example/?x" })).StatusCode);
+
+        var saved = await admin.PutAsJsonAsync("/api/admin/discord", new { botToken = $" {DiscordApiFactory.Token} " });
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        var bot = (await saved.Content.ReadFromJsonAsync<DiscordBotDetail>())!;
+        Assert.Equal((DiscordBotState.Online, DiscordBotSource.Setup, "PrikBot", DiscordApiFactory.ApplicationId),
+            (bot.State, bot.Source, bot.BotName, bot.ApplicationId));
+        Assert.Equal($"https://discord.com/oauth2/authorize?client_id={DiscordApiFactory.ApplicationId}&scope=bot&permissions=93184", bot.InviteUrl);
+        // The address the admin uses is the one people paste links from, until they change it.
+        Assert.Equal("http://localhost", bot.PublicUrl);
+        Assert.Equal((DiscordApiFactory.Token, "http://localhost"), (factory.Gateway.Token, factory.Gateway.PublicUrl));
+        Assert.DoesNotContain(DiscordApiFactory.Token, await (await admin.GetAsync("/api/admin/discord")).Content.ReadAsStringAsync());
+
+        // Stored encrypted.
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+            var row = await db.DiscordBotSettings.SingleAsync();
+            Assert.DoesNotContain(DiscordApiFactory.Token, row.ProtectedBotToken);
+        }
+
+        var moved = await admin.PutAsJsonAsync("/api/admin/discord", new { publicUrl = $"{DiscordApiFactory.PublicUrl}/" });
+        Assert.Equal(DiscordApiFactory.PublicUrl, (await moved.Content.ReadFromJsonAsync<DiscordBotDetail>())!.PublicUrl);
+        Assert.Equal((DiscordApiFactory.Token, DiscordApiFactory.PublicUrl), (factory.Gateway.Token, factory.Gateway.PublicUrl));
+
+        // Removing it logs the bot out; it can be set up again.
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync("/api/admin/discord")).StatusCode);
+        Assert.Null(factory.Gateway.Token);
+        var off = (await admin.GetFromJsonAsync<DiscordBotDetail>("/api/admin/discord"))!;
+        Assert.Equal((DiscordBotState.Off, null, null), (off.State, off.Source, off.InviteUrl));
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutAsJsonAsync("/api/admin/discord", new { publicUrl = DiscordApiFactory.PublicUrl })).StatusCode);
+        await SetUpBotAsync(admin);
+    }
+
+    [Fact]
+    public async Task Owners_pick_a_channel_or_the_whole_server()
+    {
+        await SetUpBotAsync(await Admin());
+        var owner = await factory.CreateSignedInClientAsync("discord-owner@example.com");
+        var ownerId = (await owner.MeAsync()).Id;
+        var board = await owner.CreateBoardAsync("Roadmap");
+        var guildId = BotJoinsServer();
+
+        var servers = (await owner.GetFromJsonAsync<DiscordServers>($"/api/boards/{board.Id}/discord/servers"))!;
+        Assert.Equal(DiscordBotState.Online, servers.State);
+        var server = Assert.Single(servers.Servers, s => s.GuildId == guildId);
+        Assert.Equal("Night owls", server.Name);
+        Assert.Equal([Channel, OtherChannel], server.Channels.Select(c => c.Id));
+
+        var connected = await ConnectAsync(owner, board.Id, guildId, Channel);
+        var connection = Assert.Single(connected);
+        Assert.Equal((guildId, "Night owls"), (connection.GuildId, connection.GuildName));
         Assert.Equal([new DiscordChannelDetail(Channel, "general")], connection.Channels);
 
         // A Viewer member named after the server, not someone to assign cards to.
         var members = (await owner.GetFromJsonAsync<List<BoardMemberDetail>>($"/api/boards/{board.Id}/members"))!;
         var member = Assert.Single(members, m => m.Issuer == Agent.DiscordIssuer);
-        Assert.Equal((BoardRole.Viewer, "Night owls", guildId), (member.Role, member.DisplayName, member.ClientId));
+        Assert.Equal((BoardRole.Viewer, "Night owls", guildId, member.PrincipalId), (member.Role, member.DisplayName, member.ClientId, connection.AgentId));
         var detail = (await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
         Assert.DoesNotContain(detail.People, p => p.PrincipalId == member.PrincipalId);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+            Assert.Equal(ownerId, (await db.DiscordGuilds.SingleAsync(g => g.GuildId == guildId)).ConnectedById);
+        }
 
-        // The token reads, and nothing else.
-        var me = await bot.MeAsync();
-        Assert.Equal((CallerKind.Token, PrincipalKind.Agent, member.PrincipalId), (me.Kind, me.PrincipalKind, me.Id));
-        Assert.Equal(["boards:read"], me.Scopes);
-        Assert.Equal(HttpStatusCode.OK, (await bot.GetAsync($"/api/boards/{board.Id}")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await bot.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Spam" })).StatusCode);
+        // Another channel adds to the list; the whole server replaces it; a channel then narrows it again.
+        Assert.Equal([Channel, OtherChannel], Assert.Single(await ConnectAsync(owner, board.Id, guildId, OtherChannel)).Channels!.Select(c => c.Id));
+        Assert.Null(Assert.Single(await ConnectAsync(owner, board.Id, guildId, null)).Channels);
+        Assert.Equal([OtherChannel], Assert.Single(await ConnectAsync(owner, board.Id, guildId, OtherChannel)).Channels!.Select(c => c.Id));
 
-        // It shows in the owner's token list, as the server.
-        var token = Assert.Single((await owner.GetFromJsonAsync<List<AccessTokenDetail>>("/api/me/tokens"))!, t => t.Kind == AccessTokenKind.Discord);
-        Assert.Equal(("Night owls", member.PrincipalId), (token.Name, token.AgentId));
+        // Only servers and channels the bot is in and may post in.
+        Assert.Equal(HttpStatusCode.BadRequest, (await Connect(owner, board.Id, "1299999999999999999", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Connect(owner, board.Id, guildId, HiddenChannel)).StatusCode);
 
-        var status = (await bot.GetFromJsonAsync<DiscordStatus>("/api/discord/status"))!;
-        Assert.Equal((guildId, "Night owls"), (status.GuildId, status.GuildName));
-        Assert.Equal(board.Id, Assert.Single(status.Boards).BoardId);
-
-        // Owners see the connection, and the server's DiscordGuild row keeps who connected it.
-        var listed = Assert.Single((await owner.GetFromJsonAsync<List<DiscordConnection>>($"/api/boards/{board.Id}/discord"))!);
-        Assert.Equal((guildId, "Night owls", member.PrincipalId), (listed.GuildId, listed.GuildName, listed.AgentId));
-        await using var scope = factory.Services.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
-        Assert.Equal(ownerId, (await db.DiscordGuilds.SingleAsync(g => g.GuildId == guildId)).ConnectedById);
+        // A renamed server and channel show their new names.
+        factory.Gateway.InServers[guildId] = new DiscordServerInfo(guildId, "Early birds", [new(Channel, "general"), new(OtherChannel, "development")]);
+        var renamed = Assert.Single((await owner.GetFromJsonAsync<List<DiscordConnection>>($"/api/boards/{board.Id}/discord"))!);
+        Assert.Equal(("Early birds", "development"), (renamed.GuildName, Assert.Single(renamed.Channels!).Name));
     }
 
     [Fact]
-    public async Task Connecting_again_adds_channels_and_boards_and_replaces_the_token()
+    public async Task Only_owners_in_the_browser_connect_boards()
     {
-        var owner = await factory.CreateSignedInClientAsync("discord-again@example.com");
-        var first = await owner.CreateBoardAsync("First");
-        var second = await owner.CreateBoardAsync("Second");
-        var guildId = NewGuildId();
+        await SetUpBotAsync(await Admin());
+        var owner = await factory.CreateSignedInClientAsync("discord-only-owner@example.com");
+        var editor = await factory.CreateSignedInClientAsync("discord-only-editor@example.com");
+        var board = await owner.CreateBoardAsync();
+        await owner.ShareAsync(board.Id, editor, BoardRole.Editor);
+        var guildId = BotJoinsServer();
+        var (token, _) = await factory.TokenAsync(owner, "Owner's agent");
 
-        var (_, oldBot) = await ConnectAsync(owner, guildId, "Guild", [new(first.Id)]);
-        var (connected, bot) = await ConnectAsync(owner, guildId, "Guild renamed", [new(first.Id), new(second.Id, WholeServer: true)],
-            channelId: OtherChannel, channelName: "dev");
-
-        Assert.Equal(HttpStatusCode.Unauthorized, (await oldBot.GetAsync("/api/discord/status")).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await bot.GetAsync("/api/discord/status")).StatusCode);
-        Assert.Equal([first.Id, second.Id], connected.Boards.Select(b => b.BoardId).Order());
-        Assert.Equal([Channel, OtherChannel], connected.Boards.Single(b => b.BoardId == first.Id).Channels!.Select(c => c.Id));
-        Assert.Null(connected.Boards.Single(b => b.BoardId == second.Id).Channels);
-        Assert.Single((await owner.GetFromJsonAsync<List<AccessTokenDetail>>("/api/me/tokens"))!, t => t.Kind == AccessTokenKind.Discord);
-        var member = Assert.Single((await owner.GetFromJsonAsync<List<BoardMemberDetail>>($"/api/boards/{first.Id}/members"))!, m => m.Issuer == Agent.DiscordIssuer);
-        Assert.Equal("Guild renamed", member.DisplayName);
+        Assert.Equal(HttpStatusCode.Forbidden, (await editor.GetAsync($"/api/boards/{board.Id}/discord/servers")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Connect(editor, board.Id, guildId, Channel)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Connect(token, board.Id, guildId, Channel)).StatusCode);
+        Assert.Empty((await owner.GetFromJsonAsync<List<DiscordConnection>>($"/api/boards/{board.Id}/discord"))!);
     }
 
     [Fact]
     public async Task A_board_takes_a_limited_number_of_channels_per_server()
     {
+        await SetUpBotAsync(await Admin());
         var owner = await factory.CreateSignedInClientAsync("discord-channels@example.com");
         var board = await owner.CreateBoardAsync("Channels");
-        var guildId = NewGuildId();
-        await ConnectAsync(owner, guildId, "Guild", [new(board.Id)]);
+        var guildId = BotJoinsServer();
+        await ConnectAsync(owner, board.Id, guildId, Channel);
         await using (var scope = factory.Services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
             var limit = await db.DiscordBoardChannels.SingleAsync(c => c.GuildId == guildId);
-            limit.Channels = [.. Enumerable.Range(0, DiscordBoardChannels.MaxChannels).Select(i => new DiscordChannel((1300000000000000000 + i).ToString(), $"c{i}"))];
+            limit.Channels = [.. Enumerable.Range(0, DiscordBoardChannels.MaxChannels - 1).Select(i => new DiscordChannel((1300000000000000000 + i).ToString(), $"c{i}")),
+                new DiscordChannel(Channel, "general")];
             await db.SaveChangesAsync();
         }
 
-        var (verifier, challenge) = Pkce();
-        var code = await ApproveAsync(owner, challenge, [new(board.Id)]);
-        Assert.Equal(HttpStatusCode.Conflict, (await Exchange(code.Code, verifier, guildId, channelId: OtherChannel)).StatusCode);
-
-        // A channel it already has can still be renamed, and the whole server is always possible.
-        await ConnectAsync(owner, guildId, "Guild", [new(board.Id)], channelId: "1300000000000000000", channelName: "renamed");
-        var (connected, _) = await ConnectAsync(owner, guildId, "Guild", [new(board.Id, WholeServer: true)], channelId: OtherChannel);
-        Assert.Null(Assert.Single(connected.Boards).Channels);
-    }
-
-    [Fact]
-    public async Task A_code_works_once_with_its_verifier_for_5_minutes_and_only_for_owners()
-    {
-        var owner = await factory.CreateSignedInClientAsync("discord-code@example.com");
-        var editor = await factory.CreateSignedInClientAsync("discord-code-editor@example.com");
-        var board = await owner.CreateBoardAsync();
-        await owner.ShareAsync(board.Id, editor, BoardRole.Editor);
-
-        // Owners only, from PrikBoard's own pages, with a session.
-        var challenge = Pkce().Challenge;
-        Assert.Equal(HttpStatusCode.BadRequest, (await Approve(editor, challenge, [new(board.Id)])).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await Approve(owner, challenge, [new(Guid.NewGuid())])).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await Approve(owner, challenge, [new(board.Id)], "https://evil.example")).StatusCode);
-        var (agent, _) = await factory.TokenAsync(owner, "Agent");
-        Assert.Equal(HttpStatusCode.Forbidden, (await Approve(agent, challenge, [new(board.Id)])).StatusCode);
-
-        // A code works once, and a wrong verifier (another server's) spends it too.
-        var (verifier, ok) = Pkce();
-        var code = await ApproveAsync(owner, ok, [new(board.Id)]);
-        Assert.Equal(HttpStatusCode.BadRequest, (await Exchange(code.Code, Pkce().Verifier, NewGuildId())).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await Exchange(code.Code, verifier, NewGuildId())).StatusCode);
-
-        var (againVerifier, again) = Pkce();
-        var used = await ApproveAsync(owner, again, [new(board.Id)]);
-        Assert.Equal(HttpStatusCode.Created, (await Exchange(used.Code, againVerifier, NewGuildId())).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await Exchange(used.Code, againVerifier, NewGuildId())).StatusCode);
-
-        var (lateVerifier, late) = Pkce();
-        var expired = await ApproveAsync(owner, late, [new(board.Id)]);
-        await using (var scope = factory.Services.CreateAsyncScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
-            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(expired.Code));
-            var past = DateTimeOffset.UtcNow.AddMinutes(-1);
-            await db.DiscordConnectGrants.Where(g => g.CodeHash == hash).ExecuteUpdateAsync(s => s.SetProperty(g => g.ExpiresAt, past));
-        }
-        Assert.Equal(HttpStatusCode.BadRequest, (await Exchange(expired.Code, lateVerifier, NewGuildId())).StatusCode);
-    }
-
-    [Fact]
-    public async Task An_owner_who_was_demoted_before_the_exchange_connects_nothing()
-    {
-        var owner = await factory.CreateSignedInClientAsync("discord-demoted@example.com");
-        var other = await factory.CreateSignedInClientAsync("discord-demoted-other@example.com");
-        var board = await owner.CreateBoardAsync();
-        await owner.ShareAsync(board.Id, other, BoardRole.Owner);
-        var (verifier, challenge) = Pkce();
-        var code = await ApproveAsync(owner, challenge, [new(board.Id)]);
-
-        var ownerId = (await owner.MeAsync()).Id;
-        (await other.PatchAsJsonAsync($"/api/boards/{board.Id}/members/{ownerId}", new { role = BoardRole.Editor })).EnsureSuccessStatusCode();
-
-        Assert.Equal(HttpStatusCode.BadRequest, (await Exchange(code.Code, verifier, NewGuildId())).StatusCode);
-        Assert.DoesNotContain((await other.GetFromJsonAsync<List<BoardMemberDetail>>($"/api/boards/{board.Id}/members"))!, m => m.Issuer == Agent.DiscordIssuer);
+        Assert.Equal(HttpStatusCode.Conflict, (await Connect(owner, board.Id, guildId, OtherChannel)).StatusCode);
+        // A channel it already has can still be picked again, and the whole server is always possible.
+        await ConnectAsync(owner, board.Id, guildId, Channel);
+        Assert.Null(Assert.Single(await ConnectAsync(owner, board.Id, guildId, null)).Channels);
     }
 
     [Fact]
     public async Task Card_and_board_links_preview_with_their_description()
     {
+        await Admin();
         var owner = await factory.CreateSignedInClientAsync("discord-preview@example.com");
         var board = await owner.CreateBoardAsync("Platform team");
         (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { description = "Where **we** plan." })).EnsureSuccessStatusCode();
@@ -202,45 +263,42 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         await AddComponent(owner, noted.Id, new { kind = "Text", text = "## Why\n\nUploads **fail** on [flaky](https://x.example) networks.", x = 20, y = 20 });
         var checklist = await owner.CreateCardAsync(board.Id, "Launch");
         await AddComponent(owner, checklist.Id, new { kind = "Checklist", items = new[] { new { text = "a", done = true }, new { text = "b", done = false } } });
+        var guildId = BotJoinsServer();
+        await ConnectAsync(owner, board.Id, guildId, Channel);
 
-        var (_, bot) = await ConnectAsync(owner, NewGuildId(), "Guild", [new(board.Id)]);
-
-        var card = await PreviewAsync(bot, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.ShortId}/cards/{noted.Number}");
+        var card = await PreviewAsync(guildId, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.ShortId}/cards/{noted.Number}");
         Assert.Equal(LinkPreviewKind.Card, card.Kind);
         Assert.Equal(($"{board.Key}-{noted.Number}", "Retry uploads", "Why Uploads fail on flaky networks.", CardColor.Butter, "Platform team"),
             (card.ReadableId, card.Title, card.Description, card.Color, card.BoardName));
         Assert.Equal(noted.Path, card.Path);
 
         // The older id form works too.
-        var byId = await PreviewAsync(bot, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.Id}/cards/{noted.Id}");
-        Assert.Equal(card, byId);
+        Assert.Equal(card, await PreviewAsync(guildId, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.Id}/cards/{noted.Id}"));
 
-        Assert.Null((await PreviewAsync(bot, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.ShortId}/cards/{plain.Number}")).Description);
-        Assert.Equal("1/2 done", (await PreviewAsync(bot, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.ShortId}/cards/{checklist.Number}")).Description);
+        Assert.Null((await PreviewAsync(guildId, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.ShortId}/cards/{plain.Number}")).Description);
+        Assert.Equal("1/2 done", (await PreviewAsync(guildId, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.ShortId}/cards/{checklist.Number}")).Description);
 
-        var boardPreview = await PreviewAsync(bot, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.ShortId}");
+        var boardPreview = await PreviewAsync(guildId, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.ShortId}");
         Assert.Equal((LinkPreviewKind.Board, "Platform team", "Where we plan.", $"/#/boards/{board.ShortId}"),
             (boardPreview.Kind, boardPreview.BoardName, boardPreview.Description, boardPreview.Path));
-        Assert.Equal(boardPreview, await PreviewAsync(bot, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.Id}/"));
-
-        var bare = await owner.CreateBoardAsync("No description");
-        var (_, other) = await ConnectAsync(owner, NewGuildId(), "Other", [new(bare.Id)]);
-        Assert.Null((await PreviewAsync(other, $"{DiscordApiFactory.PublicUrl}/#/boards/{bare.ShortId}")).Description);
+        Assert.Equal(boardPreview, await PreviewAsync(guildId, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.Id}/"));
     }
 
     [Fact]
     public async Task Open_invites_preview_without_being_spent()
     {
+        await Admin();
         var owner = await factory.CreateSignedInClientAsync("discord-invite@example.com");
         await owner.RenameAsync("Daniel");
         var board = await owner.CreateBoardAsync("Secret plans");
         var connectedTo = await owner.CreateBoardAsync("Connected");
-        var (_, bot) = await ConnectAsync(owner, NewGuildId(), "Guild", [new(connectedTo.Id)]);
+        var guildId = BotJoinsServer();
+        await ConnectAsync(owner, connectedTo.Id, guildId, Channel);
 
         // An invite to a board the server isn't connected to still previews: holding the link is what counts.
         var invite = (await (await owner.PostAsJsonAsync($"/api/boards/{board.Id}/invites", new { role = BoardRole.Editor }))
             .Content.ReadFromJsonAsync<CreatedInvite>())!;
-        var preview = await PreviewAsync(bot, DiscordApiFactory.PublicUrl + invite.Path, OtherChannel);
+        var preview = await PreviewAsync(guildId, DiscordApiFactory.PublicUrl + invite.Path, OtherChannel);
         Assert.Equal((LinkPreviewKind.Invite, "Secret plans", BoardRole.Editor, "Daniel"),
             (preview.Kind, preview.BoardName, preview.Role, preview.InvitedBy));
         Assert.Equal(invite.ExpiresAt, preview.ExpiresAt!.Value, TimeSpan.FromMilliseconds(1));
@@ -249,20 +307,22 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         Assert.Equal(HttpStatusCode.OK, (await joiner.PostAsJsonAsync("/api/invites/accept", new { token = invite.Token })).StatusCode);
 
         // Used now, so it previews no more.
-        Assert.Equal(HttpStatusCode.NotFound, (await Preview(bot, DiscordApiFactory.PublicUrl + invite.Path)).StatusCode);
+        Assert.Null(await FindAsync(guildId, DiscordApiFactory.PublicUrl + invite.Path));
     }
 
     [Fact]
-    public async Task Everything_else_is_the_same_404()
+    public async Task Everything_else_previews_nothing()
     {
-        var owner = await factory.CreateSignedInClientAsync("discord-404@example.com");
+        await Admin();
+        var owner = await factory.CreateSignedInClientAsync("discord-nothing@example.com");
         var board = await owner.CreateBoardAsync("Visible");
         var card = await owner.CreateCardAsync(board.Id);
         var hidden = await owner.CreateBoardAsync("Not connected");
         var hiddenCard = await owner.CreateCardAsync(hidden.Id);
         var limited = await owner.CreateBoardAsync("Channel only");
-        var guildId = NewGuildId();
-        var (_, bot) = await ConnectAsync(owner, guildId, "Guild", [new(board.Id, WholeServer: true), new(limited.Id)]);
+        var guildId = BotJoinsServer();
+        await ConnectAsync(owner, board.Id, guildId, null);
+        await ConnectAsync(owner, limited.Id, guildId, Channel);
         var site = DiscordApiFactory.PublicUrl;
 
         string[] links =
@@ -280,48 +340,39 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
             $"/#/boards/{board.ShortId}",
             "not a link",
         ];
-        HashSet<string> bodies = [];
-        foreach (var link in links)
-        {
-            var response = await Preview(bot, link);
-            Assert.True(response.StatusCode == HttpStatusCode.NotFound, $"{link}: {response.StatusCode}");
-            // The same problem details every time, apart from the trace id.
-            bodies.Add(Regex.Replace(await response.Content.ReadAsStringAsync(), "\"traceId\":\"[^\"]*\"", ""));
-        }
-        Assert.Single(bodies);
+        foreach (var link in links) Assert.True(await FindAsync(guildId, link) is null, link);
 
-        // The whole server sees the board everywhere; the other board only in its channel.
-        Assert.Equal(HttpStatusCode.OK, (await Preview(bot, $"{site}/#/boards/{board.ShortId}/cards/{card.Number}", OtherChannel)).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await Preview(bot, $"{site}/#/boards/{limited.ShortId}", Channel)).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await Preview(bot, $"{site}/#/boards/{limited.ShortId}", OtherChannel)).StatusCode);
+        // The whole server sees the board everywhere; the other board only in its channel; another server nothing.
+        Assert.NotNull(await FindAsync(guildId, $"{site}/#/boards/{board.ShortId}/cards/{card.Number}", OtherChannel));
+        Assert.NotNull(await FindAsync(guildId, $"{site}/#/boards/{limited.ShortId}", Channel));
+        Assert.Null(await FindAsync(guildId, $"{site}/#/boards/{limited.ShortId}", OtherChannel));
+        Assert.Null(await FindAsync(BotJoinsServer(), $"{site}/#/boards/{board.ShortId}"));
+        Assert.Null(await FindAsync(guildId, $"{site}/#/boards/{board.ShortId}", publicUrl: null));
 
-        // A removed connection previews nothing, and neither does an unknown token, a person or another kind of token.
+        // A removed connection previews nothing.
         Assert.Equal(HttpStatusCode.NoContent, (await owner.DeleteAsync($"/api/boards/{board.Id}/discord/{guildId}")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await Preview(bot, $"{site}/#/boards/{board.ShortId}")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await Preview(owner, $"{site}/#/boards/{limited.ShortId}")).StatusCode);
-        var (agent, _) = await factory.TokenAsync(owner, "Agent");
-        Assert.Equal(HttpStatusCode.Forbidden, (await Preview(agent, $"{site}/#/boards/{limited.ShortId}")).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await Preview(factory.CreateAnonymousClient(), $"{site}/#/boards/{limited.ShortId}")).StatusCode);
+        Assert.Null(await FindAsync(guildId, $"{site}/#/boards/{board.ShortId}"));
     }
 
     [Fact]
     public async Task Owners_remove_channels_and_servers()
     {
+        await Admin();
         var owner = await factory.CreateSignedInClientAsync("discord-remove@example.com");
         var editor = await factory.CreateSignedInClientAsync("discord-remove-editor@example.com");
         var board = await owner.CreateBoardAsync();
         await owner.ShareAsync(board.Id, editor, BoardRole.Editor);
-        var guildId = NewGuildId();
-        await ConnectAsync(owner, guildId, "Guild", [new(board.Id)]);
-        var (_, bot) = await ConnectAsync(owner, guildId, "Guild", [new(board.Id)], channelId: OtherChannel, channelName: "dev");
+        var guildId = BotJoinsServer();
+        await ConnectAsync(owner, board.Id, guildId, Channel);
+        await ConnectAsync(owner, board.Id, guildId, OtherChannel);
         var link = $"{DiscordApiFactory.PublicUrl}/#/boards/{board.ShortId}";
 
         Assert.Equal(HttpStatusCode.Forbidden, (await editor.GetAsync($"/api/boards/{board.Id}/discord")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await editor.DeleteAsync($"/api/boards/{board.Id}/discord/{guildId}")).StatusCode);
 
         Assert.Equal(HttpStatusCode.NoContent, (await owner.DeleteAsync($"/api/boards/{board.Id}/discord/{guildId}/channels/{Channel}")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await Preview(bot, link, Channel)).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await Preview(bot, link, OtherChannel)).StatusCode);
+        Assert.Null(await FindAsync(guildId, link, Channel));
+        Assert.NotNull(await FindAsync(guildId, link, OtherChannel));
 
         // The last channel takes the server off the board.
         Assert.Equal(HttpStatusCode.NoContent, (await owner.DeleteAsync($"/api/boards/{board.Id}/discord/{guildId}/channels/{OtherChannel}")).StatusCode);
@@ -330,87 +381,83 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         Assert.Equal(HttpStatusCode.NotFound, (await owner.DeleteAsync($"/api/boards/{board.Id}/discord/{guildId}")).StatusCode);
 
         // Connecting again starts afresh, from the new channel only.
-        var (connected, _) = await ConnectAsync(owner, guildId, "Guild", [new(board.Id)], channelId: OtherChannel, channelName: "dev");
-        Assert.Equal([OtherChannel], Assert.Single(connected.Boards).Channels!.Select(c => c.Id));
-    }
+        Assert.Equal([OtherChannel], Assert.Single(await ConnectAsync(owner, board.Id, guildId, OtherChannel)).Channels!.Select(c => c.Id));
 
-    [Fact]
-    public async Task Removing_the_server_as_a_member_disconnects_it()
-    {
-        var owner = await factory.CreateSignedInClientAsync("discord-member@example.com");
-        var board = await owner.CreateBoardAsync();
-        var (_, bot) = await ConnectAsync(owner, NewGuildId(), "Guild", [new(board.Id, WholeServer: true)]);
-        var agentId = (await bot.MeAsync()).Id;
-
+        // Removing the server as a member disconnects it too.
+        var agentId = Assert.Single((await owner.GetFromJsonAsync<List<DiscordConnection>>($"/api/boards/{board.Id}/discord"))!).AgentId;
         Assert.Equal(HttpStatusCode.NoContent, (await owner.DeleteAsync($"/api/boards/{board.Id}/members/{agentId}")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await Preview(bot, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.ShortId}")).StatusCode);
-        Assert.Empty((await bot.GetFromJsonAsync<DiscordStatus>("/api/discord/status"))!.Boards);
+        Assert.Null(await FindAsync(guildId, link, OtherChannel));
     }
 
     [Fact]
-    public async Task The_bot_revokes_its_own_token()
+    public async Task Admins_make_the_bot_leave_a_server_and_its_boards()
     {
-        var owner = await factory.CreateSignedInClientAsync("discord-revoke@example.com");
-        var board = await owner.CreateBoardAsync();
-        var (_, bot) = await ConnectAsync(owner, NewGuildId(), "Guild", [new(board.Id)]);
+        var admin = await Admin();
+        await SetUpBotAsync(admin);
+        var owner = await factory.CreateSignedInClientAsync("discord-leave@example.com");
+        var first = await owner.CreateBoardAsync("First");
+        var second = await owner.CreateBoardAsync("Second");
+        var guildId = BotJoinsServer("Leaving");
+        await ConnectAsync(owner, first.Id, guildId, Channel);
+        await ConnectAsync(owner, second.Id, guildId, null);
 
-        Assert.Equal(HttpStatusCode.NoContent, (await bot.DeleteAsync("/api/discord/token")).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await bot.GetAsync("/api/discord/status")).StatusCode);
-        Assert.DoesNotContain((await owner.GetFromJsonAsync<List<AccessTokenDetail>>("/api/me/tokens"))!, t => t.Kind == AccessTokenKind.Discord);
+        var listed = Assert.Single((await admin.GetFromJsonAsync<DiscordBotDetail>("/api/admin/discord"))!.Servers, s => s.GuildId == guildId);
+        Assert.Equal(("Leaving", 2), (listed.Name, listed.ChannelCount));
+        Assert.Equal(["First", "Second"], listed.Boards.Select(b => b.BoardName));
+        Assert.Null(listed.Boards.Single(b => b.BoardName == "Second").Channels);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/admin/discord/servers/{guildId}")).StatusCode);
+        Assert.False(factory.Gateway.InServers.ContainsKey(guildId));
+        Assert.Empty((await owner.GetFromJsonAsync<List<DiscordConnection>>($"/api/boards/{first.Id}/discord"))!);
+        Assert.Empty((await owner.GetFromJsonAsync<List<DiscordConnection>>($"/api/boards/{second.Id}/discord"))!);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.DeleteAsync($"/api/admin/discord/servers/{guildId}")).StatusCode);
     }
 
-    private async Task<(DiscordConnected Connected, HttpClient Bot)> ConnectAsync(
-        HttpClient owner, string guildId, string guildName, DiscordBoardChoice[] boards, string channelId = Channel, string channelName = "general")
+    private async Task SetUpBotAsync(HttpClient admin)
     {
-        var (verifier, challenge) = Pkce();
-        var code = await ApproveAsync(owner, challenge, boards);
-        var response = await Exchange(code.Code, verifier, guildId, guildName, channelId, channelName);
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        var connected = (await response.Content.ReadFromJsonAsync<DiscordConnected>())!;
-        var bot = factory.CreateAnonymousClient();
-        bot.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", connected.Token);
-        return (connected, bot);
-    }
-
-    private static async Task<DiscordConnectCode> ApproveAsync(HttpClient owner, string challenge, DiscordBoardChoice[] boards)
-    {
-        var response = await Approve(owner, challenge, boards);
+        var response = await admin.PutAsJsonAsync("/api/admin/discord", new { botToken = DiscordApiFactory.Token, publicUrl = DiscordApiFactory.PublicUrl });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        return (await response.Content.ReadFromJsonAsync<DiscordConnectCode>())!;
     }
 
-    private static Task<HttpResponseMessage> Approve(HttpClient client, string challenge, DiscordBoardChoice[] boards, string origin = OwnOrigin)
+    private static Task<HttpResponseMessage> Connect(HttpClient owner, Guid boardId, string guildId, string? channelId) =>
+        owner.PostAsJsonAsync($"/api/boards/{boardId}/discord", new { guildId, channelId });
+
+    private static async Task<List<DiscordConnection>> ConnectAsync(HttpClient owner, Guid boardId, string guildId, string? channelId)
     {
-        var request = new HttpRequestMessage(HttpMethod.Post, "/api/me/discord-connects")
-        {
-            Content = JsonContent.Create(new { codeChallenge = challenge, boards }),
-        };
-        request.Headers.Add("Origin", origin);
-        return client.SendAsync(request);
+        var response = await Connect(owner, boardId, guildId, channelId);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<List<DiscordConnection>>())!;
     }
 
-    private Task<HttpResponseMessage> Exchange(
-        string code, string codeVerifier, string guildId, string guildName = "Guild", string channelId = Channel, string channelName = "general") =>
-        factory.CreateAnonymousClient().PostAsJsonAsync("/api/discord/connect/token",
-            new { code, codeVerifier, guildId, guildName, channelId, channelName });
-
-    private static Task<HttpResponseMessage> Preview(HttpClient bot, string url, string channelId = Channel) =>
-        bot.PostAsJsonAsync("/api/link-previews", new { url, channelId });
-
-    private static async Task<LinkPreview> PreviewAsync(HttpClient bot, string url, string channelId = Channel)
+    private async Task<LinkPreview?> FindAsync(string guildId, string url, string channelId = Channel, string? publicUrl = DiscordApiFactory.PublicUrl)
     {
-        var response = await Preview(bot, url, channelId);
-        Assert.True(response.StatusCode == HttpStatusCode.OK, $"{url}: {response.StatusCode}");
-        return (await response.Content.ReadFromJsonAsync<LinkPreview>())!;
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+        return await LinkPreviews.FindAsync(db, guildId, url, channelId, publicUrl, CancellationToken.None);
+    }
+
+    private async Task<LinkPreview> PreviewAsync(string guildId, string url, string channelId = Channel)
+    {
+        var preview = await FindAsync(guildId, url, channelId);
+        Assert.True(preview is not null, url);
+        return preview;
     }
 
     private static async Task AddComponent(HttpClient client, Guid cardId, object component) =>
         Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync($"/api/cards/{cardId}/components", component)).StatusCode);
+}
 
-    private static (string Verifier, string Challenge) Pkce()
+/// <summary>Finding links in a Discord message.</summary>
+public class LinkFinderTests
+{
+    [Fact]
+    public void Links_to_the_site_are_found_once_each_without_trailing_punctuation()
     {
-        var verifier = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
-        return (verifier, Base64Url.EncodeToString(SHA256.HashData(Encoding.ASCII.GetBytes(verifier))));
+        var finder = new LinkFinder("https://board.example/");
+        var found = finder.Find("See https://board.example/#/boards/abc/cards/1, and (https://BOARD.example/#/boards/abc). " +
+                                "Not <https://board.example/#/boards/hidden>; again https://board.example/#/boards/abc/cards/1!");
+        Assert.Equal(["https://board.example/#/boards/abc/cards/1", "https://BOARD.example/#/boards/abc"], found);
+        Assert.Empty(finder.Find("nothing here"));
     }
 }
 

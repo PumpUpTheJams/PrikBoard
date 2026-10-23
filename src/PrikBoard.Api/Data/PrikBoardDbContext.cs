@@ -31,7 +31,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
     public DbSet<CardChange> CardChanges => Set<CardChange>();
     public DbSet<DiscordGuild> DiscordGuilds => Set<DiscordGuild>();
     public DbSet<DiscordBoardChannels> DiscordBoardChannels => Set<DiscordBoardChannels>();
-    public DbSet<DiscordConnectGrant> DiscordConnectGrants => Set<DiscordConnectGrant>();
+    public DbSet<DiscordBotSettings> DiscordBotSettings => Set<DiscordBotSettings>();
     public DbSet<SignInProvider> SignInProviders => Set<SignInProvider>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -219,15 +219,13 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             channels.HasIndex(c => c.BoardId);
         });
 
-        modelBuilder.Entity<DiscordConnectGrant>(grant =>
+        modelBuilder.Entity<DiscordBotSettings>(bot =>
         {
-            grant.Property(g => g.CodeHash).HasMaxLength(32);
-            grant.HasIndex(g => g.CodeHash).IsUnique();
-            grant.Property(g => g.CodeChallenge).HasMaxLength(AppSignInGrant.CodeChallengeLength);
-            grant.PrimitiveCollection(g => g.ChannelBoardIds).IsRequired();
-            grant.PrimitiveCollection(g => g.WholeServerBoardIds).IsRequired();
-            grant.HasOne(g => g.Owner).WithMany().HasForeignKey(g => g.OwnerId).OnDelete(DeleteBehavior.Cascade);
-            grant.HasIndex(g => g.OwnerId);
+            bot.Property(b => b.Id).ValueGeneratedNever();
+            bot.Property(b => b.ApplicationId).HasMaxLength(DiscordGuild.IdMaxLength);
+            bot.Property(b => b.BotName).HasMaxLength(100);
+            bot.Property(b => b.PublicUrl).HasMaxLength(Domain.DiscordBotSettings.PublicUrlMaxLength);
+            bot.HasOne<User>().WithMany().HasForeignKey(b => b.UpdatedById).OnDelete(DeleteBehavior.SetNull);
         });
 
         // Gone with its board, card, caller, member or token: an upload URL never outlives the access it was given for.

@@ -1,7 +1,7 @@
 namespace PrikBoard.Api.Domain;
 
 /// <summary>
-/// A Discord server (a guild in Discord's API) connected to PrikBoard, so the PrikBoard Discord bot can preview links
+/// A Discord server (a guild in Discord's API) connected to PrikBoard, so the instance's Discord bot can preview links
 /// to boards there. The server is an <see cref="Agent"/> (issuer <see cref="Agent.DiscordIssuer"/>, client id the guild
 /// id) that is a Viewer member of each connected board: that membership is the grant, and removing it disconnects the
 /// board. This row keeps what the agent can't hold. See docs/discord.md.
@@ -14,11 +14,11 @@ public class DiscordGuild
     /// <summary>Discord's id for the server, kept as text. Not personal data about PrikBoard users.</summary>
     public required string GuildId { get; set; }
 
-    /// <summary>The server's agent; its display name is the server's name as Discord gave it at the latest connect.</summary>
+    /// <summary>The server's agent; its display name is the server's name when a board was last connected to it.</summary>
     public Guid AgentId { get; set; }
     public Agent? Agent { get; set; }
 
-    /// <summary>The PrikBoard user who confirmed the latest connection; null once they no longer exist.</summary>
+    /// <summary>The board owner who made the latest connection; null once they no longer exist.</summary>
     public Guid? ConnectedById { get; set; }
     public DateTimeOffset ConnectedAt { get; set; } = DateTimeOffset.UtcNow;
 
@@ -27,8 +27,8 @@ public class DiscordGuild
 }
 
 /// <summary>
-/// Where a connected server may preview one board: the channels picked when it was connected, or the whole server. The
-/// guild's membership of the board is the grant; this row only narrows it.
+/// Where a connected server may preview one board: the channels its owners picked, or the whole server. The guild's
+/// membership of the board is the grant; this row only narrows it.
 /// </summary>
 public class DiscordBoardChannels
 {
@@ -38,7 +38,7 @@ public class DiscordBoardChannels
     public required string GuildId { get; set; }
     public Guid BoardId { get; set; }
 
-    /// <summary>The channels previews of this board are limited to, as Discord named them at connect time; null for the whole server.</summary>
+    /// <summary>The channels previews of this board are limited to, named as they were when picked; null for the whole server.</summary>
     public List<DiscordChannel>? Channels { get; set; }
 
     /// <summary>Whether a link to the board may be previewed in this channel.</summary>
@@ -49,38 +49,33 @@ public class DiscordBoardChannels
 public sealed record DiscordChannel(string Id, string Name);
 
 /// <summary>
-/// A board owner approved connecting a Discord server: the one-time code the bot trades, with its PKCE verifier and the
-/// server and channel Discord vouches for, for a <see cref="AccessTokenKind.Discord"/> token. Only a hash of the code is
-/// stored; it is deleted when used.
+/// The instance's Discord bot, set up by an admin in Admin → Instance (docs/discord.md). One row at most;
+/// <c>Discord:BotToken</c> and <c>Discord:PublicUrl</c> in configuration win over it. <see cref="Integrations.DiscordBot"/>
+/// reads it at startup and after every change, and connects the bot while the app runs.
 /// </summary>
-public class DiscordConnectGrant
+public class DiscordBotSettings
 {
-    /// <summary>How long the Discord admin has to run /prikboard finish.</summary>
-    public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);
+    /// <summary>The only row's id.</summary>
+    public const int SingleId = 1;
 
-    /// <summary>Codes waiting to be traded per person, so a session cannot pile them up.</summary>
-    public const int MaxPendingPerOwner = 5;
+    public const int PublicUrlMaxLength = 500;
 
-    /// <summary>Boards one connect can take.</summary>
-    public const int MaxBoards = 50;
+    public int Id { get; set; } = SingleId;
 
-    public Guid Id { get; set; } = Guid.CreateVersion7();
+    /// <summary>The bot's token, encrypted with Data Protection (<see cref="Integrations.DiscordBot.TokenPurpose"/>).</summary>
+    public string? ProtectedBotToken { get; set; }
 
-    public Guid OwnerId { get; set; }
-    public User? Owner { get; set; }
+    /// <summary>The Discord application the token belongs to, as Discord said when it was saved; for the invite link.</summary>
+    public string? ApplicationId { get; set; }
 
-    /// <summary>SHA-256 of the code (256 random bits).</summary>
-    public required byte[] CodeHash { get; set; }
+    /// <summary>The bot's name in Discord when the token was saved.</summary>
+    public string? BotName { get; set; }
 
-    /// <summary>The bot's PKCE code challenge: base64url SHA-256 of its verifier (S256).</summary>
-    public required string CodeChallenge { get; set; }
+    /// <summary>The PrikBoard address people paste links from, e.g. https://board.example.com.</summary>
+    public string? PublicUrl { get; set; }
 
-    /// <summary>The boards to connect, limited to the channel where /prikboard connect was run.</summary>
-    public List<Guid> ChannelBoardIds { get; set; } = [];
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 
-    /// <summary>The boards to connect for the whole server.</summary>
-    public List<Guid> WholeServerBoardIds { get; set; } = [];
-
-    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
-    public DateTimeOffset ExpiresAt { get; set; }
+    /// <summary>The admin who changed it last; null once they no longer exist.</summary>
+    public Guid? UpdatedById { get; set; }
 }

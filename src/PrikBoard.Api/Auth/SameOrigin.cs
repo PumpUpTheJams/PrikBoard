@@ -2,7 +2,7 @@ namespace PrikBoard.Api.Auth;
 
 /// <summary>
 /// Whether a request comes from this site's own pages. Used where SameSite alone is not enough: the form post that links
-/// a sign-in, approving an app or Discord connection, WebSocket upgrades (which browsers send cross-site without any CORS
+/// a sign-in, approving an app, WebSocket upgrades (which browsers send cross-site without any CORS
 /// check), and requests to the MCP endpoint that carry an Origin.
 /// </summary>
 public static class SameOrigin

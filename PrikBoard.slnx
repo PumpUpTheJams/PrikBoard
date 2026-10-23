@@ -2,6 +2,5 @@
   <Folder Name="/src/">
     <Project Path="src/PrikBoard.Api.Tests/PrikBoard.Api.Tests.csproj" />
     <Project Path="src/PrikBoard.Api/PrikBoard.Api.csproj" />
-    <Project Path="src/PrikBoard.Discord/PrikBoard.Discord.csproj" />
   </Folder>
 </Solution>

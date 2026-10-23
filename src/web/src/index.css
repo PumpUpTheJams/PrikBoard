@@ -3834,65 +3834,33 @@ a.button.primary:hover {
   height: 20px;
 }
 
-.sign-in-card.discord-connect {
-  width: min(100%, 440px);
-}
-
-.discord-command {
-  align-self: stretch;
-  align-items: center;
-}
-
-.discord-command code {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--text);
-  font: 12px var(--mono);
-  text-align: left;
-  overflow-wrap: anywhere;
-  user-select: all;
-}
-
-.discord-connect-boards {
+/* Integrations: pick a server, then one of its channels or the whole server. */
+.discord-add {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-  max-height: 40dvh;
-  margin: 0;
-  padding: 0;
-  overflow-y: auto;
-  list-style: none;
-}
-
-.discord-connect-boards li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 36px;
-  padding: 2px 8px;
-  border-radius: 8px;
-  background: var(--panel-2);
-}
-
-.discord-connect-boards label {
-  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  min-width: 0;
-  color: var(--text);
-  cursor: pointer;
+  margin-top: 10px;
 }
 
-.discord-connect-boards label span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* Admin → Instance: the instance's Discord bot. */
+.discord-bot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.discord-bot .dialog-hint,
+.discord-bot-status {
+  margin: 0;
+}
+
+.discord-bot-steps {
+  padding-left: 18px;
+}
+
+.discord-bot-servers {
+  margin-top: 4px;
 }
 
 .primary.small,
@@ -5100,7 +5068,7 @@ button.picker-color:hover,
   overflow: auto;
 }
 
-.admin-instance-side {
+.admin-instance-column {
   display: flex;
   flex-direction: column;
   gap: 20px;

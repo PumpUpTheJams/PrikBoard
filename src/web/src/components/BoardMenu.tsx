@@ -1,5 +1,5 @@
 import type { BoardDetail, BoardSummary } from '../api/types'
-import { ChatIcon, CheckIcon, ChevronDownIcon, DownloadIcon, RulesIcon, SignOutIcon, TrashIcon, UploadIcon } from '../board/icons'
+import { CheckIcon, ChevronDownIcon, DownloadIcon, PlugIcon, RulesIcon, SignOutIcon, TrashIcon, UploadIcon } from '../board/icons'
 import { trashPath } from '../board/links'
 import { Menu, MenuItem } from './Menu'
 import { QuickAdd } from './QuickAdd'
@@ -15,7 +15,7 @@ interface BoardMenuProps {
   /** Creates a board and opens it; resolves false when that failed. */
   onCreate: (name: string) => Promise<boolean>
   onUpdate: (target: BoardSummary, changes: { name?: string; key?: string }) => Promise<boolean>
-  onDialog: (dialog: 'rules' | 'discord') => void
+  onDialog: (dialog: 'rules' | 'integrations') => void
   onExport: (target: BoardSummary) => void
   onImport: () => void
   /** These two ask first (ConfirmDialog). */
@@ -92,8 +92,8 @@ export function BoardMenu(props: BoardMenuProps) {
                 </MenuItem>
               )}
               {isOwner && (
-                <MenuItem icon={<ChatIcon />} title="Discord servers that preview this board's links" onClick={() => onDialog('discord')}>
-                  Discord
+                <MenuItem icon={<PlugIcon />} title="Connect this board to other apps, such as Discord" onClick={() => onDialog('integrations')}>
+                  Integrations
                 </MenuItem>
               )}
               {board && (

@@ -12,7 +12,7 @@ public class AppSignInGrant
     /// <summary>Codes waiting to be traded per person, so a session cannot pile them up.</summary>
     public const int MaxPendingPerOwner = 5;
 
-    /// <summary>A PKCE S256 code challenge: base64url SHA-256 without padding, also for <see cref="DiscordConnectGrant"/>.</summary>
+    /// <summary>A PKCE S256 code challenge: base64url SHA-256 without padding.</summary>
     public const int CodeChallengeLength = 43;
 
     public Guid Id { get; set; } = Guid.CreateVersion7();

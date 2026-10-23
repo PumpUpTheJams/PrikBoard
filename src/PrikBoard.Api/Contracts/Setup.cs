@@ -118,7 +118,7 @@ public enum CheckStatus
 }
 
 /// <summary>One thing the setup checks about how this PrikBoard runs.</summary>
-/// <param name="Id">database, migrations, storage, keys, hashKey, https, providers or version.</param>
+/// <param name="Id">database, migrations, storage, keys, hashKey, https, providers, discord or version.</param>
 /// <param name="Title">What was checked.</param>
 /// <param name="Status">Ok, Warning or Failed.</param>
 /// <param name="Message">What was found, such as a version or a path.</param>

@@ -4,6 +4,7 @@ import { boardRoles, type AdminBoard, type AdminBoardMember, type AdminUser, typ
 import { isDrag } from '../board/gesture'
 import { CloseIcon, PeopleIcon, SearchIcon, ShieldIcon, SparkleIcon, TrashIcon } from '../board/icons'
 import { ConfirmDialog } from './ConfirmDialog'
+import { DiscordBotSettings } from './DiscordBotSettings'
 import { Face } from './Avatar'
 import { plural } from './plural'
 import { hasSetupResult } from './setupResult'
@@ -292,11 +293,17 @@ export function AdminPage({ onYouChanged, onBack }: AdminPageProps) {
 
       {tab === 'instance' ? (
         <div className="admin-instance">
-          <section className="admin-panel" aria-labelledby="admin-sign-in">
-            <h3 id="admin-sign-in">Sign-in providers</h3>
-            <SignInProviders returnUrl="/#/admin" />
-          </section>
-          <div className="admin-instance-side">
+          <div className="admin-instance-column">
+            <section className="admin-panel" aria-labelledby="admin-sign-in">
+              <h3 id="admin-sign-in">Sign-in providers</h3>
+              <SignInProviders returnUrl="/#/admin" />
+            </section>
+            <section className="admin-panel" aria-labelledby="admin-discord">
+              <h3 id="admin-discord">Discord bot</h3>
+              <DiscordBotSettings />
+            </section>
+          </div>
+          <div className="admin-instance-column">
             <section className="admin-panel" aria-labelledby="admin-checks">
               <h3 id="admin-checks">Checks</h3>
               <SystemChecks />

@@ -27,13 +27,6 @@ public static class AccessTokens
     /// <summary>Space-separated board ids a delegated agent is limited to; absent for all of the owner's boards.</summary>
     public const string BoardsClaim = "prikboard_boards";
 
-    /// <summary>On <see cref="AccessTokenKind.Discord"/> tokens only: "Discord", which the Discord endpoints require.</summary>
-    public const string KindClaim = "prikboard_token_kind";
-
-    /// <summary>Whether the caller is a Discord server's token (<see cref="AccessTokenKind.Discord"/>).</summary>
-    public static bool IsDiscordToken(this ClaimsPrincipal principal) =>
-        principal.FindFirstValue(KindClaim) == nameof(AccessTokenKind.Discord);
-
     /// <summary>Whether the caller authenticated with one of PrikBoard's own access tokens (any kind), which <see cref="TokenId"/> names.</summary>
     public static bool IsAccessToken(this ClaimsPrincipal principal) =>
         principal.FindFirstValue(ApiScopes.IssuerIdClaim) == Agent.AccessTokenIssuer;
