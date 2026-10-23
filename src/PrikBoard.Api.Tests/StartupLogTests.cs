@@ -20,8 +20,17 @@ public class StartupLogTests
 
         (await started.CreateClient().GetAsync("/api/setup")).EnsureSuccessStatusCode();
 
-        Assert.Equal("", string.Join('\n', sink.Warnings.Where(w => !w.StartsWith(typeof(SetupKey).FullName!))));
+        Assert.Equal("", string.Join('\n', sink.Warnings.Where(w => !w.StartsWith(typeof(SetupKey).FullName!) && !InTestContainer(w))));
     }
+
+    /// <summary>
+    /// When the tests themselves run in a container (as on a self-hosted CI runner), Data Protection warns that the keys
+    /// folder isn't a mounted volume. The tests keep it in a temp folder; a real start keeps it in the data folder, which
+    /// the compose setup mounts, so a self-hoster doesn't see this.
+    /// </summary>
+    private static bool InTestContainer(string warning) =>
+        warning.StartsWith("Microsoft.AspNetCore.DataProtection.Repositories.FileSystemXmlRepository:", StringComparison.Ordinal)
+        && warning.Contains("may not be persisted outside of the container", StringComparison.Ordinal);
 
     private sealed class Collected : ILogEventSink
     {

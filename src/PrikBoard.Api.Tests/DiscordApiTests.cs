@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
+using Discord;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
@@ -28,6 +29,9 @@ public class DiscordApiFactory : PrikBoardApiFactory
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         base.ConfigureWebHost(builder);
+        // Tests tick the activity themselves (DiscordActivity.TickAsync), and updates are posted at once.
+        builder.UseSetting("Discord:ActivitySeconds", "0");
+        builder.UseSetting("Discord:UpdatesDelaySeconds", "0");
         builder.ConfigureTestServices(services =>
         {
             services.AddSingleton<IDiscordGateway>(Gateway);
@@ -85,6 +89,31 @@ public sealed class FakeDiscordGateway : IDiscordGateway
     }
 
     public Task<bool> LeaveAsync(string guildId) => Task.FromResult(InServers.TryRemove(guildId, out _));
+
+    /// <summary>What the bot posted: channel, message id and embeds, in order.</summary>
+    public ConcurrentQueue<(string ChannelId, string MessageId, IReadOnlyList<Embed> Embeds)> Posts { get; } = new();
+
+    /// <summary>What the bot edited, in order.</summary>
+    public ConcurrentQueue<(string ChannelId, string MessageId, IReadOnlyList<Embed> Embeds)> Edits { get; } = new();
+
+    /// <summary>Messages that were deleted in Discord, so editing them fails.</summary>
+    public ConcurrentDictionary<string, bool> Deleted { get; } = new();
+
+    private int _messages;
+
+    public Task<string?> PostAsync(string channelId, IReadOnlyList<Embed> embeds)
+    {
+        var id = (1900000000000000000 + Interlocked.Increment(ref _messages)).ToString();
+        Posts.Enqueue((channelId, id, embeds));
+        return Task.FromResult<string?>(id);
+    }
+
+    public Task<bool> EditAsync(string channelId, string messageId, IReadOnlyList<Embed> embeds)
+    {
+        if (Deleted.ContainsKey(messageId)) return Task.FromResult(false);
+        Edits.Enqueue((channelId, messageId, embeds));
+        return Task.FromResult(true);
+    }
 }
 
 /// <summary>
@@ -136,7 +165,7 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         var bot = (await saved.Content.ReadFromJsonAsync<DiscordBotDetail>())!;
         Assert.Equal((DiscordBotState.Online, DiscordBotSource.Setup, "PrikBot", DiscordApiFactory.ApplicationId),
             (bot.State, bot.Source, bot.BotName, bot.ApplicationId));
-        Assert.Equal($"https://discord.com/oauth2/authorize?client_id={DiscordApiFactory.ApplicationId}&scope=bot&permissions=93184", bot.InviteUrl);
+        Assert.Equal($"https://discord.com/oauth2/authorize?client_id={DiscordApiFactory.ApplicationId}&scope=bot&permissions=93248", bot.InviteUrl);
         // The address the admin uses is the one people paste links from, until they change it.
         Assert.Equal("http://localhost", bot.PublicUrl);
         Assert.Equal((DiscordApiFactory.Token, "http://localhost"), (factory.Gateway.Token, factory.Gateway.PublicUrl));
@@ -181,7 +210,9 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         var connected = await ConnectAsync(owner, board.Id, guildId, Channel);
         var connection = Assert.Single(connected);
         Assert.Equal((guildId, "Night owls"), (connection.GuildId, connection.GuildName));
-        Assert.Equal([new DiscordChannelDetail(Channel, "general")], connection.Channels);
+        Assert.False(connection.WholeServer);
+        Assert.Equal([(Channel, "general")], connection.Channels.Select(c => (c.Id, c.Name)));
+        Assert.Empty(connection.Channels[0].Updates);
 
         // A Viewer member named after the server, not someone to assign cards to.
         var members = (await owner.GetFromJsonAsync<List<BoardMemberDetail>>($"/api/boards/{board.Id}/members"))!;
@@ -195,10 +226,16 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
             Assert.Equal(ownerId, (await db.DiscordGuilds.SingleAsync(g => g.GuildId == guildId)).ConnectedById);
         }
 
-        // Another channel adds to the list; the whole server replaces it; a channel then narrows it again.
-        Assert.Equal([Channel, OtherChannel], Assert.Single(await ConnectAsync(owner, board.Id, guildId, OtherChannel)).Channels!.Select(c => c.Id));
-        Assert.Null(Assert.Single(await ConnectAsync(owner, board.Id, guildId, null)).Channels);
-        Assert.Equal([OtherChannel], Assert.Single(await ConnectAsync(owner, board.Id, guildId, OtherChannel)).Channels!.Select(c => c.Id));
+        // Another channel adds to the list; the whole server comes on top and keeps the channels, which stay when it goes again.
+        Assert.Equal([Channel, OtherChannel], Assert.Single(await ConnectAsync(owner, board.Id, guildId, OtherChannel)).Channels.Select(c => c.Id));
+        var whole = Assert.Single(await ConnectAsync(owner, board.Id, guildId, null));
+        Assert.True(whole.WholeServer);
+        Assert.Equal([Channel, OtherChannel], whole.Channels.Select(c => c.Id));
+        Assert.Equal(HttpStatusCode.NoContent, (await owner.DeleteAsync($"/api/boards/{board.Id}/discord/{guildId}/whole-server")).StatusCode);
+        var narrowed = Assert.Single((await owner.GetFromJsonAsync<List<DiscordConnection>>($"/api/boards/{board.Id}/discord"))!);
+        Assert.False(narrowed.WholeServer);
+        Assert.Equal(2, narrowed.Channels.Count);
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.DeleteAsync($"/api/boards/{board.Id}/discord/{guildId}/whole-server")).StatusCode);
 
         // Only servers and channels the bot is in and may post in.
         Assert.Equal(HttpStatusCode.BadRequest, (await Connect(owner, board.Id, "1299999999999999999", null)).StatusCode);
@@ -207,7 +244,7 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         // A renamed server and channel show their new names.
         factory.Gateway.InServers[guildId] = new DiscordServerInfo(guildId, "Early birds", [new(Channel, "general"), new(OtherChannel, "development")]);
         var renamed = Assert.Single((await owner.GetFromJsonAsync<List<DiscordConnection>>($"/api/boards/{board.Id}/discord"))!);
-        Assert.Equal(("Early birds", "development"), (renamed.GuildName, Assert.Single(renamed.Channels!).Name));
+        Assert.Equal(("Early birds", "development"), (renamed.GuildName, renamed.Channels.Single(c => c.Id == OtherChannel).Name));
     }
 
     [Fact]
@@ -247,7 +284,7 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         Assert.Equal(HttpStatusCode.Conflict, (await Connect(owner, board.Id, guildId, OtherChannel)).StatusCode);
         // A channel it already has can still be picked again, and the whole server is always possible.
         await ConnectAsync(owner, board.Id, guildId, Channel);
-        Assert.Null(Assert.Single(await ConnectAsync(owner, board.Id, guildId, null)).Channels);
+        Assert.True(Assert.Single(await ConnectAsync(owner, board.Id, guildId, null)).WholeServer);
     }
 
     [Fact]
@@ -273,7 +310,7 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         Assert.Equal(noted.Path, card.Path);
 
         // The older id form works too.
-        Assert.Equal(card, await PreviewAsync(guildId, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.Id}/cards/{noted.Id}"));
+        Assert.Equivalent(card, await PreviewAsync(guildId, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.Id}/cards/{noted.Id}"));
 
         Assert.Null((await PreviewAsync(guildId, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.ShortId}/cards/{plain.Number}")).Description);
         Assert.Equal("1/2 done", (await PreviewAsync(guildId, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.ShortId}/cards/{checklist.Number}")).Description);
@@ -281,7 +318,7 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         var boardPreview = await PreviewAsync(guildId, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.ShortId}");
         Assert.Equal((LinkPreviewKind.Board, "Platform team", "Where we plan.", $"/#/boards/{board.ShortId}"),
             (boardPreview.Kind, boardPreview.BoardName, boardPreview.Description, boardPreview.Path));
-        Assert.Equal(boardPreview, await PreviewAsync(guildId, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.Id}/"));
+        Assert.Equivalent(boardPreview, await PreviewAsync(guildId, $"{DiscordApiFactory.PublicUrl}/#/boards/{board.Id}/"));
     }
 
     [Fact]
@@ -404,13 +441,240 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         var listed = Assert.Single((await admin.GetFromJsonAsync<DiscordBotDetail>("/api/admin/discord"))!.Servers, s => s.GuildId == guildId);
         Assert.Equal(("Leaving", 2), (listed.Name, listed.ChannelCount));
         Assert.Equal(["First", "Second"], listed.Boards.Select(b => b.BoardName));
-        Assert.Null(listed.Boards.Single(b => b.BoardName == "Second").Channels);
+        Assert.True(listed.Boards.Single(b => b.BoardName == "Second").WholeServer);
 
         Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/admin/discord/servers/{guildId}")).StatusCode);
         Assert.False(factory.Gateway.InServers.ContainsKey(guildId));
         Assert.Empty((await owner.GetFromJsonAsync<List<DiscordConnection>>($"/api/boards/{first.Id}/discord"))!);
         Assert.Empty((await owner.GetFromJsonAsync<List<DiscordConnection>>($"/api/boards/{second.Id}/discord"))!);
         Assert.Equal(HttpStatusCode.NotFound, (await admin.DeleteAsync($"/api/admin/discord/servers/{guildId}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Previews_show_bucket_tags_and_people_and_readable_ids_preview_where_the_board_is()
+    {
+        await Admin();
+        var owner = await factory.CreateSignedInClientAsync("discord-rich@example.com");
+        await owner.RenameAsync("Jimmy");
+        var me = (await owner.MeAsync()).Id;
+        var board = await owner.CreateBoardAsync("Rich previews");
+        var card = await owner.CreateCardAsync(board.Id, "Ship it");
+        (await owner.PatchAsJsonAsync($"/api/cards/{card.Id}", new { tags = new[] { "release" }, assigneeIds = new[] { me } })).EnsureSuccessStatusCode();
+        await AddComponent(owner, card.Id, new { kind = "Text", text = "Before Friday." });
+        await AddComponent(owner, card.Id, new { kind = "Checklist", items = new[] { new { text = "a", done = true }, new { text = "b", done = false } } });
+        var guildId = BotJoinsServer();
+        await ConnectAsync(owner, board.Id, guildId, Channel);
+
+        // A readable id on its own previews like a link.
+        var preview = await PreviewAsync(guildId, card.ReadableId);
+        Assert.Equal(("Ship it", "Before Friday.", "To do", "1/2"), (preview.Title, preview.Description, preview.Bucket, preview.Checklist));
+        Assert.Equal(["release"], preview.Tags!);
+        Assert.Equal(["Jimmy"], preview.Assignees!);
+        Assert.Null(preview.WorkingFor);
+
+        // Only in channels the board is connected to, and not when two boards there share the key.
+        Assert.Null(await FindAsync(guildId, card.ReadableId, OtherChannel));
+        var twin = await owner.CreateBoardAsync("Rich previews");
+        Assert.Equal(board.Key, twin.Key);
+        await owner.CreateCardAsync(twin.Id);
+        await ConnectAsync(owner, twin.Id, guildId, Channel);
+        Assert.Null(await FindAsync(guildId, card.ReadableId));
+
+        // Links come first, then ids outside them; lowercase and run-on ids aren't ids.
+        var site = DiscordApiFactory.PublicUrl;
+        Assert.Equal([$"{site}/#/boards/abc/cards/7", $"{site}/#/boards/RP-5", "RP-2"],
+            LinkPreviews.Sources($"see {site}/#/boards/abc/cards/7 and RP-2, not rp-3 or RP-4x or {site}/#/boards/RP-5", new LinkFinder(site)));
+        Assert.Equal(LinkPreviews.MaxPerMessage, LinkPreviews.Sources("A-1 AB-2 AB-3 AB-4 AB-5 AB-6 AB-7", new LinkFinder(site)).Count);
+    }
+
+    [Fact]
+    public async Task Posted_previews_follow_their_cards_and_say_when_they_are_gone()
+    {
+        await SetUpBotAsync(await Admin());
+        var owner = await factory.CreateSignedInClientAsync("discord-live@example.com");
+        var board = await owner.CreateBoardAsync("Live previews");
+        var card = await owner.CreateCardAsync(board.Id, "Follow me");
+        var guildId = BotJoinsServer();
+        await ConnectAsync(owner, board.Id, guildId, Channel);
+        const string messageId = "1800000000000000001";
+
+        // The bot replied to a message with the card's link, and remembers its reply.
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+            var shown = await DiscordPreviews.ForMessageAsync(db, guildId, Channel, $"look: {DiscordApiFactory.PublicUrl}{card.Path}",
+                new LinkFinder(DiscordApiFactory.PublicUrl), DiscordApiFactory.PublicUrl, CancellationToken.None);
+            Assert.Equal(card.Id, Assert.Single(shown).Preview.CardId);
+            await DiscordPreviews.RememberAsync(db, messageId, guildId, Channel, shown, CancellationToken.None);
+        }
+        await TickAsync();
+        factory.Gateway.Edits.Clear();
+
+        (await owner.PatchAsJsonAsync($"/api/cards/{card.Id}", new { tags = new[] { "urgent" } })).EnsureSuccessStatusCode();
+        await TickAsync();
+        var edited = Assert.Single(factory.Gateway.Edits, e => e.MessageId == messageId);
+        Assert.Contains(edited.Embeds[0].Fields, f => f.Value.Contains("urgent"));
+
+        // Disconnected: the reply says so instead of showing a stale card.
+        factory.Gateway.Edits.Clear();
+        Assert.Equal(HttpStatusCode.NoContent, (await owner.DeleteAsync($"/api/boards/{board.Id}/discord/{guildId}")).StatusCode);
+        await TickAsync();
+        Assert.Equal("No longer available", Assert.Single(factory.Gateway.Edits, e => e.MessageId == messageId).Embeds[0].Title);
+
+        // A reply deleted in Discord is forgotten.
+        factory.Gateway.Deleted[messageId] = true;
+        await ConnectAsync(owner, board.Id, guildId, Channel);
+        (await owner.PatchAsJsonAsync($"/api/cards/{card.Id}", new { tags = new[] { "later" } })).EnsureSuccessStatusCode();
+        await TickAsync();
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+            Assert.False(await db.DiscordPreviewMessages.AnyAsync(m => m.MessageId == messageId));
+        }
+    }
+
+    [Fact]
+    public async Task Channels_post_the_updates_they_follow()
+    {
+        await SetUpBotAsync(await Admin());
+        var owner = await factory.CreateSignedInClientAsync("discord-updates@example.com");
+        await owner.RenameAsync("Jimmy");
+        var board = await owner.CreateBoardAsync("Updates board");
+        var other = await owner.CreateBoardAsync("Not followed");
+        var done = board.Buckets.Single(b => b.Name == "Done");
+        var guildId = BotJoinsServer();
+        await ConnectAsync(owner, board.Id, guildId, OtherChannel);
+
+        var set = await owner.PutAsJsonAsync($"/api/boards/{board.Id}/discord/{guildId}/channels/{OtherChannel}",
+            new { updates = new[] { "NewCards", "Moves" } });
+        Assert.Equal(HttpStatusCode.OK, set.StatusCode);
+        Assert.Equal([DiscordUpdate.NewCards, DiscordUpdate.Moves], Assert.Single((await set.Content.ReadFromJsonAsync<List<DiscordConnection>>())!).Channels[0].Updates);
+        Assert.Equal(HttpStatusCode.BadRequest, (await owner.PutAsJsonAsync($"/api/boards/{board.Id}/discord/{guildId}/channels/{OtherChannel}",
+            new { updates = Array.Empty<string>(), saveBucketId = other.Buckets[0].Id })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.PutAsJsonAsync($"/api/boards/{board.Id}/discord/{guildId}/channels/{Channel}",
+            new { updates = Array.Empty<string>() })).StatusCode);
+        await TickAsync();
+        factory.Gateway.Posts.Clear();
+
+        var card = await owner.CreateCardAsync(board.Id, "Fix login");
+        (await owner.PostAsJsonAsync($"/api/cards/{card.Id}/move", new { bucketId = done.Id })).EnsureSuccessStatusCode();
+        (await owner.PatchAsJsonAsync($"/api/cards/{card.Id}", new { tags = new[] { "not-followed" } })).EnsureSuccessStatusCode();
+        await owner.CreateCardAsync(other.Id, "Elsewhere");
+        await TickAsync();
+
+        var post = Assert.Single(factory.Gateway.Posts, p => p.ChannelId == OtherChannel);
+        var embed = Assert.Single(post.Embeds);
+        Assert.Equal("Updates board", embed.Title);
+        Assert.Contains($"{card.ReadableId}]", embed.Description);
+        Assert.Contains("added to **Done** by Jimmy", embed.Description);
+        Assert.Contains("To do → **Done** · Jimmy", embed.Description);
+        Assert.DoesNotContain("not-followed", embed.Description);
+        Assert.DoesNotContain("Elsewhere", embed.Description);
+
+        // Nothing new, nothing posted.
+        factory.Gateway.Posts.Clear();
+        await TickAsync();
+        Assert.DoesNotContain(factory.Gateway.Posts, p => p.ChannelId == OtherChannel);
+    }
+
+    [Fact]
+    public async Task Save_to_PrikBoard_links_the_account_and_saves_as_that_person()
+    {
+        await SetUpBotAsync(await Admin());
+        var owner = await factory.CreateSignedInClientAsync("discord-save@example.com");
+        await owner.RenameAsync("Jimmy");
+        var ownerId = (await owner.MeAsync()).Id;
+        var viewer = await factory.CreateSignedInClientAsync("discord-save-viewer@example.com");
+        var viewerId = (await viewer.MeAsync()).Id;
+        var board = await owner.CreateBoardAsync("Inbox");
+        await owner.ShareAsync(board.Id, viewer, BoardRole.Viewer);
+        var doing = board.Buckets.Single(b => b.Name == "Doing");
+        var guildId = BotJoinsServer();
+        await ConnectAsync(owner, board.Id, guildId, Channel);
+        (await owner.PutAsJsonAsync($"/api/boards/{board.Id}/discord/{guildId}/channels/{Channel}",
+            new { updates = Array.Empty<string>(), saveBucketId = doing.Id })).EnsureSuccessStatusCode();
+
+        var accounts = factory.Services.GetRequiredService<DiscordAccounts>();
+        var saves = factory.Services.GetRequiredService<DiscordSaves>();
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+        const string discordUser = "9100000000000000001";
+        Assert.Null(await accounts.FindUserAsync(db, discordUser, CancellationToken.None));
+
+        // The bot's button opens PrikBoard with a code; the page shows whose Discord account it is, then links it.
+        var code = accounts.StartLink(discordUser, "jimmy_discord");
+        Assert.Equal("jimmy_discord", (await owner.GetFromJsonAsync<DiscordAccountLinkPreview>($"/api/me/discord-account/links/{code}"))!.DiscordName);
+        Assert.Equal(HttpStatusCode.Forbidden, (await LinkAccount(owner, code, origin: "https://evil.example")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await LinkAccount(owner, code)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await LinkAccount(owner, code)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.GetAsync($"/api/me/discord-account/links/{code}")).StatusCode);
+        var status = (await owner.GetFromJsonAsync<DiscordAccountStatus>("/api/me/discord-account"))!;
+        Assert.Equal((true, DiscordAccountSource.Link), (status.Linked, status.Source));
+        Assert.Equal(ownerId, await accounts.FindUserAsync(db, discordUser, CancellationToken.None));
+        var (token, _) = await factory.TokenAsync(owner, "No accounts for agents");
+        Assert.Equal(HttpStatusCode.Forbidden, (await token.GetAsync("/api/me/discord-account")).StatusCode);
+
+        // Boards they can edit that are connected to the server, with the bucket the channel saves to.
+        var target = Assert.Single(await DiscordSaves.TargetsAsync(db, ownerId, guildId, Channel, CancellationToken.None));
+        Assert.Equal((board.Id, doing.Id), (target.BoardId, target.DefaultBucketId));
+        Assert.Empty(await DiscordSaves.TargetsAsync(db, viewerId, guildId, Channel, CancellationToken.None));
+
+        var message = new SavedMessage("Login breaks on **Safari**\nSteps: open it", "Robin", "general",
+            "https://discord.com/channels/1/2/3", DateTimeOffset.UtcNow, []);
+        Assert.Equal("Login breaks on **Safari**", DiscordSaves.TitleFor(message));
+        var (saved, problem) = await saves.SaveAsync(db, ownerId, board.Id, target.DefaultBucketId, "Safari login", message, CancellationToken.None);
+        Assert.Null(problem);
+        var card = (await owner.GetFromJsonAsync<CardDetail>($"/api/cards/{saved!.Id}"))!;
+        Assert.Equal(("Safari login", doing.Id), (card.Title, card.BucketId));
+        var text = card.Components.Single(c => c.Kind == CardComponentKind.Text).Text!;
+        Assert.StartsWith("> Login breaks on **Safari**\n> Steps: open it", text);
+        Assert.Contains("From **Robin** in #general", text);
+        Assert.Equal("https://discord.com/channels/1/2/3", card.Components.Single(c => c.Kind == CardComponentKind.Links).Links![0].Url);
+        // Made by the person, as their history says.
+        var history = (await owner.GetFromJsonAsync<List<CardChangeDetail>>($"/api/cards/{card.Id}/history"))!;
+        Assert.Equal("Jimmy", Assert.Single(history).By!.Name);
+
+        // A viewer can't save there.
+        var (none, why) = await saves.SaveAsync(db, viewerId, board.Id, null, "Nope", message, CancellationToken.None);
+        Assert.Null(none);
+        Assert.NotNull(why);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await owner.DeleteAsync("/api/me/discord-account")).StatusCode);
+        Assert.Null(await accounts.FindUserAsync(db, discordUser, CancellationToken.None));
+        Assert.False((await owner.GetFromJsonAsync<DiscordAccountStatus>("/api/me/discord-account"))!.Linked);
+    }
+
+    [Fact]
+    public async Task The_board_snapshot_shows_its_buckets_and_the_last_day()
+    {
+        await Admin();
+        var owner = await factory.CreateSignedInClientAsync("discord-snapshot@example.com");
+        var board = await owner.CreateBoardAsync("Snapshot");
+        var doing = board.Buckets.Single(b => b.Name == "Doing");
+        await owner.CreateCardAsync(board.Id, "One");
+        await owner.CreateCardAsync(board.Id, "Two");
+        var moved = await owner.CreateCardAsync(board.Id, "Three");
+        (await owner.PostAsJsonAsync($"/api/cards/{moved.Id}/move", new { bucketId = doing.Id })).EnsureSuccessStatusCode();
+        var guildId = BotJoinsServer();
+        await ConnectAsync(owner, board.Id, guildId, null);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+        var found = Assert.Single(await DiscordPreviews.BoardsInChannelAsync(db, guildId, OtherChannel, CancellationToken.None));
+        var snapshot = await DiscordPreviews.SnapshotAsync(db, found, DateTimeOffset.UtcNow, CancellationToken.None);
+        Assert.Equal([("To do", 2), ("Doing", 1), ("Done", 0)], snapshot.Buckets.Select(b => (b.Name, b.Count)));
+        Assert.Equal(["One", "Two"], snapshot.Buckets[0].Cards.Select(c => c.Title));
+        Assert.Equal((3, 1), (snapshot.AddedToday, snapshot.MovedToday));
+        Assert.Empty(await DiscordPreviews.BoardsInChannelAsync(db, BotJoinsServer(), Channel, CancellationToken.None));
+    }
+
+    private Task TickAsync() => factory.Services.GetRequiredService<DiscordActivity>().TickAsync(CancellationToken.None);
+
+    private static Task<HttpResponseMessage> LinkAccount(HttpClient client, string code, string origin = "http://localhost")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/me/discord-account") { Content = JsonContent.Create(new { code }) };
+        request.Headers.Add("Origin", origin);
+        return client.SendAsync(request);
     }
 
     private async Task SetUpBotAsync(HttpClient admin)

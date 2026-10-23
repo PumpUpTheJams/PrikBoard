@@ -38,8 +38,26 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
         return result;
     }
 
+    private static readonly AsyncLocal<Guid?> Acting = new();
+
+    /// <summary>
+    /// Records the saves made until the result is disposed as <paramref name="principalId"/>'s, for work done for a person
+    /// outside a request of theirs (the Discord bot's Save to PrikBoard).
+    /// </summary>
+    public static IDisposable ActingAs(Guid principalId)
+    {
+        var before = Acting.Value;
+        Acting.Value = principalId;
+        return new Restore(before);
+    }
+
+    private sealed class Restore(Guid? before) : IDisposable
+    {
+        public void Dispose() => Acting.Value = before;
+    }
+
     private Guid? Caller() =>
-        accessor.HttpContext?.User is { Identity.IsAuthenticated: true } user ? user.PrincipalId() : null;
+        Acting.Value ?? (accessor.HttpContext?.User is { Identity.IsAuthenticated: true } user ? user.PrincipalId() : null);
 
     /// <summary>Adds a change made outside the change tracker (ExecuteUpdate); it is written with the next save.</summary>
     public static void Record(PrikBoardDbContext db, ClaimsPrincipal principal, Guid cardId, Guid boardId, CardChangeEntry entry) =>

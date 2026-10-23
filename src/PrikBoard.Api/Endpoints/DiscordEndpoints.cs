@@ -11,9 +11,10 @@ using PrikBoard.Api.Live;
 namespace PrikBoard.Api.Endpoints;
 
 /// <summary>
-/// A board's Discord link previews (docs/discord.md), set by its owners under Integrations: they pick a server the
-/// instance's bot is in (<see cref="IDiscordGateway"/>) and a channel of it, or the whole server. The server becomes a
-/// Viewer agent on the board, and <see cref="DiscordBoardChannels"/> narrows where the bot may preview its links. An
+/// A board's Discord connections (docs/discord.md), set by its owners under Integrations: they pick a server the
+/// instance's bot is in (<see cref="IDiscordGateway"/>), and channels of it and/or the whole server. The server becomes a
+/// Viewer agent on the board; <see cref="DiscordBoardChannels"/> keeps where links preview and what each channel does
+/// (posting updates, Save to PrikBoard's bucket). Also the link between a person's Discord and PrikBoard accounts. An
 /// admin sets the bot up (<see cref="DiscordBotEndpoints"/>).
 /// </summary>
 public static class DiscordEndpoints
@@ -26,7 +27,8 @@ public static class DiscordEndpoints
             .RequireBoardRole(BoardRole.Owner)
             .WithName("listDiscordConnections")
             .WithSummary("List the Discord servers connected to a board")
-            .WithDescription("Lists the Discord servers where PrikBoard's bot previews this board's links, with the channels it may do so in.");
+            .WithDescription("Lists the Discord servers where PrikBoard's bot previews this board's links: the whole server and/or " +
+                             "channels, and what each channel does for the board (updates it posts, where Save to PrikBoard puts cards).");
 
         board.MapGet("/servers", ListDiscordServers)
             .RequireBoardRole(BoardRole.Owner)
@@ -38,30 +40,77 @@ public static class DiscordEndpoints
         board.MapPost("/", ConnectDiscordChannel)
             .RequireBoardRole(BoardRole.Owner)
             .WithName("connectDiscordChannel")
-            .WithSummary("Preview a board's links in a Discord channel")
-            .WithDescription("Lets the bot preview this board's links in a channel of a server it is in (adding to the channels it " +
-                             "has), or in every channel of the server when channelId is left out. The server becomes a Viewer on the " +
-                             "board: anyone in those channels can see the titles and descriptions of the cards linked there. Returns the " +
-                             "board's Discord connections. Browser sessions only. 409 when the board already has the maximum number of " +
-                             "channels (50) in that server.")
+            .WithSummary("Connect a board to a Discord channel")
+            .WithDescription("Connects the board to a channel of a server the bot is in, or to every channel of it when channelId is " +
+                             "left out; channels and the whole server can be combined. Its links and readable ids preview there, and " +
+                             "anyone in those channels can see the titles, descriptions, tags and people of the cards shown. The server " +
+                             "becomes a Viewer on the board. Returns the board's Discord connections. Browser sessions only. 409 when " +
+                             "the board already has the maximum number of channels (50) in that server.")
             .ProducesValidationProblem()
             .Produces(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status409Conflict);
+
+        board.MapPut("/{guildId}/channels/{channelId}", UpdateDiscordChannel)
+            .RequireBoardRole(BoardRole.Owner)
+            .WithName("updateDiscordChannel")
+            .WithSummary("Set what a Discord channel does for a board")
+            .WithDescription("Sets the board activity the bot posts in the channel (new cards, moves between buckets, assignments, " +
+                             "agents at work; none by default) and the bucket Save to PrikBoard there puts cards in. Returns the " +
+                             "board's Discord connections.")
+            .ProducesValidationProblem();
 
         board.MapDelete("/{guildId}", RemoveDiscordConnection)
             .RequireBoardRole(BoardRole.Owner)
             .WithName("removeDiscordConnection")
             .WithSummary("Disconnect a Discord server from a board")
             .WithDescription("Removes the server from the board's members, so its links are no longer previewed there. Previews " +
-                             "already posted stay in Discord.");
+                             "already posted say the board is no longer available.");
+
+        board.MapDelete("/{guildId}/whole-server", RemoveDiscordWholeServer)
+            .RequireBoardRole(BoardRole.Owner)
+            .WithName("removeDiscordWholeServer")
+            .WithSummary("Stop previewing a board in every channel of a Discord server")
+            .WithDescription("Keeps the board in the channels picked for it; without any, the server is disconnected from the board. " +
+                             "404 when the board isn't connected to the whole server.");
 
         board.MapDelete("/{guildId}/channels/{channelId}", RemoveDiscordChannel)
             .RequireBoardRole(BoardRole.Owner)
             .WithName("removeDiscordChannel")
-            .WithSummary("Stop previewing a board in a Discord channel")
-            .WithDescription("Removes one channel from where the server previews the board's links. Removing the last one " +
-                             "disconnects the server from the board. 404 when the channel is not in the list, also when the server " +
-                             "previews the board in every channel.");
+            .WithSummary("Disconnect a board from a Discord channel")
+            .WithDescription("Removes one channel, with its settings. Removing the last one disconnects the server from the board, " +
+                             "unless the board is connected to the whole server. 404 when the channel is not in the list.");
+
+        var me = api.MapGroup("/me/discord-account").WithTags("Discord").NoBoardScope();
+
+        me.MapGet("/", GetDiscordAccount)
+            .WithName("getDiscordAccount")
+            .WithSummary("Whether the Discord bot knows who you are")
+            .WithDescription("Whether your Discord account is linked to you, for Save to PrikBoard: through a Discord sign-in, or a " +
+                             "link you made from the bot. Sessions only.")
+            .Produces(StatusCodes.Status403Forbidden);
+
+        me.MapGet("/links/{code}", PreviewDiscordAccountLink)
+            .WithName("previewDiscordAccountLink")
+            .WithSummary("Show whose Discord account a link code is for")
+            .WithDescription("The Discord name behind a code from the bot's \"Connect your PrikBoard account\" button, so you can " +
+                             "check it is you before linking. 404 for an unknown, used or expired code. Sessions only.")
+            .Produces(StatusCodes.Status403Forbidden);
+
+        me.MapPost("/", LinkDiscordAccount)
+            .WithName("linkDiscordAccount")
+            .WithSummary("Link your Discord account")
+            .WithDescription("Links the Discord account behind a code from the bot to you, replacing an earlier link. What that " +
+                             "Discord account then does through the bot (Save to PrikBoard) is done as you, so only link your own. " +
+                             "Each code works once, for 10 minutes. Browser sessions from PrikBoard's own pages only.")
+            .ProducesValidationProblem()
+            .Produces(StatusCodes.Status403Forbidden);
+
+        me.MapDelete("/", UnlinkDiscordAccount)
+            .WithName("unlinkDiscordAccount")
+            .WithSummary("Unlink your Discord account")
+            .WithDescription("Removes a link you made from the bot. A Discord sign-in still says who you are; unlink that sign-in " +
+                             "under Account instead. Sessions only.")
+            .Produces(StatusCodes.Status403Forbidden);
 
         return api;
     }
@@ -72,7 +121,7 @@ public static class DiscordEndpoints
 
     private static Ok<DiscordServers> ListDiscordServers(Guid boardId, IDiscordGateway gateway) =>
         TypedResults.Ok(new DiscordServers(gateway.State, gateway.Servers
-            .Select(s => new DiscordServerChoice(s.Id, s.Name, DiscordChannelDetail.From(s.Channels)!))
+            .Select(s => new DiscordServerChoice(s.Id, s.Name, s.Channels.Select(c => new DiscordChannelChoice(c.Id, c.Name)).ToList()))
             .ToList()));
 
     private static async Task<Results<Ok<List<DiscordConnection>>, ForbidHttpResult, ValidationProblem, ProblemHttpResult>> ConnectDiscordChannel(
@@ -118,27 +167,36 @@ public static class DiscordEndpoints
         var member = await db.BoardMembers.FirstOrDefaultAsync(m => m.BoardId == boardId && m.PrincipalId == agent.Id, ct);
         if (member is null) db.BoardMembers.Add(new BoardMember { BoardId = boardId, PrincipalId = agent.Id, Role = BoardRole.Viewer });
 
-        List<DiscordChannel>? picked = channel is null ? null : [channel];
         var limit = await db.DiscordBoardChannels.FirstOrDefaultAsync(c => c.GuildId == server.Id && c.BoardId == boardId, ct);
         if (limit is null)
         {
-            db.DiscordBoardChannels.Add(new DiscordBoardChannels { GuildId = server.Id, BoardId = boardId, Channels = picked });
+            limit = new DiscordBoardChannels { GuildId = server.Id, BoardId = boardId };
+            db.DiscordBoardChannels.Add(limit);
         }
-        else if (member is null || channel is null || limit.Channels is null)
+        else if (member is null)
         {
-            // Left behind by a removed membership, so this connection starts afresh; widened to the whole server; or
-            // narrowed from the whole server to one channel.
-            limit.Channels = picked;
+            // Left behind by a removed membership: this connection starts afresh.
+            limit.WholeServer = false;
+            limit.Channels = [];
+        }
+
+        if (channel is null)
+        {
+            limit.WholeServer = true;
+        }
+        else if (limit.Channel(channel.Id) is { } known)
+        {
+            // The same channel again keeps its settings, under its current name.
+            limit.Channels = [.. limit.Channels.Select(c => c.Id == channel.Id ? known with { Name = channel.Name } : c)];
         }
         else
         {
-            if (limit.Channels.Count >= DiscordBoardChannels.MaxChannels && limit.Channels.All(c => c.Id != channel.Id))
+            if (limit.Channels.Count >= DiscordBoardChannels.MaxChannels)
             {
                 return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Too many channels",
-                    detail: $"A board can be limited to at most {DiscordBoardChannels.MaxChannels} channels of a server. Connect it to the whole server instead, or remove channels.");
+                    detail: $"A board can be connected to at most {DiscordBoardChannels.MaxChannels} channels of a server. Connect it to the whole server instead, or remove channels.");
             }
-            // Another channel, or the same one under a new name.
-            limit.Channels = [.. limit.Channels.Where(c => c.Id != channel.Id), channel];
+            limit.Channels = [.. limit.Channels, channel];
         }
 
         await db.SaveChangesAsync(ct);
@@ -152,48 +210,87 @@ public static class DiscordEndpoints
         return TypedResults.Ok(await ConnectionsAsync(db, gateway, boardId, ct));
     }
 
+    private static async Task<Results<Ok<List<DiscordConnection>>, NotFound, ValidationProblem>> UpdateDiscordChannel(
+        Guid boardId, string guildId, string channelId, UpdateDiscordChannelRequest request, PrikBoardDbContext db, IDiscordGateway gateway,
+        CancellationToken ct)
+    {
+        if (request.SaveBucketId is { } bucketId && !await db.Buckets.AnyAsync(b => b.Id == bucketId && b.BoardId == boardId, ct))
+        {
+            return Problems.Invalid("saveBucketId", "A bucket of this board.");
+        }
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await MemberEndpoints.LockBoard(db, boardId, ct);
+        var limit = await db.DiscordBoardChannels.FirstOrDefaultAsync(c => c.GuildId == guildId && c.BoardId == boardId, ct);
+        if (limit?.Channel(channelId) is not { } channel) return TypedResults.NotFound();
+
+        var changed = channel with { Updates = DiscordUpdateLists.Flags(request.Updates), SaveBucketId = request.SaveBucketId };
+        limit.Channels = [.. limit.Channels.Select(c => c.Id == channelId ? changed : c)];
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return TypedResults.Ok(await ConnectionsAsync(db, gateway, boardId, ct));
+    }
+
     private static async Task<Results<NoContent, NotFound>> RemoveDiscordConnection(
-        Guid boardId, string guildId, PrikBoardDbContext db, BoardEvents events, CancellationToken ct)
+        Guid boardId, string guildId, PrikBoardDbContext db, BoardEvents events, DiscordActivity activity, CancellationToken ct)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         await MemberEndpoints.LockBoard(db, boardId, ct);
         var agentId = await DisconnectAsync(db, boardId, guildId, ct);
         if (agentId is null) return TypedResults.NotFound();
         await transaction.CommitAsync(ct);
-        await events.AccessChangedAsync(boardId, agentId.Value, null);
-        await events.BoardsChangedAsync([agentId.Value]);
+        await DisconnectedAsync(events, activity, boardId, agentId.Value);
         return TypedResults.NoContent();
     }
 
-    private static async Task<Results<NoContent, NotFound>> RemoveDiscordChannel(
-        Guid boardId, string guildId, string channelId, PrikBoardDbContext db, BoardEvents events, CancellationToken ct)
+    private static async Task<Results<NoContent, NotFound>> RemoveDiscordWholeServer(
+        Guid boardId, string guildId, PrikBoardDbContext db, BoardEvents events, DiscordActivity activity, CancellationToken ct)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         await MemberEndpoints.LockBoard(db, boardId, ct);
         var limit = await db.DiscordBoardChannels.FirstOrDefaultAsync(c => c.GuildId == guildId && c.BoardId == boardId, ct);
-        if (limit?.Channels is not { } channels || channels.All(c => c.Id != channelId)) return TypedResults.NotFound();
+        if (limit is not { WholeServer: true }) return TypedResults.NotFound();
+        return await NarrowAsync(db, events, activity, transaction, limit, l => l.WholeServer = false, ct);
+    }
 
-        var left = channels.Where(c => c.Id != channelId).ToList();
-        if (left.Count > 0)
+    private static async Task<Results<NoContent, NotFound>> RemoveDiscordChannel(
+        Guid boardId, string guildId, string channelId, PrikBoardDbContext db, BoardEvents events, DiscordActivity activity, CancellationToken ct)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await MemberEndpoints.LockBoard(db, boardId, ct);
+        var limit = await db.DiscordBoardChannels.FirstOrDefaultAsync(c => c.GuildId == guildId && c.BoardId == boardId, ct);
+        if (limit?.Channel(channelId) is null) return TypedResults.NotFound();
+        return await NarrowAsync(db, events, activity, transaction, limit, l => l.Channels = [.. l.Channels.Where(c => c.Id != channelId)], ct);
+    }
+
+    /// <summary>Takes a channel or the whole server away; with nothing left, the server is disconnected from the board.</summary>
+    private static async Task<Results<NoContent, NotFound>> NarrowAsync(
+        PrikBoardDbContext db, BoardEvents events, DiscordActivity activity, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction,
+        DiscordBoardChannels limit, Action<DiscordBoardChannels> change, CancellationToken ct)
+    {
+        change(limit);
+        if (limit.WholeServer || limit.Channels.Count > 0)
         {
-            limit.Channels = left;
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
+            activity.RefreshBoard(limit.BoardId);
             return TypedResults.NoContent();
         }
 
-        var agentId = await DisconnectAsync(db, boardId, guildId, ct);
+        var agentId = await DisconnectAsync(db, limit.BoardId, limit.GuildId, ct);
         await transaction.CommitAsync(ct);
-        if (agentId is { } id)
-        {
-            await events.AccessChangedAsync(boardId, id, null);
-            await events.BoardsChangedAsync([id]);
-        }
+        if (agentId is { } id) await DisconnectedAsync(events, activity, limit.BoardId, id);
         return TypedResults.NoContent();
     }
 
+    private static async Task DisconnectedAsync(BoardEvents events, DiscordActivity activity, Guid boardId, Guid agentId)
+    {
+        activity.RefreshBoard(boardId);
+        await events.AccessChangedAsync(boardId, agentId, null);
+        await events.BoardsChangedAsync([agentId]);
+    }
+
     /// <summary>Removes the server's membership and channel limits from the board; its agent id, or null when it wasn't connected.</summary>
-    private static async Task<Guid?> DisconnectAsync(PrikBoardDbContext db, Guid boardId, string guildId, CancellationToken ct)
+    internal static async Task<Guid?> DisconnectAsync(PrikBoardDbContext db, Guid boardId, string guildId, CancellationToken ct)
     {
         var agentId = await db.DiscordGuilds.Where(g => g.GuildId == guildId).Select(g => (Guid?)g.AgentId).FirstOrDefaultAsync(ct);
         if (agentId is null) return null;
@@ -222,15 +319,56 @@ public static class DiscordEndpoints
             .Select(r =>
             {
                 servers.TryGetValue(r.GuildId, out var server);
-                // A server without its row previews nothing here; show it as limited to no channels.
-                var channels = limits.TryGetValue(r.GuildId, out var limit) ? limit.Channels?.Select(c =>
-                    server?.Channels.FirstOrDefault(now => now.Id == c.Id) ?? c) : [];
-                return new DiscordConnection(r.GuildId, server?.Name ?? r.Agent!.ShownName, r.AgentId,
+                // A server without its row previews nothing here; show it with no channels.
+                limits.TryGetValue(r.GuildId, out var limit);
+                var channels = (limit?.Channels ?? []).Select(c => server?.Channels.FirstOrDefault(now => now.Id == c.Id) is { } now ? c with { Name = now.Name } : c);
+                return new DiscordConnection(r.GuildId, server?.Name ?? r.Agent!.ShownName, r.AgentId, limit?.WholeServer ?? false,
                     DiscordChannelDetail.From(channels),
                     r.AddedAt,
                     r.ConnectedById is { } by && names.TryGetValue(by, out var name) ? name : null);
             })
             .OrderBy(c => c.GuildName, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static async Task<Results<Ok<DiscordAccountStatus>, ForbidHttpResult>> GetDiscordAccount(
+        ClaimsPrincipal principal, DiscordAccounts accounts, PrikBoardDbContext db, CancellationToken ct)
+    {
+        if (principal.IsToken()) return TypedResults.Forbid();
+        var (kind, linkedAt) = await accounts.StatusAsync(db, principal.UserId(), ct);
+        return TypedResults.Ok(new DiscordAccountStatus(kind is not null,
+            kind switch { DiscordAccountKind.SignIn => DiscordAccountSource.SignIn, DiscordAccountKind.Link => DiscordAccountSource.Link, _ => null },
+            linkedAt));
+    }
+
+    private static Results<Ok<DiscordAccountLinkPreview>, NotFound, ForbidHttpResult> PreviewDiscordAccountLink(
+        string code, ClaimsPrincipal principal, DiscordAccounts accounts)
+    {
+        if (principal.IsToken()) return TypedResults.Forbid();
+        return accounts.Peek(code) is { } pending
+            ? TypedResults.Ok(new DiscordAccountLinkPreview(pending.DiscordName, pending.ExpiresAt))
+            : TypedResults.NotFound();
+    }
+
+    private static async Task<Results<Ok<DiscordAccountStatus>, ValidationProblem, ForbidHttpResult>> LinkDiscordAccount(
+        LinkDiscordAccountRequest request, ClaimsPrincipal principal, HttpRequest http, DiscordAccounts accounts, PrikBoardDbContext db,
+        CancellationToken ct)
+    {
+        // Like approving an app: a token cannot link accounts, and another site cannot make the person's browser do it.
+        if (principal.IsToken() || !SameOrigin.Check(http)) return TypedResults.Forbid();
+        if (!await accounts.LinkAsync(db, request.Code, principal.UserId(), ct))
+        {
+            return Problems.Invalid("code", "Unknown, used or expired code. Use Save to PrikBoard in Discord again for a new one.");
+        }
+        return TypedResults.Ok(new DiscordAccountStatus(true, DiscordAccountSource.Link, DateTimeOffset.UtcNow));
+    }
+
+    private static async Task<Results<NoContent, ForbidHttpResult>> UnlinkDiscordAccount(
+        ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
+    {
+        if (principal.IsToken()) return TypedResults.Forbid();
+        var userId = principal.UserId();
+        await db.DiscordAccounts.Where(a => a.UserId == userId).ExecuteDeleteAsync(ct);
+        return TypedResults.NoContent();
     }
 }

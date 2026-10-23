@@ -24,7 +24,8 @@ public static class Telemetry
     public static WebApplicationBuilder AddPrikBoardLogging(this WebApplicationBuilder builder)
     {
         var otlp = OtlpSettings.From(builder.Configuration);
-        // The callback form builds a logger per host, so test factories running side by side don't share one.
+        // The callback form builds a logger per host, and preserveStaticLogger keeps each host logging to its own instead
+        // of the static Log.Logger, which the last host built would own: test factories running side by side share nothing.
         builder.Services.AddSerilog((services, log) =>
         {
             log.ReadFrom.Configuration(builder.Configuration).ReadFrom.Services(services).Enrich.FromLogContext();
@@ -44,7 +45,7 @@ public static class Telemetry
                     options.OnBeginSuppressInstrumentation = SuppressInstrumentationScope.Begin;
                 });
             }
-        });
+        }, preserveStaticLogger: true);
         if (otlp is null) return builder;
 
         builder.Services.AddOpenTelemetry()

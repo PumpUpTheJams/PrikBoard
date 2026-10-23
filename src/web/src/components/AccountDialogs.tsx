@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { api, errorMessage, linkUrl } from '../api/client'
-import type { AuthProvider, BoardSummary, Caller } from '../api/types'
+import type { AuthProvider, BoardSummary, Caller, DiscordAccountStatus } from '../api/types'
 import { AccessTokens } from './AccessTokens'
 import { Face } from './Avatar'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -186,6 +186,7 @@ export function AccountDialog({ user, boards, onChange, onClose }: AccountDialog
           )}
         </section>
 
+        <DiscordAccount />
         <AccessTokens boards={boards} />
         {error && <p className="widget-error">{error}</p>}
       </div>
@@ -200,5 +201,53 @@ export function AccountDialog({ user, boards, onChange, onClose }: AccountDialog
         />
       )}
     </Dialog>
+  )
+}
+
+/**
+ * Whether PrikBoard's Discord bot knows who you are there, for Save to PrikBoard: through a Discord sign-in, or a link
+ * made from the bot's "Connect your PrikBoard account" button, which can be undone here.
+ */
+function DiscordAccount() {
+  const [status, setStatus] = useState<DiscordAccountStatus | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.getDiscordAccount().then(setStatus, (e) => setError(errorMessage(e)))
+  }, [])
+
+  async function unlink() {
+    setError(null)
+    try {
+      await api.unlinkDiscordAccount()
+      setStatus(await api.getDiscordAccount())
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+  }
+
+  if (status === null && error === null) return null
+  return (
+    <section className="dialog-section">
+      <h3>Discord</h3>
+      {status?.source === 'Link' ? (
+        <ul className="row-list">
+          <li>
+            <span className="row-main">Linked for Save to PrikBoard</span>
+            {status.linkedAt && <span className="row-meta">since {new Date(status.linkedAt).toLocaleDateString()}</span>}
+            <button type="button" className="ghost small" onClick={() => void unlink()}>
+              Unlink
+            </button>
+          </li>
+        </ul>
+      ) : (
+        <p className="dialog-hint">
+          {status?.source === 'SignIn'
+            ? 'You sign in with Discord, so the PrikBoard bot knows you there: Save to PrikBoard works as you.'
+            : 'Not linked. In Discord, use Save to PrikBoard on a message; the bot then offers to connect your account.'}
+        </p>
+      )}
+      {error && <p className="widget-error">{error}</p>}
+    </section>
   )
 }

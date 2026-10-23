@@ -19,8 +19,8 @@ public sealed class DiscordBot(IConfiguration config, IDataProtectionProvider pr
     public const string TokenSetting = "Discord:BotToken";
     public const string PublicUrlSetting = "Discord:PublicUrl";
 
-    /// <summary>The bot's permissions in the invite link: View Channels, Send Messages, Manage Messages (optional: it hides Discord's own preview), Embed Links and Read Message History.</summary>
-    public const long Permissions = 93184;
+    /// <summary>The bot's permissions in the invite link: View Channels, Send Messages, Embed Links, Read Message History, Add Reactions (the 📌 on saved messages) and Manage Messages (optional: it hides Discord's own preview).</summary>
+    public const long Permissions = 93248;
 
     private readonly IDataProtector _tokens = protection.CreateProtector(TokenPurpose);
 
@@ -38,7 +38,7 @@ public sealed class DiscordBot(IConfiguration config, IDataProtectionProvider pr
     /// <summary>Reads the settings and brings the bot in line; at startup and after every change.</summary>
     public async Task LoadAsync(PrikBoardDbContext db, CancellationToken ct)
     {
-        var row = await db.DiscordBotSettings.AsNoTracking().FirstOrDefaultAsync(ct);
+        var row = await db.DiscordBotSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Id == DiscordBotSettings.SingleId, ct);
         string? token = null;
         if (TokenIsConfigured)
         {
