@@ -54,6 +54,13 @@ import type {
   Rect,
   TagChanges,
   TagColor,
+  CreateSignInProvider,
+  GitHubAppManifest,
+  OpenIdAuthority,
+  SetupStatus,
+  SignInProviderChanges,
+  SignInProviderDetail,
+  SystemCheck,
 } from './types'
 
 export class ApiError extends Error {
@@ -100,6 +107,10 @@ export const linkUrl = (providerId: string) => `/api/auth/link/${encodeURICompon
 /** Browser navigation that starts sign-in and comes back to returnUrl (a local path) afterwards. */
 export const loginUrl = (providerId: string, returnUrl: string) =>
   `/api/auth/login/${encodeURIComponent(providerId)}?returnUrl=${encodeURIComponent(returnUrl)}`
+
+/** Browser navigation through a provider that signs nobody in and comes back to returnUrl with ?setupTest=ok or failed. */
+export const testSignInUrl = (providerId: string, returnUrl: string) =>
+  `/api/setup/providers/${encodeURIComponent(providerId)}/test?returnUrl=${encodeURIComponent(returnUrl)}`
 
 interface ProblemDetails {
   title?: string
@@ -327,4 +338,21 @@ export const api = {
     request<void>('DELETE', `/admin/boards/${boardId}/members/${principalId}`),
   adminUpdateUser: (userId: string, changes: { isAdmin?: boolean }) => request<void>('PATCH', `/admin/users/${userId}`, changes),
   adminDeleteUser: (userId: string) => request<void>('DELETE', `/admin/users/${userId}`),
+
+  getSetupStatus: () => request<SetupStatus>('GET', '/setup'),
+  unlockSetup: (key: string) => request<void>('POST', '/setup/unlock', { key }),
+  listSignInProviders: () => request<SignInProviderDetail[]>('GET', '/setup/providers'),
+  createSignInProvider: (provider: CreateSignInProvider) => request<SignInProviderDetail>('POST', '/setup/providers', provider),
+  updateSignInProvider: (id: string, changes: SignInProviderChanges) =>
+    request<SignInProviderDetail>('PATCH', `/setup/providers/${encodeURIComponent(id)}`, changes),
+  deleteSignInProvider: (id: string) => request<void>('DELETE', `/setup/providers/${encodeURIComponent(id)}`),
+  checkOpenIdAuthority: (authority: string) => request<OpenIdAuthority>('POST', '/setup/openid-check', { authority }),
+  /** The manifest for a new GitHub App; post it to GitHub as a form (see postGitHubManifest). */
+  beginGitHubApp: (app: { id: string; name: string; organization?: string; returnUrl?: string }) =>
+    request<GitHubAppManifest>('POST', '/setup/github-app', app),
+  getSystemChecks: () => request<SystemCheck[]>('GET', '/setup/checks'),
+  getRecoveryKit: async () => {
+    const response = await send('GET', '/setup/recovery-kit')
+    return { blob: await response.blob(), fileName: 'prikboard-recovery-kit.txt' }
+  },
 }

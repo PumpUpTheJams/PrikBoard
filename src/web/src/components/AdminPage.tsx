@@ -6,6 +6,9 @@ import { CloseIcon, PeopleIcon, SearchIcon, ShieldIcon, SparkleIcon, TrashIcon }
 import { ConfirmDialog } from './ConfirmDialog'
 import { Face } from './Avatar'
 import { plural } from './plural'
+import { hasSetupResult } from './setupResult'
+import { SignInProviders } from './SignInProviders'
+import { RecoveryKitButton, SystemChecks } from './SystemChecks'
 import { useAttempt } from './useAttempt'
 
 interface AdminPageProps {
@@ -113,6 +116,8 @@ function confirmation(pending: Pending): { title: string; message: string; confi
  * or onto Admins to make them an admin; a list scrolls by itself while you drag near its top or bottom.
  */
 export function AdminPage({ onYouChanged, onBack }: AdminPageProps) {
+  // A test sign-in or a new GitHub App comes back here with its result, which the Instance tab shows.
+  const [tab, setTab] = useState<'people' | 'instance'>(() => (hasSetupResult() ? 'instance' : 'people'))
   const [users, setUsers] = useState<AdminUser[] | null>(null)
   const [boards, setBoards] = useState<AdminBoard[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -260,7 +265,19 @@ export function AdminPage({ onYouChanged, onBack }: AdminPageProps) {
       <header className="admin-head">
         <div>
           <h2>Admin</h2>
-          <p>Drag a person onto a board and drop them on a role, or onto Admins. Admins see who is on a board, not what is on it.</p>
+          <p>
+            {tab === 'people'
+              ? 'Drag a person onto a board and drop them on a role, or onto Admins. Admins see who is on a board, not what is on it.'
+              : 'How people sign in, how this PrikBoard runs, and the key to restore it from a backup.'}
+          </p>
+          <div className="rules-tabs admin-tabs" role="tablist" aria-label="Admin">
+            <button type="button" role="tab" aria-selected={tab === 'people'} onClick={() => setTab('people')}>
+              People and boards
+            </button>
+            <button type="button" role="tab" aria-selected={tab === 'instance'} onClick={() => setTab('instance')}>
+              Instance
+            </button>
+          </div>
         </div>
         <button type="button" className="ghost small" onClick={onBack}>
           Back to boards
@@ -273,7 +290,25 @@ export function AdminPage({ onYouChanged, onBack }: AdminPageProps) {
         </p>
       )}
 
-      {users === null || boards === null ? (
+      {tab === 'instance' ? (
+        <div className="admin-instance">
+          <section className="admin-panel" aria-labelledby="admin-sign-in">
+            <h3 id="admin-sign-in">Sign-in providers</h3>
+            <SignInProviders returnUrl="/#/admin" />
+          </section>
+          <div className="admin-instance-side">
+            <section className="admin-panel" aria-labelledby="admin-checks">
+              <h3 id="admin-checks">Checks</h3>
+              <SystemChecks />
+            </section>
+            <section className="admin-panel" aria-labelledby="admin-kit">
+              <h3 id="admin-kit">Recovery kit</h3>
+              <p className="dialog-hint">The hash key and how to restore PrikBoard from a backup. Keep it offline and safe.</p>
+              <RecoveryKitButton />
+            </section>
+          </div>
+        </div>
+      ) : users === null || boards === null ? (
         <p className="status">Loading…</p>
       ) : (
         <div className="admin-columns">

@@ -1,6 +1,7 @@
 const authErrors: Record<string, string> = {
   failed: 'Signing in did not work. Please try again.',
   invite_required: 'PrikBoard is invite-only. Open an invite link from a board owner to join.',
+  setup_required: 'PrikBoard isn’t set up yet. Enter the setup key from its log first, then sign in to become the admin.',
   identity_in_use: 'That sign-in already belongs to another PrikBoard account, so it was not connected.',
   link_failed: 'Connecting that sign-in did not work. Sign in again and retry from your account.',
 }

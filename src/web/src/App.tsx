@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError, errorMessage, setUnauthorizedHandler } from './api/client'
-import type { BoardDetail, BoardSummary, Caller } from './api/types'
+import type { BoardDetail, BoardSummary, Caller, SetupStatus } from './api/types'
 import { BoardCanvas } from './board/BoardCanvas'
 import { CardIcon, PeopleIcon } from './board/icons'
 import { pickBoardFile, saveFile } from './board/files'
@@ -25,6 +25,7 @@ import { NoAccess } from './components/NoAccess'
 import { Presence } from './components/Presence'
 import { QuickAdd } from './components/QuickAdd'
 import { SettingsMenu } from './components/SettingsMenu'
+import { SetupPage } from './components/SetupPage'
 import { ShareDialog } from './components/ShareDialog'
 import { SignIn } from './components/SignIn'
 import { takeAuthError } from './components/authError'
@@ -38,6 +39,7 @@ const BoardRulesDialog = lazy(() => import('./components/BoardRulesDialog').then
  */
 const inviteFromHash = () => window.location.hash.match(/^#\/invite\/([\w-]+)/)?.[1] ?? null
 const adminFromHash = () => window.location.hash === '#/admin'
+const setupFromHash = () => window.location.hash === '#/setup'
 
 /** The board in the address isn't in your list: still being looked up once more, or not one you can open. */
 type MissingBoard = 'checking' | 'gone' | null
@@ -60,6 +62,9 @@ export default function App() {
   const [signingIn, setSigningIn] = useState(false)
   // Read before the session check: a failed sign-in shows on the sign-in screen, a failed link over the workspace.
   const [authError, setAuthError] = useState(takeAuthError)
+  // Signed out: whether PrikBoard still needs setting up (undefined while asking), which shows the setup instead of signing in.
+  const [setupStatus, setSetupStatus] = useState<SetupStatus | null | undefined>(undefined)
+  const [setupHash, setSetupHash] = useState(setupFromHash)
 
   useEffect(() => {
     // Any 401, such as an expired session, drops back to the sign-in screen.
@@ -71,10 +76,16 @@ export default function App() {
       setConnect(connectFromHash())
       setDiscordConnect(discordConnectFromHash())
       setBoardRef(boardRefFromHash())
+      setSetupHash(setupFromHash())
     }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
+
+  const loadSetupStatus = useCallback(() => api.getSetupStatus().then(setSetupStatus, () => setSetupStatus(null)), [])
+  useEffect(() => {
+    if (user === null) void loadSetupStatus()
+  }, [user, loadSetupStatus])
 
   async function signOut() {
     await api.logout().catch(() => {})
@@ -84,10 +95,35 @@ export default function App() {
   if (user === undefined) return <p className="status">Loading…</p>
   // Signing in returns to the same hash, so an invite link, an app's sign-in or a public board survives the round trip.
   if (user === null) {
+    if (setupStatus === undefined) return <p className="status">Loading…</p>
+    if (setupStatus?.needed || (setupHash && setupStatus)) {
+      return (
+        <SetupPage
+          user={null}
+          status={setupStatus}
+          onUnlocked={() => void loadSetupStatus()}
+          onDone={() => {
+            window.location.hash = ''
+          }}
+        />
+      )
+    }
     if (boardRef && !signingIn && !invite && !connect && notVisible !== boardRef) {
       return <VisitorPage key={boardRef} boardRef={boardRef} onMissing={() => setNotVisible(boardRef)} onSignIn={() => setSigningIn(true)} />
     }
     return <SignIn authError={authError} />
+  }
+  if (setupHash) {
+    return (
+      <SetupPage
+        user={user}
+        status={null}
+        onUnlocked={() => {}}
+        onDone={() => {
+          window.location.hash = ''
+        }}
+      />
+    )
   }
   if (connect) {
     return (
