@@ -31,6 +31,8 @@ public class AuthApiTests(AuthApiTests.Factory factory) : IClassFixture<AuthApiT
             builder.UseSetting("Auth:Providers:acme:Authority", "https://acme.idp.test/");
             builder.UseSetting("Auth:Providers:acme:ClientId", "acme-client");
             builder.UseSetting("Auth:Providers:google:ClientId", "google-client");
+            // A template that was never filled in.
+            builder.UseSetting("Auth:Providers:unfinished:Authority", "https://unfinished.idp.test/");
         }
     }
 
@@ -60,7 +62,7 @@ public class AuthApiTests(AuthApiTests.Factory factory) : IClassFixture<AuthApiT
     {
         var providers = await factory.CreateAnonymousClient().GetFromJsonAsync<List<AuthProvider>>("/api/auth/providers");
 
-        // microsoft is a template in appsettings.json without a ClientId, so it is left out. github is the default.
+        // unfinished has no ClientId, so it is left out. github is the default.
         Assert.Equal([new AuthProvider("github", "GitHub"), new AuthProvider("acme", "Acme SSO"), new AuthProvider("google", "Google")], providers);
     }
 

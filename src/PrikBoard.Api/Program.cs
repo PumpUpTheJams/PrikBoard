@@ -49,7 +49,7 @@ builder.Services.AddHttpClient<ProviderAvatars>(http =>
 {
     http.Timeout = TimeSpan.FromSeconds(10);
     http.DefaultRequestHeaders.UserAgent.ParseAdd($"PrikBoard/{AppVersion.Number}");
-});
+}).ConfigurePrimaryHttpMessageHandler(ProviderAvatars.PublicOnlyHandler);
 // The setup's outgoing calls: GitHub App manifests and OpenID Connect discovery documents.
 builder.Services.AddHttpClient<GitHubApps>(http =>
 {

@@ -11,7 +11,7 @@ To explore and try the API in the browser, open the Scalar API reference at `/sc
 
 ## Authentication
 
-People sign in in the browser through an identity provider (GitHub by default, or Google, Microsoft, Auth0 and others) and then hold a session cookie. Machines and agents never go through that flow. They send a bearer token, one of two kinds:
+People sign in in the browser through an identity provider (GitHub by default, or Google, Discord, Steam, Auth0 and others) and then hold a session cookie. Machines and agents never go through that flow. They send a bearer token, one of two kinds:
 
 - **A personal access token** (`pb_pat_...`): a person creates it under Account → *Agents and access tokens* and pastes it into the agent. This is the quickest way to let Claude Code, Cursor or a script work on your boards. See [Personal access tokens](#personal-access-tokens).
 - **An OAuth access token** from a trusted identity provider, usually with the **Client Credentials** grant, for the audience `api://prikboard`. Owners add such clients to boards one by one (see below).
@@ -283,7 +283,7 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | getSetupStatus | `GET /api/setup` | Whether nobody has an account yet (`needed`), recovery mode, and whether this browser entered the setup key (public) |
 | unlockSetup | `POST /api/setup/unlock` | The setup key from the server's log: sets the setup cookie for an hour. 403 for a wrong key, 409 once set up (public, 10 a minute) |
 | listSignInProviders | `GET /api/setup/providers` | Every sign-in provider with its settings and number of sign-ins, the default first; secrets never come back (setup or admins) |
-| createSignInProvider | `POST /api/setup/providers` | Add an OpenID Connect provider or a GitHub OAuth App: `id`, `type`, `clientId`, `clientSecret`, `authority` for OpenID Connect. Works at once (setup or admins) |
+| createSignInProvider | `POST /api/setup/providers` | Add an OpenID Connect provider, a GitHub OAuth App, Discord or Steam: `id`, `type`, `clientId` (not Steam), `clientSecret` (Steam: optional Web API key), `authority` for OpenID Connect. Works at once (setup or admins) |
 | updateSignInProvider | `PATCH /api/setup/providers/{id}` | Change a provider added in the setup; 409 for one from the configuration (setup or admins) |
 | deleteSignInProvider | `DELETE /api/setup/providers/{id}` | Remove a provider added in the setup; not the last one once people have accounts (setup or admins) |
 | checkOpenIdAuthority | `POST /api/setup/openid-check` | Fetch an issuer's discovery document and return its `issuer` (setup or admins) |

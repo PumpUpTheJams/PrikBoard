@@ -125,6 +125,29 @@ public class SetupApiTests(SetupApiTests.Factory factory) : IClassFixture<SetupA
     }
 
     [Fact]
+    public async Task Discord_and_Steam_providers_send_people_to_their_sign_in_pages()
+    {
+        var admin = await Admin();
+
+        var discord = await admin.PostAsJsonAsync("/api/setup/providers",
+            new { id = "discord-live", type = "Discord", clientId = "1234567890", clientSecret = "secret" });
+        var discordWithoutSecret = await admin.PostAsJsonAsync("/api/setup/providers",
+            new { id = "discord-x", type = "Discord", clientId = "1234567890" });
+        // Steam has no client id; a Web API key is optional.
+        var steam = await admin.PostAsJsonAsync("/api/setup/providers", new { id = "steam-live", type = "Steam", displayName = "Steam" });
+        var toDiscord = await factory.CreateAnonymousClient().GetAsync("/api/auth/login/discord-live?returnUrl=/");
+        var toSteam = await factory.CreateAnonymousClient().GetAsync("/api/auth/login/steam-live?returnUrl=/");
+
+        Assert.Equal(HttpStatusCode.Created, discord.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, discordWithoutSecret.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, steam.StatusCode);
+        Assert.StartsWith("https://discord.com/oauth2/authorize?client_id=1234567890", toDiscord.Headers.Location!.ToString());
+        var steamLogin = toSteam.Headers.Location!;
+        Assert.Equal("https://steamcommunity.com/openid/login", steamLogin.GetLeftPart(UriPartial.Path));
+        Assert.Contains(Uri.EscapeDataString("http://localhost/api/auth/callback/steam-live"), steamLogin.Query);
+    }
+
+    [Fact]
     public async Task Provider_settings_are_checked_and_configured_providers_are_read_only()
     {
         var admin = await Admin();

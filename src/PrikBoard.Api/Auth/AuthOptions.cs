@@ -9,7 +9,8 @@ public class AuthOptions
 
     /// <summary>
     /// Sign-in providers keyed by id (lowercase letters, digits and dashes). The id appears in the login and callback URLs.
-    /// A provider without a ClientId is skipped, so templates can stay in appsettings.json until they are filled in.
+    /// A provider without a ClientId is skipped (except Steam, which has none), so templates can stay in appsettings.json
+    /// until they are filled in.
     /// </summary>
     public Dictionary<string, ProviderOptions> Providers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -26,8 +27,17 @@ public enum ProviderType
     /// <summary>Any OpenID Connect provider: Google, Microsoft, Auth0, Okta, Keycloak and so on.</summary>
     OpenIdConnect,
 
-    /// <summary>GitHub, which offers OAuth 2.0 but not OpenID Connect for signing users in.</summary>
+    /// <summary>GitHub, which offers OAuth 2.0 but not OpenID Connect for signing users in (an OAuth App or a GitHub App).</summary>
     GitHub,
+
+    /// <summary>Discord, through OAuth 2.0.</summary>
+    Discord,
+
+    /// <summary>
+    /// Steam, through OpenID 2.0. It needs no client id; the client secret is an optional Steam Web API key, without which
+    /// people come without a name or picture.
+    /// </summary>
+    Steam,
 }
 
 public class ProviderOptions

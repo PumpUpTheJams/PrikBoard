@@ -95,14 +95,19 @@ public class MeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardAp
     }
 
     [Fact]
-    public async Task Pictures_from_other_hosts_are_ignored_and_a_failed_download_does_not_stop_the_sign_in()
+    public async Task Pictures_from_any_provider_are_taken_but_only_over_https_and_a_failed_download_does_not_stop_the_sign_in()
     {
-        var client = await factory.CreateSignedInClientAsync("no-picture@example.com", avatar: "https://tracker.example/me.png");
+        // Google's picture host, say: any provider's https picture becomes the avatar.
+        var google = await factory.CreateSignedInClientAsync("google-picture@example.com",
+            avatar: "https://lh3.googleusercontent.com/u/abc=s96-c");
+        Assert.NotNull((await google.MeAsync()).AvatarUrl);
+
+        var client = await factory.CreateSignedInClientAsync("no-picture@example.com", avatar: "http://pictures.example/me.png");
         var me = await client.MeAsync();
         Assert.Equal((null, null), (me.AvatarUrl, me.SuggestedAvatarUrl));
         Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsync("/api/me/avatar", null)).StatusCode);
 
-        // A trusted host that has no such picture: the sign-in works, without an avatar, and taking it fails.
+        // A host that has no such picture: the sign-in works, without an avatar, and taking it fails.
         var missing = await factory.CreateSignedInClientAsync("gone-picture@example.com",
             avatar: "https://avatars.githubusercontent.com/missing");
         Assert.Null((await missing.MeAsync()).AvatarUrl);

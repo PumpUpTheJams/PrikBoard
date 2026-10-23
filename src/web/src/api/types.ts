@@ -588,7 +588,7 @@ export interface SetupStatus {
   unlocked: boolean
 }
 
-export type ProviderType = 'OpenIdConnect' | 'GitHub'
+export type ProviderType = 'OpenIdConnect' | 'GitHub' | 'Discord' | 'Steam'
 
 /** A sign-in provider as the setup shows it; the client secret never comes back. */
 export interface SignInProviderDetail {
@@ -616,7 +616,9 @@ export interface CreateSignInProvider {
   type: ProviderType
   displayName?: string
   authority?: string
-  clientId: string
+  /** Not for Steam. */
+  clientId?: string
+  /** For Steam: an optional Steam Web API key. */
   clientSecret?: string
   emailsAreVerified?: boolean
   isDefault?: boolean

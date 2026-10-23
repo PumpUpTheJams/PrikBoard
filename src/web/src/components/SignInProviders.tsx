@@ -1,40 +1,80 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, errorMessage, testSignInUrl } from '../api/client'
-import type { CreateSignInProvider, GitHubAppManifest, SignInProviderDetail } from '../api/types'
+import type { CreateSignInProvider, GitHubAppManifest, ProviderType, SignInProviderDetail } from '../api/types'
 import { ExternalIcon, PencilIcon, TrashIcon } from '../board/icons'
 import { useCopy } from '../board/useCopy'
 import { ConfirmDialog } from './ConfirmDialog'
 import { CopyField } from './CopyField'
 import { plural } from './plural'
-import { Select, type SelectOption } from './Select'
 import { takeSetupResult } from './setupResult'
 
 /** The kinds of provider the setup offers, each with its own form. */
-type Template = 'github-app' | 'github' | 'google' | 'microsoft' | 'openid'
+type Template = 'github-app' | 'github' | 'google' | 'discord' | 'steam' | 'openid'
 
 const templates: { template: Template; label: string; hint: string }[] = [
   { template: 'github-app', label: 'GitHub', hint: 'One click: PrikBoard creates a GitHub App for you' },
   { template: 'google', label: 'Google', hint: 'Google accounts and Workspace' },
-  { template: 'microsoft', label: 'Microsoft', hint: 'Personal, work and school accounts' },
-  { template: 'openid', label: 'Other (OpenID Connect)', hint: 'Auth0, Okta, Keycloak, Authentik and others' },
+  { template: 'discord', label: 'Discord', hint: 'Discord accounts' },
+  { template: 'steam', label: 'Steam', hint: 'Steam accounts, no app to register' },
+  { template: 'openid', label: 'Other (OpenID Connect)', hint: 'Microsoft Entra, Auth0, Okta, Keycloak, Authentik and others' },
   { template: 'github', label: 'GitHub OAuth App', hint: 'An app you register on GitHub yourself' },
 ]
 
-type Tenant = 'common' | 'organizations' | 'consumers' | 'tenant'
-
-const tenantOptions: SelectOption<Tenant>[] = [
-  { value: 'common', label: 'Any Microsoft account', description: 'Personal, work and school accounts' },
-  { value: 'organizations', label: 'Work and school accounts' },
-  { value: 'consumers', label: 'Personal accounts only' },
-  { value: 'tenant', label: 'One organization (tenant)', description: 'Only people in your Entra tenant' },
-]
-
-/** Where to register each kind of app, and what the provider calls the callback URL there. */
-const registration: Record<Exclude<Template, 'github-app'>, { url: string; where: string; callback: string }> = {
-  github: { url: 'https://github.com/settings/applications/new', where: 'GitHub → Settings → Developer settings → OAuth Apps', callback: 'Authorization callback URL' },
-  google: { url: 'https://console.cloud.google.com/apis/credentials', where: 'Google Cloud console → Credentials → OAuth client ID (Web application)', callback: 'Authorized redirect URI' },
-  microsoft: { url: 'https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade', where: 'Microsoft Entra → App registrations → New registration (platform Web), then a client secret', callback: 'Redirect URI' },
-  openid: { url: '', where: 'Your provider’s admin console: a confidential web client using the authorization code flow', callback: 'Redirect or callback URL' },
+/** How each form differs: where to register the app, what the provider calls the callback URL, which fields it needs. */
+const forms: Record<
+  Exclude<Template, 'github-app'>,
+  { type: ProviderType; label: string; url: string; where: string; callback: string | null; clientId: boolean; secret: string; secretRequired: boolean }
+> = {
+  github: {
+    type: 'GitHub',
+    label: 'GitHub',
+    url: 'https://github.com/settings/applications/new',
+    where: 'GitHub → Settings → Developer settings → OAuth Apps',
+    callback: 'Authorization callback URL',
+    clientId: true,
+    secret: 'Client secret',
+    secretRequired: true,
+  },
+  google: {
+    type: 'OpenIdConnect',
+    label: 'Google',
+    url: 'https://console.cloud.google.com/apis/credentials',
+    where: 'Google Cloud console → Credentials → OAuth client ID (Web application)',
+    callback: 'Authorized redirect URI',
+    clientId: true,
+    secret: 'Client secret',
+    secretRequired: true,
+  },
+  discord: {
+    type: 'Discord',
+    label: 'Discord',
+    url: 'https://discord.com/developers/applications',
+    where: 'Discord Developer Portal → your application → OAuth2',
+    callback: 'Redirect',
+    clientId: true,
+    secret: 'Client secret',
+    secretRequired: true,
+  },
+  steam: {
+    type: 'Steam',
+    label: 'Steam',
+    url: 'https://steamcommunity.com/dev/apikey',
+    where: 'a Steam Web API key',
+    callback: null,
+    clientId: false,
+    secret: 'Web API key (optional)',
+    secretRequired: false,
+  },
+  openid: {
+    type: 'OpenIdConnect',
+    label: '',
+    url: '',
+    where: 'Your provider’s admin console: a confidential web client using the authorization code flow',
+    callback: 'Redirect or callback URL',
+    clientId: true,
+    secret: 'Client secret',
+    secretRequired: false,
+  },
 }
 
 const callbackUrl = (id: string) => `${window.location.origin}/api/auth/callback/${id || '…'}`
@@ -71,7 +111,7 @@ interface SignInProvidersProps {
 
 /**
  * The sign-in providers, for the setup and the admin page: add GitHub (in one click, through a GitHub App), Google,
- * Microsoft or any OpenID Connect provider, test them, pick the default and remove them. Changes work at once.
+ * Discord, Steam or any OpenID Connect provider, test them, pick the default and remove them. Changes work at once.
  */
 export function SignInProviders({ returnUrl, onLoaded }: SignInProvidersProps) {
   const [providers, setProviders] = useState<SignInProviderDetail[] | null>(null)
@@ -225,7 +265,7 @@ function ProviderRow({ provider: p, returnUrl, onMakeDefault, onEdit, onRemove }
           {!fromSetup && <span className="badge" title="Set in the server’s configuration (Auth:Providers)">configuration</span>}
         </div>
         <span className="row-meta">
-          {p.type === 'GitHub' ? 'GitHub' : p.authority} · {plural(p.signIns, 'sign-in', 'sign-ins')}
+          {p.type === 'OpenIdConnect' ? p.authority : p.type} · {plural(p.signIns, 'sign-in', 'sign-ins')}
         </span>
       </div>
       <div className="setup-provider-actions">
@@ -278,35 +318,23 @@ interface AddProviderProps {
 
 /** A provider registered by hand: its callback URL to register, then the client id and secret it got. */
 function AddProvider({ template, id: suggested, first, onAdd, onCancel }: AddProviderProps) {
+  const form = forms[template]
   const [id, setId] = useState(suggested)
-  const [displayName, setDisplayName] = useState(
-    template === 'google' ? 'Google' : template === 'microsoft' ? 'Microsoft' : template === 'github' ? 'GitHub' : '',
-  )
+  const [displayName, setDisplayName] = useState(form.label)
   const [authority, setAuthority] = useState('')
-  const [tenant, setTenant] = useState<Tenant>('common')
-  const [tenantId, setTenantId] = useState('')
   const [clientId, setClientId] = useState('')
   const [clientSecret, setClientSecret] = useState('')
   const [verified, setVerified] = useState(false)
   const [isDefault, setIsDefault] = useState(false)
   const [check, setCheck] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
-  const where = registration[template]
 
-  const issuer =
-    template === 'google'
-      ? 'https://accounts.google.com'
-      : template === 'microsoft'
-        ? `https://login.microsoftonline.com/${tenant === 'tenant' ? tenantId.trim() : tenant}/v2.0`
-        : template === 'openid'
-          ? authority.trim()
-          : undefined
+  const issuer = template === 'google' ? 'https://accounts.google.com' : template === 'openid' ? authority.trim() : undefined
   const valid =
     /^[a-z0-9][a-z0-9-]*$/.test(id) &&
-    clientId.trim() !== '' &&
-    (template !== 'github' || clientSecret.trim() !== '') &&
-    (template !== 'openid' || authority.trim() !== '') &&
-    (template !== 'microsoft' || tenant !== 'tenant' || tenantId.trim() !== '')
+    (!form.clientId || clientId.trim() !== '') &&
+    (!form.secretRequired || clientSecret.trim() !== '') &&
+    (template !== 'openid' || authority.trim() !== '')
 
   async function checkAuthority() {
     setCheck(null)
@@ -324,30 +352,37 @@ function AddProvider({ template, id: suggested, first, onAdd, onCancel }: AddPro
     setBusy(true)
     await onAdd({
       id,
-      type: template === 'github' ? 'GitHub' : 'OpenIdConnect',
+      type: form.type,
       displayName: displayName.trim() || undefined,
       authority: issuer,
-      clientId: clientId.trim(),
+      clientId: form.clientId ? clientId.trim() : undefined,
       clientSecret: clientSecret.trim() || undefined,
-      emailsAreVerified: template === 'github' ? undefined : verified,
+      emailsAreVerified: template === 'openid' ? verified : undefined,
       isDefault: isDefault || undefined,
     })
     setBusy(false)
   }
 
+  const where = form.url ? (
+    <a href={form.url} target="_blank" rel="noreferrer">
+      {form.where}
+    </a>
+  ) : (
+    form.where
+  )
+
   return (
     <form className="token-form setup-form" onSubmit={submit}>
-      <p className="dialog-text">
-        Register PrikBoard {where.url ? (
-          <a href={where.url} target="_blank" rel="noreferrer">
-            {where.where}
-          </a>
-        ) : (
-          where.where
-        )}
-        , with this {where.callback.toLowerCase()}:
-      </p>
-      <CallbackUrl id={id} label={where.callback} />
+      {form.callback ? (
+        <>
+          <p className="dialog-text">
+            Register PrikBoard in {where}, with this {form.callback.toLowerCase()}:
+          </p>
+          <CallbackUrl id={id} label={form.callback} />
+        </>
+      ) : (
+        <p className="dialog-text">Steam needs no app registration. With {where}, people get their Steam name and picture.</p>
+      )}
       <div className="setup-row">
         <label className="setup-field">
           <span>Id</span>
@@ -358,20 +393,6 @@ function AddProvider({ template, id: suggested, first, onAdd, onCancel }: AddPro
           <input value={displayName} placeholder={id} onChange={(e) => setDisplayName(e.target.value)} maxLength={50} />
         </label>
       </div>
-      {template === 'microsoft' && (
-        <div className="setup-row">
-          <div className="setup-field">
-            <span>Who may sign in</span>
-            <Select label="Who may sign in" value={tenant} options={tenantOptions} onChange={setTenant} />
-          </div>
-          {tenant === 'tenant' && (
-            <label className="setup-field">
-              <span>Tenant id</span>
-              <input value={tenantId} onChange={(e) => setTenantId(e.target.value)} placeholder="00000000-0000-…" />
-            </label>
-          )}
-        </div>
-      )}
       {template === 'openid' && (
         <label className="setup-field">
           <span>Issuer URL</span>
@@ -392,16 +413,18 @@ function AddProvider({ template, id: suggested, first, onAdd, onCancel }: AddPro
         </label>
       )}
       <div className="setup-row">
+        {form.clientId && (
+          <label className="setup-field">
+            <span>Client id</span>
+            <input value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" />
+          </label>
+        )}
         <label className="setup-field">
-          <span>Client id</span>
-          <input value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" />
-        </label>
-        <label className="setup-field">
-          <span>Client secret</span>
+          <span>{form.secret}</span>
           <input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} autoComplete="new-password" />
         </label>
       </div>
-      {template !== 'github' && (
+      {template === 'openid' && (
         <label className="check-row">
           <input type="checkbox" checked={verified} onChange={(e) => setVerified(e.target.checked)} />
           Trust its email addresses as verified (only for an organization you control)
@@ -492,6 +515,7 @@ function EditProvider({ provider, onSave, onCancel }: EditProviderProps) {
   const [clientId, setClientId] = useState(provider.clientId)
   const [clientSecret, setClientSecret] = useState('')
   const oidc = provider.type === 'OpenIdConnect'
+  const steam = provider.type === 'Steam'
 
   return (
     <form
@@ -506,16 +530,18 @@ function EditProvider({ provider, onSave, onCancel }: EditProviderProps) {
         })
       }}
     >
-      <CallbackUrl id={provider.id} label="Callback URL" />
+      {!steam && <CallbackUrl id={provider.id} label="Callback URL" />}
       <div className="setup-row">
         <label className="setup-field">
           <span>Button label</span>
           <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={50} />
         </label>
-        <label className="setup-field">
-          <span>Client id</span>
-          <input value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" />
-        </label>
+        {!steam && (
+          <label className="setup-field">
+            <span>Client id</span>
+            <input value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" />
+          </label>
+        )}
       </div>
       {oidc && (
         <label className="setup-field">
@@ -524,7 +550,7 @@ function EditProvider({ provider, onSave, onCancel }: EditProviderProps) {
         </label>
       )}
       <label className="setup-field">
-        <span>New client secret</span>
+        <span>{steam ? 'New Web API key' : 'New client secret'}</span>
         <input
           type="password"
           value={clientSecret}

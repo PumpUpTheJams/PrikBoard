@@ -67,9 +67,10 @@ public static partial class SetupEndpoints
             .RequireSetupAccess()
             .WithName("createSignInProvider")
             .WithSummary("Add a sign-in provider")
-            .WithDescription("Setup or admins. Adds an OpenID Connect provider (Google, Microsoft, Auth0, Keycloak and others) or a " +
-                             "GitHub OAuth App by its client id and secret. It works right away; register " +
-                             "{this server}/api/auth/callback/{id} as its callback URL. 409 when the id is taken.")
+            .WithDescription("Setup or admins. Adds an OpenID Connect provider (Google, Auth0, Keycloak and others), a GitHub " +
+                             "OAuth App or a Discord application by its client id and secret, or Steam (no client id; an optional " +
+                             "Web API key as the secret). It works right away; register {this server}/api/auth/callback/{id} as its " +
+                             "callback URL (Steam needs none). 409 when the id is taken.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
 
@@ -217,7 +218,7 @@ public static partial class SetupEndpoints
             Type = request.Type,
             DisplayName = Blank(request.DisplayName),
             Authority = Blank(request.Authority),
-            ClientId = request.ClientId.Trim(),
+            ClientId = request.ClientId?.Trim() ?? "",
             ProtectedClientSecret = Blank(request.ClientSecret) is { } secret ? providers.ProtectSecret(secret) : null,
             Scopes = request.Scopes ?? [],
             EmailsAreVerified = request.EmailsAreVerified,
@@ -496,14 +497,21 @@ public static partial class SetupEndpoints
 
     private static ValidationProblem? Validate(SignInProvider provider)
     {
-        if (provider.Type == ProviderType.GitHub)
+        if (provider.Type == ProviderType.OpenIdConnect)
         {
-            if (provider.Authority is not null) return Problems.Invalid("authority", "GitHub takes no authority.");
-            if (provider.ProtectedClientSecret is null) return Problems.Invalid("clientSecret", "GitHub needs the client secret.");
+            if (AuthorityProblem(provider.Authority) is { } problem) return Problems.Invalid("authority", problem);
         }
-        else if (AuthorityProblem(provider.Authority) is { } problem)
+        else if (provider.Authority is not null)
         {
-            return Problems.Invalid("authority", problem);
+            return Problems.Invalid("authority", $"{provider.Type} takes no issuer URL.");
+        }
+        if (provider.Type != ProviderType.Steam && provider.ClientId.Length == 0)
+        {
+            return Problems.Invalid("clientId", "Give the client id from the provider's app registration.");
+        }
+        if (provider.Type is ProviderType.GitHub or ProviderType.Discord && provider.ProtectedClientSecret is null)
+        {
+            return Problems.Invalid("clientSecret", $"{provider.Type} needs the client secret.");
         }
         if (provider.Scopes.Count > 20 || provider.Scopes.Any(s => s.Length is 0 or > 100 || s.Any(char.IsWhiteSpace)))
         {

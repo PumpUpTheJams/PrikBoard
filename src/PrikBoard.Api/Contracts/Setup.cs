@@ -28,11 +28,11 @@ public enum ProviderSource
 
 /// <summary>A sign-in provider as the setup shows it. The client secret is never returned.</summary>
 /// <param name="Id">The provider id, in the login URL and the callback URL (/api/auth/callback/{id}). It never changes.</param>
-/// <param name="Type">OpenIdConnect (Google, Microsoft, Auth0, Keycloak and others) or GitHub.</param>
+/// <param name="Type">OpenIdConnect (Google, Auth0, Keycloak and others), GitHub, Discord or Steam.</param>
 /// <param name="DisplayName">The sign-in button's label.</param>
 /// <param name="Authority">The OpenID Connect issuer URL; null for GitHub.</param>
-/// <param name="ClientId">The client id from the provider's app registration.</param>
-/// <param name="HasSecret">Whether a client secret is stored.</param>
+/// <param name="ClientId">The client id from the provider's app registration; empty for Steam.</param>
+/// <param name="HasSecret">Whether a client secret (for Steam: a Web API key) is stored.</param>
 /// <param name="Scopes">Scopes asked for on top of the defaults.</param>
 /// <param name="EmailsAreVerified">Treat the provider's emails as verified even without email_verified.</param>
 /// <param name="IsDefault">Offered first on the sign-in page.</param>
@@ -45,11 +45,11 @@ public sealed record SignInProviderDetail(
 
 /// <summary>A new sign-in provider.</summary>
 /// <param name="Id">Lowercase letters, digits and dashes, for example "google". It is part of the callback URL and can't change later.</param>
-/// <param name="Type">OpenIdConnect or GitHub.</param>
+/// <param name="Type">OpenIdConnect, GitHub, Discord or Steam.</param>
 /// <param name="DisplayName">The sign-in button's label, for example "Google"; defaults to the id.</param>
 /// <param name="Authority">OpenID Connect only: the issuer URL, such as https://accounts.google.com (https, or http on localhost).</param>
-/// <param name="ClientId">From the provider's app registration.</param>
-/// <param name="ClientSecret">From the provider's app registration; GitHub needs one. Stored encrypted and never shown again.</param>
+/// <param name="ClientId">From the provider's app registration. Steam has none.</param>
+/// <param name="ClientSecret">From the provider's app registration; GitHub and Discord need one. For Steam, an optional Steam Web API key, which brings people's names and pictures. Stored encrypted and never shown again.</param>
 /// <param name="Scopes">Extra scopes; usually none.</param>
 /// <param name="EmailsAreVerified">Treat emails as verified even without email_verified (for example a work tenant you control).</param>
 /// <param name="IsDefault">Offer it first on the sign-in page.</param>
@@ -58,7 +58,7 @@ public sealed record CreateSignInProviderRequest(
     [property: Required] ProviderType Type,
     [property: StringLength(SignInProvider.DisplayNameMaxLength)] string? DisplayName,
     [property: StringLength(500)] string? Authority,
-    [property: Required, StringLength(500, MinimumLength = 1)] string ClientId,
+    [property: StringLength(500)] string? ClientId,
     [property: StringLength(1000)] string? ClientSecret,
     List<string>? Scopes = null,
     bool EmailsAreVerified = false,

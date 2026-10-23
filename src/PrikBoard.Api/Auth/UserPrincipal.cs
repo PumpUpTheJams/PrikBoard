@@ -32,7 +32,7 @@ public static class UserPrincipal
             claims.Add(new Claim(SuggestedNameClaim, suggestedName.Length <= 100 ? suggestedName : suggestedName[..100]));
         }
         // Kept even once an avatar is taken, so the person can take the provider's current picture again.
-        if (ProviderAvatars.IsTrusted(suggestedAvatar) && suggestedAvatar!.Length <= 500)
+        if (ProviderAvatars.IsTrusted(suggestedAvatar))
         {
             claims.Add(new Claim(SuggestedAvatarClaim, suggestedAvatar));
         }

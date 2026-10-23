@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using AspNet.Security.OpenId;
+using AspNet.Security.OpenId.Steam;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -78,7 +80,8 @@ public static partial class AuthSetup
         builder.Services.PostConfigure<AuthOptions>(options =>
         {
             // Unconfigured templates are left out, so the UI only offers providers that work.
-            foreach (var id in options.Providers.Where(p => string.IsNullOrWhiteSpace(p.Value.ClientId)).Select(p => p.Key).ToList())
+            foreach (var id in options.Providers.Where(p => p.Value.Type != ProviderType.Steam && string.IsNullOrWhiteSpace(p.Value.ClientId))
+                         .Select(p => p.Key).ToList())
             {
                 options.Providers.Remove(id);
             }
@@ -138,10 +141,14 @@ public static partial class AuthSetup
         builder.Services.AddSingleton<SignInProviders.SchemeOptions>();
         builder.Services.AddSingleton<IConfigureOptions<OpenIdConnectOptions>>(services => services.GetRequiredService<SignInProviders.SchemeOptions>());
         builder.Services.AddSingleton<IConfigureOptions<OAuthOptions>>(services => services.GetRequiredService<SignInProviders.SchemeOptions>());
+        builder.Services.AddSingleton<IConfigureOptions<SteamAuthenticationOptions>>(services => services.GetRequiredService<SignInProviders.SchemeOptions>());
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IPostConfigureOptions<OpenIdConnectOptions>, OpenIdConnectPostConfigureOptions>());
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IPostConfigureOptions<OAuthOptions>, OAuthPostConfigureOptions<OAuthOptions, OAuthHandler<OAuthOptions>>>());
         builder.Services.TryAddTransient<OpenIdConnectHandler>();
         builder.Services.TryAddTransient<OAuthHandler<OAuthOptions>>();
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IPostConfigureOptions<SteamAuthenticationOptions>,
+            OpenIdAuthenticationInitializer<SteamAuthenticationOptions, SteamAuthenticationHandler>>());
+        builder.Services.TryAddTransient<SteamAuthenticationHandler>();
 
         foreach (var (id, issuer) in issuers)
         {
@@ -286,6 +293,8 @@ public static partial class AuthSetup
         options.GetClaimsFromUserInfoEndpoint = true;
         // Keep the standard claim names (sub, email, ...) rather than the legacy WS-Federation URIs.
         options.MapInboundClaims = false;
+        // Not among the user info fields kept by default; it becomes the avatar (ProviderAvatars).
+        options.ClaimActions.MapUniqueJsonKey("picture", "picture");
         options.Scope.Clear();
         foreach (var scope in new[] { "openid", "profile", "email" }.Concat(provider.Scopes).Distinct()) options.Scope.Add(scope);
 
@@ -318,6 +327,95 @@ public static partial class AuthSetup
         options.Events.OnRemoteFailure = UserSignIn.OnRemoteFailure;
     }
 
+    /// <summary>The settings of a Discord provider's scheme (an application's OAuth2 client); see <see cref="SignInProviders.SchemeOptions"/>.</summary>
+    internal static void ConfigureDiscord(OAuthOptions options, string id, ProviderOptions provider)
+    {
+        options.ClientId = provider.ClientId!;
+        options.ClientSecret = provider.ClientSecret!;
+        options.CallbackPath = CallbackPath(id);
+        options.SignInScheme = CookieScheme;
+        options.AuthorizationEndpoint = "https://discord.com/oauth2/authorize";
+        options.TokenEndpoint = "https://discord.com/api/oauth2/token";
+        options.UserInformationEndpoint = "https://discord.com/api/users/@me";
+        options.UsePkce = true;
+        foreach (var scope in new[] { "identify", "email" }.Concat(provider.Scopes).Distinct()) options.Scope.Add(scope);
+
+        options.Events.OnCreatingTicket = AddDiscordClaims;
+        options.Events.OnTicketReceived = context => UserSignIn.OnTicketReceived(context, id);
+        options.Events.OnRemoteFailure = UserSignIn.OnRemoteFailure;
+    }
+
+    /// <summary>
+    /// The settings of a Steam provider's scheme (OpenID 2.0); see <see cref="SignInProviders.SchemeOptions"/>. The client
+    /// secret is the optional Steam Web API key, which the handler uses to look up the person's name and picture.
+    /// </summary>
+    internal static void ConfigureSteam(SteamAuthenticationOptions options, string id, ProviderOptions provider)
+    {
+        options.CallbackPath = CallbackPath(id);
+        options.SignInScheme = CookieScheme;
+        options.ApplicationKey = provider.ClientSecret;
+        // Steam's endpoint is known, so no discovery document (an HTML page) is fetched and parsed.
+        options.Configuration = new OpenIdAuthenticationConfiguration { AuthenticationEndpoint = SteamLoginEndpoint };
+        options.Events.OnAuthenticated = AddSteamClaims;
+        options.Events.OnTicketReceived = context => UserSignIn.OnTicketReceived(context, id);
+        options.Events.OnRemoteFailure = UserSignIn.OnRemoteFailure;
+    }
+
+    internal const string SteamLoginEndpoint = "https://steamcommunity.com/openid/login";
+
+    /// <summary>Maps the Discord user to the OpenID Connect claim names that <see cref="UserSignIn"/> expects.</summary>
+    private static async Task AddDiscordClaims(OAuthCreatingTicketContext context)
+    {
+        using var user = await GetJson(context, context.Options.UserInformationEndpoint, "application/json");
+        var profile = user.RootElement;
+        var userId = profile.GetProperty("id").GetString()!;
+
+        var identity = context.Identity!;
+        identity.AddClaim(new("sub", userId));
+        var name = profile.TryGetProperty("global_name", out var global) && global.GetString() is { Length: > 0 } shown
+            ? shown
+            : profile.GetProperty("username").GetString();
+        if (name is not null) identity.AddClaim(new("name", name));
+        if (profile.TryGetProperty("avatar", out var avatar) && avatar.GetString() is { Length: > 0 } hash)
+        {
+            identity.AddClaim(new("picture", $"https://cdn.discordapp.com/avatars/{userId}/{hash}.png?size=256"));
+        }
+        if (profile.TryGetProperty("email", out var email) && email.GetString() is { Length: > 0 } address)
+        {
+            identity.AddClaim(new("email", address));
+            identity.AddClaim(new("email_verified", profile.TryGetProperty("verified", out var verified) && verified.GetBoolean() ? "true" : "false"));
+        }
+    }
+
+    /// <summary>
+    /// Maps a Steam sign-in to the claim names that <see cref="UserSignIn"/> expects: the SteamID64 from the claimed id
+    /// (https://steamcommunity.com/openid/id/{steamid}), and with a Web API key the persona name and picture. Steam
+    /// never gives an email address.
+    /// </summary>
+    private static Task AddSteamClaims(OpenIdAuthenticatedContext context)
+    {
+        var identity = context.Identity!;
+        if (context.Identifier?.TrimEnd('/').Split('/')[^1] is { Length: > 0 } steamId && steamId.All(char.IsAsciiDigit))
+        {
+            identity.AddClaim(new("sub", steamId));
+        }
+        if (context.UserPayload?.RootElement is { } payload
+            && payload.TryGetProperty("response", out var response) && response.TryGetProperty("players", out var players)
+            && players.ValueKind == JsonValueKind.Array && players.GetArrayLength() > 0)
+        {
+            var player = players[0];
+            if (player.TryGetProperty("personaname", out var name) && name.GetString() is { Length: > 0 } persona)
+            {
+                identity.AddClaim(new("name", persona));
+            }
+            if (player.TryGetProperty("avatarfull", out var avatar) && avatar.GetString() is { Length: > 0 } picture)
+            {
+                identity.AddClaim(new("picture", picture));
+            }
+        }
+        return Task.CompletedTask;
+    }
+
     /// <summary>Maps the GitHub profile to the OpenID Connect claim names that <see cref="UserSignIn"/> expects.</summary>
     private static async Task AddGitHubClaims(OAuthCreatingTicketContext context)
     {
@@ -346,11 +444,14 @@ public static partial class AuthSetup
         }
     }
 
-    private static async Task<JsonDocument> GetGitHubJson(OAuthCreatingTicketContext context, string url)
+    private static Task<JsonDocument> GetGitHubJson(OAuthCreatingTicketContext context, string url) =>
+        GetJson(context, url, "application/vnd.github+json");
+
+    private static async Task<JsonDocument> GetJson(OAuthCreatingTicketContext context, string url, string accept)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", context.AccessToken);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(accept));
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue("PrikBoard", AppVersion.Number));
 
         using var response = await context.Backchannel.SendAsync(request, context.HttpContext.RequestAborted);

@@ -11,6 +11,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- AspNet.Security.OpenId.Steam brings AngleSharp 1.3, which has a known vulnerability (GHSA-pgww-w46g-26qg). The
+         Steam scheme never parses HTML (its endpoint is set, not discovered), but the package is pinned anyway. -->
+    <PackageReference Include="AngleSharp" Version="1.5.0" />
+    <PackageReference Include="AspNet.Security.OpenId.Steam" Version="10.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.13" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.13" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.13" />

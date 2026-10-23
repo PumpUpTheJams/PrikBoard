@@ -182,7 +182,7 @@ public static class AuthEndpoints
         if (picture is null)
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "No picture",
-                detail: "The provider you signed in with offered no picture. Sign in with GitHub to take yours.");
+                detail: "The provider you signed in with offered no picture.");
         }
 
         var user = await db.Users.FindAsync([principal.UserId()], ct);

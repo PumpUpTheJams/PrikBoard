@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using AspNet.Security.OpenId.Steam;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
@@ -21,6 +22,7 @@ public sealed class SignInProviders(
     IAuthenticationSchemeProvider schemes,
     IOptionsMonitorCache<OpenIdConnectOptions> openIdConnectOptions,
     IOptionsMonitorCache<OAuthOptions> oauthOptions,
+    IOptionsMonitorCache<SteamAuthenticationOptions> steamOptions,
     IDataProtectionProvider protection,
     ILogger<SignInProviders> logger)
 {
@@ -62,7 +64,8 @@ public sealed class SignInProviders(
                 Forget(provider.Id);
                 schemes.TryAddScheme(new AuthenticationScheme(provider.Id, provider.Name, provider.Options.Type switch
                 {
-                    ProviderType.GitHub => typeof(OAuthHandler<OAuthOptions>),
+                    ProviderType.GitHub or ProviderType.Discord => typeof(OAuthHandler<OAuthOptions>),
+                    ProviderType.Steam => typeof(SteamAuthenticationHandler),
                     _ => typeof(OpenIdConnectHandler),
                 }));
             }
@@ -76,6 +79,7 @@ public sealed class SignInProviders(
         schemes.RemoveScheme(id);
         openIdConnectOptions.TryRemove(id);
         oauthOptions.TryRemove(id);
+        steamOptions.TryRemove(id);
     }
 
     private List<Provider> Merge(List<SignInProvider> rows)
@@ -149,7 +153,7 @@ public sealed class SignInProviders(
     /// <see cref="Forget"/>, or the first time).
     /// </summary>
     public sealed class SchemeOptions(SignInProviders providers)
-        : IConfigureNamedOptions<OpenIdConnectOptions>, IConfigureNamedOptions<OAuthOptions>
+        : IConfigureNamedOptions<OpenIdConnectOptions>, IConfigureNamedOptions<OAuthOptions>, IConfigureNamedOptions<SteamAuthenticationOptions>
     {
         public void Configure(string? name, OpenIdConnectOptions options)
         {
@@ -161,13 +165,27 @@ public sealed class SignInProviders(
 
         public void Configure(string? name, OAuthOptions options)
         {
-            if (name is not null && providers.Find(name) is { Options.Type: ProviderType.GitHub } provider)
+            switch (name is null ? null : providers.Find(name))
             {
-                AuthSetup.ConfigureGitHub(options, provider.Id, provider.Options);
+                case { Options.Type: ProviderType.GitHub } gitHub:
+                    AuthSetup.ConfigureGitHub(options, gitHub.Id, gitHub.Options);
+                    break;
+                case { Options.Type: ProviderType.Discord } discord:
+                    AuthSetup.ConfigureDiscord(options, discord.Id, discord.Options);
+                    break;
+            }
+        }
+
+        public void Configure(string? name, SteamAuthenticationOptions options)
+        {
+            if (name is not null && providers.Find(name) is { Options.Type: ProviderType.Steam } provider)
+            {
+                AuthSetup.ConfigureSteam(options, provider.Id, provider.Options);
             }
         }
 
         public void Configure(OpenIdConnectOptions options) => Configure(Microsoft.Extensions.Options.Options.DefaultName, options);
         public void Configure(OAuthOptions options) => Configure(Microsoft.Extensions.Options.Options.DefaultName, options);
+        public void Configure(SteamAuthenticationOptions options) => Configure(Microsoft.Extensions.Options.Options.DefaultName, options);
     }
 }

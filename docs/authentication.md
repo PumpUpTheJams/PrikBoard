@@ -39,14 +39,14 @@ Each provider has an id of lowercase letters, digits and dashes, which never cha
 
 The setup shows each provider's callback URL for this origin. In development the origin is the Vite server, `http://localhost:5173`. Vite proxies `/api`, `/openapi` and `/scalar` with `changeOrigin: false`, so the API sees `Host: localhost:5173` and builds the callback URL for 5173. Vite's string shorthand would turn `changeOrigin` on and break this.
 
-A provider without a `ClientId` is skipped. `appsettings.json` holds templates for GitHub, Google and Microsoft, so enabling one only takes its client id and secret. Keep secrets out of the repository: use user secrets locally, and environment variables or a secret store when deployed (`Auth__Providers__github__ClientSecret`).
+A provider without a `ClientId` is skipped (except Steam, which has none). `appsettings.json` holds templates for GitHub and Google, so enabling one only takes its client id and secret. Keep secrets out of the repository: use user secrets locally, and environment variables or a secret store when deployed (`Auth__Providers__github__ClientSecret`).
 
 | Setting | Meaning |
 | --- | --- |
-| `Type` | `OpenIdConnect` (default) or `GitHub` |
+| `Type` | `OpenIdConnect` (default), `GitHub`, `Discord` or `Steam` |
 | `DisplayName` | Label on the sign-in button |
 | `Authority` | The OpenID Connect issuer URL. Its `/.well-known/openid-configuration` must exist. Not used for GitHub |
-| `ClientId`, `ClientSecret` | From the provider's app registration |
+| `ClientId`, `ClientSecret` | From the provider's app registration. Steam has no client id; its `ClientSecret` is an optional Steam Web API key |
 | `Scopes` | Extra scopes on top of the defaults |
 
 ### GitHub (the default)
@@ -87,18 +87,26 @@ A GitHub OAuth App has exactly one callback URL, so register a separate app for 
 
 **Google:** Google Cloud Console → APIs & Services → Credentials → Create OAuth client ID → Web application, with the redirect URI `.../api/auth/callback/google`.
 
-**Microsoft:** Entra admin centre → App registrations → New registration, platform Web, redirect URI `.../api/auth/callback/microsoft`, then create a client secret. The template's `common` authority accepts any work, school or personal account. Use `organizations`, `consumers` or a tenant id to narrow that down.
+**Microsoft Entra ID** works as any OpenID Connect provider (the setup's *Other*): an app registration with platform Web and the redirect URI `.../api/auth/callback/{id}`, a client secret, and the authority `https://login.microsoftonline.com/{common|organizations|consumers|tenant id}/v2.0`. Microsoft sends no `email_verified`, so tick *Trust its email addresses* only for a tenant you control.
+
+### Discord
+
+`Type: "Discord"`, OAuth 2.0 with the scopes `identify` and `email`. In the [Discord Developer Portal](https://discord.com/developers/applications), create an application, add the redirect `.../api/auth/callback/{id}` under OAuth2 and copy its client id and secret. The email counts as verified when Discord says so (`verified`); the name is the display name, else the username.
+
+### Steam
+
+`Type: "Steam"`, OpenID 2.0 (the `AspNet.Security.OpenId.Steam` package; Steam's endpoint is set, so no discovery page is fetched). Steam needs no app registration and has no client id. Without anything else people sign in with their SteamID only and choose a name; with a [Steam Web API key](https://steamcommunity.com/dev/apikey) as the client secret, PrikBoard also gets their Steam name and picture. Steam never gives an email address, so Steam users can't be found by email.
 
 ## Users, linked sign-ins and personal data
 
 PrikBoard stores **no personal data** about people beyond a copy of their GitHub picture (which they can remove): no name, no email and no raw provider id.
 
 - A **user** is a GUID with an optional display name the person chooses (`PATCH /api/me`). Until they pick one, others see a fallback such as `User 1a2b`. The provider's name is offered once as a suggestion. It travels only in the encrypted session cookie and is never stored.
-- **Avatars** are opt-out. Every GitHub sign-in downloads the person's GitHub picture (at most 1 MB, PNG, JPEG, GIF or WebP) into a file of its own (`User.AvatarFile`, see [Architecture](architecture.md)), replacing the copy when it changed. Only pictures on `avatars.githubusercontent.com` are used (`ProviderAvatars`); other providers' `picture` claims are ignored for now, and a failed download never stops a sign-in. The GitHub URL is never stored, because it contains the GitHub account id; it only travels in the session cookie (`suggestedAvatarUrl` in `whoAmI`). Other people's browsers load the copy from `GET /api/avatars/{id}` without ever contacting GitHub. Removing the picture (Account → *Picture*, `DELETE /api/me/avatar`) deletes the copy (its file goes at the next hourly sweep) and sets `User.AvatarOptedOut`, so later sign-ins leave it off until the person takes it again (`PUT /api/me/avatar`). Existing users get their picture on their next GitHub sign-in.
+- **Avatars** are opt-out. Every sign-in downloads the provider's picture of the person (its `picture` claim: GitHub, Google, Discord, Steam with a Web API key, or any OpenID Connect provider that sends one; at most 1 MB, PNG, JPEG, GIF or WebP) into a file of its own (`User.AvatarFile`, see [Architecture](architecture.md)), replacing the copy when it changed. Only https URLs by host name are used (`ProviderAvatars`), and the download connects only to public addresses, also after a redirect, so a picture URL can't reach the server's own network. A failed download never stops a sign-in. The URL is never stored, because it contains the provider's account id; it only travels in the session cookie (`suggestedAvatarUrl` in `whoAmI`). Other people's browsers load the copy from `GET /api/avatars/{id}` without ever contacting the provider. Removing the picture (Account → *Picture*, `DELETE /api/me/avatar`) deletes the copy (its file goes at the next hourly sweep) and sets `User.AvatarOptedOut`, so later sign-ins leave it off until the person takes it again (`PUT /api/me/avatar`). Existing users get their picture on their next sign-in.
 - Each **sign-in** a user has (GitHub, Google, ...) is a `UserIdentity`. It holds the provider id plus two keyed hashes:
   - an HMAC-SHA256 of the provider's subject id, used to recognise the person when they sign in again;
   - an HMAC-SHA256 of their verified email, used for exact-email search.
-- **Email search** only finds people whose provider vouched for the email. That means GitHub's verified primary address, `email_verified: true`, or a provider with `EmailsAreVerified: true`. Microsoft does not send `email_verified`, so Microsoft users are not findable by default.
+- **Email search** only finds people whose provider vouched for the email. That means GitHub's verified primary address, `email_verified: true`, or a provider with `EmailsAreVerified: true`. Microsoft does not send `email_verified`, so Microsoft users are not findable by default, and Steam sends no email at all.
 - **Linking.** A signed-in person adds another sign-in from Account → *Connect another*. Under the hood that is a form post to `POST /api/auth/link/{provider}`.
   - The form post only works from PrikBoard's own pages: the `Origin` must match, and the SameSite=Lax cookie is not sent on cross-site posts.
   - The user id travels in the encrypted OAuth state. On the way back it must match the session again, so a callback replayed in someone else's browser does nothing.
