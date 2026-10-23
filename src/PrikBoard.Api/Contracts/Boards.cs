@@ -14,13 +14,14 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="YourRole">Your role on the board: Viewer, Editor or Owner.</param>
 /// <param name="IsPublic">Anyone with the link can view the board, without being a member or signed in.</param>
 /// <param name="PublicShowsPeople">Whether those visitors see who is on the board (names and pictures), or anonymous circles.</param>
+/// <param name="ShowCursors">Whether members looking at the board see each other's pointers live. Visitors of a public board never do.</param>
 public record BoardSummary(
     Guid Id, string ShortId, string Key, string Name, string? Description, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, BoardRole YourRole,
-    bool IsPublic, bool PublicShowsPeople)
+    bool IsPublic, bool PublicShowsPeople, bool ShowCursors)
 {
     public static BoardSummary From(Board board, BoardRole role) =>
         new(board.Id, board.ShortId, board.Key, board.Name, board.Description, board.CreatedAt, board.UpdatedAt, role,
-            board.IsPublic, board.PublicShowsPeople);
+            board.IsPublic, board.PublicShowsPeople, board.ShowCursors);
 }
 
 /// <summary>A full board snapshot: every bucket, card, image and drawing with its position on the canvas, the board's tags and who can be assigned.</summary>
@@ -45,6 +46,7 @@ public record BoardSummary(
 /// <param name="YourRole">Your role on the board: Viewer (read only), Editor or Owner.</param>
 /// <param name="IsPublic">Anyone with the link can view the board, without being a member or signed in.</param>
 /// <param name="PublicShowsPeople">Whether those visitors see who is on the board (names and pictures), or anonymous circles.</param>
+/// <param name="ShowCursors">Whether members looking at the board see each other's pointers live. Visitors of a public board never do.</param>
 /// <param name="Visiting">You see the board because it is public, not as a member: read only, and without people when the board hides them (assignees then have no id or name).</param>
 public record BoardDetail(
     Guid Id,
@@ -65,6 +67,7 @@ public record BoardDetail(
     BoardRole YourRole,
     bool IsPublic,
     bool PublicShowsPeople,
+    bool ShowCursors,
     bool Visiting = false)
 {
     /// <summary>
@@ -84,7 +87,8 @@ public record BoardDetail(
             BoardPerson.List(people, caller),
             role,
             board.IsPublic,
-            board.PublicShowsPeople);
+            board.PublicShowsPeople,
+            board.ShowCursors);
     }
 
     /// <summary>
@@ -135,6 +139,7 @@ public record CreateBoardRequest(
 /// <param name="Key">New key, shown before card numbers (MPCT-415): a letter, then letters and digits, 2 to 10 in all; upper-cased. Links keep working, as they use the short id.</param>
 /// <param name="IsPublic">True lets anyone with the link view the board (read only, signed in or not; tokens still need membership); false makes it members-only again.</param>
 /// <param name="PublicShowsPeople">Whether visitors of the public board see who is on it (names and pictures), or anonymous circles and a count.</param>
+/// <param name="ShowCursors">Whether members looking at the board see each other's pointers live. Visitors of a public board never do.</param>
 public record UpdateBoardRequest(
     [property: StringLength(100, MinimumLength = 1)] string? Name = null,
     [property: StringLength(1000)] string? Description = null,
@@ -143,4 +148,5 @@ public record UpdateBoardRequest(
                RegularExpression("^[A-Za-z][A-Za-z0-9]{1,9}$", ErrorMessage = "A key is a letter, then letters and digits, 2 to 10 in all, e.g. MPCT.")]
     string? Key = null,
     bool? IsPublic = null,
-    bool? PublicShowsPeople = null);
+    bool? PublicShowsPeople = null,
+    bool? ShowCursors = null);

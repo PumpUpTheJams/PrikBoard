@@ -11,7 +11,7 @@ using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
 
-/// <summary>The live hub at /api/live: board events, presence and drags, over SignalR long polling against the test server.</summary>
+/// <summary>The live hub at /api/live: board events, presence, drags and cursors, over SignalR long polling against the test server.</summary>
 public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiFactory>, IAsyncDisposable
 {
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(5);
@@ -190,6 +190,14 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
             ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Group, card.Id, 20, 20, Items: [])));
         Assert.Contains("Group", empty.Message);
 
+        // Where the pointer holds the item goes along, as a fraction of it.
+        await Task.Delay(60);
+        await ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Card, card.Id, 50, 0, Grab: new DragGrab(0.25, 1)));
+        Assert.Equal(new DragGrab(0.25, 1), (await viewerDrags.NextAsync()).Grab);
+        var outside = await Assert.ThrowsAsync<HubException>(() =>
+            ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Card, card.Id, 50, 0, Grab: new DragGrab(1.5, 0))));
+        Assert.Contains("grab", outside.Message);
+
         await ownerLive.Connection.InvokeAsync("DragEnd");
         Assert.Equal(joined.Key, await ended.NextAsync());
         Assert.False(await ownerDrags.AnyWithinAsync(TimeSpan.FromMilliseconds(200)));
@@ -197,6 +205,106 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var refused = await Assert.ThrowsAsync<HubException>(() =>
             viewerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Card, card.Id, 1, 1)));
         Assert.Contains("Editor", refused.Message);
+    }
+
+    [Fact]
+    public async Task Members_see_where_the_others_point()
+    {
+        var owner = await SessionAsync("live-cursor-owner@example.com");
+        var viewer = await SessionAsync("live-cursor-viewer@example.com");
+        var board = await owner.Http.CreateBoardAsync();
+        Assert.True(board.ShowCursors);
+        await owner.Http.ShareAsync(board.Id, viewer.Http, BoardRole.Viewer);
+
+        var ownerLive = await ConnectAsync(owner);
+        var viewerLive = await ConnectAsync(viewer);
+        var cursors = ownerLive.Inbox<RemoteCursor>("CursorMoved");
+        var hidden = ownerLive.Inbox<Guid>("CursorHidden");
+        var ownCursors = viewerLive.Inbox<RemoteCursor>("CursorMoved");
+        await ownerLive.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+        var joined = await viewerLive.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+
+        // Viewers point too: a cursor changes nothing.
+        await viewerLive.Connection.InvokeAsync("MoveCursor", new CursorUpdate(120.5, -40));
+        var cursor = await cursors.NextAsync();
+        Assert.Equal((joined.Key, (await viewer.Http.MeAsync()).Id, 120.5, -40d), (cursor.Key, cursor.PrincipalId, cursor.X, cursor.Y));
+        Assert.False(await ownCursors.AnyWithinAsync(TimeSpan.FromMilliseconds(200)));
+
+        var off = await Assert.ThrowsAsync<HubException>(() =>
+            viewerLive.Connection.InvokeAsync("MoveCursor", new CursorUpdate(1e9, 0)));
+        Assert.Contains("point", off.Message);
+
+        // Someone joining later sees the pointer where it stands, without waiting for it to move.
+        var lateLive = await ConnectAsync(owner);
+        var lateCursors = lateLive.Inbox<RemoteCursor>("CursorMoved");
+        await lateLive.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+        var late = await lateCursors.NextAsync();
+        Assert.Equal((joined.Key, 120.5, -40d), (late.Key, late.X, late.Y));
+
+        await viewerLive.Connection.InvokeAsync("HideCursor");
+        Assert.Equal(joined.Key, await hidden.NextAsync());
+        await viewerLive.Connection.InvokeAsync("Leave");
+        Assert.Equal(joined.Key, await hidden.NextAsync());
+    }
+
+    [Fact]
+    public async Task Cursors_follow_the_board_setting_on_open_connections()
+    {
+        var owner = await SessionAsync("live-cursor-setting-owner@example.com");
+        var editor = await SessionAsync("live-cursor-setting-editor@example.com");
+        var board = await owner.Http.CreateBoardAsync();
+        await owner.Http.ShareAsync(board.Id, editor.Http, BoardRole.Editor);
+
+        var ownerLive = await ConnectAsync(owner);
+        var editorLive = await ConnectAsync(editor);
+        var cursors = ownerLive.Inbox<RemoteCursor>("CursorMoved");
+        await ownerLive.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+        await editorLive.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+
+        // Only owners change it.
+        Assert.Equal(HttpStatusCode.Forbidden, (await editor.Http.PatchAsJsonAsync($"/api/boards/{board.Id}", new { showCursors = false })).StatusCode);
+
+        var response = await owner.Http.PatchAsJsonAsync($"/api/boards/{board.Id}", new { showCursors = false });
+        response.EnsureSuccessStatusCode();
+        Assert.False((await response.Content.ReadFromJsonAsync<BoardSummary>())!.ShowCursors);
+        var refused = await Assert.ThrowsAsync<HubException>(() =>
+            editorLive.Connection.InvokeAsync("MoveCursor", new CursorUpdate(10, 10)));
+        Assert.Contains("cursors", refused.Message);
+        Assert.False((await owner.Http.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.ShowCursors);
+
+        // Back on, without joining again.
+        (await owner.Http.PatchAsJsonAsync($"/api/boards/{board.Id}", new { showCursors = true })).EnsureSuccessStatusCode();
+        await editorLive.Connection.InvokeAsync("MoveCursor", new CursorUpdate(10, 10));
+        Assert.Equal(10d, (await cursors.NextAsync()).X);
+    }
+
+    [Fact]
+    public async Task Visitors_of_a_public_board_never_see_or_send_cursors()
+    {
+        var owner = await SessionAsync("live-cursor-public-owner@example.com");
+        var editor = await SessionAsync("live-cursor-public-editor@example.com");
+        var board = await owner.Http.CreateBoardAsync("Live public cursors");
+        await owner.Http.ShareAsync(board.Id, editor.Http, BoardRole.Editor);
+        (await owner.Http.PatchAsJsonAsync($"/api/boards/{board.Id}", new { isPublic = true, publicShowsPeople = true })).EnsureSuccessStatusCode();
+
+        var ownerLive = await ConnectAsync(owner);
+        var editorLive = await ConnectAsync(editor);
+        var guest = await ConnectAsync(new Session(factory.CreateAnonymousClient(), ""));
+        var memberCursors = editorLive.Inbox<RemoteCursor>("CursorMoved");
+        var guestCursors = guest.Inbox<RemoteCursor>("CursorMoved");
+        var guestHidden = guest.Inbox<Guid>("CursorHidden");
+        await ownerLive.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+        await editorLive.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+        Assert.True((await guest.Connection.InvokeAsync<JoinedBoard>("Join", board.Id)).Visiting);
+
+        // The members of a public board still see each other.
+        await ownerLive.Connection.InvokeAsync("MoveCursor", new CursorUpdate(5, 5));
+        await memberCursors.NextAsync();
+        await ownerLive.Connection.InvokeAsync("HideCursor");
+        Assert.False(await guestCursors.AnyWithinAsync(TimeSpan.FromMilliseconds(300)));
+        Assert.False(await guestHidden.AnyWithinAsync(TimeSpan.FromMilliseconds(100)));
+
+        await Assert.ThrowsAsync<HubException>(() => guest.Connection.InvokeAsync("MoveCursor", new CursorUpdate(5, 5)));
     }
 
     [Fact]

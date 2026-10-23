@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, type RefObject } from 'react'
 import type { Point, Rect } from '../api/types'
 import { useScrollView } from './canvasHooks'
+import { reducedMotion } from './motion'
 import { bounds, insideClient } from './selection'
 import { useZoom } from './useZoom'
 
@@ -100,11 +101,11 @@ export function useCanvasExtent({ scrollRef, view, corner, zoom }: ReturnType<ty
       extent: { x: low.x, y: low.y, width: extent.width - low.x, height: extent.height - low.y },
       viewport: { x: (view.x - origin.x) / zoom, y: (view.y - origin.y) / zoom, width: view.width / zoom, height: view.height / zoom },
     },
-    /** Scrolls so a canvas point (picked on the minimap) is in the middle of the screen. */
-    navigate(center: Point) {
+    /** Scrolls so a canvas point (picked on the minimap) is in the middle of the screen; `smooth` glides there. */
+    navigate(center: Point, { smooth = false } = {}) {
       const el = scrollRef.current!
-      el.scrollLeft = center.x * zoom + origin.x - el.clientWidth / 2
-      el.scrollTop = center.y * zoom + origin.y - el.clientHeight / 2
+      const to = { left: center.x * zoom + origin.x - el.clientWidth / 2, top: center.y * zoom + origin.y - el.clientHeight / 2 }
+      el.scrollTo({ ...to, behavior: smooth && !reducedMotion() ? 'smooth' : 'auto' })
     },
   }
 }

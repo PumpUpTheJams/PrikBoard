@@ -53,6 +53,18 @@ public sealed class BoardEvents(IHubContext<BoardHub, IBoardClient> hub, LiveVie
         await PresenceAsync(boardId);
     });
 
+    /// <summary>
+    /// The board started or stopped showing cursors: its members' open connections may send them (or not) from now on. The
+    /// clients see the setting in the board they reload anyway, and drop the cursors they show.
+    /// </summary>
+    public void CursorsChanged(Guid boardId, bool on)
+    {
+        foreach (var entry in viewers.MembersOn(boardId))
+        {
+            viewers.Update(entry.ConnectionId, e => e.BoardId == boardId ? e with { Cursors = on, Cursor = on ? e.Cursor : null } : e);
+        }
+    }
+
     /// <summary>These users' or agents' board lists changed.</summary>
     public Task BoardsChangedAsync(IEnumerable<Guid> principalIds) => Safely(() =>
         hub.Clients.Users(principalIds.Select(id => id.ToString()).ToList()).BoardsChanged());
@@ -79,8 +91,8 @@ public sealed class BoardEvents(IHubContext<BoardHub, IBoardClient> hub, LiveVie
             }
 
             await hub.Groups.RemoveFromGroupAsync(entry.ConnectionId, BoardHub.Group(boardId));
-            viewers.Update(entry.ConnectionId, e => e with { BoardId = null, Role = BoardRole.Viewer });
-            await hub.Clients.Group(BoardHub.Group(boardId)).DragEnded(entry.Key);
+            viewers.Update(entry.ConnectionId, e => e with { BoardId = null, Role = BoardRole.Viewer, Cursors = false, Cursor = null });
+            await BoardHub.GoneAsync(hub.Clients, boardId, entry.Key);
         }
         if (role is null) await PresenceAsync(boardId);
         await hub.Clients.User(principalId.ToString()).AccessChanged(boardId);

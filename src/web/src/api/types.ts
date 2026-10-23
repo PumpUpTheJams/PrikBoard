@@ -32,6 +32,8 @@ export interface BoardSummary {
   isPublic: boolean
   /** Whether those visitors see who is on the board (names and pictures), or anonymous circles. */
   publicShowsPeople: boolean
+  /** Whether members looking at the board see each other's pointers live (thumbtacks). Visitors never do. */
+  showCursors: boolean
 }
 
 export interface BoardDetail extends BoardSummary {
@@ -822,7 +824,7 @@ export interface JoinedBoard {
   key: string
   viewers: LiveViewer[]
   guests: number
-  /** Joined as a visitor of a public board: changes and presence, no drags. */
+  /** Joined as a visitor of a public board: changes and presence, no drags or pointers. */
   visiting: boolean
 }
 
@@ -844,12 +846,36 @@ export interface DragUpdate {
    * them. What is in a bucket that moves isn't listed: the bucket carries it.
    */
   items?: string[] | null
+  /** Where the pointer holds the item `id`, so others can show it pinned there. */
+  grab?: DragGrab | null
+}
+
+/**
+ * Where on the dragged item the pointer took hold of it: fractions of its width and height when the drag started (0,0
+ * its top-left corner, 1,1 its bottom-right). It stays at the same fraction of the item as it moves or resizes.
+ */
+export interface DragGrab {
+  x: number
+  y: number
 }
 
 export interface RemoteDrag extends DragUpdate {
   key: string
   principalId: string
   displayName: string
+}
+
+/** Your pointer on the open board, in canvas pixels (MoveCursor). */
+export interface CursorUpdate {
+  x: number
+  y: number
+}
+
+/** Another member's pointer on the open board; their name and picture are in the presence list. */
+export interface RemoteCursor extends CursorUpdate {
+  /** Their connection; CursorHidden names the same key. */
+  key: string
+  principalId: string
 }
 
 /** Agent: its own agent with capped access. App: a PrikBoard app (the VS Code extension) signed in as you. */

@@ -211,7 +211,15 @@ export const api = {
   getBoardByShortId: (shortId: string) => request<BoardDetail>('GET', `/boards/${shortId}`),
   updateBoard: (
     boardId: string,
-    changes: { name?: string; key?: string; description?: string; rules?: string; isPublic?: boolean; publicShowsPeople?: boolean },
+    changes: {
+      name?: string
+      key?: string
+      description?: string
+      rules?: string
+      isPublic?: boolean
+      publicShowsPeople?: boolean
+      showCursors?: boolean
+    },
   ) => request<BoardSummary>('PATCH', `/boards/${boardId}`, changes),
   deleteBoard: (boardId: string) => request<void>('DELETE', `/boards/${boardId}`),
   /** The board as one file to save: its content with images, but no people. */

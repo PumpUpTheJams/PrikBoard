@@ -55,14 +55,17 @@ export function NewCardGhost({ client, fill, overTrash, zoom }: { client: Point;
   )
 }
 
-/** Other people's drags in progress, outlined with their name: each of several items moving together, the name on the first. */
-export function RemoteDragOutlines({ drags, rectsOf }: { drags: LiveDrag[]; rectsOf: (drag: LiveDrag) => Rect[] }) {
+/**
+ * Other people's drags in progress, outlined with their name: each of several items moving together, the name on the
+ * first. `unnamed`: their thumbtack pinned into the item says who it is instead.
+ */
+export function RemoteDragOutlines({ drags, rectsOf, unnamed = false }: { drags: LiveDrag[]; rectsOf: (drag: LiveDrag) => Rect[]; unnamed?: boolean }) {
   return drags.flatMap((r) =>
     rectsOf(r).map((rect, i) => {
       const style = { left: rect.x, top: rect.y, width: rect.width, height: rect.height, '--who': presenceColor(r.principalId) }
       return (
         <div key={`${r.key}:${i}`} className="remote-drag" aria-hidden="true" style={style as CSSProperties}>
-          {i === 0 && <span className="remote-drag-name">{r.displayName}</span>}
+          {i === 0 && !unnamed && <span className="remote-drag-name">{r.displayName}</span>}
         </div>
       )
     }),
