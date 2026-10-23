@@ -29,6 +29,9 @@ public interface IBoardClient
     /// <summary>That member's pointer left the board (or they did).</summary>
     Task CursorHidden(Guid key);
 
+    /// <summary>Another member's selection on the joined board changed (no items: they selected nothing, or left).</summary>
+    Task Selected(RemoteSelection selection);
+
     /// <summary>Your list of boards changed (a board was renamed or deleted, or you were added or removed); re-read listBoards.</summary>
     Task BoardsChanged();
 
@@ -89,7 +92,7 @@ public sealed class BoardHub(LiveViewers viewers, PrikBoardDbContext db) : Hub<I
     {
         if (viewers.Remove(Context.ConnectionId) is { BoardId: { } boardId } entry)
         {
-            await GoneAsync(Clients, boardId, entry.Key);
+            await GoneAsync(Clients, boardId, entry);
             await SendPresenceAsync(Clients, viewers, boardId);
         }
         await base.OnDisconnectedAsync(exception);
@@ -139,12 +142,13 @@ public sealed class BoardHub(LiveViewers viewers, PrikBoardDbContext db) : Hub<I
         }) ?? entry;
 
         await SendPresenceAsync(Clients, viewers, boardId, except: Context.ConnectionId);
-        // Pointers held still since they last moved would not show until they move again.
+        // Pointers held still since they last moved, and selections made before, would not show until they change.
         if (entry.Cursors)
         {
             foreach (var other in viewers.MembersOn(boardId).Where(e => e.ConnectionId != Context.ConnectionId))
             {
                 if (other.Cursor is { } at) await Clients.Caller.CursorMoved(new RemoteCursor(other.Key, other.PrincipalId, at.X, at.Y));
+                if (other.Selection is { } items) await Clients.Caller.Selected(new RemoteSelection(other.Key, other.PrincipalId, items));
             }
         }
         var present = viewers.Presence(boardId, forVisitors: visitor);
@@ -174,12 +178,10 @@ public sealed class BoardHub(LiveViewers viewers, PrikBoardDbContext db) : Hub<I
             throw new HubException($"A Group drag lists between 1 and {DragUpdate.MaxItems} items; other drags list none.");
         }
 
-        if (update.Grab is { IsValid: false }) throw new HubException("A grab point is a fraction of the item, from 0 to 1.");
-
         if (!viewers.TakeDragTurn(Context.ConnectionId, Stopwatch.GetTimestamp(), DragInterval)) return;
 
         await Clients.OthersInGroup(Group(boardId)).Dragging(new RemoteDrag(
-            entry.Key, entry.PrincipalId, entry.DisplayName, update.Kind, update.Id, update.Dx, update.Dy, update.Handle, update.Items, update.Grab));
+            entry.Key, entry.PrincipalId, entry.DisplayName, update.Kind, update.Id, update.Dx, update.Dy, update.Handle, update.Items));
     }
 
     /// <summary>The drag is over (dropped or canceled).</summary>
@@ -216,11 +218,28 @@ public sealed class BoardHub(LiveViewers viewers, PrikBoardDbContext db) : Hub<I
         if (entry.BoardId is { } boardId && !entry.Visitor) await Clients.OthersInGroup(Group(boardId)).CursorHidden(entry.Key);
     }
 
-    /// <summary>A connection left the board's members: its drag ends and its pointer goes.</summary>
-    public static async Task GoneAsync(IHubClients<IBoardClient> clients, Guid boardId, Guid key)
+    /// <summary>
+    /// Shows the other members what this connection has selected, as its pins in those items. Any member may, while the
+    /// board shows cursors; visitors never do.
+    /// </summary>
+    public async Task Select(SelectionUpdate update)
     {
-        await clients.Group(Group(boardId)).DragEnded(key);
-        await clients.Group(Group(boardId)).CursorHidden(key);
+        var entry = Current();
+        if (entry.BoardId is not { } boardId) return;
+        if (entry.Visitor || !entry.Cursors) throw new HubException("This board doesn't show cursors.");
+        if (update.Items is not { Count: <= DragUpdate.MaxItems }) throw new HubException($"A selection lists at most {DragUpdate.MaxItems} items.");
+
+        var items = update.Items.Distinct().ToList();
+        viewers.Update(Context.ConnectionId, e => e with { Selection = items.Count > 0 ? items : null });
+        await Clients.OthersInGroup(Group(boardId)).Selected(new RemoteSelection(entry.Key, entry.PrincipalId, items));
+    }
+
+    /// <summary>A connection left the board's members: its drag ends, and its pointer and pins go.</summary>
+    public static async Task GoneAsync(IHubClients<IBoardClient> clients, Guid boardId, LiveViewers.Entry entry)
+    {
+        await clients.Group(Group(boardId)).DragEnded(entry.Key);
+        await clients.Group(Group(boardId)).CursorHidden(entry.Key);
+        if (entry.Selection is not null) await clients.Group(Group(boardId)).Selected(new RemoteSelection(entry.Key, entry.PrincipalId, []));
     }
 
     private LiveViewers.Entry Current() =>
@@ -229,8 +248,8 @@ public sealed class BoardHub(LiveViewers viewers, PrikBoardDbContext db) : Hub<I
     private async Task LeaveBoard(LiveViewers.Entry entry, Guid boardId)
     {
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, entry.Visitor ? VisitorGroup(boardId) : Group(boardId));
-        viewers.Update(Context.ConnectionId, e => e with { BoardId = null, Role = BoardRole.Viewer, Visitor = false, ShowsPeople = false, Cursors = false, Cursor = null });
-        await GoneAsync(Clients, boardId, entry.Key);
+        viewers.Update(Context.ConnectionId, e => e with { BoardId = null, Role = BoardRole.Viewer, Visitor = false, ShowsPeople = false, Cursors = false, Cursor = null, Selection = null });
+        await GoneAsync(Clients, boardId, entry);
         await SendPresenceAsync(Clients, viewers, boardId);
     }
 }

@@ -1,95 +1,103 @@
-import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import type { LiveViewer, Rect } from '../api/types'
 import { Face } from '../components/Avatar'
 import { presenceColor } from '../live/presence'
-import type { CursorStore, LiveDrag } from '../live/useLive'
+import type { CursorStore } from '../live/useLive'
 import { SparkleIcon } from './icons'
-import { tacksOf } from './tacks'
+import { headsOf, pinsOf, type Pin } from './peers'
 
-/** A thumbtack that hasn't moved for this long fades: its owner is probably looking elsewhere. */
+/** A head that hasn't moved for this long fades: its owner is probably looking elsewhere. */
 const IDLE_MS = 30_000
+/** How long a pin takes to pull out (`.peer-pin.out` in index.css). */
+const PIN_OUT_MS = 140
 
 /**
- * The others' pointers on the board as push pins in their presence color with their picture beside it, and pinned
- * into what they drag. They keep their size on screen whatever the zoom. `focused`: the one picked in the top bar, which
- * pulses and shows its name. It follows the pointers by itself, so the board doesn't draw again as they move.
+ * The others on the board: the head of each one's pointer (their picture in a ring of their presence color), and a pin
+ * pricked into the top-left corner of everything they have selected, which drops in when they select it and pulls out
+ * when they don't any more. Both keep their size on screen whatever the zoom. `focused`: the connection picked in the
+ * top bar, whose head (or else pins) pulses and shows the name. It follows the store by itself, so the board doesn't
+ * draw again as pointers move.
  */
-export function RemoteCursors({ cursors, drags, viewers, heldRect, zoom, focused }: {
+export function RemoteCursors({ cursors, viewers, rectOf, zoom, focused }: {
   cursors: CursorStore
-  drags: LiveDrag[]
   viewers: LiveViewer[]
-  heldRect: (drag: LiveDrag) => Rect | null
+  rectOf: (id: string) => Rect | null
   zoom: number
   focused: string | null
 }) {
-  const list = useSyncExternalStore(cursors.subscribe, cursors.list)
-  const tacks = tacksOf(list, drags, viewers, heldRect)
-  const now = useNow(tacks.length > 0)
-  return tacks.map(({ key, viewer, at, pinned, updatedAt }) => {
-    const idle = !pinned && now - updatedAt > IDLE_MS
-    const style = { left: at.x, top: at.y, '--who': presenceColor(viewer.principalId), '--unzoom': 1 / zoom } as CSSProperties
-    return (
-      <div
-        key={key}
-        className={`tack${pinned ? ' pricked' : ''}${idle ? ' idle' : ''}${focused === key ? ' focused' : ''}`}
-        aria-hidden="true"
-        style={style}
-      >
-        <span className="tack-shadow" />
-        <span className="tack-dent" />
-        <span className="tack-body">
-          <span className="tack-pin">
-            <PushPin />
-          </span>
-        </span>
-        <span className={`avatar tack-head${viewer.kind === 'Agent' ? ' agent' : ''}`}>
-          {viewer.kind === 'Agent' ? <SparkleIcon size={12} /> : <Face name={viewer.displayName} avatarUrl={viewer.avatarUrl} />}
-        </span>
-        {focused === key && <span className="tack-name">{viewer.displayName}</span>}
-      </div>
-    )
-  })
-}
-
-/**
- * A push pin standing up, seen from the side and a little above (every cross-section the same flat ellipse), its
- * needle's tip at the bottom middle: a flat cap, a tapered barrel and a flared skirt in the person's color (`--who`),
- * lit from the left, and a steel needle out of the middle of the skirt.
- */
-function PushPin() {
+  const peers = useSyncExternalStore(cursors.subscribe, cursors.snapshot)
+  const heads = headsOf(peers.cursors, viewers)
+  const pins = useLeaving(pinsOf(peers, viewers, rectOf), PIN_OUT_MS)
+  const now = useNow(heads.length > 0)
+  const headFocused = heads.some((h) => h.key === focused)
+  const styleOf = (viewer: LiveViewer, at: { x: number; y: number }) =>
+    ({ left: at.x, top: at.y, '--who': presenceColor(viewer.principalId), '--unzoom': 1 / zoom }) as CSSProperties
   return (
-    <svg className="tack-svg" viewBox="0 0 36 70" width="36" height="70" aria-hidden="true">
-      <defs>
-        <linearGradient id="tack-shade" x1="0" x2="1" y1="0" y2="0">
-          <stop offset="0" stopColor="#fff" stopOpacity="0.38" />
-          <stop offset="0.35" stopColor="#fff" stopOpacity="0" />
-          <stop offset="0.65" stopColor="#000" stopOpacity="0" />
-          <stop offset="1" stopColor="#000" stopOpacity="0.38" />
-        </linearGradient>
-        <linearGradient id="tack-steel" x1="0" x2="1" y1="0" y2="0">
-          <stop offset="0" stopColor="#f2f4f7" />
-          <stop offset="0.5" stopColor="#b9bec7" />
-          <stop offset="1" stopColor="#6d737d" />
-        </linearGradient>
-      </defs>
-      <path className="tack-needle" d="M16.8 46h2.4l-0.7 21.5L18 70l-0.5-2.5z" fill="url(#tack-steel)" />
-      <g className="tack-plastic">
-        <path d="M12 31h12c1.5 5 8 8 8 13a14 4.2 0 0 1-28 0c0-5 6.5-8 8-13z" />
-        <path d="M12 31h12c1.5 5 8 8 8 13a14 4.2 0 0 1-28 0c0-5 6.5-8 8-13z" fill="url(#tack-shade)" />
-        <path d="M9 9h18l-3 23a6 1.8 0 0 1-12 0z" />
-        <path d="M9 9h18l-3 23a6 1.8 0 0 1-12 0z" fill="url(#tack-shade)" />
-        <path d="M11.6 13l2 17" stroke="#fff" strokeOpacity="0.45" strokeWidth="1.4" strokeLinecap="round" fill="none" />
-        <path d="M5 6v4a13 4 0 0 0 26 0v-4z" />
-        <path d="M5 6v4a13 4 0 0 0 26 0v-4z" fill="url(#tack-shade)" />
-        <path d="M5 6v4a13 4 0 0 0 26 0v-4z" fill="#000" fillOpacity="0.15" />
-        <ellipse cx="18" cy="6" rx="13" ry="4" />
-        <ellipse cx="18" cy="6" rx="13" ry="4" fill="#fff" fillOpacity="0.22" />
-      </g>
-    </svg>
+    <>
+      {pins.map(({ id, key, viewer, at, out }) => (
+        <div
+          key={id}
+          className={`peer-pin${out ? ' out' : ''}${!headFocused && focused === key ? ' focused' : ''}`}
+          aria-hidden="true"
+          style={styleOf(viewer, at)}
+        >
+          <span className="peer-pin-hole" />
+          <span className="peer-pin-clip">
+            <span className="peer-pin-move">
+              <svg className="peer-pin-needle" viewBox="0 0 5.6 20" width="5.6" height="20">
+                <path d="M0 0h5.6L3.05 18.75 2.8 20l-.25-1.25z" />
+              </svg>
+              <PeerFace viewer={viewer} />
+            </span>
+          </span>
+        </div>
+      ))}
+      {heads.map(({ key, viewer, at, updatedAt }) => (
+        <div
+          key={key}
+          className={`peer-pointer${now - updatedAt > IDLE_MS ? ' idle' : ''}${focused === key ? ' focused' : ''}`}
+          aria-hidden="true"
+          style={styleOf(viewer, at)}
+        >
+          <PeerFace viewer={viewer} />
+          {focused === key && <span className="peer-name">{viewer.displayName}</span>}
+        </div>
+      ))}
+    </>
   )
 }
 
-/** The time, updated every few seconds while `on`, so idle thumbtacks fade without anything else changing. */
+/** Someone's picture in a ring of their color: the head of their pointer and of their pins. */
+function PeerFace({ viewer }: { viewer: LiveViewer }) {
+  return (
+    <span className={`avatar peer-face${viewer.kind === 'Agent' ? ' agent' : ''}`}>
+      {viewer.kind === 'Agent' ? <SparkleIcon size={10} /> : <Face name={viewer.displayName} avatarUrl={viewer.avatarUrl} />}
+    </span>
+  )
+}
+
+/** The pins, plus those just gone for `ms` more (`out`, where they last were), so they can pull out. */
+function useLeaving(pins: Pin[], ms: number): (Pin & { out?: boolean })[] {
+  const [gone, setGone] = useState<Pin[]>([])
+  /** The pins as last drawn, so those that go keep the place they last had. */
+  const last = useRef(pins)
+  const ids = pins.map((p) => p.id).join(' ')
+  // Before the browser paints, so a pin that goes never disappears for a frame before it pulls out.
+  useLayoutEffect(() => {
+    const here = new Set(ids.split(' '))
+    const left = last.current.filter((p) => !here.has(p.id))
+    if (left.length === 0) return
+    setGone((current) => [...current.filter((p) => !here.has(p.id) && !left.some((l) => l.id === p.id)), ...left])
+    window.setTimeout(() => setGone((current) => current.filter((p) => !left.includes(p))), ms)
+  }, [ids, ms])
+  useLayoutEffect(() => {
+    last.current = pins
+  })
+  const here = new Set(ids.split(' '))
+  return [...pins, ...gone.filter((p) => !here.has(p.id)).map((p) => ({ ...p, out: true }))]
+}
+
+/** The time, updated every few seconds while `on`, so idle heads fade without anything else changing. */
 function useNow(on: boolean) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {

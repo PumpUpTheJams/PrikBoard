@@ -14,7 +14,8 @@ public sealed class LiveViewers
     /// random principal id for this connection. <paramref name="Visitor"/>: on a public board without being a member;
     /// <paramref name="ShowsPeople"/>: whether that board shows its people to visitors; <paramref name="Cursors"/>: whether
     /// this member's pointer may go to the others on the board (its ShowCursors); <paramref name="Cursor"/>: where it last
-    /// was, for those who join later (null when it isn't on the board).
+    /// was and <paramref name="Selection"/> what it has selected, for those who join later (null when it isn't on the board,
+    /// or nothing is selected).
     /// </summary>
     public sealed record Entry(
         string ConnectionId,
@@ -31,7 +32,8 @@ public sealed class LiveViewers
         bool ShowsPeople = false,
         bool Cursors = false,
         long LastCursorAt = 0,
-        CursorUpdate? Cursor = null);
+        CursorUpdate? Cursor = null,
+        List<Guid>? Selection = null);
 
     private readonly Lock gate = new();
     private readonly Dictionary<string, Entry> connections = [];

@@ -57,7 +57,7 @@ export function NewCardGhost({ client, fill, overTrash, zoom }: { client: Point;
 
 /**
  * Other people's drags in progress, outlined with their name: each of several items moving together, the name on the
- * first. `unnamed`: their thumbtack pinned into the item says who it is instead.
+ * first. `unnamed`: their pin in the item (they have it selected) says who it is instead.
  */
 export function RemoteDragOutlines({ drags, rectsOf, unnamed = false }: { drags: LiveDrag[]; rectsOf: (drag: LiveDrag) => Rect[]; unnamed?: boolean }) {
   return drags.flatMap((r) =>

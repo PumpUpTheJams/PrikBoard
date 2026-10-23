@@ -61,7 +61,9 @@ public sealed class BoardEvents(IHubContext<BoardHub, IBoardClient> hub, LiveVie
     {
         foreach (var entry in viewers.MembersOn(boardId))
         {
-            viewers.Update(entry.ConnectionId, e => e.BoardId == boardId ? e with { Cursors = on, Cursor = on ? e.Cursor : null } : e);
+            viewers.Update(entry.ConnectionId, e => e.BoardId == boardId
+                ? e with { Cursors = on, Cursor = on ? e.Cursor : null, Selection = on ? e.Selection : null }
+                : e);
         }
     }
 
@@ -91,8 +93,8 @@ public sealed class BoardEvents(IHubContext<BoardHub, IBoardClient> hub, LiveVie
             }
 
             await hub.Groups.RemoveFromGroupAsync(entry.ConnectionId, BoardHub.Group(boardId));
-            viewers.Update(entry.ConnectionId, e => e with { BoardId = null, Role = BoardRole.Viewer, Cursors = false, Cursor = null });
-            await BoardHub.GoneAsync(hub.Clients, boardId, entry.Key);
+            viewers.Update(entry.ConnectionId, e => e with { BoardId = null, Role = BoardRole.Viewer, Cursors = false, Cursor = null, Selection = null });
+            await BoardHub.GoneAsync(hub.Clients, boardId, entry);
         }
         if (role is null) await PresenceAsync(boardId);
         await hub.Clients.User(principalId.ToString()).AccessChanged(boardId);
