@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="API + Web" type="CompoundRunConfigurationType">
+    <toRun name="API" type="LaunchSettings" />
+    <toRun name="Web" type="ShConfigurationType" />
+    <method v="2" />
+  </configuration>
+</component>
