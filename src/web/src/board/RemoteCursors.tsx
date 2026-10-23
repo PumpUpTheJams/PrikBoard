@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
-import type { LiveViewer, Rect } from '../api/types'
+import type { LiveViewer } from '../api/types'
 import { Face } from '../components/Avatar'
 import { presenceColor } from '../live/presence'
-import type { CursorStore } from '../live/useLive'
+import type { CursorStore, LiveDrag } from '../live/useLive'
 import { SparkleIcon } from './icons'
-import { headsOf, pinsOf, type Pin } from './peers'
+import { headsOf, pinsOf, type Pin, type PinPlace } from './peers'
 
 /** A head that hasn't moved for this long fades: its owner is probably looking elsewhere. */
 const IDLE_MS = 30_000
@@ -12,22 +12,24 @@ const IDLE_MS = 30_000
 const PIN_OUT_MS = 140
 
 /**
- * The others on the board: the head of each one's pointer (their picture in a ring of their presence color), and a pin
- * pricked into the top-left corner of everything they have selected, which drops in when they select it and pulls out
- * when they don't any more. Both keep their size on screen whatever the zoom. `focused`: the connection picked in the
- * top bar, whose head (or else pins) pulses and shows the name. It follows the store by itself, so the board doesn't
- * draw again as pointers move.
+ * The others on the board: the head of each one's pointer (their picture in a ring of their presence color; hidden
+ * while they drag, as the dragged item shows where they are), and a pin pricked into the top of everything they have
+ * selected, which drops in when they select it and pulls out when they don't any more. Both keep their size on screen
+ * whatever the zoom. `focused`: the connection picked in the top bar, whose head (or else pins) pulses and shows the
+ * name. It follows the store by itself, so the board doesn't draw again as pointers move.
  */
-export function RemoteCursors({ cursors, viewers, rectOf, zoom, focused }: {
+export function RemoteCursors({ cursors, viewers, drags, placeOf, zoom, focused }: {
   cursors: CursorStore
   viewers: LiveViewer[]
-  rectOf: (id: string) => Rect | null
+  drags: LiveDrag[]
+  placeOf: (id: string) => PinPlace | null
   zoom: number
   focused: string | null
 }) {
   const peers = useSyncExternalStore(cursors.subscribe, cursors.snapshot)
-  const heads = headsOf(peers.cursors, viewers)
-  const pins = useLeaving(pinsOf(peers, viewers, rectOf), PIN_OUT_MS)
+  const dragging = new Set(drags.filter((d) => !d.endedAt).map((d) => d.key))
+  const heads = headsOf(peers.cursors, viewers).filter((h) => !dragging.has(h.key))
+  const pins = useLeaving(pinsOf(peers, viewers, placeOf, zoom), PIN_OUT_MS)
   const now = useNow(heads.length > 0)
   const headFocused = heads.some((h) => h.key === focused)
   const styleOf = (viewer: LiveViewer, at: { x: number; y: number }) =>

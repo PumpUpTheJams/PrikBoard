@@ -4080,8 +4080,8 @@ a.button.primary:hover {
 /*
  * The others on the board, inside the zoomed canvas and scaled back (--unzoom) to keep their size on screen. Each one's
  * pointer is their picture in a ring of their color (.peer-pointer, centered on the point); each item they have selected
- * has a pin pricked into its top-left corner (.peer-pin, at the needle's tip), which drops in and pushes through a hole
- * when they select it, and pulls out when they don't any more.
+ * has a pin pricked into its top (.peer-pin, at the needle's tip; several people's in a row), which drops in and pushes
+ * through a hole when they select it, and pulls out when they don't any more.
  */
 .peer-pointer,
 .peer-pin {
@@ -4092,6 +4092,11 @@ a.button.primary:hover {
   transform: scale(var(--unzoom));
   transform-origin: 0 0;
   pointer-events: none;
+}
+
+/* Pins are drawn 1.4× (PIN_SPACING and HOLE_BELOW in board/peers.ts count on it). */
+.peer-pin {
+  transform: scale(calc(var(--unzoom) * 1.4));
 }
 
 .peer-pointer {

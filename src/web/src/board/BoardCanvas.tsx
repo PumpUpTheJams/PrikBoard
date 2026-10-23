@@ -26,7 +26,7 @@ import { RemoteCursors } from './RemoteCursors'
 import { resizeCursor } from './resizeCursor'
 import { adds, bounds, contains, mergePicked, togglePicked, touches, useSelection, useSpaceHeld } from './selection'
 import { SelectionToolbar } from './SelectionToolbar'
-import { headsOf, pinsOf, whereIs } from './peers'
+import { headsOf, pinsOf, whereIs, type PinPlace } from './peers'
 import { shakeDetector } from './shake'
 import { tagColorsOf, type TagColorPreview } from './tagColors'
 import { ToolRail } from './ToolRail'
@@ -643,11 +643,12 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   useEffect(() => onSelect?.(selectedIds ? selectedIds.split(' ') : []), [selectedIds, onSelect])
   useEffect(() => () => onSelect?.([]), [onSelect])
   /** Where an item someone else has selected is shown now (moving with drags); null when it is gone or folded away. */
-  const pinRect = (id: string) => {
+  const pinPlace = (id: string): PinPlace | null => {
     const kind = kindOf(board, id)
     const bucketId = kind && bucketOf(board, { kind, id })
     if (!kind || board.buckets.some((b) => b.id === bucketId && b.collapsed)) return null
-    return liveRect(kind, id)
+    const rect = liveRect(kind, id)
+    return rect && { rect, card: kind === 'card' }
   }
 
   // Someone picked in the top bar: glide to their thumbtack, which pulses and shows their name for a moment.
@@ -656,7 +657,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   useEffect(() => {
     goTo.current = (principalId) => {
       const peers = cursors?.snapshot()
-      const found = peers && whereIs(headsOf(peers.cursors, viewers), pinsOf(peers, viewers, pinRect), principalId)
+      const found = peers && whereIs(headsOf(peers.cursors, viewers), pinsOf(peers, viewers, pinPlace, zoom), principalId)
       if (!found) return
       canvas.navigate(found.at, { smooth: true })
       setFocusedTack(found.key)
@@ -947,7 +948,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
             <RemoteDragOutlines drags={remoteDrags.filter((r) => !r.endedAt && r.id !== dragging?.id)} rectsOf={remoteRects} unnamed={!!onCursor} />
             {cursors && onCursor && (
-              <RemoteCursors cursors={cursors} viewers={viewers} rectOf={pinRect} zoom={zoom} focused={focusedTack} />
+              <RemoteCursors cursors={cursors} viewers={viewers} drags={remoteDrags} placeOf={pinPlace} zoom={zoom} focused={focusedTack} />
             )}
 
             {marquee && (
