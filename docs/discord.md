@@ -59,7 +59,7 @@ The text is the same everywhere it appears: the home page, a board, a card, an i
 ### Checklist
 
 - Meta tags in `index.html`; `og-signed-out.png`, `icon-512.png` and `apple-touch-icon.png` in `src/web/public`.
-- Check that nginx serves `index.html` for `/` with the tags (it does today) and that the PNGs are reachable without signing in (they are: nginx serves `public` files before falling back to `index.html`).
+- Check that the API serves `index.html` for `/` with the tags (it does today, from the image's `wwwroot`) and that the PNGs are reachable without signing in (they are: they are static files, served before authentication).
 - Try it with a public host (see Hosting): crawlers can't reach `localhost`.
 
 ## Part 2: the Discord integration

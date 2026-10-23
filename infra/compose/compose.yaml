@@ -36,7 +36,7 @@ services:
     build:
       context: ../..
     environment:
-      ConnectionStrings__PrikBoard: Host=postgres;Database=prikboard;Username=prikboard;Password=${POSTGRES_PASSWORD:-prikboard}
+      ConnectionStrings__PrikBoard: Host=postgres;Database=prikboard;Username=prikboard;Password=${POSTGRES_PASSWORD:-prikboard};GSS Encryption Mode=Disable
     volumes:
       - data:/data
     # Localhost only: the app trusts X-Forwarded-* headers, so anything that reaches it directly could pretend to be

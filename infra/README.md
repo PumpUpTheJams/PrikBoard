@@ -1,18 +1,37 @@
 # Infrastructure
 
-Nothing is deployed yet. Local development needs no infrastructure: the API stores its data in PostgreSQL from the root `compose.yaml` and the Vite dev server proxies API calls.
+Local development needs no infrastructure: the API stores its data in PostgreSQL from the root `compose.yaml` and the Vite dev server proxies API calls.
 
-This folder will hold everything needed to run PrikBoard somewhere other than a laptop:
+## Running PrikBoard on a server
 
-- **Container images** (built). `src/PrikBoard.Api/Dockerfile` builds the API image (port 8080, non-root) and `src/web/Dockerfile` the web image: nginx serving the SPA on port 8080 and proxying `/api`, `/openapi` and `/scalar` to `API_URL` (default `http://api:8080`) with the browser's Host header, like the Vite dev proxy. Browsers only talk to the web container. The [Containers workflow](../.github/workflows/containers.yml) publishes both to `ghcr.io/<owner>/prikboard-api` and `prikboard-web` when a semver tag such as `1.2.3` is pushed, tagged with that version, for `linux/amd64` and `linux/arm64` (both Dockerfiles cross-compile on the build machine's own platform, so no emulation is needed). The API image is based on the chiseled .NET runtime, which has no shell, so `docker exec` into it doesn't work; use `docker logs`, or `docker run --rm -v <volume>:/data alpine` to look at its volumes. It trusts `X-Forwarded-Proto` (`ASPNETCORE_FORWARDEDHEADERS_ENABLED`), so don't expose it directly. Its Data Protection keys live in `/home/app/.aspnet/DataProtection-Keys`; mount a volume there to keep sessions across restarts. Images and avatars are files under `Storage__Path`, which has no default in the image, so the API doesn't start until it gets one: mount a volume at `/home/app/files` and set `Storage__Path=/home/app/files`. Back it up together with the database; the first start of a version from before this moves the images and avatars from the database there.
-- **Infrastructure as code.** Bicep or Terraform for the hosting platform, database and secrets.
-- **Environment configuration.** Per-environment settings such as the connection string (`ConnectionStrings__PrikBoard`), sign-in provider client ids and secrets (`Auth__Providers__{id}__ClientId`, `...__ClientSecret`), and trusted token issuers (`Auth__Tokens__Issuers__{id}__Authority`).
-- **Persistent Data Protection keys.** Session cookies and sign-ins are encrypted with them, so they must survive restarts and be shared between instances. See [Authentication](../docs/authentication.md#before-deploying).
+[`compose/compose.yaml`](compose/compose.yaml) runs PrikBoard with PostgreSQL on one machine:
 
-The CI workflow lives in [`.github/workflows`](../.github/workflows), because GitHub requires that location.
+```bash
+cd infra/compose
+cp .env.example .env    # optional: version, port, database password, domain
+docker compose up -d
+docker compose logs app # shows the setup key
+```
+
+Open http://localhost:8080 and follow the setup: enter the setup key, add sign-in providers, sign in as the first admin, run the checks and download the recovery kit ([Authentication](../docs/authentication.md#setup-and-recovery)).
+
+- **One image.** The root [`Dockerfile`](../Dockerfile) builds the web app and the API into one image, in which the API serves the web app from `wwwroot` (port 8080, non-root). The [Containers workflow](../.github/workflows/containers.yml) publishes it to `ghcr.io/<owner>/prikboard` with the version and `latest` when a semver tag such as `1.2.3` is pushed, for `linux/amd64` and `linux/arm64` (it cross-compiles on the build machine's own platform, so no emulation is needed). Without a published image, `docker compose up` builds it from this checkout.
+- **One data folder.** `/data` (`Storage__Path`) holds the images and avatars, the Data Protection keys (`keys/`: sessions and stored provider secrets) and the hash key generated on the first start (`hash-key`). Keep it on a volume (the compose file does) and back it up together with the database volume. The first start of a version from before files moved out of the database moves them there.
+- **Localhost only.** The app trusts `X-Forwarded-Proto/-For` (`ASPNETCORE_FORWARDEDHEADERS_ENABLED`), so the compose file publishes it on `127.0.0.1` only. To reach it from elsewhere, use the `https` profile or a tunnel.
+- **HTTPS.** Point a domain's DNS at the machine, open ports 80 and 443, set `DOMAIN` in `.env` and start `docker compose --profile https up -d`: [Caddy](compose/Caddyfile) gets a certificate and proxies to the app. A tunnel (Cloudflare Tunnel, Tailscale Funnel) pointed at `app:8080` works too. Sign-in providers need HTTPS on any address but localhost, and their callback URLs name the address, so add the providers again (a new GitHub App) for the new address.
+- **One instance.** Live presence and the sign-in provider schemes live in the app's memory, so run one replica.
+- The image is based on the chiseled .NET runtime, which has no shell, so `docker exec` into it doesn't work; use `docker compose logs app`, or `docker run --rm -v prikboard-server_data:/data alpine` to look at the data volume.
+
+## Configuration
+
+Everything has a default; these override it, as environment variables on the app:
+
+- `ConnectionStrings__PrikBoard`: the database (set by the compose file).
+- `Auth__HashKey`: your own hash key instead of the generated one.
+- `Auth__Providers__{id}__...`: sign-in providers in configuration instead of the setup (read-only there), and `Auth__Tokens__Issuers__{id}__Authority` for trusted token issuers.
+- `Setup__Recovery=true`: print a setup key although users exist, to fix the sign-in providers.
+- `DataProtection__KeysPath`: keep the Data Protection keys outside the data folder.
 
 ## Open decisions
 
-- Hosting platform, for example Azure Container Apps or App Service.
-- Whether to run PostgreSQL in a container with a persistent volume or use a managed PostgreSQL service.
-- Which sign-in providers to enable. Anyone with an account at a configured provider can sign in.
+- Infrastructure as code for a cloud platform, for example Azure Container Apps with a managed PostgreSQL.

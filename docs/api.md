@@ -6,7 +6,7 @@ To explore and try the API in the browser, open the Scalar API reference at `/sc
 
 - **Base URL (local):** `http://localhost:5080`
 - **Format:** JSON with camelCase properties. Enums such as `color` are strings.
-- **Authentication:** every `/api` endpoint needs a caller, except `listAuthProviders` and `logout`, and the reads of a public board (getBoard, getBoardByShortId, getBoardAvatar, getImageContent, getDrawingContent), which answer anyone without credentials. Machines send an OAuth 2.0 access token: `Authorization: Bearer <token>`. The OpenAPI document and `/health` are public.
+- **Authentication:** every `/api` endpoint needs a caller, except `listAuthProviders`, `logout`, `getSetupStatus` and `unlockSetup`, and the reads of a public board (getBoard, getBoardByShortId, getBoardAvatar, getImageContent, getDrawingContent), which answer anyone without credentials. Machines send an OAuth 2.0 access token: `Authorization: Bearer <token>`. The OpenAPI document and `/health` are public.
 - **Access:** boards are members-only. A 404 means "not found, or you are not a member"; a 403 means your role (or token scope) is too low.
 
 ## Authentication
@@ -52,9 +52,13 @@ PrikBoard is invite-only: an open invite link is also the only way for a newcome
 
 ### Admins
 
-The instance's first user is its admin, and admins can make others admin. `whoAmI` returns `isAdmin`. The `admin*` operations below are for admins in the browser only: everyone else, and every token, gets `403`, and there are no MCP tools for them. Admins see who is on every board, not what is on it; to look inside a board, an admin adds themself, which its members see.
+The instance's first user is its admin (they sign in during the setup, with the setup key), and admins can make others admin. `whoAmI` returns `isAdmin`. The `admin*` operations below are for admins in the browser only: everyone else, and every token, gets `403`, and there are no MCP tools for them. Admins see who is on every board, not what is on it; to look inside a board, an admin adds themself, which its members see.
 
 Setting up providers and issuers is described in [Authentication](authentication.md).
+
+### Setup
+
+A new server is set up in the browser: the server prints a setup key in its log, and unlockSetup turns it into a setup cookie for an hour. With that cookie, or as an admin, the `/api/setup` endpoints manage the sign-in providers, run the system checks and (admins only) give the recovery kit. They are for browsers: tokens get `403`, and there are no MCP tools for them. See [Authentication](authentication.md#setup-and-recovery).
 
 ## Personal access tokens
 
@@ -276,10 +280,20 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | adminRemoveBoardMember | `DELETE /api/admin/boards/{boardId}/members/{principalId}` | Take anyone off any board; the last owner stays (admins, sessions only) |
 | adminUpdateUser | `PATCH /api/admin/users/{userId}` | Make a user an admin or take it away; one admin always stays (admins, sessions only) |
 | adminDeleteUser | `DELETE /api/admin/users/{userId}` | Delete a user who owns no board alone; not yourself (admins, sessions only) |
+| getSetupStatus | `GET /api/setup` | Whether nobody has an account yet (`needed`), recovery mode, and whether this browser entered the setup key (public) |
+| unlockSetup | `POST /api/setup/unlock` | The setup key from the server's log: sets the setup cookie for an hour. 403 for a wrong key, 409 once set up (public, 10 a minute) |
+| listSignInProviders | `GET /api/setup/providers` | Every sign-in provider with its settings and number of sign-ins, the default first; secrets never come back (setup or admins) |
+| createSignInProvider | `POST /api/setup/providers` | Add an OpenID Connect provider or a GitHub OAuth App: `id`, `type`, `clientId`, `clientSecret`, `authority` for OpenID Connect. Works at once (setup or admins) |
+| updateSignInProvider | `PATCH /api/setup/providers/{id}` | Change a provider added in the setup; 409 for one from the configuration (setup or admins) |
+| deleteSignInProvider | `DELETE /api/setup/providers/{id}` | Remove a provider added in the setup; not the last one once people have accounts (setup or admins) |
+| checkOpenIdAuthority | `POST /api/setup/openid-check` | Fetch an issuer's discovery document and return its `issuer` (setup or admins) |
+| beginGitHubApp | `POST /api/setup/github-app` | The manifest for a new GitHub App and GitHub's URL to post it to; GitHub comes back with the app, which becomes provider `id` (setup or admins) |
+| getSystemChecks | `GET /api/setup/checks` | How the server runs, each check Ok, Warning or Failed (setup or admins) |
+| getRecoveryKit | `GET /api/setup/recovery-kit` | A text file with the hash key and how to restore a backup (admins, sessions only) |
 
 Board, bucket, card and image endpoints need the **Viewer** role to read and **Editor** to change anything; updateBoard and deleteBoard need **Owner**.
 
-The browser starts sign-in by navigating to `GET /api/auth/login/{provider}?returnUrl=/...`. It is left out of the OpenAPI document because it is a redirect, not an API call, and so is the form post `POST /api/auth/link/{provider}` that connects another sign-in to the signed-in user. The provider redirects back to `/api/auth/callback/{provider}`.
+The browser starts sign-in by navigating to `GET /api/auth/login/{provider}?returnUrl=/...`. It is left out of the OpenAPI document because it is a redirect, not an API call, and so is the form post `POST /api/auth/link/{provider}` that connects another sign-in to the signed-in user. The provider redirects back to `/api/auth/callback/{provider}`. The setup's redirects are left out too: the test sign-in `GET /api/setup/providers/{id}/test?returnUrl=/...` (testSignInProvider) and GitHub's way back after creating an app, `GET /api/setup/github-app/callback` (completeGitHubApp).
 
 `GET /health` returns `Healthy` when the API is up.
 

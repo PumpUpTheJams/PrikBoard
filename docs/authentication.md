@@ -27,12 +27,17 @@ A token without the scope it needs gets `403`. An invalid, expired, wrong-audien
 
 ## Browser sign-in providers
 
-Providers live under `Auth:Providers`, keyed by an id of lowercase letters, digits and dashes. `Auth:DefaultProvider` (`github`) is listed first and shown as the main button. The id appears in the URLs:
+Providers come from two places:
+
+- **The setup** (the web app's first page on a new server, and later Admin → *Instance*; see [Setup](#setup-and-recovery)). It stores them in the database (`SignInProvider`, with the client secret encrypted by Data Protection) and adds or changes their authentication schemes while the app runs (`SignInProviders`), so no restart is needed.
+- **Configuration**, under `Auth:Providers`, as below. These are read-only in the setup, and they win when both use the same id.
+
+Each provider has an id of lowercase letters, digits and dashes, which never changes: it is part of every sign-in's stored hash. `Auth:DefaultProvider` names a configured provider to list first and show as the main button; otherwise the provider the setup marked as default goes first, else the first one added. The id appears in the URLs:
 
 - Login: `/api/auth/login/{id}`
 - Callback (register this as the redirect or callback URL): `{origin}/api/auth/callback/{id}`
 
-In development the origin is the Vite server, `http://localhost:5173`. Vite proxies `/api`, `/openapi` and `/scalar` with `changeOrigin: false`, so the API sees `Host: localhost:5173` and builds the callback URL for 5173. Vite's string shorthand would turn `changeOrigin` on and break this.
+The setup shows each provider's callback URL for this origin. In development the origin is the Vite server, `http://localhost:5173`. Vite proxies `/api`, `/openapi` and `/scalar` with `changeOrigin: false`, so the API sees `Host: localhost:5173` and builds the callback URL for 5173. Vite's string shorthand would turn `changeOrigin` on and break this.
 
 A provider without a `ClientId` is skipped. `appsettings.json` holds templates for GitHub, Google and Microsoft, so enabling one only takes its client id and secret. Keep secrets out of the repository: use user secrets locally, and environment variables or a secret store when deployed (`Auth__Providers__github__ClientSecret`).
 
@@ -45,6 +50,8 @@ A provider without a `ClientId` is skipped. `appsettings.json` holds templates f
 | `Scopes` | Extra scopes on top of the defaults |
 
 ### GitHub (the default)
+
+The setup's **GitHub** button creates a GitHub App from a manifest: GitHub opens with the app filled in (its callback URL, and read access to email addresses, the only permission it needs), the person creates it there, and GitHub sends them back to `/api/setup/github-app/callback` with a code that PrikBoard trades for the app's client id and secret (`Auth/GitHubApps.cs`). The app is public, because only its owner could sign in with a private one; its private key is not kept. The manual steps below are for a GitHub OAuth App instead, from the setup's *GitHub OAuth App* form or from configuration.
 
 GitHub does not support OpenID Connect for signing users in, so it has its own `Type: "GitHub"` adapter: plain OAuth 2.0, with the scopes `read:user` and `user:email`. The user's email is their primary *verified* GitHub email.
 
@@ -103,13 +110,13 @@ PrikBoard stores **no personal data** about people beyond a copy of their GitHub
 
 ### Hash key (`Auth:HashKey`)
 
-The hashes are keyed with a secret, so a leaked database alone reveals nothing. Generate it once, base64, at least 32 bytes:
+The hashes are keyed with a secret, so a leaked database alone reveals nothing. Without `Auth:HashKey`, PrikBoard generates one on its first start outside Development into the data folder (`{Storage:Path}/hash-key`, `KeyedHasher.KeyFileName`) and uses that file from then on. Admins download it in the **recovery kit** (getRecoveryKit; the setup offers it right after the first sign-in). To set your own instead, generate one, base64, at least 32 bytes:
 
 ```bash
 openssl rand -base64 32
 ```
 
-Set it with `dotnet user-secrets set "Auth:HashKey" "<key>" --project src/PrikBoard.Api`, or the environment variable `Auth__HashKey`. Outside Development the API refuses to start without it. Development and the tests fall back to a fixed, public development key.
+Set it with `dotnet user-secrets set "Auth:HashKey" "<key>" --project src/PrikBoard.Api`, or the environment variable `Auth__HashKey`. A configured key wins over the file (a different file only logs a warning). Development and the tests fall back to a fixed, public development key.
 
 **Losing or changing the key orphans every account.** Nobody's sign-in is recognised any more, so people are turned away as newcomers (they would need a new invite link and get a new, empty user), and email search stops finding anyone. There is no key rotation yet.
 
@@ -151,7 +158,7 @@ A signed-in person creates tokens under Account → *Agents and access tokens*, 
 - **Rate limits.**
   - 600 requests a minute per token (`RateLimits:AccessTokenRequestsPerMinute`).
   - Unknown tokens (made up, revoked, or a typo the checksum missed) are not cached, as anyone can make up well-formed ones (`Auth/AccessTokenLookups.cs`). One address may present 30 a minute (`RateLimits:UnknownAccessTokensPerMinute`). After that, every token that isn't cached gets 429 with `Retry-After` until the minute is over. Tokens already looked up keep working.
-  - The address is the client's as the API sees it: behind the web container's nginx, from `X-Forwarded-For`. An IPv6 address counts by its /64 network.
+  - The address is the client's as the API sees it: behind a reverse proxy (Caddy in the compose file), from `X-Forwarded-For`. An IPv6 address counts by its /64 network.
 - **The `/mcp` endpoint** accepts personal access tokens and issuer tokens, never the cookie (`AuthSetup.McpPolicy`). It also refuses requests whose `Origin` header names another site, as the MCP spec requires.
 
 ### App sign-in (VS Code extension)
@@ -165,7 +172,7 @@ The extension's **Sign in** works like Claude Code's: PrikBoard opens in the bro
 
 The code alone is useless, so one leaked through browser history or picked up by another program on the machine cannot be spent. The listener checks `state`, and a pasted code from someone else fails the verifier, so nobody can sign the extension in as another person. What remains is phishing: someone who gets a person to open their link in paste mode and send them the code gets a token. The page warns about exactly that, and the token shows up (with its device name and last use) under Account → *Agents and access tokens*, where the person can revoke it.
 
-An App token is still a token: like any other it cannot manage tokens, approve app sign-ins, accept invites, look people up or link sign-ins. The web app refuses to be framed (`X-Frame-Options: DENY`, `frame-ancestors 'none'` in nginx and the Vite dev server), so the Allow button cannot be clickjacked.
+An App token is still a token: like any other it cannot manage tokens, approve app sign-ins, accept invites, look people up or link sign-ins. The web app refuses to be framed (`X-Frame-Options: DENY`, `frame-ancestors 'none'` on the API's static files and in the Vite dev server), so the Allow button cannot be clickjacked.
 
 ### Discord connect (the Discord bot)
 
@@ -248,7 +255,7 @@ All other tokens, including Client Credentials ones, keep acting as agents. A de
 
 PrikBoard is **invite-only**. Signing in at a provider is not enough: a person only gets an account when they arrive through a board invite link.
 
-- **The very first user** may sign in without one, and becomes the instance's **admin**. Sign-ups are serialised with a PostgreSQL advisory lock, so two first sign-ins at once cannot both become admin. (Upgrading an existing database makes its oldest user the admin.)
+- **The very first user** needs the **setup key** instead, and becomes the instance's **admin** (see [Setup](#setup-and-recovery)). Without it the callback turns them away (`/?authError=setup_required`), so a stranger can't take a new server by signing in before its owner. Sign-ups are serialised with a PostgreSQL advisory lock, so two first sign-ins at once cannot both become admin. (Upgrading an existing database makes its oldest user the admin.)
 - **Newcomers** open an invite link (`/#/invite/{token}`) while signed out. Signing in carries the link in its return URL, which travels in the encrypted OAuth state, and the callback creates their user only if the token is an invite that is neither used, revoked nor expired. They then accept it on the invite page as usual, and from then on they can create boards of their own.
 - **Anyone else** is turned away at the callback (`/?authError=invite_required`), and nothing about them is stored.
 - **People who already have an account** sign in as before, with or without a link.
@@ -265,6 +272,20 @@ Admins (`User.IsAdmin`) run the instance from *Admin* in the settings menu: they
 - Deleting a user deletes their sign-ins, memberships and access tokens. Their cards and images stay (the creator becomes unknown). Their session cookie stops working on the next request: the cookie handler checks that the user still exists (`UserState`, cached for a minute and evicted on delete).
 - The admin endpoints (`/api/admin/*`) are **sessions only**, like token management: tokens get `403`, and there are no MCP tools for them.
 
+## Setup and recovery
+
+A new PrikBoard is set up in the browser (`Endpoints/SetupEndpoints.cs`, `components/SetupPage`):
+
+1. On a start without users, PrikBoard prints a **setup key** in its log (`SetupKey`: 20 Crockford base32 characters, new on every start, never stored; `docker compose logs app`). The web app shows the setup instead of signing in (getSetupStatus).
+2. Entering the key (unlockSetup, 10 tries a minute per address) sets a setup cookie (`prikboard-setup`, an hour, `SetupKey.Scheme`) for that key.
+3. With it, the browser manages the sign-in providers (listSignInProviders, createSignInProvider, updateSignInProvider, deleteSignInProvider, beginGitHubApp, checkOpenIdAuthority) and tries them: a **test sign-in** (`/api/setup/providers/{id}/test`) goes through the provider and back with `?setupTest=ok` or `failed` and the provider's reason, and signs nobody in (`UserSignIn.TestItem`).
+4. The first sign-in in that browser becomes the admin, which closes the key.
+5. The admin runs the **system checks** (getSystemChecks: database and migrations, the data folder, the Data Protection keys, the hash key, HTTPS, the providers and the version), downloads the **recovery kit** (getRecoveryKit: the hash key and how to restore a backup) and may create an access token for an agent.
+
+Admins use the same endpoints later from Admin → *Instance*; a session that is an admin's counts like the setup cookie. Tokens get `403` everywhere here, and there are no MCP tools for any of it.
+
+**Recovery.** If nobody can sign in any more (a provider removed or broken, its secret expired, or the Data Protection keys lost so stored secrets can't be decrypted), start PrikBoard once with `Setup__Recovery=true`. It prints a setup key even though users exist; with it the browser manages providers and runs the checks, but nobody becomes admin through it. Add the provider again under the **same id**: GitHub's user ids and Google's subjects stay the same for a new app, so people find their accounts again. Microsoft's `sub` is different for every app registration, so a new Microsoft app does not find the old accounts. Remove the setting and restart afterwards.
+
 ## Local development
 
 There is no development shortcut for signing in. Register a GitHub OAuth App for `http://localhost:5173` (see above) and put its id and secret in user secrets. Development uses a built-in hash key unless you set `Auth:HashKey`.
@@ -276,8 +297,10 @@ The integration tests:
 
 ## Before deploying
 
-- Persist the ASP.NET Core Data Protection keys (for example `AddDataProtection().PersistKeysToFileSystem(...)` on a volume, or Azure Key Vault/Blob). Otherwise every restart or extra instance invalidates all sessions and in-flight sign-ins.
-- Serve over HTTPS. The OAuth correlation cookies need it, and so do most providers' callback URL rules for non-localhost hosts.
-- Register production callback URLs (a separate GitHub OAuth App) and the token issuers.
-- Make sure the API sees each client's own address when there is another proxy in front of the web container. Otherwise all clients share one address, and so one limit for anonymous callers and for unknown access tokens (see [Personal access tokens](#personal-access-tokens)).
-- Set `Auth:HashKey` (see [Hash key](#hash-key-authhashkey)). Back it up together with the database, and use the same value on every instance. Without it the API does not start. If you lose it, every account is orphaned.
+The compose file in `infra/compose` covers most of this; see [`infra/README.md`](../infra/README.md).
+
+- Keep the data folder (`Storage:Path`, `/data` in the image) on a volume and back it up with the database. It holds the images, the Data Protection keys (`keys/`, or `DataProtection:KeysPath`: sessions, sign-ins in progress and stored provider secrets) and the generated hash key. Run one instance only: live presence and the sign-in provider schemes are kept in memory.
+- Download the recovery kit and keep it offline. If you lose the hash key, every account is orphaned.
+- Serve over HTTPS. The OAuth correlation cookies need it, and so do most providers' callback URL rules for non-localhost hosts. The API trusts `X-Forwarded-*` headers, so it must sit behind the proxy that sets them, or listen on localhost only, as the compose file does.
+- Register callback URLs for the server's own address (a new GitHub App from the setup does this) and the token issuers.
+- Make sure the API sees each client's own address when there is another proxy in front of it. Otherwise all clients share one address, and so one limit for anonymous callers and for unknown access tokens (see [Personal access tokens](#personal-access-tokens)).
