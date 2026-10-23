@@ -303,7 +303,7 @@ Instead of polling getBoard, a client can follow a board live over **SignalR** a
 
 | Hub method | Who | What |
 | --- | --- | --- |
-| `Join(boardId)` | Members | Follow one board (and stop following the previous one). Returns `{boardId, role, key, viewers}`; fails for boards you are not a member of |
+| `Join(boardId)` | Members | Follow one board (and stop following the previous one). Returns `{boardId, role, key, viewers}`; answers null for boards you can't join (and keeps following the previous one) |
 | `Leave()` | Anyone | Stop following the board |
 | `Drag({kind, id, dx, dy, handle, items})` | Editors (tokens need `boards:write`) | Show others a drag in progress: `kind` is `Card`, `Bucket`, `Resize`, `Image`, `ImageResize` or `Group`, `dx`/`dy` the pointer travel in canvas pixels, and for resizes `handle` the corner or edge dragged (`BottomRight`, the default, `BottomLeft`, `TopRight`, `TopLeft`, `Top`, `Right`, `Bottom` or `Left`; an edge resizes in its direction only). `Group` moves several selected items together: `items` lists them all (1 to 1000 cards, buckets, images and drawings, `id` the one held, not what a listed bucket carries); other kinds send no `items`. Send at most every 50 ms |
 | `DragEnd()` | Editors | The drag is over |
@@ -315,7 +315,7 @@ Instead of polling getBoard, a client can follow a board live over **SignalR** a
 | `Dragging({key, principalId, displayName, kind, id, dx, dy, handle, items})` | Someone else's drag in progress |
 | `DragEnded(key)` | They let go. Keep the item where it was until the next getBoard shows where it landed |
 | `BoardsChanged()` | Your list of boards changed (renamed, deleted, you were added or removed); call listBoards |
-| `AccessChanged(boardId)` | Your role on that board changed or you lost access: call `Join` again (it fails when access is gone) |
+| `AccessChanged(boardId)` | Your role on that board changed or you lost access: call `Join` again (it answers null when access is gone) |
 
 - Changes you make yourself are announced to you too, unless you send your connection id in an `X-PrikBoard-Live` header with the change (the web app does, since it reloads after its own changes anyway).
 - Being removed from a board stops its messages at once.

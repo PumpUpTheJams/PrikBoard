@@ -118,8 +118,8 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var board = await owner.Http.CreateBoardAsync();
 
         var live = await ConnectAsync(stranger);
-        await Assert.ThrowsAsync<HubException>(() => live.Connection.InvokeAsync<JoinedBoard>("Join", board.Id));
-        await Assert.ThrowsAsync<HubException>(() => live.Connection.InvokeAsync<JoinedBoard>("Join", Guid.NewGuid()));
+        Assert.Null(await live.Connection.InvokeAsync<JoinedBoard?>("Join", board.Id));
+        Assert.Null(await live.Connection.InvokeAsync<JoinedBoard?>("Join", Guid.NewGuid()));
     }
 
     [Fact]
@@ -221,7 +221,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
 
         await owner.Http.CreateCardAsync(board.Id);
         Assert.False(await changes.AnyWithinAsync(TimeSpan.FromMilliseconds(500)));
-        await Assert.ThrowsAsync<HubException>(() => live.Connection.InvokeAsync<JoinedBoard>("Join", board.Id));
+        Assert.Null(await live.Connection.InvokeAsync<JoinedBoard?>("Join", board.Id));
     }
 
     [Fact]
@@ -291,7 +291,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var owner = await SessionAsync("live-public-owner@example.com");
         var board = await owner.Http.CreateBoardAsync("Live public");
         var guest = await ConnectAsync(new Session(factory.CreateAnonymousClient(), ""));
-        await Assert.ThrowsAnyAsync<HubException>(() => guest.Connection.InvokeAsync<JoinedBoard>("Join", board.Id));
+        Assert.Null(await guest.Connection.InvokeAsync<JoinedBoard?>("Join", board.Id));
 
         (await owner.Http.PatchAsJsonAsync($"/api/boards/{board.Id}", new { isPublic = true })).EnsureSuccessStatusCode();
         var member = await ConnectAsync(owner);
@@ -321,7 +321,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         // Members-only again: the guest is told and can't join.
         (await owner.Http.PatchAsJsonAsync($"/api/boards/{board.Id}", new { isPublic = false })).EnsureSuccessStatusCode();
         Assert.Equal(board.Id, await access.NextAsync());
-        await Assert.ThrowsAnyAsync<HubException>(() => guest.Connection.InvokeAsync<JoinedBoard>("Join", board.Id));
+        Assert.Null(await guest.Connection.InvokeAsync<JoinedBoard?>("Join", board.Id));
     }
 
     [Fact]

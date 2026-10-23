@@ -119,10 +119,11 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
   async function join(hub: HubConnection, id: string) {
     if (hub.state !== HubConnectionState.Connected) return
     try {
-      const joined = await hub.invoke<JoinedBoard>('Join', id)
-      if (boardRef.current === id) setPresence({ boardId: id, viewers: joined.viewers, guests: joined.guests })
+      // Null when the board is gone or not yours (any more): the board itself will say so.
+      const joined = await hub.invoke<JoinedBoard | null>('Join', id)
+      if (joined && boardRef.current === id) setPresence({ boardId: id, viewers: joined.viewers, guests: joined.guests })
     } catch {
-      // Not a member (any more): the board itself will say so.
+      // The connection dropped; it joins again once it reconnects.
     }
   }
 
