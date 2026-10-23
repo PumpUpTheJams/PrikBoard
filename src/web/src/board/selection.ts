@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { Point, Rect } from '../api/types'
+import { keyTargetIgnored } from './keys'
 
 /** One selected item on a canvas. */
 export interface Picked<K extends string> {
@@ -28,17 +29,44 @@ export const touches = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + 
 /** Whether a point lies in a rectangle (its right and bottom edges are outside). */
 export const contains = (r: Rect, p: Point) => p.x >= r.x && p.x < r.x + r.width && p.y >= r.y && p.y < r.y + r.height
 
+/** Whether a screen point lies in an element's client rectangle (its right and bottom edges are outside). */
+export const insideClient = (r: DOMRect, p: Point) => p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom
+
+/** The smallest rectangle around all of them (points count as empty rectangles); null for none. */
+export function bounds(rects: (Point & { width?: number; height?: number })[]): Rect | null {
+  if (rects.length === 0) return null
+  const x = Math.min(...rects.map((r) => r.x))
+  const y = Math.min(...rects.map((r) => r.y))
+  const right = Math.max(...rects.map((r) => r.x + (r.width ?? 0)))
+  const bottom = Math.max(...rects.map((r) => r.y + (r.height ?? 0)))
+  return { x, y, width: right - x, height: bottom - y }
+}
+
+/** A canvas's selected items: one, or several (Shift or Ctrl/Cmd + click, or the selection rectangle). */
+export function useSelection<P extends Picked<string>>() {
+  const [selected, setSelected] = useState<P[]>([])
+  /** The one item selected, for what works on a single item (its panel, its handles); null with none or several. */
+  const selection = selected.length === 1 ? selected[0] : null
+  const setSelection = useCallback((item: P | null) => setSelected(item ? [item] : []), [])
+  /** Takes an item out of the selection (it was deleted). */
+  const unselect = useCallback(
+    (id: string) => setSelected((list) => (list.some((s) => s.id === id) ? list.filter((s) => s.id !== id) : list)),
+    [],
+  )
+  const isSelected = (kind: P['kind'], id: string) => isPicked<P['kind']>(selected, kind, id)
+  return { selected, setSelected, selection, setSelection, unselect, isSelected }
+}
+
 /**
- * Whether Space is held down: a left press then pans the canvas, as the middle button does. Fields, buttons, menus and
- * dialogs keep the key.
+ * Whether Space is held down: a left press then pans the canvas, as the middle button does. Space pressed in a field,
+ * button, menu or dialog is left to it.
  */
 export function useSpaceHeld(): boolean {
   const [held, setHeld] = useState(false)
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.code !== 'Space' || e.ctrlKey || e.metaKey || e.altKey) return
-      const target = e.target instanceof Element ? e.target : null
-      if (target?.closest('input, textarea, select, button, a, [contenteditable="true"], [role="menu"], [role="dialog"]:not(.expanded), [role="alertdialog"]')) return
+      if (keyTargetIgnored(e.target, { editable: true, controls: true, inCard: true })) return
       // Space would scroll the board or the card otherwise.
       e.preventDefault()
       setHeld(true)

@@ -10,9 +10,10 @@ namespace PrikBoard.Api.Data;
 
 /// <summary>
 /// Writes each card's history (<see cref="CardChange"/>) as part of the save that changes it, by comparing the tracked
-/// cards and the images and drawings on them with what was loaded. Every write path (REST, MCP, undo) goes through here, so handlers
-/// don't record anything themselves, except where they bypass the change tracker (<see cref="Record"/>). Only saves made
-/// for a signed-in caller are recorded, and not cards added together with their board (an import).
+/// cards and the images and drawings on them with what was loaded. Every write path (REST, MCP, undo) goes through here,
+/// so handlers don't record anything themselves, except where they bypass the change tracker (<see cref="Record"/>).
+/// Only saves made for an authenticated caller (a session or a token) are recorded, and not cards added together with
+/// their board (an import).
 /// </summary>
 public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInterceptor
 {

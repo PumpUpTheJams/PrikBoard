@@ -4,7 +4,6 @@ import type {
   Assignee,
   BoardDetail,
   BoardSummary,
-  BucketColor,
   BucketDetail,
   Caller,
   CardComponent,
@@ -38,18 +37,13 @@ const cardColors: Record<CardColor, string> = {
   Lilac: 'charts.purple',
 }
 
-const bucketColors: Record<BucketColor, string> = {
-  Blue: 'charts.blue',
-  Amber: 'charts.orange',
-  Violet: 'charts.purple',
-  Teal: 'charts.green',
-  Rose: 'charts.red',
-}
-
 /** A card's content is components; the tree shows the items of all its checklists and all its links. */
 const checklistsOf = (card: CardDetail) => card.components.filter((b) => b.kind === 'Checklist')
 const itemsOf = (card: CardDetail) => checklistsOf(card).flatMap((b) => b.items ?? [])
 const linksOf = (card: CardDetail) => card.components.flatMap((b) => b.links ?? [])
+
+/** How a card is named in a row, a tooltip or a prompt: its title, or a stand-in when it has none. */
+export const titleOf = (card: CardDetail) => card.title || 'Untitled card'
 
 const icon = (id: string, color?: string) => new vscode.ThemeIcon(id, color ? new vscode.ThemeColor(color) : undefined)
 
@@ -83,7 +77,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
     this.changed.fire(undefined)
   }
 
-  /** The buckets of a board that is open in the tree, in the order the board draws them. */
+  /** The buckets of a board that is open in the tree, in list order (oldest first). */
   bucketsOf(boardId: string): BucketDetail[] {
     return this.details.get(boardId)?.buckets ?? []
   }
@@ -143,7 +137,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
       case 'bucket': {
         const item = new vscode.TreeItem(node.bucket?.name ?? 'No bucket', vscode.TreeItemCollapsibleState.Expanded)
         item.contextValue = contextOf('bucket', node.canEdit)
-        item.iconPath = icon('circle-filled', node.bucket ? bucketColors[node.bucket.color] : undefined)
+        item.iconPath = icon('circle-filled')
         item.description = String(node.cards.length)
         return item
       }
@@ -185,7 +179,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
     const items = itemsOf(card)
     const hasDetails = items.length > 0 || linksOf(card).length > 0 || card.assignees.length > 0
     const item = new vscode.TreeItem(
-      card.title || 'Untitled card',
+      titleOf(card),
       hasDetails ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
     )
     item.contextValue = contextOf('card', canEdit)
@@ -198,7 +192,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
 
     // appendText escapes markdown, so a card cannot format or link its own tooltip.
     const tooltip = new vscode.MarkdownString()
-    tooltip.appendText(card.title || 'Untitled card')
+    tooltip.appendText(titleOf(card))
     for (const component of card.components) if (component.kind === 'Text' && component.text) tooltip.appendText(`\n\n${component.text}`)
     item.tooltip = tooltip
     return item

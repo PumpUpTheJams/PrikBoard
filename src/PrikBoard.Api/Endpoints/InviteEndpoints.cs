@@ -37,21 +37,23 @@ public static class InviteEndpoints
         board.MapDelete("/{inviteId:guid}", RevokeBoardInvite)
             .RequireBoardRole(BoardRole.Owner)
             .WithName("revokeBoardInvite")
-            .WithSummary("Revoke an invite link");
+            .WithSummary("Revoke an invite link")
+            .WithDescription("Deletes the invite, so its link no longer works.");
 
         var invites = api.MapGroup("/invites").WithTags("Invites").NoBoardScope().RequireRateLimiting(InviteLimit);
 
         invites.MapPost("/preview", PreviewInvite)
             .WithName("previewInvite")
-            .WithSummary("Look at an invite link")
-            .WithDescription("Shows which board and role an invite token grants. Unknown, used, revoked and expired tokens all give 404. People only.")
+            .WithSummary("Preview an invite link")
+            .WithDescription("Shows which board and role an invite token grants, without spending it. Unknown, used, revoked and " +
+                             "expired tokens all give 404. Browser sessions only.")
             .Produces(StatusCodes.Status429TooManyRequests);
 
         invites.MapPost("/accept", AcceptInvite)
             .WithName("acceptInvite")
             .WithSummary("Accept an invite link")
-            .WithDescription("Spends the token and makes you a member (keeping a higher role you already had). People only: " +
-                             "agents are added by an owner with addBoardAgent instead.")
+            .WithDescription("Spends the token and makes you a member (keeping a higher role you already had); 404 when it is " +
+                             "unknown, used, revoked or expired. Browser sessions only: agents are added by an owner with addBoardAgent instead.")
             .Produces(StatusCodes.Status429TooManyRequests);
 
         return api;

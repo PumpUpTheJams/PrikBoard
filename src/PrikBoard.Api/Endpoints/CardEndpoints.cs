@@ -26,16 +26,17 @@ public static class CardEndpoints
         cards.MapPost("/boards/{boardId:guid}/cards", CreateCard)
             .RequireBoardRole(BoardRole.Editor)
             .WithName("createCard")
-            .WithSummary("Stick a new card on a board")
-            .WithDescription("Creates a card in a free spot inside the given bucket (default: the board's first bucket), " +
-                             "or exactly at X and Y, optionally with its first content components. " +
+            .WithSummary("Create a card")
+            .WithDescription("Creates a card in a free spot inside bucketId (default: the board's first bucket; a full bucket grows " +
+                             "downwards), or exactly at x and y. With all three, the card goes at x and y and joins that bucket, which " +
+                             "must contain its center (400 otherwise). Optionally with its first components. " +
                              "Tags the board does not have yet are added to it (see listBoardTags).")
             .ProducesValidationProblem();
 
         cards.MapPost("/boards/{boardId:guid}/cards/batch", CreateCards)
             .RequireBoardRole(BoardRole.Editor)
             .WithName("createCards")
-            .WithSummary("Stick several new cards on a board")
+            .WithSummary("Create several cards")
             .WithDescription($"Creates up to {MaxBatch} cards at once, in the order given, like createCard does one: each in a free " +
                              "spot of its bucket (default: the board's first bucket) or at its X and Y. All of them are created, or none " +
                              "(a 400 keyed on cards[i]).")
@@ -44,7 +45,8 @@ public static class CardEndpoints
         cards.MapGet("/cards/{cardId:guid}", GetCard)
             .RequireBoardRole(BoardRole.Viewer, BoardScope.Card)
             .WithName("getCard")
-            .WithSummary("Get a card");
+            .WithSummary("Get a card")
+            .WithDescription("Returns the card with its components, tags, assignees, readable id and path.");
 
         cards.MapGet($"/boards/{{shortId:length({Board.ShortIdLength})}}/cards/{{number:int}}", GetCardByNumber)
             .RequireBoardRole(BoardRole.Viewer, BoardScope.ShortBoard)
@@ -58,39 +60,42 @@ public static class CardEndpoints
             .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
             .WithName("updateCard")
             .WithSummary("Edit a card")
-            .WithDescription("Changes any of title, fill, tags, assignees and the agent-working flag. " +
-                             "Omitted fields stay unchanged; a list that is given replaces the whole list. Use moveCard to move it, " +
+            .WithDescription("Changes any of title, color (the card's fill), tags, assignees and the agent-working flag. " +
+                             "Omitted fields stay unchanged; a list that is given replaces the whole list. New assignees must be able " +
+                             "to reach the board (people in getBoard); ones already on the card may stay. Use moveCard to move it, " +
                              "and addCardComponent, updateCardComponent and deleteCardComponent to change its content.")
             .ProducesValidationProblem();
 
         cards.MapPost("/cards/{cardId:guid}/working", SetCardWorking)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
             .WithName("setCardWorking")
-            .WithSummary("Say you are working on a card")
-            .WithDescription("With working true, assigns you (the caller) to the card and shows a halo around the card; " +
-                             "with false, the halo goes and you stay assigned. Agents call this when they start and finish a card.")
+            .WithSummary("Start or stop working on a card")
+            .WithDescription("With working true, assigns you (the caller) to the card and shows a halo around it; " +
+                             "with false, the halo goes and you stay assigned. Agents call this when they start and finish a card. " +
+                             "409 when the card already has the most assignees it can have.")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         cards.MapPost("/cards/{cardId:guid}/move", MoveCard)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
             .WithName("moveCard")
             .WithSummary("Move a card")
-            .WithDescription("Moves the card into a bucket on the same board (e.g. from \"Doing\" to \"Done\"), " +
-                             "or to exact X and Y coordinates on the board.")
+            .WithDescription("Moves the card into a free spot in a bucket on the same board (e.g. from \"Doing\" to \"Done\"; " +
+                             "a full bucket grows downwards), or to exact x and y, where it joins the topmost bucket containing its " +
+                             "center. With all three, it goes at x and y and joins that bucket, which must contain its center (400 otherwise).")
             .ProducesValidationProblem();
 
         cards.MapDelete("/cards/{cardId:guid}", DeleteCard)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
             .WithName("deleteCard")
             .WithSummary("Delete a card")
-            .WithDescription($"Deletes the card and the images attached to it. restoreCard brings them back within {Tombstones.RetentionText}.");
+            .WithDescription($"Deletes the card with its images and drawings. restoreCard brings them back within {Tombstones.RetentionText}.");
 
         cards.MapPost("/cards/{cardId:guid}/restore", RestoreCard)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
             .WithName("restoreCard")
             .WithSummary("Restore a deleted card")
-            .WithDescription($"Brings back a card deleted in the last {Tombstones.RetentionText}: same id, content, creator and " +
-                             "images, at the place it had, or at X and Y when both are given (a card dragged out of the trash). " +
+            .WithDescription($"Brings back a card deleted in the last {Tombstones.RetentionText}: same id, content, creator, " +
+                             "images and drawings, at the place it had, or at x and y when both are given (a card dragged out of the trash). " +
                              "It joins whichever bucket is there now. 409 when the card is not deleted; 404 when it never existed " +
                              "or is gone for good.")
             .ProducesValidationProblem()
@@ -173,15 +178,10 @@ public static class CardEndpoints
     /// createCard for callers that already checked the assignees can be assigned (MCP tools, which resolve them by name
     /// against the same list), which saves a query.
     /// </summary>
-    internal static async Task<Results<Created<CardDetail>, NotFound, ValidationProblem>> CreateCardAsync(
-        Guid boardId, CreateCardRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, bool assigneesChecked, CancellationToken ct)
-    {
-        var (cards, missing, invalid) = await AddCardsAsync(boardId, [request], principal, db, assigneesChecked, batch: false, ct);
-        if (missing is not null) return missing;
-        if (invalid is not null) return invalid;
-        var card = cards![0];
-        return TypedResults.Created($"/api/cards/{card.Id}", card);
-    }
+    internal static Task<Results<Created<CardDetail>, NotFound, ValidationProblem>> CreateCardAsync(
+        Guid boardId, CreateCardRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, bool assigneesChecked, CancellationToken ct) =>
+        AddCardsAsync(boardId, [request], principal, db, assigneesChecked, batch: false,
+            cards => TypedResults.Created($"/api/cards/{cards[0].Id}", cards[0]), ct);
 
     /// <summary>The most cards createCards takes at once.</summary>
     internal const int MaxBatch = 50;
@@ -195,21 +195,19 @@ public static class CardEndpoints
         Guid boardId, CreateCardsRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, bool assigneesChecked, CancellationToken ct)
     {
         if (request.Cards.Count == 0) return Problems.Invalid("cards", "Give at least one card.");
-        var (cards, missing, invalid) = await AddCardsAsync(boardId, request.Cards, principal, db, assigneesChecked, batch: true, ct);
-        if (missing is not null) return missing;
-        if (invalid is not null) return invalid;
-        return TypedResults.Ok(cards!);
+        return await AddCardsAsync(boardId, request.Cards, principal, db, assigneesChecked, batch: true, cards => TypedResults.Ok(cards), ct);
     }
 
     /// <summary>
-    /// Creates cards in one transaction, each placed like createCard places one, with room for the ones before it. With
-    /// <paramref name="batch"/>, problems are keyed on cards[i].
+    /// Creates cards in one transaction, each placed like createCard places one, with room for the ones before it, and
+    /// answers with <paramref name="created"/> of them. With <paramref name="batch"/>, problems are keyed on cards[i].
     /// </summary>
-    private static async Task<(List<CardDetail>? Cards, NotFound? Missing, ValidationProblem? Invalid)> AddCardsAsync(
+    private static async Task<Results<TCreated, NotFound, ValidationProblem>> AddCardsAsync<TCreated>(
         Guid boardId, IReadOnlyList<CreateCardRequest> requests, ClaimsPrincipal principal, PrikBoardDbContext db,
-        bool assigneesChecked, bool batch, CancellationToken ct)
+        bool assigneesChecked, bool batch, Func<List<CardDetail>, TCreated> created, CancellationToken ct)
+        where TCreated : IResult
     {
-        if (await BoardRefAsync(db, boardId, ct) is not { } board) return (null, TypedResults.NotFound(), null);
+        if (await BoardRefAsync(db, boardId, ct) is not { } board) return TypedResults.NotFound();
         ValidationProblem Keyed(ValidationProblem problem, int i) => batch ? Prefixed(problem, $"cards[{i}].") : problem;
 
         var cards = new List<Card>();
@@ -227,18 +225,18 @@ public static class CardEndpoints
             if (!assigneesChecked && request.AssigneeIds is not null
                 && await CheckAssigneesAsync(db, boardId, request.AssigneeIds, [], ct) is { } unassignable)
             {
-                return (null, null, Keyed(unassignable, i));
+                return Keyed(unassignable, i);
             }
-            if (ApplyLists(card, request.Tags, request.AssigneeIds) is { } invalid) return (null, null, Keyed(invalid, i));
+            if (ApplyLists(card, request.Tags, request.AssigneeIds) is { } invalid) return Keyed(invalid, i);
             if (request.Components is not null && CardComponentEndpoints.BuildAll(card, request.Components) is { } invalidComponent)
             {
-                return (null, null, Keyed(invalidComponent, i));
+                return Keyed(invalidComponent, i);
             }
             await CardComponentEndpoints.ShortenLinksAsync(db, boardId, card.Components, ct);
             cards.Add(card);
         }
         var tags = cards.SelectMany(c => c.Tags).Distinct().ToList();
-        if (await TagEndpoints.EnsureBoardTagsAsync(db, boardId, tags, ct) is { } tooManyTags) return (null, null, tooManyTags);
+        if (await TagEndpoints.EnsureBoardTagsAsync(db, boardId, tags, ct) is { } tooManyTags) return tooManyTags;
 
         var buckets = await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct);
         var others = await PlacedCardsAsync(db, boardId, null, ct);
@@ -248,7 +246,7 @@ public static class CardEndpoints
         {
             var request = requests[i];
             var bucketId = request.BucketId ?? (request.X is null && request.Y is null ? first : null);
-            if (Place(cards[i], bucketId, request.X, request.Y, buckets, others) is { } problem) return (null, null, Keyed(problem, i));
+            if (Place(cards[i], bucketId, request.X, request.Y, buckets, others) is { } problem) return Keyed(problem, i);
             // The next card makes room for this one.
             others.Add(cards[i]);
         }
@@ -261,7 +259,7 @@ public static class CardEndpoints
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         var principals = await PrincipalsOnAsync(db, cards, ct);
-        return (cards.Select(card => CardDetail.From(card, board, principals)).ToList(), null, null);
+        return created(cards.Select(card => CardDetail.From(card, board, principals)).ToList());
     }
 
     /// <summary>The same problem with its keys under <paramref name="prefix"/> (cards[2].tags).</summary>
@@ -392,16 +390,15 @@ public static class CardEndpoints
         var now = DateTimeOffset.UtcNow;
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var boardId = await db.Cards.Where(n => n.Id == cardId).Select(n => (Guid?)n.BoardId).FirstOrDefaultAsync(ct);
-        var deleted = await db.Cards.Where(n => n.Id == cardId).ExecuteUpdateAsync(s => s.SetProperty(n => n.DeletedAt, now), ct);
-        if (deleted == 0 || boardId is null) return TypedResults.NotFound();
-        // Its images and drawings share the card's stamp, so they come back with it (and ones deleted earlier don't).
-        await db.Images.Where(i => i.CardId == cardId).ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, now), ct);
-        await db.Drawings.Where(d => d.CardId == cardId).ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, now), ct);
+        if (await Tombstones.DeleteCardsAsync(db, [cardId], now, ct) == 0 || boardId is null) return TypedResults.NotFound();
         CardHistory.Record(db, principal, cardId, boardId.Value, new(CardChangeKind.Deleted));
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         return TypedResults.NoContent();
     }
+
+    /// <summary>How many changes listCardHistory returns without a limit, and at most.</summary>
+    private const int DefaultHistoryLimit = 100, MaxHistoryLimit = 500;
 
     internal static async Task<Results<Ok<List<CardChangeDetail>>, NotFound>> ListCardHistory(
         Guid cardId, int? limit, PrikBoardDbContext db, CancellationToken ct)
@@ -415,7 +412,7 @@ public static class CardEndpoints
         var changes = await db.CardChanges.AsNoTracking()
             .Where(c => c.CardId == cardId)
             .OrderByDescending(c => c.At).ThenByDescending(c => c.Id)
-            .Take(Math.Clamp(limit ?? 100, 1, 500))
+            .Take(Math.Clamp(limit ?? DefaultHistoryLimit, 1, MaxHistoryLimit))
             .ToListAsync(ct);
         var ids = changes.SelectMany(CardChangeDetail.PrincipalIds).Distinct().ToList();
         var principals = ids.Count == 0
@@ -473,13 +470,8 @@ public static class CardEndpoints
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         card.DeletedAt = null;
-        await db.Images.WithDeleted()
-            .Where(i => i.CardId == cardId && i.DeletedAt == stamp)
-            .ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, (DateTimeOffset?)null), ct);
-        await db.Drawings.WithDeleted()
-            .Where(d => d.CardId == cardId && d.DeletedAt == stamp)
-            .ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, (DateTimeOffset?)null), ct);
-        var stacked = Layout.BackToFront(await db.Buckets.Where(b => b.BoardId == card.BoardId).ToListAsync(ct));
+        await Tombstones.RestoreWithCardAsync(db, cardId, stamp, ct);
+        var stacked = await BucketEndpoints.StackAsync(db, card.BoardId, ct);
         if (request is { X: { } x, Y: { } y })
         {
             // Dropped somewhere else (out of the trash): like a move, so it comes out on top, in whatever bucket it lands in.
@@ -547,9 +539,9 @@ public static class CardEndpoints
     private sealed record CardWithBoard(Card Card, BoardRef Board);
 
     /// <summary>
-    /// Positions <paramref name="card"/> exactly at X and Y, or in a free spot inside the bucket (and in it), or (with
-    /// neither) in a free spot on the board, then sets its bucket from where it landed. Other cards keep theirs. Returns a
-    /// problem for an invalid combination.
+    /// Positions <paramref name="card"/> exactly at X and Y (joining the named bucket, or else the topmost one there), in a
+    /// free spot inside the named bucket (joining it), or, with neither, in a free spot outside the buckets. Other cards keep
+    /// their bucket, except loose ones that a bucket grown to make room now covers. Returns a problem for an invalid combination.
     /// </summary>
     private static ValidationProblem? Place(
         Card card, Guid? bucketId, int? x, int? y, List<Bucket> buckets, List<Card> others)
@@ -575,7 +567,7 @@ public static class CardEndpoints
         else if (bucket is not null)
         {
             (card.X, card.Y) = Layout.MakeRoomIn(bucket, others, buckets);
-            // Asked for by name, so it joins even a collapsed bucket (which other cards don't).
+            // Put in this bucket on purpose, so it joins it even when it is collapsed (which other cards don't).
             card.BucketId = bucket.Id;
             // A bucket that grew to make room can now cover loose cards too.
             Layout.Adopt(bucket, stacked, others, [], looseOnly: true);

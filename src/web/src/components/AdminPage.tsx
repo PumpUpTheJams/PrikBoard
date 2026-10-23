@@ -5,6 +5,8 @@ import { isDrag } from '../board/gesture'
 import { CloseIcon, PeopleIcon, SearchIcon, ShieldIcon, SparkleIcon, TrashIcon } from '../board/icons'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Face } from './Avatar'
+import { plural } from './plural'
+import { useAttempt } from './useAttempt'
 
 interface AdminPageProps {
   /** Your own admin rights changed (you handed them over), so the caller needs reloading. */
@@ -37,6 +39,8 @@ const CHIPS_SHOWN = 5
 /** How close (px) to a list's top or bottom edge a drag starts scrolling it, and its fastest step per frame. */
 const EDGE = 56
 const MAX_STEP = 18
+/** The share of MAX_STEP a list scrolls by with the pointer on its edge; it speeds up further past it. */
+const STEP_AT_EDGE = 0.6
 
 /**
  * The drop target under the pointer, found through the data-drop attributes. A board's role comes from where the
@@ -59,8 +63,8 @@ function targetAt(point: Point): DropTarget | null {
 
 /** How far to scroll a list this frame: faster the closer the pointer is to (or the further past) its edge. */
 function edgeStep(y: number, top: number, bottom: number) {
-  if (y < top + EDGE) return -Math.min(MAX_STEP, Math.ceil(((top + EDGE - y) / EDGE) * MAX_STEP * 0.6))
-  if (y > bottom - EDGE) return Math.min(MAX_STEP, Math.ceil(((y - bottom + EDGE) / EDGE) * MAX_STEP * 0.6))
+  if (y < top + EDGE) return -Math.min(MAX_STEP, Math.ceil(((top + EDGE - y) / EDGE) * MAX_STEP * STEP_AT_EDGE))
+  if (y > bottom - EDGE) return Math.min(MAX_STEP, Math.ceil(((y - bottom + EDGE) / EDGE) * MAX_STEP * STEP_AT_EDGE))
   return 0
 }
 
@@ -69,6 +73,39 @@ const matches = (text: string, query: string) => text.toLocaleLowerCase().includ
 const loadAll = () => Promise.all([api.adminListUsers(), api.adminListBoards()])
 
 const seen = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+
+/** What the confirmation for a pending change says. */
+function confirmation(pending: Pending): { title: string; message: string; confirmLabel: string } {
+  switch (pending.kind) {
+    case 'deleteUser':
+      return {
+        title: `Delete ${pending.user.displayName}?`,
+        message:
+          'Their account, sign-ins, board memberships and access tokens are deleted, and they are signed out. Cards they wrote stay. They can only come back through a new invite link.',
+        confirmLabel: 'Delete user',
+      }
+    case 'deleteBoard':
+      return {
+        title: `Delete "${pending.board.name}"?`,
+        message: `The board and all of its buckets, cards and images are deleted for its ${plural(pending.board.members.length, 'member', 'members')}. This can't be undone.`,
+        confirmLabel: 'Delete board',
+      }
+    case 'removeMember':
+      return {
+        title: `Take ${pending.member.displayName} off this board?`,
+        message: `They lose access to "${pending.board.name}" until someone adds them again.`,
+        confirmLabel: 'Remove',
+      }
+    case 'removeAdmin':
+      return {
+        title: pending.user.isYou ? 'Stop being an admin?' : `Stop ${pending.user.displayName} being an admin?`,
+        message: pending.user.isYou
+          ? "You won't see this page any more. Another admin can make you one again."
+          : 'They keep their boards, but can no longer see this page.',
+        confirmLabel: 'No longer admin',
+      }
+  }
+}
 
 /**
  * Running the instance: everyone with an account on the left, the Admins bucket and every board on the right, each in a
@@ -99,13 +136,7 @@ export function AdminPage({ onYouChanged, onBack }: AdminPageProps) {
   )
 
   useEffect(() => {
-    loadAll().then(
-      ([u, b]) => {
-        setUsers(u)
-        setBoards(b)
-      },
-      (e) => setError(errorMessage(e)),
-    )
+    void reload()
     // Others change boards and memberships too; catch up when you come back to the tab.
     const onFocus = () => void reload()
     window.addEventListener('focus', onFocus)
@@ -133,19 +164,8 @@ export function AdminPage({ onYouChanged, onBack }: AdminPageProps) {
     return () => cancelAnimationFrame(frame)
   }, [dragging])
 
-  /** Runs a change and reloads; errors (such as "last owner") show at the top. */
-  async function attempt(action: () => Promise<unknown>) {
-    setError(null)
-    try {
-      await action()
-      return true
-    } catch (e) {
-      setError(errorMessage(e))
-      return false
-    } finally {
-      await reload()
-    }
-  }
+  /** Errors show at the top. */
+  const attempt = useAttempt(reload, setError)
 
   function drop(user: AdminUser, target: DropTarget) {
     if (target.kind === 'admin') {
@@ -273,32 +293,16 @@ export function AdminPage({ onYouChanged, onBack }: AdminPageProps) {
             </label>
             <ul className="row-list admin-people admin-scroll" data-scroll>
               {shownUsers.map((u) => (
-                <li
+                <PersonRow
                   key={u.id}
-                  className={drag?.active && drag.user.id === u.id ? 'lifted' : undefined}
-                  title="Drag onto a board or onto Admins"
+                  user={u}
+                  lifted={!!drag?.active && drag.user.id === u.id}
                   onPointerDown={(e) => onPersonDown(e, u)}
                   onPointerMove={onPersonMove}
                   onPointerUp={onPersonUp}
                   onLostPointerCapture={endDrag}
-                >
-                  <span className="avatar avatar-md" aria-hidden="true">
-                    <Face name={u.displayName} avatarUrl={u.avatarUrl} />
-                  </span>
-                  <span className="row-main">
-                    {u.displayName}
-                    {u.isYou && <span className="badge">you</span>}
-                    {u.isAdmin && <span className="badge admin">admin</span>}
-                  </span>
-                  <span className="row-meta" title={`Joined ${seen(u.createdAt)}`}>
-                    {u.boardCount} {u.boardCount === 1 ? 'board' : 'boards'} · seen {seen(u.lastSeenAt)}
-                  </span>
-                  {!u.isYou && (
-                    <button type="button" className="icon-button" aria-label={`Delete ${u.displayName}`} title="Delete user" onClick={() => askDelete(u)}>
-                      <TrashIcon />
-                    </button>
-                  )}
-                </li>
+                  onDelete={() => askDelete(u)}
+                />
               ))}
               {shownUsers.length === 0 && <li className="admin-none">Nobody matches "{peopleQuery.trim()}".</li>}
             </ul>
@@ -337,63 +341,18 @@ export function AdminPage({ onYouChanged, onBack }: AdminPageProps) {
               />
             </label>
             <div className="admin-board-list admin-scroll" data-scroll>
-              {shownBoards.map((b) => {
-                const open = expanded.has(b.id)
-                const chips = open ? b.members : b.members.slice(0, CHIPS_SHOWN)
-                const hidden = b.members.length - chips.length
-                return (
-                  <article
-                    key={b.id}
-                    className={`admin-bucket admin-board${hoveredBoard === b.id ? ' drop-target' : ''}`}
-                    data-drop="board"
-                    data-board={b.id}
-                  >
-                    <header>
-                      <span className="admin-count" title={`${b.members.length} ${b.members.length === 1 ? 'member' : 'members'}`}>
-                        <PeopleIcon size={12} />
-                        {b.members.length}
-                      </span>
-                      <span className="admin-board-name">{b.name}</span>
-                      <button
-                        type="button"
-                        className="icon-button admin-board-delete"
-                        aria-label={`Delete board ${b.name}`}
-                        title="Delete board"
-                        onClick={() => setPending({ kind: 'deleteBoard', board: b })}
-                      >
-                        <TrashIcon size={14} />
-                      </button>
-                    </header>
-                    <div className="admin-chips">
-                      {chips.map((m) => (
-                        <span key={m.principalId} className={`admin-chip${m.kind === 'Agent' ? ' agent' : ''}`}>
-                          {m.kind === 'Agent' && <SparkleIcon size={11} />}
-                          {m.displayName}
-                          <span className="admin-chip-role">{m.role}</span>
-                          <button type="button" aria-label={`Take ${m.displayName} off ${b.name}`} title="Remove from board" onClick={() => setPending({ kind: 'removeMember', board: b, member: m })}>
-                            <CloseIcon size={12} />
-                          </button>
-                        </span>
-                      ))}
-                      {(hidden > 0 || open) && b.members.length > CHIPS_SHOWN && (
-                        <button type="button" className="admin-more" aria-expanded={open} onClick={() => toggleExpanded(b.id)}>
-                          {open ? 'Show fewer' : `+${hidden}`}
-                        </button>
-                      )}
-                      {b.members.length === 0 && <span className="row-meta">Nobody</span>}
-                    </div>
-                    {hoveredBoard === b.id && (
-                      <div className="admin-zones">
-                        {boardRoles.map((role) => (
-                          <div key={role} className={`admin-zone${target?.kind === 'board' && target.role === role ? ' drop-target' : ''}`}>
-                            {role}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </article>
-                )
-              })}
+              {shownBoards.map((b) => (
+                <BoardRow
+                  key={b.id}
+                  board={b}
+                  open={expanded.has(b.id)}
+                  hovered={hoveredBoard === b.id}
+                  dropRole={target?.kind === 'board' ? target.role : null}
+                  onToggle={() => toggleExpanded(b.id)}
+                  onDelete={() => setPending({ kind: 'deleteBoard', board: b })}
+                  onRemove={(member) => setPending({ kind: 'removeMember', board: b, member })}
+                />
+              ))}
               {shownBoards.length === 0 && <p className="admin-none">No board matches "{boardQuery.trim()}".</p>}
             </div>
           </section>
@@ -409,46 +368,109 @@ export function AdminPage({ onYouChanged, onBack }: AdminPageProps) {
         </div>
       )}
 
-      {pending?.kind === 'deleteUser' && (
-        <ConfirmDialog
-          title={`Delete ${pending.user.displayName}?`}
-          message="Their account, sign-ins, board memberships and access tokens are deleted, and they are signed out. Cards they wrote stay. They can only come back through a new invite link."
-          confirmLabel="Delete user"
-          onConfirm={() => confirmPending(pending)}
-          onCancel={() => setPending(null)}
-        />
-      )}
-      {pending?.kind === 'deleteBoard' && (
-        <ConfirmDialog
-          title={`Delete "${pending.board.name}"?`}
-          message={`The board and all of its buckets, cards and images are deleted for its ${pending.board.members.length} ${pending.board.members.length === 1 ? 'member' : 'members'}. This can't be undone.`}
-          confirmLabel="Delete board"
-          onConfirm={() => confirmPending(pending)}
-          onCancel={() => setPending(null)}
-        />
-      )}
-      {pending?.kind === 'removeMember' && (
-        <ConfirmDialog
-          title={`Take ${pending.member.displayName} off this board?`}
-          message={`They lose access to "${pending.board.name}" until someone adds them again.`}
-          confirmLabel="Remove"
-          onConfirm={() => confirmPending(pending)}
-          onCancel={() => setPending(null)}
-        />
-      )}
-      {pending?.kind === 'removeAdmin' && (
-        <ConfirmDialog
-          title={pending.user.isYou ? 'Stop being an admin?' : `Stop ${pending.user.displayName} being an admin?`}
-          message={
-            pending.user.isYou
-              ? "You won't see this page any more. Another admin can make you one again."
-              : 'They keep their boards, but can no longer see this page.'
-          }
-          confirmLabel="No longer admin"
-          onConfirm={() => confirmPending(pending)}
-          onCancel={() => setPending(null)}
-        />
-      )}
+      {pending && <ConfirmDialog key={pending.kind} {...confirmation(pending)} onConfirm={() => confirmPending(pending)} onCancel={() => setPending(null)} />}
     </div>
+  )
+}
+
+interface PersonRowProps {
+  user: AdminUser
+  /** Being dragged. */
+  lifted: boolean
+  onPointerDown: (e: ReactPointerEvent<HTMLLIElement>) => void
+  onPointerMove: (e: ReactPointerEvent<HTMLLIElement>) => void
+  onPointerUp: (e: ReactPointerEvent<HTMLLIElement>) => void
+  onLostPointerCapture: () => void
+  onDelete: () => void
+}
+
+/** Someone with an account, in the people list: dragged onto a board or onto Admins. */
+function PersonRow({ user, lifted, onPointerDown, onPointerMove, onPointerUp, onLostPointerCapture, onDelete }: PersonRowProps) {
+  return (
+    <li
+      className={lifted ? 'lifted' : undefined}
+      title="Drag onto a board or onto Admins"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onLostPointerCapture={onLostPointerCapture}
+    >
+      <span className="avatar avatar-md" aria-hidden="true">
+        <Face name={user.displayName} avatarUrl={user.avatarUrl} />
+      </span>
+      <span className="row-main">
+        {user.displayName}
+        {user.isYou && <span className="badge">you</span>}
+        {user.isAdmin && <span className="badge admin">admin</span>}
+      </span>
+      <span className="row-meta" title={`Joined ${seen(user.createdAt)}`}>
+        {plural(user.boardCount, 'board', 'boards')} · seen {seen(user.lastSeenAt)}
+      </span>
+      {!user.isYou && (
+        <button type="button" className="icon-button" aria-label={`Delete ${user.displayName}`} title="Delete user" onClick={onDelete}>
+          <TrashIcon />
+        </button>
+      )}
+    </li>
+  )
+}
+
+interface BoardRowProps {
+  board: AdminBoard
+  /** Shows every member, not only the first few. */
+  open: boolean
+  /** A person is dragged over it: its role zones show. */
+  hovered: boolean
+  /** The role zone under the pointer, if any. */
+  dropRole: BoardRole | null
+  onToggle: () => void
+  onDelete: () => void
+  onRemove: (member: AdminBoardMember) => void
+}
+
+/** A board in the boards list, with its members as chips; a person dropped on one of its role zones gets that role. */
+function BoardRow({ board, open, hovered, dropRole, onToggle, onDelete, onRemove }: BoardRowProps) {
+  const chips = open ? board.members : board.members.slice(0, CHIPS_SHOWN)
+  const hidden = board.members.length - chips.length
+  return (
+    <article className={`admin-bucket admin-board${hovered ? ' drop-target' : ''}`} data-drop="board" data-board={board.id}>
+      <header>
+        <span className="admin-count" title={plural(board.members.length, 'member', 'members')}>
+          <PeopleIcon size={12} />
+          {board.members.length}
+        </span>
+        <span className="admin-board-name">{board.name}</span>
+        <button type="button" className="icon-button admin-board-delete" aria-label={`Delete board ${board.name}`} title="Delete board" onClick={onDelete}>
+          <TrashIcon size={14} />
+        </button>
+      </header>
+      <div className="admin-chips">
+        {chips.map((m) => (
+          <span key={m.principalId} className={`admin-chip${m.kind === 'Agent' ? ' agent' : ''}`}>
+            {m.kind === 'Agent' && <SparkleIcon size={11} />}
+            {m.displayName}
+            <span className="admin-chip-role">{m.role}</span>
+            <button type="button" aria-label={`Take ${m.displayName} off ${board.name}`} title="Remove from board" onClick={() => onRemove(m)}>
+              <CloseIcon size={12} />
+            </button>
+          </span>
+        ))}
+        {(hidden > 0 || open) && board.members.length > CHIPS_SHOWN && (
+          <button type="button" className="admin-more" aria-expanded={open} onClick={onToggle}>
+            {open ? 'Show fewer' : `+${hidden}`}
+          </button>
+        )}
+        {board.members.length === 0 && <span className="row-meta">Nobody</span>}
+      </div>
+      {hovered && (
+        <div className="admin-zones">
+          {boardRoles.map((role) => (
+            <div key={role} className={`admin-zone${dropRole === role ? ' drop-target' : ''}`}>
+              {role}
+            </div>
+          ))}
+        </div>
+      )}
+    </article>
   )
 }

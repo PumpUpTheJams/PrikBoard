@@ -55,7 +55,8 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
         builder.ConfigureTestServices(services =>
         {
             services.AddSingleton<IStartupFilter, TestLogin>();
-            // Tests never reach GitHub: its avatar host answers with TestAvatar for /u/... and 404 for anything else.
+            // Tests never reach GitHub: the fake avatar host answers OtherGitHubAvatar with OtherAvatar, any other /u/...
+            // with TestAvatar, and anything else with 404.
             services.AddHttpClient<ProviderAvatars>().ConfigurePrimaryHttpMessageHandler(() => new FakeAvatarHost());
         });
     }
@@ -85,7 +86,7 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
 
     /// <summary>
     /// Runs the file sweep as the hourly purger does, at <paramref name="now"/>; by default two days on, past every grace
-    /// period. Answers how many files went.
+    /// period. Returns how many files it deleted.
     /// </summary>
     public async Task<int> SweepFilesAsync(DateTimeOffset? now = null)
     {

@@ -2,10 +2,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, errorMessage } from '../api/client'
 import type { BoardInvite, BoardMember, BoardRole, BoardSummary, CreatedInvite } from '../api/types'
 import { SparkleIcon } from '../board/icons'
+import { useCopy } from '../board/useCopy'
+import { CopyField } from './CopyField'
 import { Dialog } from './Dialog'
 import { Face } from './Avatar'
 import { DISCORD_ISSUER } from './discord'
 import { RoleSelect } from './RoleSelect'
+import { useAttempt, type Attempt } from './useAttempt'
 
 interface ShareDialogProps {
   board: BoardSummary
@@ -26,33 +29,23 @@ export function ShareDialog({ board, onClose, onLeft, onChanged }: ShareDialogPr
   const [invites, setInvites] = useState<BoardInvite[]>([])
   const [error, setError] = useState<string | null>(null)
 
-  const reload = useCallback(async () => {
-    try {
-      setMembers(await api.listBoardMembers(board.id))
-      if (owner) setInvites(await api.listBoardInvites(board.id))
-    } catch (e) {
-      setError(errorMessage(e))
-    }
-  }, [board.id, owner])
+  /** Loads the members, then (for owners) the invites. */
+  const reload = useCallback(
+    () =>
+      api
+        .listBoardMembers(board.id)
+        .then(setMembers)
+        .then(() => (owner ? api.listBoardInvites(board.id).then(setInvites) : undefined))
+        .catch((e) => setError(errorMessage(e))),
+    [board.id, owner],
+  )
 
   useEffect(() => {
-    api.listBoardMembers(board.id).then(setMembers, (e) => setError(errorMessage(e)))
-    if (owner) api.listBoardInvites(board.id).then(setInvites, (e) => setError(errorMessage(e)))
-  }, [board.id, owner])
+    void reload()
+  }, [reload])
 
-  /** Runs a change and reloads; errors (such as "last owner") show in the dialog. */
-  async function attempt(action: () => Promise<unknown>) {
-    setError(null)
-    try {
-      await action()
-      return true
-    } catch (e) {
-      setError(errorMessage(e))
-      return false
-    } finally {
-      await reload()
-    }
-  }
+  /** Errors show in the dialog. */
+  const attempt = useAttempt(reload, setError)
 
   async function remove(member: BoardMember) {
     if (await attempt(() => api.removeBoardMember(board.id, member.principalId)) && member.isYou) onLeft()
@@ -125,23 +118,14 @@ function PublicLink({
   onChanged,
 }: {
   board: BoardSummary
-  attempt: (action: () => Promise<unknown>) => Promise<boolean>
+  attempt: Attempt
   onChanged: (board: BoardSummary) => void
 }) {
-  const [copied, setCopied] = useState(false)
+  const copier = useCopy()
   const link = `${window.location.origin}/#/boards/${board.shortId}`
 
   const change = (changes: { isPublic?: boolean; publicShowsPeople?: boolean }) =>
     void attempt(async () => onChanged(await api.updateBoard(board.id, changes)))
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(link)
-      setCopied(true)
-    } catch {
-      setCopied(false)
-    }
-  }
 
   return (
     <section className="dialog-section">
@@ -162,36 +146,20 @@ function PublicLink({
       <p className="dialog-hint">
         Visitors don't need an account. They can look, search and open cards, but not change anything or see deleted items.
       </p>
-      {board.isPublic && (
-        <div className="copy-field">
-          <input readOnly aria-label="Public link" value={link} onFocus={(e) => e.target.select()} />
-          <button type="button" className="ghost small" onClick={() => void copy()}>
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-        </div>
-      )}
+      {board.isPublic && <CopyField label="Public link" value={link} copier={copier} />}
     </section>
   )
 }
 
-function InviteLinks({ boardId, invites, attempt }: { boardId: string; invites: BoardInvite[]; attempt: (action: () => Promise<unknown>) => Promise<boolean> }) {
+function InviteLinks({ boardId, invites, attempt }: { boardId: string; invites: BoardInvite[]; attempt: Attempt }) {
   const [role, setRole] = useState<BoardRole>('Editor')
   const [created, setCreated] = useState<CreatedInvite | null>(null)
-  const [copied, setCopied] = useState(false)
+  const copier = useCopy()
   const link = created ? `${window.location.origin}${created.path}` : ''
 
   async function create() {
-    setCopied(false)
+    copier.reset()
     await attempt(async () => setCreated(await api.createBoardInvite(boardId, role)))
-  }
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(link)
-      setCopied(true)
-    } catch {
-      setCopied(false)
-    }
   }
 
   return (
@@ -204,14 +172,7 @@ function InviteLinks({ boardId, invites, attempt }: { boardId: string; invites: 
         </button>
       </div>
       <p className="dialog-hint">Works once, for whoever opens it first and signs in, within 7 days.</p>
-      {created && (
-        <div className="copy-field">
-          <input readOnly aria-label="Invite link" value={link} onFocus={(e) => e.target.select()} />
-          <button type="button" className="ghost small" onClick={() => void copy()}>
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-        </div>
-      )}
+      {created && <CopyField label="Invite link" value={link} copier={copier} />}
       {invites.length > 0 && (
         <ul className="row-list">
           {invites.map((invite) => (

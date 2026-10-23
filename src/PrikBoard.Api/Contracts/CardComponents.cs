@@ -14,7 +14,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Width">Width in card pixels.</param>
 /// <param name="Height">Height in card pixels.</param>
 /// <param name="Title">Optional heading, e.g. "Acceptance criteria".</param>
-/// <param name="Text">The text of a Text component, in Markdown (GitHub flavour; raw HTML is shown as text).</param>
+/// <param name="Text">The text of a Text component, in Markdown (GitHub flavor; raw HTML is shown as text).</param>
 /// <param name="Items">The items of a Checklist component, in order.</param>
 /// <param name="Links">The links of a Links component, in order.</param>
 public record CardComponentDetail(
@@ -42,7 +42,7 @@ public record CardComponentDetail(
 /// </summary>
 /// <param name="Kind">Text, Checklist or Links.</param>
 /// <param name="Title">Optional heading, e.g. "Acceptance criteria".</param>
-/// <param name="Text">The text of a Text component, in Markdown (GitHub flavour).</param>
+/// <param name="Text">The text of a Text component, in Markdown (GitHub flavor).</param>
 /// <param name="Items">The items of a Checklist component.</param>
 /// <param name="Links">The links of a Links component.</param>
 /// <param name="X">Left edge on the card's canvas; snapped to the 20 px grid. Give it together with Y.</param>

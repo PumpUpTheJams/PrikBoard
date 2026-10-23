@@ -3,19 +3,20 @@ import type { LiveViewer } from '../api/types'
 import { SparkleIcon, UserIcon } from '../board/icons'
 import { presenceColor } from '../live/presence'
 import { Face } from './Avatar'
+import { plural } from './plural'
 
 const MAX_SHOWN = 4
 
 /**
  * Who else is looking at the board right now, each ringed in the color their drags show in, and how many guests
- * (visitors of a public board who aren't members) look along. `anonymous`: a visitor of a board that hides its
+ * (visitors of a public board who aren't members) are looking too. `anonymous`: a visitor of a board that hides its
  * people, for whom `guests` is everyone else looking.
  */
 export function Presence({ viewers, guests = 0, anonymous = false }: { viewers: LiveViewer[]; guests?: number; anonymous?: boolean }) {
   if (viewers.length === 0 && guests === 0) return null
   const shown = viewers.slice(0, MAX_SHOWN)
   const rest = viewers.slice(MAX_SHOWN)
-  const guestsLabel = anonymous ? (guests === 1 ? '1 other' : `${guests} others`) : guests === 1 ? '1 guest' : `${guests} guests`
+  const guestsLabel = anonymous ? plural(guests, 'other', 'others') : plural(guests, 'guest', 'guests')
   const names = [...viewers.map((v) => v.displayName), ...(guests > 0 ? [guestsLabel] : [])].join(', ')
   return (
     <div className="presence" role="group" aria-label={`Also here: ${names}`}>

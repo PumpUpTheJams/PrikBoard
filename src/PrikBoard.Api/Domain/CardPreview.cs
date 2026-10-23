@@ -4,8 +4,8 @@ namespace PrikBoard.Api.Domain;
 
 /// <summary>
 /// A short plain-text description of a card or board for link previews (the Discord bot's embeds). Cards have no
-/// description field, so a card's is its first note (Text component, top to bottom, then left to right) without its
-/// Markdown, or how much of its checklists is done when it has no notes.
+/// description field, so a card's is its first Text component with text in it (top to bottom, then left to right)
+/// without its Markdown, or else how much of its checklists is done.
 /// </summary>
 public static partial class CardPreview
 {
@@ -43,8 +43,8 @@ public static partial class CardPreview
     }
 
     /// <summary>
-    /// Markdown as plain text on one line: code fences, headings, quotes, list markers, emphasis, images and HTML go,
-    /// links keep their text, and all white space becomes single spaces. Good enough for a preview; not a parser.
+    /// Markdown as plain text on one line: code fence lines, heading, quote and list markers, emphasis and HTML go,
+    /// images and links keep their text, and all white space becomes single spaces. Good enough for a preview; not a parser.
     /// </summary>
     public static string PlainText(string markdown)
     {

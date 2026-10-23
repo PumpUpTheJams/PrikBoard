@@ -107,7 +107,7 @@ public class ReadableIdApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
         });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var linking = (await response.Content.ReadFromJsonAsync<CardDetail>())!;
-        // A link to another board stays as it was, so it says nothing new about that board.
+        // A link to another board stays as it was, so it reveals nothing new about that board (such as its short id).
         Assert.Equal([target.Path, oldAway], linking.Components.Single().Links!.Select(l => l.Url));
 
         var added = await owner.PostAsJsonAsync($"/api/cards/{linking.Id}/components", new { kind = "Links", links = new[] { new { title = "Again", url = old } } });

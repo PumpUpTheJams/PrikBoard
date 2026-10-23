@@ -11,7 +11,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Id">Drawing identifier.</param>
 /// <param name="BoardId">Board the drawing belongs to.</param>
 /// <param name="CardId">Card the drawing is on (on the card's own canvas, shown when the card is expanded), or null when it sits on the board.</param>
-/// <param name="BucketId">Bucket the drawing sits in on the board (the topmost one containing its centre when it was put there), which carries it along when it moves; null when it is loose or on a card.</param>
+/// <param name="BucketId">Bucket the drawing belongs to on the board (the topmost one containing its center when it was put there); it moves along with that bucket. Null when it is loose or on a card.</param>
 /// <param name="X">Left edge, a multiple of the 20 px grid: on the board, or on the card's canvas. The points are relative to it.</param>
 /// <param name="Y">Top edge, a multiple of the 20 px grid: on the board, or on the card's canvas. The points are relative to it.</param>
 /// <param name="Width">Width of the box from x that holds every point plus half the stroke width, in canvas pixels.</param>
@@ -22,7 +22,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="AddedById">Principal id of whoever drew it, or null once they no longer exist.</param>
 /// <param name="ContentUrl">Where to fetch the strokes (getDrawingContent). It changes whenever the strokes do. Needs the same authentication as the API.</param>
 /// <param name="CreatedAt">When it was drawn (UTC).</param>
-/// <param name="UpdatedAt">When it was last drawn on, moved or recolored (UTC).</param>
+/// <param name="UpdatedAt">When its strokes, place or inks last changed (UTC).</param>
 public record DrawingDetail(
     Guid Id,
     Guid BoardId,

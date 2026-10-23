@@ -3,9 +3,6 @@
 export const cardColors = ['Butter', 'Mint', 'Sky', 'Coral', 'Lilac'] as const
 export type CardColor = (typeof cardColors)[number]
 
-export const bucketColors = ['Blue', 'Amber', 'Violet', 'Teal', 'Rose'] as const
-export type BucketColor = (typeof bucketColors)[number]
-
 /** Default is a shade of the card's own fill; the others are solid chips of their own, in palette order. */
 export const tagColors = ['Default', 'Brick', 'Rust', 'Ochre', 'Moss', 'Pine', 'Teal', 'Ocean', 'Indigo', 'Violet', 'Berry', 'Ink'] as const
 export type TagColor = (typeof tagColors)[number]
@@ -43,9 +40,9 @@ export interface BoardDetail extends BoardSummary {
   /** Agent rules in Markdown, written by the owners; null when none are set. */
   rules: string | null
   rulesUpdatedAt: string | null
-  /** Back to front: later buckets are drawn on top. */
+  /** In creation order (To do, Doing and Done first); stackedAt says how they stack where they overlap. */
   buckets: BucketDetail[]
-  /** Bucket by bucket, loose cards last; not stacking order (see updatedAt). */
+  /** Bucket by bucket, loose cards last. Not the drawing order: cards edited later are drawn on top (updatedAt). */
   cards: CardDetail[]
   /** On the canvas (cardId null) and attached to cards, oldest first. */
   images: ImageDetail[]
@@ -158,8 +155,8 @@ export type StrokeWidth = (typeof strokeWidths)[number]
 export type StrokePoint = [number, number, number]
 
 /**
- * A freehand drawing: one or more pen strokes that select, move and delete as one (everything drawn while the pen was
- * up). Its strokes come from contentUrl (getDrawingContent), which changes whenever they do.
+ * A freehand drawing: one or more pen strokes that select, move and delete as one (everything drawn between picking up
+ * the pen and putting it down). Its strokes come from contentUrl (getDrawingContent), which changes whenever they do.
  */
 export interface DrawingDetail {
   id: string
@@ -231,7 +228,7 @@ export interface DrawingStrokesChange {
   strokes: DrawingStroke[]
 }
 
-/** A PATCH of a drawing; x and y are on wherever it ends up (give both when attaching or detaching). */
+/** A PATCH of a drawing. x and y are on the canvas it ends up on (give both when attaching or detaching). */
 export interface DrawingChanges {
   x?: number
   y?: number
@@ -247,12 +244,11 @@ export interface BucketDetail {
   id: string
   boardId: string
   name: string
-  color: BucketColor
   x: number
   y: number
   width: number
   height: number
-  /** Folded up into a square in its top-right corner: its cards are hidden (keeping their places) until it opens again. */
+  /** Folded into a square in its top-right corner: its cards and images are hidden (keeping their places) until it opens again. */
   collapsed: boolean
   /**
    * Its place in the stack, the same for everyone (ISO time, the later the higher): the topmost is drawn above the
@@ -261,24 +257,32 @@ export interface BucketDetail {
   stackedAt: string
 }
 
-/** The side a bucket grows towards when cards put into it don't fit; Left and Up move its edge out. */
+/** The side a bucket grows towards when items put into it don't fit; Left and Up move its edge out. */
 export type GrowSide = 'Down' | 'Right' | 'Left' | 'Up'
 
-/** placeCardsInBucket: cards to put into free slots, in order, and where the bucket grows when full (default Down). */
-export interface PlaceCardsRequest {
-  cardIds: string[]
+/**
+ * placeItemsInBucket: what to put into the bucket's free room (cards first, then images, then drawings, each in order)
+ * and where it grows when full (default Down). Images and drawings must be on the board itself.
+ */
+export interface PlaceItemsRequest {
+  cardIds?: string[]
+  imageIds?: string[]
+  drawingIds?: string[]
   grow?: GrowSide
 }
 
-/** The bucket (possibly grown) and the cards put into it, in the order given. */
-export interface PlacedCards {
+/** The bucket (possibly grown) and the items put into it, in the order given. */
+export interface PlacedItems {
   bucket: BucketDetail
   cards: CardDetail[]
+  images: ImageDetail[]
+  drawings: DrawingDetail[]
 }
 
 /**
- * Cards copied with copyItems, with everything on them, to paste with pasteItems on any board, on this server or
- * another. Clients pass it on as it is; only `source` and `cards` are read here (for the clipboard's text).
+ * Items copied with copyItems, with everything on them, to paste with pasteItems on any board, on this server or
+ * another. Clients pass it on unchanged; the web app only reads the fields typed here (for the clipboard's text and
+ * where pasted items land).
  */
 export interface BoardClip {
   format: 'prikboard-clip'
@@ -344,8 +348,8 @@ export interface CopyItemsRequest {
 }
 
 /**
- * Where pasted items go: the top-left at x and y (the rest keep their places around it), cards alone into a bucket, or
- * (neither) cards into the first bucket and anything else to a free spot.
+ * Where pasted items go: their top-left at x and y (the rest keep their places around it); a clip of cards alone into a
+ * bucket; or, with neither, cards into the board's first bucket and anything else to a free spot.
  */
 export type PastePlace = Point | { bucketId: string } | Record<string, never>
 
@@ -545,7 +549,6 @@ export interface Rect extends Point {
 
 export interface BucketChanges extends Partial<Rect> {
   name?: string
-  color?: BucketColor
   /** With a move only: exactly these cards move along instead of the bucket's cards (undoing a move). */
   carryCardIds?: string[]
   /** Likewise for images on the board, instead of the images in the bucket. */
@@ -764,10 +767,13 @@ export interface RemoteDrag extends DragUpdate {
   displayName: string
 }
 
-/** A personal access token, without the token itself (only shown when created). */
-/** Agent: its own agent with capped access. App: a PrikBoard app (the VS Code extension) signed in as you. */
+/**
+ * Agent: its own agent with capped access. App: a PrikBoard app (the VS Code extension) signed in as you. Discord: a
+ * connected Discord server's read-only agent.
+ */
 export type AccessTokenKind = 'Agent' | 'App' | 'Discord'
 
+/** A personal access token, without the token itself (only shown when created). */
 export interface AccessToken {
   id: string
   kind: AccessTokenKind

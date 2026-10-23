@@ -61,7 +61,7 @@ public static class DrawingEndpoints
             .WithSummary("Scale or rotate a drawing")
             .WithDescription("Scales a drawing (scaleX, scaleY) and then turns it clockwise (rotation, in degrees), both about a pivot " +
                              "on its canvas (pivotX, pivotY; by default the middle of its box). Its points change and its box follows " +
-                             "them; line widths stay. On the board it joins the bucket containing its new centre. " +
+                             "them; line widths stay. On the board it joins the bucket containing its new center. " +
                              $"409 when it would reach more than {BoardDrawing.MaxSize} px from its corner or leave the board.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
@@ -117,7 +117,7 @@ public static class DrawingEndpoints
             AddedBy = await db.Principals.FindAsync([principal.PrincipalId()], ct),
         };
         if (Build(drawing, [(request.Color, request.StrokeWidth, request.Points)], request.X!.Value, request.Y!.Value, "") is { } invalid) return invalid;
-        Layout.Place(drawing, await ImageEndpoints.StackAsync(db, boardId, ct));
+        Layout.Place(drawing, await BucketEndpoints.StackAsync(db, boardId, ct));
 
         if (await db.Drawings.CountAsync(d => d.BoardId == boardId, ct) >= BoardDrawing.MaxPerBoard)
         {
@@ -188,8 +188,8 @@ public static class DrawingEndpoints
             .FirstOrDefaultAsync(ct);
         if (content is null) return TypedResults.NotFound();
 
-        // contentUrl names the revision, so that URL always gets these strokes and can be cached (privately: every request
-        // is authenticated). Any other URL, for an old revision or none, has to ask again.
+        // contentUrl names the revision, so that URL always gets these strokes and can be cached (privately: access is
+        // checked on every request). Any other URL, for an old revision or none, has to ask again.
         response.Headers[HeaderNames.CacheControl] = v == content.Revision ? "private, max-age=31536000, immutable" : "private, no-cache";
         return TypedResults.Ok(DrawingContentDetail.From(drawingId, content.Strokes));
     }
@@ -229,7 +229,7 @@ public static class DrawingEndpoints
         // A drawing that moved joins the bucket it now sits in; only a new color leaves it where it is.
         if (moving || request.X is not null || request.Y is not null)
         {
-            Layout.Place(drawing, await ImageEndpoints.StackAsync(db, drawing.BoardId, ct));
+            Layout.Place(drawing, await BucketEndpoints.StackAsync(db, drawing.BoardId, ct));
         }
         if (request.Color is { } color) drawing.Colors = [.. drawing.Colors.Select(_ => color)];
         if (request.Colors is { } inks) drawing.Colors = [.. inks];
@@ -325,7 +325,7 @@ public static class DrawingEndpoints
     private static async Task SettleAsync(PrikBoardDbContext db, BoardDrawing drawing, CancellationToken ct)
     {
         Place(drawing, drawing.X, drawing.Y);
-        Layout.Place(drawing, await ImageEndpoints.StackAsync(db, drawing.BoardId, ct));
+        Layout.Place(drawing, await BucketEndpoints.StackAsync(db, drawing.BoardId, ct));
         drawing.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
     }
@@ -368,7 +368,7 @@ public static class DrawingEndpoints
         }
 
         drawing.DeletedAt = null;
-        Layout.Recheck(drawing, await ImageEndpoints.StackAsync(db, drawing.BoardId, ct));
+        Layout.Recheck(drawing, await BucketEndpoints.StackAsync(db, drawing.BoardId, ct));
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok(DrawingDetail.From(drawing));
     }

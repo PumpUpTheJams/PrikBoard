@@ -13,7 +13,7 @@ export function pickImageFiles(): Promise<File[]> {
   })
 }
 
-/** Opens the system file picker for one board export; resolves to null when it is cancelled. */
+/** Opens the system file picker for one board export; resolves to null when it is canceled. */
 export function pickBoardFile(): Promise<File | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input')

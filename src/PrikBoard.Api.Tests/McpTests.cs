@@ -24,7 +24,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         var tools = (await mcp.ListToolsAsync()).ToDictionary(t => t.Name, t => t.ProtocolTool);
         Assert.Equal(
             ["add_card_component", "add_image", "begin_image_upload", "bring_bucket_to_front", "collapse_bucket", "copy_to_board", "create_bucket", "create_card", "create_cards", "create_tag", "delete_card", "delete_card_component", "delete_tag", "empty_trash", "get_board",
-             "get_board_rules", "get_card", "get_card_history", "list_boards", "list_deleted_cards", "move_card", "place_cards_in_bucket", "purge_card", "rename_bucket", "restore_card", "restore_tag",
+             "get_board_rules", "get_card", "get_card_history", "list_boards", "list_deleted_cards", "move_card", "place_in_bucket", "purge_card", "rename_bucket", "restore_card", "restore_tag",
              "search_cards", "set_working", "update_card", "update_card_component", "update_tag"],
             tools.Keys.Order());
         Assert.True(tools["get_board"].Annotations!.ReadOnlyHint);
@@ -63,7 +63,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         Assert.Contains($"{updatedAt.UtcDateTime:yyyy-MM-dd HH:mm:ss}Z", reminder);
         Assert.DoesNotContain(rules, reminder);
 
-        // Reads carry no reminder, and failed writes neither.
+        // Reads carry no reminder, and neither do failed writes.
         Assert.Single((await CallRawAsync(reader, "get_board", new() { ["board"] = board.Id })).Content);
         var failed = await CallRawAsync(writer, "move_card", new() { ["card"] = Guid.NewGuid(), ["bucket"] = "Done" });
         Assert.True(failed.IsError);
@@ -130,7 +130,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         var second = await owner.CreateCardAsync(board.Id, "Second");
         var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor));
 
-        var placed = await CallAsync(mcp, "place_cards_in_bucket", new()
+        var placed = await CallAsync(mcp, "place_in_bucket", new()
         {
             ["board"] = board.ShortId, ["bucket"] = "done", ["cards"] = new[] { first.ReadableId, second.Path }, ["grow"] = "Right",
         });
@@ -616,7 +616,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         Assert.DoesNotContain("last used", first.ServerInstructions);
         await CallAsync(first, "get_board", new() { ["board"] = older.ShortId });
 
-        // A new connection hears of it, its name quoted on one line, and list_boards puts it first.
+        // A new connection is told about it (the name in quotes, without its own), and list_boards puts it first.
         var next = await ConnectAsync(token);
         Assert.Contains($"You last used the board \"Launch Q4\" (short id {older.ShortId}, your role Editor)", next.ServerInstructions);
         var boards = (await CallAsync(next, "list_boards")).EnumerateArray().ToList();

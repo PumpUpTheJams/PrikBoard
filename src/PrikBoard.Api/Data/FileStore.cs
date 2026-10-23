@@ -13,7 +13,7 @@ namespace PrikBoard.Api.Data;
 /// <remarks>
 /// The file is written before its row is committed, and a row is only inserted together with the row that refers to it.
 /// A failed save or a crash therefore leaves at most a file without a row, never a row without a file. <see cref="SweepAsync"/>
-/// deletes both rows nothing refers to (deleted boards and users, purged images, replaced avatars) and such stray files.
+/// deletes both rows nothing refers to (deleted boards and users, purged images, replaced or removed avatars) and such stray files.
 /// </remarks>
 public sealed class FileStore : IDisposable
 {
@@ -45,6 +45,9 @@ public sealed class FileStore : IDisposable
     /// Creates the folder when needed and checks that files can be written there, so a missing or read-only volume stops
     /// startup instead of the first upload.
     /// </summary>
+    /// <summary>The buffer for reading and writing files and streams: Stream.CopyTo's default, under the large object heap.</summary>
+    public const int BufferSize = 81920;
+
     public FileStore(string root, ILogger logger, long memoryCacheBytes = 64 * 1024 * 1024, long maxCachedFileBytes = 1024 * 1024)
     {
         Root = Path.GetFullPath(root);
@@ -97,7 +100,7 @@ public sealed class FileStore : IDisposable
     {
         var path = PathOf(file);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        await using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous);
+        await using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, FileOptions.Asynchronous);
         await stream.WriteAsync(data, ct);
         // On disk before the row is committed, so a crash right after the commit can't lose it.
         stream.Flush(flushToDisk: true);
@@ -124,7 +127,8 @@ public sealed class FileStore : IDisposable
         {
             return null;
         }
-        // Content never changes for an id, so entries only leave to make room or when the file is deleted.
+        // Content never changes for an id, so entries never go stale: they leave to make room, after an hour unused, or
+        // when the file is deleted.
         _cache.Set(file.Id, data, new MemoryCacheEntryOptions { Size = data.Length, SlidingExpiration = TimeSpan.FromHours(1) });
         return data;
     }

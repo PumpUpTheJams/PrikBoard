@@ -6,6 +6,7 @@ namespace PrikBoard.Api.Domain;
 /// </summary>
 public class BoardImage : ICanvasItem
 {
+    public const int MaxCaptionLength = 500;
     public Guid Id { get; set; } = Guid.CreateVersion7();
     public Guid BoardId { get; set; }
     public Board? Board { get; set; }

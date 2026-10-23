@@ -7,11 +7,11 @@ using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
 
-/// <summary>The NoteBlocks migration (notes' body, checklist and links become blocks, now card components), run against a throwaway database of its own (see <see cref="MigrationTests"/>).</summary>
+/// <summary>The NoteBlocks migration, which turns a note's body, checklist and links into blocks (now card components), run against a throwaway database of its own (see <see cref="MigrationTests"/>).</summary>
 public class CardComponentMigrationTests : IAsyncLifetime
 {
     private const string BeforeBlocks = "20261019010826_BoardRules";
-    /// <summary>The images here have no bytes, which the move of bytes to disk (StartupMigration) would drop.</summary>
+    /// <summary>Stops before StoredFiles: the images here have no bytes, so the move of bytes to disk (StartupMigration) would drop them.</summary>
     private const string BeforeStoredFiles = "20261019220831_TagColors";
 
     private readonly PrikBoardDbContext db = new(new DbContextOptionsBuilder<PrikBoardDbContext>()

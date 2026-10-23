@@ -7,7 +7,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Id">Image identifier.</param>
 /// <param name="BoardId">Board the image belongs to.</param>
 /// <param name="CardId">Card the image is attached to (on the card's own canvas, shown when the card is expanded), or null when it sits on the board.</param>
-/// <param name="BucketId">Bucket the image sits in on the board, which carries it along when it moves; null when it is loose or attached to a card.</param>
+/// <param name="BucketId">Bucket the image belongs to on the board; it moves along with that bucket. Null when it is loose or attached to a card.</param>
 /// <param name="FileName">Original file name, e.g. "ingest-errors.png".</param>
 /// <param name="ContentType">image/png, image/jpeg, image/gif or image/webp, detected from the file itself.</param>
 /// <param name="Size">File size in bytes.</param>

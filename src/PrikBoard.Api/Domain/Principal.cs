@@ -34,8 +34,8 @@ public class User : Principal
     public List<UserIdentity> Identities { get; set; } = [];
 
     /// <summary>
-    /// Runs the whole instance: sees every board and user, sets anyone's board roles and deletes users. The first user
-    /// becomes one; there is always at least one.
+    /// Runs the whole instance: sees every board and user, sets anyone's board roles, and deletes boards and users. The
+    /// first user becomes one; there is always at least one.
     /// </summary>
     public bool IsAdmin { get; set; }
 
@@ -50,7 +50,7 @@ public class User : Principal
     /// </summary>
     public bool AvatarOptedOut { get; set; }
 
-    /// <summary>The copy of the picture they chose as avatar; null without one.</summary>
+    /// <summary>The stored copy of their avatar picture; null without one.</summary>
     public Guid? AvatarFileId { get; set; }
     public StoredFile? AvatarFile { get; set; }
 
@@ -59,8 +59,9 @@ public class User : Principal
 }
 
 /// <summary>
-/// A machine client (for example an AI agent). Either a client of a trusted token issuer, which owners add to boards, or
-/// the agent behind a person's access token (<see cref="OwnerId"/> set), which works on its owner's boards.
+/// A machine client (for example an AI agent): a client of a trusted token issuer, which owners add to boards; the agent
+/// behind a person's access token (<see cref="OwnerId"/> set), which works on its owner's boards; or a connected Discord
+/// server (<see cref="DiscordGuild"/>).
 /// </summary>
 public class Agent : Principal
 {
@@ -73,10 +74,10 @@ public class Agent : Principal
     /// <summary>Id of the configured token issuer (<c>Auth:Tokens:Issuers</c>), <see cref="AccessTokenIssuer"/> or <see cref="DiscordIssuer"/>.</summary>
     public required string Issuer { get; set; }
 
-    /// <summary>The client id in its tokens (azp, client_id or appid), or the access token's id: an app registration, not personal data.</summary>
+    /// <summary>The client id in its tokens (azp, client_id or appid), the access token's id, or the Discord guild id: never personal data.</summary>
     public required string ClientId { get; set; }
 
-    /// <summary>The person whose access token this agent acts for; null for issuer clients.</summary>
+    /// <summary>The person whose access token this agent acts for; null for issuer clients and Discord servers.</summary>
     public Guid? OwnerId { get; set; }
 
     public override string FallbackName => $"Agent {(ClientId.Length <= 60 ? ClientId : ClientId[..60])}";
@@ -108,10 +109,10 @@ public enum BoardRole
     /// <summary>Reads the board.</summary>
     Viewer = 1,
 
-    /// <summary>Also changes buckets, cards and images.</summary>
+    /// <summary>Also changes the board's content: buckets, cards, images, drawings and tags.</summary>
     Editor = 2,
 
-    /// <summary>Also renames or deletes the board and manages its members and invites.</summary>
+    /// <summary>Also renames or deletes the board, sets its key, rules and public settings, and manages its members and invites.</summary>
     Owner = 3,
 }
 
@@ -128,6 +129,8 @@ public class BoardMember
 /// <summary>A single-use link that makes whoever accepts it a member with <see cref="Role"/>. Only a hash of the token is kept.</summary>
 public class BoardInvite
 {
+    /// <summary>The longest invite token there is (the limit on the token in invite requests too).</summary>
+    public const int MaxTokenLength = 100;
     public Guid Id { get; set; } = Guid.CreateVersion7();
     public Guid BoardId { get; set; }
     public BoardRole Role { get; set; }

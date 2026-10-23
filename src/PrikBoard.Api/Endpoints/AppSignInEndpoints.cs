@@ -29,7 +29,7 @@ public static class AppSignInEndpoints
             .WithTags("Access tokens")
             .NoBoardScope()
             .WithName("approveAppSignIn")
-            .WithSummary("Approve signing an app in")
+            .WithSummary("Approve an app sign-in")
             .WithDescription("Called by PrikBoard's connect page when you allow an app (the VS Code extension) to use PrikBoard as you. " +
                              "Returns a one-time code that the app trades, with its PKCE verifier, for a token (exchangeAppSignIn). " +
                              "Browser sessions from PrikBoard's own pages only.")
@@ -45,7 +45,8 @@ public static class AppSignInEndpoints
             .WithName("exchangeAppSignIn")
             .WithSummary("Trade a sign-in code for a token")
             .WithDescription("The app sends the one-time code from approveAppSignIn and its PKCE code verifier, and gets a personal " +
-                             "access token that acts as the person who approved, for 90 days. Each code works once, for 5 minutes.")
+                             "access token that acts as the person who approved, for 90 days. Each code works once, for 5 minutes, " +
+                             "and a wrong verifier spends it too. 409 when that person already has the maximum number of tokens.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict)
             .Produces(StatusCodes.Status429TooManyRequests);

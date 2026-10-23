@@ -23,18 +23,18 @@ import { Highlight } from './Highlight'
 import type { SearchTerm } from './search'
 import { BucketIcon, CheckIcon, CloseIcon, LinkIcon, PutBackIcon, SparkleIcon, TrashIcon } from './icons'
 import { cardLabel, TITLE_SUGGESTION } from './links'
-import { pop } from './motion'
 import { CardCanvas, type IncomingDrawing, type IncomingImage, type CardCanvasHandle } from './CardCanvas'
 import { tagColorClass, type TagColorPreview, type TagColors } from './tagColors'
 import { TagPicker } from './TagPicker'
 import type { RecordingRun } from './undo'
 import { MAX_ASSIGNEES, MAX_TAGS } from './tags'
-import { useCopyLink } from './useCopyLink'
+import { useCopyLink } from './useCopy'
 import { useFloatingWindow } from './useFloatingWindow'
+import { WindowResizeHandles } from './WindowResizeHandles'
 
 /** What the board needs from the open card: its canvas, and whether a paste is meant for it. */
 export interface ExpandedCardHandle extends CardCanvasHandle {
-  /** The pointer is over the window, or focus is in it. */
+  /** Whether a paste is meant for the card: the pointer is over the window, or focus is in it. */
   wantsPaste: () => boolean
   /** Whether a screen point is over the window. */
   contains: (client: Point) => boolean
@@ -45,7 +45,7 @@ export interface ExpandedCardHandle extends CardCanvasHandle {
 interface ExpandedCardProps {
   card: CardDetail
   bucket: BucketDetail | undefined
-  /** Focus and select the title, for a card that was just stuck on. */
+  /** Focus and select the title, for a card just added to the board. */
   focusTitle: boolean
   onChange: (changes: CardChanges) => Promise<boolean>
   /** The board's tags and the people who can be assigned, to pick from. */
@@ -109,9 +109,9 @@ export function ExpandedCard(props: ExpandedCardProps) {
   const dialogRef = useRef<HTMLElement>(null)
   const canvas = useRef<CardCanvasHandle>(null)
   const titleRef = useRef<HTMLInputElement & HTMLTextAreaElement>(null)
-  const { rect, moving, startMove, startResize } = useFloatingWindow(dialogRef)
+  const { rect, style, moving, startMove, startResize, contains, pop } = useFloatingWindow(dialogRef)
 
-  // Focus goes to the window, or for a card just stuck on the board to its title with the text selected, so typing
+  // Focus goes to the window, or, for a card just added to the board, to its title with the text selected, so typing
   // replaces it. Only once the window shows: it is hidden until it has measured the board, and hidden things can't
   // take focus.
   const shown = rect !== null
@@ -138,24 +138,18 @@ export function ExpandedCard(props: ExpandedCardProps) {
 
   // Follows the pointer everywhere (also while the board or the canvas holds it during a drag).
   useEffect(() => {
-    function onMove(e: PointerEvent) {
-      const r = dialogRef.current?.getBoundingClientRect()
-      setHover(!!r && e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY < r.bottom)
-    }
+    const onMove = (e: PointerEvent) => setHover(contains({ x: e.clientX, y: e.clientY }))
     window.addEventListener('pointermove', onMove)
     return () => window.removeEventListener('pointermove', onMove)
-  }, [])
+  }, [contains])
 
   useImperativeHandle(handle, () => ({
     hits: (client) => canvas.current?.hits(client) ?? false,
     toCard: (client) => canvas.current!.toCard(client),
     pastePoint: () => canvas.current!.pastePoint(),
     wantsPaste: () => hover || !!dialogRef.current?.contains(document.activeElement),
-    contains: (client) => {
-      const r = dialogRef.current?.getBoundingClientRect()
-      return !!r && client.x >= r.left && client.x < r.right && client.y >= r.top && client.y < r.bottom
-    },
-    pop: () => pop(dialogRef.current, 1.015),
+    contains,
+    pop,
   }))
 
   function closePicker() {
@@ -168,7 +162,7 @@ export function ExpandedCard(props: ExpandedCardProps) {
       <article
         ref={dialogRef}
         className={`expanded fill-${card.color.toLowerCase()}${moving ? ' moving' : ''}${fileOver ? ' file-over' : ''}${readOnly ? ' read-only' : ''}${incoming || incomingDrawing || linking ? ' drop-over' : ''}`}
-        style={rect ? { left: rect.x, top: rect.y, width: rect.width, height: rect.height } : { visibility: 'hidden' }}
+        style={style}
         // Images dropped on the band are attached in a free spot (the canvas takes drops where they land).
         onDragOver={(e) => {
           if (readOnly || !draggingFiles(e.dataTransfer)) return
@@ -292,9 +286,7 @@ export function ExpandedCard(props: ExpandedCardProps) {
 
         {!visiting && <CardHistory card={card} attached={images.length + drawings.length} />}
 
-        <span className="window-resize e" aria-hidden="true" onPointerDown={startResize('e')} />
-        <span className="window-resize s" aria-hidden="true" onPointerDown={startResize('s')} />
-        <span className="window-resize se" aria-hidden="true" onPointerDown={startResize('se')} />
+        <WindowResizeHandles onResize={startResize} />
       </article>
 
       {picking?.kind === 'tags' && (
@@ -398,7 +390,7 @@ function AssigneeChips({ assignees, highlight, onRemove, onAdd }: AssigneeChipsP
   )
 }
 
-/** The card's ID. Clicking it copies a link that opens this card. */
+/** The card's readable id (MPCT-415). Clicking it copies a link that opens this card. */
 export function CardIdButton({ card }: { card: CardDetail }) {
   /** Whether the last copy worked; null shows the ID again. */
   const { copied, copy } = useCopyLink(card)

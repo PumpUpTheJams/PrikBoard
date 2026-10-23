@@ -9,9 +9,9 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="WholeServer">True for every channel of the server; false (the default) for only the channel where /prikboard connect was run.</param>
 public sealed record DiscordBoardChoice(Guid BoardId, bool WholeServer = false);
 
-/// <summary>You approve connecting a Discord server to boards you own, from the page the bot linked to.</summary>
+/// <summary>Approves connecting a Discord server to boards you own, from the page the bot linked to.</summary>
 /// <param name="CodeChallenge">The bot's PKCE code challenge from the link: base64url SHA-256 of its code verifier (S256), 43 characters.</param>
-/// <param name="Boards">The boards to connect (1 to 50), each limited to the channel or for the whole server.</param>
+/// <param name="Boards">The boards to connect (1 to 50), each for the channel where /prikboard connect was run or for the whole server.</param>
 public sealed record ApproveDiscordConnectRequest(
     [property: Required, StringLength(43, MinimumLength = 43)] string CodeChallenge,
     [property: Required, MinLength(1), MaxLength(DiscordConnectGrant.MaxBoards)] List<DiscordBoardChoice> Boards);
@@ -99,7 +99,7 @@ public enum LinkPreviewKind
 /// <param name="BoardName">The board's name (all kinds).</param>
 /// <param name="ReadableId">Card: its readable id, e.g. PRIK-109.</param>
 /// <param name="Title">Card: its title.</param>
-/// <param name="Description">Card: its first note as plain text, or how much of its checklists is done. Board: its description. At most 300 characters; null without one.</param>
+/// <param name="Description">Card: its first Text component as plain text, or, without one, how much of its checklists is done. Board: its description. At most 300 characters; null without one.</param>
 /// <param name="Color">Card: its fill.</param>
 /// <param name="Path">Card and Board: the path in the web app, after the site's address.</param>
 /// <param name="Role">Invite: the role it grants.</param>

@@ -28,10 +28,10 @@ public record CardChangeDetail(Guid Id, DateTimeOffset At, Assignee? By, IReadOn
             .Where(id => id != Guid.Empty);
 }
 
-/// <summary>One thing that changed. Which fields are set depends on kind (see CardChangeKind).</summary>
-/// <param name="Kind">What changed: Created, Title, Color, Tags, Assignees, AgentWorking, Bucket, ComponentAdded, ComponentChanged, ComponentRemoved, ImageAdded, ImageRemoved, DrawingAdded, DrawingRemoved, Deleted, Restored, or Other for a change this version cannot describe. Treat kinds you do not know like Other.</param>
-/// <param name="Before">The old value: the old title or color, the bucket it left (null: loose on the board), a component's kind, or a removed image's caption or file name.</param>
-/// <param name="After">The new value: the new title or color, the bucket it went into (null: loose), a component's title, an added image's caption or file name, or "true"/"false" for AgentWorking.</param>
+/// <summary>One thing that changed. Which fields are set depends on kind.</summary>
+/// <param name="Kind">What changed: Created, Title, Color, Tags, Assignees, AgentWorking, Bucket, ComponentAdded, ComponentChanged, ComponentRemoved, ImageAdded, ImageRemoved, DrawingAdded, DrawingRemoved, Deleted, Restored, Copied (added as a copy of another card), Moved (added as the new place of a card cut from another board), MovedAway (cut and pasted on another board), or Other for a change this version cannot describe. Treat kinds you do not know like Other.</param>
+/// <param name="Before">The old value: the old title or color, the name of the bucket it left (null: loose on the board), a component's kind, a removed image's caption or file name, or for Copied and Moved the original card's readable id (for MovedAway, the new card's).</param>
+/// <param name="After">The new value: the new title or color, the name of the bucket it went into (null: loose), a component's title, an added image's caption or file name, "true"/"false" for AgentWorking, or for Copied, Moved and MovedAway the other card's link.</param>
 /// <param name="Added">Tags added, or the names of the people and agents assigned.</param>
 /// <param name="Removed">Tags removed, or the names of the people and agents unassigned.</param>
 public record CardChangeEntryDetail(

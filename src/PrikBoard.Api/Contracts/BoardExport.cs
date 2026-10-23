@@ -9,7 +9,7 @@ namespace PrikBoard.Api.Contracts;
 /// local to it; importing makes new ones.
 /// </summary>
 /// <param name="Format">Always "prikboard-board". Marks the file as a PrikBoard export.</param>
-/// <param name="Version">Version of this file format, currently 6 (3 to 5 still import). Files from before notes were renamed cards (versions 1 and 2) are refused, and so is a file with a newer version than the server knows, or with fields it doesn't know.</param>
+/// <param name="Version">Version of this file format, currently 7 (3 to 6 still import; their bucket colors are ignored). Files from before notes were renamed cards (versions 1 and 2) are refused, and so is a file with a newer version than the server knows, or with fields it doesn't know.</param>
 /// <param name="ExportedAt">When the file was made (UTC).</param>
 /// <param name="Name">Board name.</param>
 /// <param name="Description">Board description, or null.</param>
@@ -40,7 +40,7 @@ public record BoardExport(
 {
     public const string FormatName = "prikboard-board";
     /// <summary>Raise it with every change to the file's fields, so an older server refuses a file it can't fully read.</summary>
-    public const int CurrentVersion = 6;
+    public const int CurrentVersion = 7;
     public const int OldestVersion = 3;
     public const string TooOldMessage =
         "This file is from before notes were renamed cards (version 1 or 2), and this server reads version 3 and later. " +
@@ -52,7 +52,6 @@ public record BoardExport(
 
 /// <summary>A bucket in an export.</summary>
 /// <param name="Name">Bucket name.</param>
-/// <param name="Color">Outline color.</param>
 /// <param name="X">Left edge in canvas pixels.</param>
 /// <param name="Y">Top edge in canvas pixels.</param>
 /// <param name="Width">Width in pixels.</param>
@@ -61,7 +60,6 @@ public record BoardExport(
 /// <param name="Stack">Its place in the stack where buckets overlap, 0 at the back. Optional; without it buckets stack in file order.</param>
 public record ExportedBucket(
     [property: Required, StringLength(100, MinimumLength = 1)] string Name,
-    BucketColor Color,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int X,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int Y,
     [property: Range(Layout.MinBucketWidth, Layout.MaxBucketSize)] int Width,

@@ -76,10 +76,10 @@ export function searchTerms(query: string): SearchTerm[] {
   return terms
 }
 
-/** Whether a term looks in a kind of field: a prefixed one only in its own, the others everywhere but the color. */
+/** Whether a term searches a kind of field: a prefixed term only its own kind, others every kind but the color. */
 const looksIn = (term: SearchTerm, kind: SearchField['kind']) => (term.field ? term.field === kind : kind !== 'color')
 
-/** The words that look in a kind of field. */
+/** The words of the terms that search a kind of field. */
 export const wordsFor = (terms: SearchTerm[], kind: SearchField['kind']) => terms.filter((t) => looksIn(t, kind)).map((t) => t.text)
 
 /** Whether a term is found in a field: a color by the start of one of its words, the rest anywhere in the text. */
@@ -89,7 +89,7 @@ function found(term: SearchTerm, kind: SearchField['kind'], text: string) {
   return fold(text).includes(term.text)
 }
 
-/** Where a field's text shows the terms that look in it: a matching color is marked whole. */
+/** Where the terms that search a field occur in its text, to mark them; a matching color is marked whole. */
 export function fieldRanges(text: string, terms: SearchTerm[], kind: SearchField['kind']): [number, number][] {
   if (kind === 'color') return terms.some((t) => found(t, kind, text)) ? [[0, text.length]] : []
   return matchRanges(text, wordsFor(terms, kind))

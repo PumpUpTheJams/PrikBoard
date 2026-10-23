@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 import type { CardDetail, Point } from '../api/types'
 import { AvatarStack } from '../components/Avatar'
+import { plural } from '../components/plural'
 import { Highlight } from './Highlight'
 import type { SearchTerm } from './search'
 import { CheckIcon, ExpandIcon, LinkIcon, PutBackIcon, TrashIcon } from './icons'
@@ -8,9 +9,7 @@ import { cardLabel } from './links'
 import { CARD_HEIGHT, CARD_WIDTH } from './layout'
 import { keepPress } from './gesture'
 import { tagColorClass, type TagColors } from './tagColors'
-import { useCopyLink } from './useCopyLink'
-
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
+import { useCopyLink } from './useCopy'
 
 /** What the card holds inside, by kind, e.g. "2 notes, 1 checklist, 1 image". */
 function contentSummary(card: CardDetail, images: number) {
@@ -26,6 +25,9 @@ function contentSummary(card: CardDetail, images: number) {
     .map(([n, one, many]) => plural(n, one, many))
     .join(', ')
 }
+
+/** Keeps a press or double-click on a part of the card to that part, so it doesn't drag or expand the card. */
+const stop = (e: PointerEvent | MouseEvent) => e.stopPropagation()
 
 /** Rough width of a tag chip: 11 px mono is about 6.6 px per character, plus padding and gap. */
 const tagWidth = (tag: string) => tag.length * 6.6 + 16
@@ -44,13 +46,13 @@ interface CardProps {
    * of a list (the mobile layout), as wide as the list, and a tap opens it.
    */
   point?: Point
-  /** How many images are attached to it (they count with its components in the content badge). */
+  /** How many images are attached to it (counted with its components in the corner). */
   images?: number
   /** The board's tag colors; tags without one are a shade of the fill. */
   tagColors?: TagColors
   selected: boolean
   lifted: boolean
-  /** Drawn above the rest, with the bucket that was opened or pressed last. */
+  /** Drawn above the rest, with the topmost open bucket it is in. */
   front?: boolean
   /** Faded: it doesn't match the board's filters or search. */
   dimmed?: boolean
@@ -71,7 +73,7 @@ interface CardProps {
   titleCaret?: number
   /** Saves a new title; resolves false when that failed. */
   onRenameTitle?: (title: string) => Promise<boolean>
-  /** Editing the title ended (saved or cancelled). */
+  /** Editing the title ended (saved or canceled). */
   onTitleDone?: () => void
   /**
    * For a card in the trash: puts it back where it was on the board. Its button takes the place of the people button
@@ -90,7 +92,7 @@ interface CardProps {
 export function Card(props: CardProps) {
   const { card, point, images = 0, tagColors, selected, lifted, front, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
   const { editingTitle, titleCaret, onRenameTitle, onTitleDone, onPutBack, onPurge } = props
-  /** A saved title, shown until the reload brings it (while the server still has `from`). */
+  /** A title just saved, shown until the reload brings it (while the card still has the old title, `from`). */
   const [saved, setSaved] = useState<{ title: string; from: string } | null>(null)
   const title = saved && saved.from === card.title ? saved.title : card.title
   /** The title in labels, with a stand-in when it is empty. */
@@ -124,9 +126,8 @@ export function Card(props: CardProps) {
     card.assignees.length > 0 ? <AvatarStack assignees={card.assignees} /> : <span className="avatar-slot" aria-hidden="true" />
   const contents = card.components.length + images
   const summary = contentSummary(card, images)
-  // The corner's buttons work on a click of their own: no drag (keepPress, which lets the middle button pan), and a
-  // double-click doesn't expand the card twice.
-  const stop = (e: PointerEvent | MouseEvent) => e.stopPropagation()
+  // The corner's buttons act on their own click: pressing one doesn't start a drag (keepPress still lets the middle
+  // button pan), and double-clicking one doesn't also expand the card.
 
   return (
     <div
@@ -193,8 +194,8 @@ export function Card(props: CardProps) {
                 className="card-put-back purge"
                 aria-label={`Delete ${name} for good`}
                 title="Delete for good"
-                onPointerDown={(e) => e.stopPropagation()}
-                onDoubleClick={(e) => e.stopPropagation()}
+                onPointerDown={stop}
+                onDoubleClick={stop}
                 onClick={onPurge}
               >
                 <TrashIcon size={14} />
@@ -205,8 +206,8 @@ export function Card(props: CardProps) {
               className="card-put-back"
               aria-label={`Put ${name} back on the board`}
               title="Put back on the board"
-              onPointerDown={(e) => e.stopPropagation()}
-              onDoubleClick={(e) => e.stopPropagation()}
+              onPointerDown={stop}
+              onDoubleClick={stop}
               onClick={onPutBack}
             >
               <PutBackIcon />
@@ -214,7 +215,6 @@ export function Card(props: CardProps) {
           </span>
         ) : onEditAssignees ? (
           <QuickEdit className="card-people" label={`People on ${name}`} onOpen={onEditAssignees}>
-
             {people}
           </QuickEdit>
         ) : (
@@ -226,7 +226,7 @@ export function Card(props: CardProps) {
 }
 
 /**
- * The title edited in place: Enter (or clicking elsewhere) saves, Escape cancels. Presses (but the middle button's, which
+ * The title edited in place: Enter (or clicking elsewhere) saves, Escape cancels. Presses (except the middle button's, which
  * pans) and double-clicks stay inside, so selecting text doesn't drag the card and a double-click selects a word
  * instead of expanding it.
  */
@@ -258,7 +258,6 @@ function TitleInput(props: { value: string; caret?: number; onSave: (title: stri
     else onCancel()
   }
 
-  const stop = (e: PointerEvent | MouseEvent) => e.stopPropagation()
   return (
     <textarea
       ref={input}
@@ -287,7 +286,6 @@ function TitleInput(props: { value: string; caret?: number; onSave: (title: stri
 
 /** A part of the card that opens a window on click, without starting a drag or expanding the card. */
 function QuickEdit({ className, label, onOpen, children }: { className: string; label: string; onOpen: (anchor: DOMRect) => void; children: ReactNode }) {
-  const stop = (e: PointerEvent | MouseEvent) => e.stopPropagation()
   return (
     <button
       type="button"

@@ -1,5 +1,6 @@
 @host = http://localhost:5080
-# An access token from your identity provider, e.g. via Client Credentials (see docs/authentication.md).
+# A personal access token (pb_pat_...), or an access token from your identity provider, e.g. via Client Credentials
+# (see docs/authentication.md).
 @token = paste-your-access-token-here
 
 ### OpenAPI document (the machine-readable contract for AI agents)
@@ -32,7 +33,7 @@ Content-Type: application/json
 GET {{host}}/api/boards/{{boardId}}
 Authorization: Bearer {{token}}
 
-### Stick a card on the board (lands in a free spot in the first bucket)
+### Add a card to the board (without bucketId, x and y it lands in a free spot outside the buckets)
 # @name createCard
 POST {{host}}/api/boards/{{boardId}}/cards
 Authorization: Bearer {{token}}
@@ -78,7 +79,7 @@ Content-Type: application/json
   "y": 80
 }
 
-### Draw a bucket
+### Create a bucket
 POST {{host}}/api/boards/{{boardId}}/buckets
 Authorization: Bearer {{token}}
 Content-Type: application/json

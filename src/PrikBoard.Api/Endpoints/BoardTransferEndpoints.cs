@@ -30,7 +30,7 @@ public static class BoardTransferEndpoints
             .WithName("exportBoard")
             .WithSummary("Export a board to a file")
             .WithDescription("Returns the board's content as one self-contained JSON file (sent as a download): name, description, agent rules, " +
-                             "buckets, tags, cards and images with their bytes as base64. Members, roles and user ids are not included. " +
+                             "buckets, tags, cards, drawings and images with their bytes as base64. Members, roles and user ids are not included. " +
                              "Pass the file to importBoard to make a new board from it.");
 
         boards.MapPost("/import", ImportBoard)
@@ -38,9 +38,9 @@ public static class BoardTransferEndpoints
             .WithMetadata(new RequestSizeLimitAttribute(MaxImportBytes), new BufferedBody())
             .WithName("importBoard")
             .WithSummary("Import a board from an export file")
-            .WithDescription("Send the file from exportBoard as the request body. It always creates a new board, which you own, and never changes " +
-                             "an existing one. Ids and the short id are made new (cards keep their numbers), positions are snapped to the grid, " +
-                             "and each card's bucket follows from where it sits. " +
+            .WithDescription("Send the file from exportBoard as the request body (at most 64 MB). It always creates a new board, which you own, " +
+                             "and never changes an existing one. Ids and the short id are new (cards keep their numbers when each has its own), " +
+                             "positions are snapped to the grid, and each item's bucket follows from where it sits. " +
                              "Cards are created by you and have no assignees. Tokens limited to chosen boards cannot import. " +
                              "A file from a newer PrikBoard (a newer version, or fields this server doesn't know) is refused with a 400 " +
                              "keyed on version, rather than imported without what it can't read.")
@@ -63,7 +63,7 @@ public static class BoardTransferEndpoints
             .FirstOrDefaultAsync(b => b.Id == boardId, ct);
         if (board is null) return TypedResults.NotFound();
 
-        // Links to cards on this board point at them by id, the one thing the file keeps of them (see FollowLinks).
+        // Links to this board's own cards are written in the id form: the file keeps card ids, not the short id, so FollowLinks can map them.
         var ids = board.Cards.ToDictionary(n => n.Number, n => n.Id);
         string InFile(string url) =>
             CardLinks.TryParse(url, out var target) && target.BoardShortId == board.ShortId && ids.TryGetValue(target.Number, out var id)
@@ -80,7 +80,7 @@ public static class BoardTransferEndpoints
             BoardExport.FormatName, BoardExport.CurrentVersion, DateTimeOffset.UtcNow,
             board.Name, board.Description, board.Rules,
             Layout.InListOrder(board.Buckets)
-                .Select(b => new ExportedBucket(b.Name, b.Color, b.X, b.Y, b.Width, b.Height, b.Collapsed, stack[b.Id])).ToList(),
+                .Select(b => new ExportedBucket(b.Name, b.X, b.Y, b.Width, b.Height, b.Collapsed, stack[b.Id])).ToList(),
             board.Tags.OrderBy(t => t.CreatedAt).ThenBy(t => t.Id).Select(t => t.Name).ToList(),
             // Oldest edit first: the importer gives them rising timestamps, so the most recently edited card stays on top.
             board.Cards.OrderBy(n => n.UpdatedAt).ThenBy(n => n.Id)
@@ -89,8 +89,7 @@ public static class BoardTransferEndpoints
             images,
             board.Tags.Where(t => t.Color != TagColor.Default).ToDictionary(t => t.Name, t => t.Color),
             board.Drawings.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id)
-                .Select(d => new ExportedDrawing(d.CardId, d.X, d.Y,
-                    [.. d.Content!.Strokes.Zip(d.Colors, (s, color) => new ExportedStroke(color, s.StrokeWidth, [.. s.Points]))])).ToList(),
+                .Select(d => new ExportedDrawing(d.CardId, d.X, d.Y, ExportedStrokes(d))).ToList(),
             board.Key,
             AppVersion.Number);
 
@@ -104,26 +103,19 @@ public static class BoardTransferEndpoints
         CancellationToken ct)
     {
         var caller = BoardCaller.Of(principal);
-        if (caller.Boards is not null)
-        {
-            return TypedResults.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Limited access token",
-                detail: "This access token is limited to chosen boards, so it cannot import new ones.");
-        }
+        if (caller.Boards is not null) return Problems.LimitedToken("import new ones");
 
         // A file from a newer PrikBoard is refused rather than imported without what this server can't read. The version
         // comes first: the web app shows the first error.
         var errors = new Dictionary<string, string[]>();
-        var madeWith = file.AppVersion is { } made
-            ? $"It was made with PrikBoard {made}, and this server runs {AppVersion.Number}."
-            : "It was made with a newer PrikBoard than this server runs.";
+        var madeWith = MadeWith(file.AppVersion, "It was made");
         if (file.Version > BoardExport.CurrentVersion)
         {
             errors["version"] = [$"This file is version {file.Version}, but this server reads up to version {BoardExport.CurrentVersion}. {madeWith} Update PrikBoard to import it."];
         }
         else if (await UnknownFieldsAsync(request, json.Value.SerializerOptions, ct) is { Count: > 0 } unknown)
         {
-            var fields = string.Join(", ", unknown.Take(5)) + (unknown.Count > 5 ? $" and {unknown.Count - 5} more" : "");
-            errors["version"] = [$"This file has fields this server doesn't know ({fields}). {madeWith} Update PrikBoard to import it without losing them."];
+            errors["version"] = [$"This file has fields this server doesn't know ({FieldList(unknown)}). {madeWith} Update PrikBoard to import it without losing them."];
         }
         if (file.Format != BoardExport.FormatName) errors["format"] = [$"This is not a PrikBoard export: format must be \"{BoardExport.FormatName}\"."];
         if (file.Cards.Select(n => n.Id).Distinct().Count() != file.Cards.Count) errors["cards"] = ["Card ids must be unique within the file."];
@@ -144,14 +136,14 @@ public static class BoardTransferEndpoints
         var clock = board.CreatedAt;
         foreach (var (i, bucket) in file.Buckets.Index())
         {
+            var (width, height) = FittedBucketSize(bucket.Width, bucket.Height);
             board.Buckets.Add(new Bucket
             {
                 Name = bucket.Name,
-                Color = bucket.Color,
                 X = Layout.Snap(bucket.X),
                 Y = Layout.Snap(bucket.Y),
-                Width = Math.Min(Layout.MaxBucketSize, Layout.SnapSize(bucket.Width, Layout.MinBucketWidth)),
-                Height = Math.Min(Layout.MaxBucketSize, Layout.SnapSize(bucket.Height, Layout.MinBucketHeight)),
+                Width = width,
+                Height = height,
                 CreatedAt = clock.AddMilliseconds(i),
                 StackedAt = clock.AddMilliseconds(bucket.Stack ?? i),
             });
@@ -207,13 +199,9 @@ public static class BoardTransferEndpoints
         var contents = new List<(StoredFile File, byte[] Data)>();
         foreach (var (i, source) in file.Images.Index())
         {
-            if (source.Data.Length > ImageFormats.MaxBytes)
+            if (!ImageEndpoints.TryFromBytes(board.Id, source.Data, source.FileName, source.Caption, source.Width, out var image, out var problem))
             {
-                return Problems.Invalid($"images[{i}].data", $"Images can be at most {ImageFormats.MaxBytes / 1024 / 1024} MB.");
-            }
-            if (ImageFormats.Detect(source.Data) is not { } info)
-            {
-                return Problems.Invalid($"images[{i}].data", "The file is not a PNG, JPEG, GIF or WebP image (or it is larger than 20000 pixels on a side).");
+                return Problems.Invalid($"images[{i}].data", problem);
             }
             Guid? cardId = null;
             if (source.CardId is { } sourceCard)
@@ -222,22 +210,13 @@ public static class BoardTransferEndpoints
                 cardId = mapped;
             }
 
-            var image = new BoardImage
-            {
-                CardId = cardId,
-                PixelWidth = info.Width,
-                PixelHeight = info.Height,
-                Caption = PatchText.Apply(null, source.Caption),
-                AddedById = createdBy,
-                File = StoredFile.For(board.Id, ImageEndpoints.CleanFileName(source.FileName, info.ContentType), info.ContentType, source.Data),
-                CreatedAt = clock.AddMilliseconds(i),
-                UpdatedAt = clock.AddMilliseconds(i),
-            };
-            image.Resize(source.Width);
+            image.CardId = cardId;
+            image.AddedById = createdBy;
+            image.CreatedAt = image.UpdatedAt = clock.AddMilliseconds(i);
             if (cardId is null) (image.X, image.Y) = (Layout.Snap(source.X), Layout.Snap(source.Y));
             else (image.X, image.Y) = Layout.OnCardCanvas(source.X, source.Y, image.Width, image.Height);
             board.Images.Add(image);
-            contents.Add((image.File, source.Data));
+            contents.Add((image.File!, source.Data));
         }
 
         foreach (var (i, source) in (file.Drawings ?? []).Index())
@@ -278,6 +257,24 @@ public static class BoardTransferEndpoints
             BoardDetail.From(board, caller.Apply(board.Id, BoardRole.Owner)!.Value, principals, people, createdBy));
     }
 
+    /// <summary>A drawing's strokes as files and clips hold them, each with its ink. Needs its <c>Content</c> loaded.</summary>
+    internal static List<ExportedStroke> ExportedStrokes(BoardDrawing drawing) =>
+        [.. drawing.Content!.Strokes.Zip(drawing.Colors, (s, color) => new ExportedStroke(color, s.StrokeWidth, [.. s.Points]))];
+
+    /// <summary>"It was made" or "They were copied" with which PrikBoard, for refusing what a newer one wrote.</summary>
+    internal static string MadeWith(string? appVersion, string done) => appVersion is { } made
+        ? $"{done} with PrikBoard {made}, and this server runs {AppVersion.Number}."
+        : $"{done} with a newer PrikBoard than this server runs.";
+
+    /// <summary>Unknown fields for a message: the first five, and how many more.</summary>
+    internal static string FieldList(IReadOnlyList<string> fields) =>
+        string.Join(", ", fields.Take(5)) + (fields.Count > 5 ? $" and {fields.Count - 5} more" : "");
+
+    /// <summary>A bucket size from a file or clip: snapped to the grid, within the smallest and largest a bucket can be.</summary>
+    internal static (int Width, int Height) FittedBucketSize(int width, int height) => (
+        Math.Min(Layout.MaxBucketSize, Layout.SnapSize(width, Layout.MinBucketWidth)),
+        Math.Min(Layout.MaxBucketSize, Layout.SnapSize(height, Layout.MinBucketHeight)));
+
     /// <summary>
     /// A component as it goes in the file: like a new component, with its place and only the content of its kind, and each link's
     /// url through <paramref name="url"/>.
@@ -291,8 +288,9 @@ public static class BoardTransferEndpoints
     }
 
     /// <summary>
-    /// A link to another card in the file (by its id in the file) becomes that card's new path; web links stay (and invalid
-    /// ones are left for the component's own check); a path to a card outside the file is dropped, as it would dangle.
+    /// A link to another card in the file (by its id in the file) becomes that card's new path. Web links stay (invalid ones
+    /// are left for the component's own check). Any other card path, by number or to a card outside the file, is dropped, as
+    /// it would dangle.
     /// </summary>
     private static List<CardLink> FollowLinks(
         IEnumerable<CardLink> links, Dictionary<Guid, Guid> newIds, string shortId, Dictionary<Guid, int> numbers)
@@ -327,6 +325,16 @@ public static class BoardTransferEndpoints
     private static Task<List<string>> UnknownFieldsAsync(HttpRequest request, JsonSerializerOptions options, CancellationToken ct) =>
         UnknownFieldsAsync(request, options, typeof(BoardExport), ct);
 
+    /// <summary>
+    /// Fields that older files and clips still have but this version dropped: they are known, and binding skips them. A
+    /// bucket's color went with export version 7 and clip version 4.
+    /// </summary>
+    private static readonly HashSet<(Type Type, string Field)> DroppedFields =
+    [
+        (typeof(ExportedBucket), "color"),
+        (typeof(ClippedBucket), "color"),
+    ];
+
     /// <summary>The fields in the request body that <paramref name="type"/> doesn't have, as paths, like the export file's check above.</summary>
     internal static async Task<List<string>> UnknownFieldsAsync(HttpRequest request, JsonSerializerOptions options, Type type, CancellationToken ct)
     {
@@ -345,7 +353,10 @@ public static class BoardTransferEndpoints
                 {
                     var property = info.Properties.FirstOrDefault(p => string.Equals(p.Name, field.Name, StringComparison.OrdinalIgnoreCase));
                     var at = path.Length == 0 ? field.Name : $"{path}.{field.Name}";
-                    if (property is null) unknown.Add(at);
+                    if (property is null)
+                    {
+                        if (!DroppedFields.Contains((info.Type, field.Name.ToLowerInvariant()))) unknown.Add(at);
+                    }
                     else Collect(field.Value, options.GetTypeInfo(property.PropertyType), at);
                 }
             }

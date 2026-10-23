@@ -3,8 +3,9 @@ namespace PrikBoard.Api.Domain;
 /// <summary>
 /// A one-time upload URL for an image (createImageUpload, MCP begin_image_upload): an agent sends the file there with a
 /// plain PUT (curl -T), so the bytes never pass through its conversation as base64. The URL's token is the credential;
-/// only its hash is stored. It holds where the image goes and who asked, whose access is checked again on upload. Spent on
-/// the first upload attempt; expired ones are deleted by <see cref="Data.TombstonePurger"/>.
+/// only its hash is stored. The row holds where the image goes and who asked; their access is checked again on upload.
+/// The URL is spent once an image is saved (a rejected file can be sent again) or when that access is gone; expired
+/// ones are deleted by <see cref="Data.TombstonePurger"/>.
 /// </summary>
 public class ImageUpload
 {
@@ -14,7 +15,7 @@ public class ImageUpload
     /// <summary>URLs waiting to be used per caller, so a token in a loop cannot pile them up.</summary>
     public const int MaxPendingPerPrincipal = 20;
 
-    /// <summary>Starts every upload token, so it is recognisable in logs and to secret scanners.</summary>
+    /// <summary>Starts every upload token, so it is recognizable in logs and to secret scanners.</summary>
     public const string Prefix = "pb_upl_";
 
     public Guid Id { get; set; } = Guid.CreateVersion7();

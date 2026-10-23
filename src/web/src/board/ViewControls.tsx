@@ -1,8 +1,8 @@
 import { type PointerEvent } from 'react'
 import type { BucketDetail, ImageDetail, CardDetail, Point, Rect } from '../api/types'
-import { MinusIcon, PlusIcon, RedoIcon, UndoIcon } from './icons'
+import { RedoIcon, UndoIcon } from './icons'
 import { CARD_HEIGHT, CARD_WIDTH } from './layout'
-import { ZOOM_LEVELS } from './zoom'
+import { ZoomButtons } from './ZoomButtons'
 
 const MAP_WIDTH = 150
 const MAP_HEIGHT = 96
@@ -121,23 +121,7 @@ export function ViewControls(props: ViewControlsProps) {
           ))}
           <span className="minimap-viewport" style={toMap(viewport)} />
         </div>
-        <div className="zoom-controls">
-          <button type="button" className="rail-button small" aria-label="Zoom out" disabled={zoom <= ZOOM_LEVELS[0]} onClick={() => onZoom(-1)}>
-            <MinusIcon />
-          </button>
-          <button type="button" className="zoom-level" title="Reset to 100%" onClick={onZoomReset}>
-            {Math.round(zoom * 100)}%
-          </button>
-          <button
-            type="button"
-            className="rail-button small"
-            aria-label="Zoom in"
-            disabled={zoom >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}
-            onClick={() => onZoom(1)}
-          >
-            <PlusIcon />
-          </button>
-        </div>
+        <ZoomButtons zoom={zoom} onStep={onZoom} onReset={onZoomReset} />
       </div>
     </div>
   )

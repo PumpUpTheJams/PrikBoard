@@ -55,8 +55,8 @@ public sealed class QuietMarker
 /// members whose role is too low get 403. Token scopes are checked before this, by the fallback policy. The one exception
 /// is a public board: the reads marked <see cref="AllowVisitors"/> are open to anyone without membership, signed in or not
 /// (but not to tokens), as a Viewer that is a visitor (<see cref="IsBoardVisitor"/>).
-/// After a successful write (anything but GET and HEAD) the filter tells the board's live viewers to reload, so endpoints
-/// don't have to.
+/// After a successful write (anything but GET and HEAD, unless marked <see cref="Quiet"/>) the filter tells the board's
+/// live viewers to reload, so endpoints don't have to.
 /// </summary>
 public static class BoardAccess
 {

@@ -27,9 +27,9 @@ public static class TagEndpoints
         tags.MapPost("/", CreateBoardTag)
             .RequireBoardRole(BoardRole.Editor)
             .WithName("createBoardTag")
-            .WithSummary("Add a tag to a board")
-            .WithDescription($"Adds a tag, optionally with a color, without putting it on a card. Using a new name in a card's tags (createCard, updateCard) " +
-                             $"adds it too. A board has at most {BoardTag.MaxPerBoard} tags.")
+            .WithSummary("Create a tag")
+            .WithDescription($"Adds a tag to the board, optionally with a color, without putting it on a card. Using a new name in a card's tags (createCard, updateCard) " +
+                             $"adds it too. A board has at most {BoardTag.MaxPerBoard} tags. 409 when the name exists or the board is full.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
 
@@ -38,7 +38,7 @@ public static class TagEndpoints
             .WithName("updateBoardTag")
             .WithSummary("Rename or recolor a tag")
             .WithDescription("Changes the tag's name (on the board and on every card that has it) and/or its color on cards. " +
-                             "Omitted fields stay unchanged.")
+                             "Omitted fields stay unchanged. 409 when another tag has the new name.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
 
@@ -163,8 +163,6 @@ public static class TagEndpoints
 
     /// <summary>The most tags on one card (the MaxLength on tags in createCard and updateCard).</summary>
     private const int MaxTagsPerCard = 10;
-
-    /// <summary>The 409 for restoring something that is not deleted.</summary>
 
     /// <summary>
     /// Adds the names a card is about to get that the board does not have yet (saved with the card).

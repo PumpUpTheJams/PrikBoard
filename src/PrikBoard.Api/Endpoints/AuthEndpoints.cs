@@ -54,21 +54,22 @@ public static class AuthEndpoints
         me.MapGet("/", WhoAmI)
             .WithName("whoAmI")
             .WithSummary("Get the caller")
-            .WithDescription("Returns who the request is authenticated as: a person (session) or an agent (token), its principal id, " +
-                             "display name and scopes. Agents share their id (or issuer and client id) with a board owner to be added.");
+            .WithDescription("Returns who the request is authenticated as: a person (browser session, or a token that acts as " +
+                             "them) or an agent (token), with its principal id, display name and scopes. Agents share their id " +
+                             "(or issuer and client id) with a board owner to be added.");
 
         me.MapPatch("/", UpdateMe)
             .WithName("updateMe")
             .WithSummary("Change your display name")
-            .WithDescription("Sets the name others see on boards (at most 100 characters); an empty string clears it.")
+            .WithDescription("Sets the name others see on boards (at most 100 characters); an empty or blank string clears it.")
             .ProducesValidationProblem();
 
         me.MapPut("/avatar", UseSignInAvatar)
             .WithName("useSignInAvatar")
-            .WithSummary("Take your sign-in picture as avatar")
+            .WithSummary("Use your sign-in picture as avatar")
             .WithDescription("Copies the picture of the provider you signed in with (suggestedAvatarUrl in whoAmI; GitHub only) " +
-                             "and shows it instead of your initials. GitHub sign-ins do this by themselves unless you removed your " +
-                             "avatar; this undoes that. People in the browser only.")
+                             "and shows it instead of your initials. GitHub sign-ins do this on their own unless you removed your " +
+                             "avatar; this undoes that. 409 when there is no picture, 502 when it can't be fetched. Browser sessions only.")
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status502BadGateway);
 
@@ -76,12 +77,12 @@ public static class AuthEndpoints
             .WithName("removeAvatar")
             .WithSummary("Remove your avatar")
             .WithDescription("Deletes your picture, so your initials are shown again, and stops later sign-ins from taking it " +
-                             "(avatarOptedOut). People in the browser only.");
+                             "(avatarOptedOut). Browser sessions only.");
 
         me.MapDelete("/identities/{identityId:guid}", UnlinkIdentity)
             .WithName("unlinkIdentity")
             .WithSummary("Unlink a sign-in")
-            .WithDescription("Removes one of your linked sign-ins. The last one cannot be removed. People only.")
+            .WithDescription("Removes one of your linked sign-ins. The last one cannot be removed (409). Browser sessions only.")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         api.MapGet("/avatars/{principalId:guid}", GetAvatar)

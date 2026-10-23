@@ -55,7 +55,7 @@ public class MeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardAp
         var again = await factory.CreateSignedInClientAsync(email, avatar: PrikBoardApiFactory.GitHubAvatar);
         Assert.Equal(me.AvatarUrl, (await again.MeAsync()).AvatarUrl);
 
-        // Removing it opts out: later sign-ins leave the initials alone.
+        // Removing it opts out: later sign-ins don't bring the picture back.
         var removed = await (await client.DeleteAsync("/api/me/avatar")).Content.ReadFromJsonAsync<Caller>();
         Assert.Equal((null, true), (removed!.AvatarUrl, removed.AvatarOptedOut));
         Assert.Equal(HttpStatusCode.NotFound, (await other.GetAsync(me.AvatarUrl)).StatusCode);

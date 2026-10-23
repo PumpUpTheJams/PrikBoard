@@ -9,6 +9,8 @@ using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
 using PrikBoard.Api.Live;
+using PastedImage = (PrikBoard.Api.Domain.BoardImage Image, PrikBoard.Api.Contracts.ClippedImage Source, byte[] Data);
+using PastedDrawing = (PrikBoard.Api.Domain.BoardDrawing Drawing, PrikBoard.Api.Contracts.ClippedDrawing Source);
 
 namespace PrikBoard.Api.Endpoints;
 
@@ -19,6 +21,9 @@ namespace PrikBoard.Api.Endpoints;
 /// </summary>
 public static class ClipEndpoints
 {
+    /// <summary><see cref="BoardClip.MaxImageBytes"/> in MB, for messages.</summary>
+    private const long MaxClipMegabytes = BoardClip.MaxImageBytes / 1024 / 1024;
+
     public static RouteGroupBuilder MapClipEndpoints(this RouteGroupBuilder api)
     {
         var boards = api.MapGroup("/boards").WithTags("Cards");
@@ -30,7 +35,8 @@ public static class ClipEndpoints
             .WithSummary("Copy cards, buckets, images and drawings")
             .WithDescription("Returns the items as a clip: one self-contained piece of JSON with the cards' title, fill, tags, assignees " +
                              "and content, the images (bytes as base64) and drawings on them, buckets with everything in them, and images " +
-                             "and drawings on the board. Changes nothing. Pass the clip to pasteItems on any board, on this server or " +
+                             "and drawings on the board. Changes nothing, even with cut (Editors only): that only marks the clip, so " +
+                             "pasting it on another board of this server moves the items. Pass the clip to pasteItems on any board, on this server or " +
                              $"another PrikBoard server. At most {BoardClip.MaxCards} cards, {BoardClip.MaxBuckets} buckets and " +
                              $"{BoardClip.MaxImageBytes / 1024 / 1024} MB of images per clip.")
             .ProducesValidationProblem();
@@ -47,7 +53,9 @@ public static class ClipEndpoints
                              "bucketId (a clip of cards alone) the cards go into free spots in that bucket; with neither, cards go into " +
                              "the board's first bucket and anything else to a free spot. Tags the board doesn't have yet are added with " +
                              "their colors; assignees stay only when they can be assigned here. Links between the pasted cards point at " +
-                             "the new cards; links to other cards stay, or, for a clip from another server, become full links to it. A clip " +
+                             "the new cards; links to other cards stay, or, for a clip from another server, become full links to it. " +
+                             "A cut pasted on another board of this server moves the items: the originals go to their board's trash " +
+                             "(you need Editor there) and come back as moved; on the board it was cut from it is a 400. A clip " +
                              "from a newer PrikBoard (a newer version, or fields this server doesn't know) is refused with a 400 keyed on " +
                              "clip.version.")
             .ProducesValidationProblem();
@@ -73,8 +81,7 @@ public static class ClipEndpoints
         if (request.Clip.Version <= BoardClip.CurrentVersion
             && await BoardTransferEndpoints.UnknownFieldsAsync(http, json.Value.SerializerOptions, typeof(PasteItemsRequest), ct) is { Count: > 0 } unknown)
         {
-            var fields = string.Join(", ", unknown.Take(5)) + (unknown.Count > 5 ? $" and {unknown.Count - 5} more" : "");
-            return Problems.Invalid("clip.version", $"These items have fields this server doesn't know ({fields}). {MadeWith(request.Clip)} " +
+            return Problems.Invalid("clip.version", $"These items have fields this server doesn't know ({BoardTransferEndpoints.FieldList(unknown)}). {MadeWith(request.Clip)} " +
                                            "Update PrikBoard to paste them without losing them.");
         }
         var result = await PasteAsync(boardId, request, ServerUrl(http), principal, db, files, ct);
@@ -104,8 +111,8 @@ public static class ClipEndpoints
 
         var buckets = await db.Buckets.AsNoTracking().Where(b => b.BoardId == boardId && bucketIds.Contains(b.Id)).ToListAsync(ct);
         if (buckets.Count != bucketIds.Count) return Problems.Invalid("bucketIds", "Every bucket must be on this board.");
-        // A bucket comes with what is in it.
-        bool InCopiedBucket(Guid? bucketId) => bucketId is { } id && bucketIds.Contains(id);
+        // A bucket comes with what is in it, and the items in it name it.
+        Guid? CopiedBucket(Guid? bucketId) => bucketId is { } id && bucketIds.Contains(id) ? bucketId : null;
         var cards = await db.Cards.AsNoTracking()
             .Where(n => n.BoardId == boardId && (cardIds.Contains(n.Id) || (n.BucketId != null && bucketIds.Contains(n.BucketId.Value))))
             .ToListAsync(ct);
@@ -124,7 +131,7 @@ public static class ClipEndpoints
         }
         if (images.Count > BoardClip.MaxImages || images.Sum(i => i.File!.Size) > BoardClip.MaxImageBytes)
         {
-            return Problems.Invalid("cardIds", $"These hold more than {BoardClip.MaxImages} images or {BoardClip.MaxImageBytes / 1024 / 1024} MB " +
+            return Problems.Invalid("cardIds", $"These hold more than {BoardClip.MaxImages} images or {MaxClipMegabytes} MB " +
                                       "of them, more than one copy takes. Copy fewer at a time.");
         }
         var drawings = await db.Drawings.AsNoTracking().Include(d => d.Content)
@@ -147,29 +154,37 @@ public static class ClipEndpoints
             .Where(t => t.BoardId == boardId && tagNames.Contains(t.Name) && t.Color != TagColor.Default)
             .ToDictionaryAsync(t => t.Name, t => t.Color, ct);
         var clippedImages = new List<ClippedImage>();
-        foreach (var i in images)
-        {
-            clippedImages.Add(new ClippedImage(i.CardId, i.File!.FileName, i.Caption, i.X, i.Y, i.Width, await files.ReadAllBytesAsync(i.File, ct),
-                InCopiedBucket(i.BucketId) ? i.BucketId : null, i.Id));
-        }
+        foreach (var i in images) clippedImages.Add(await ClipImageAsync(files, i, CopiedBucket(i.BucketId), ct));
 
         return TypedResults.Ok(new BoardClip(
             BoardClip.FormatName, BoardClip.CurrentVersion, DateTimeOffset.UtcNow,
             new ClipSource(serverUrl, board.ShortId, board.Key),
             // Oldest edit first: pasted, they get rising timestamps, so the most recently edited card stays on top.
-            [.. cards.OrderBy(n => n.UpdatedAt).ThenBy(n => n.Id).Select(n => new ClippedCard(
-                n.Id, n.Number, n.Title, n.Color, n.Tags, n.X, n.Y,
-                [.. n.Components.Select(b => BoardTransferEndpoints.Exported(b, url => url))], n.AssigneeIds,
-                InCopiedBucket(n.BucketId) ? n.BucketId : null))],
+            [.. cards.OrderBy(n => n.UpdatedAt).ThenBy(n => n.Id).Select(n => ClipCard(n, CopiedBucket(n.BucketId)))],
             clippedImages,
-            [.. drawings.Select(d => new ClippedDrawing(d.CardId, d.X, d.Y,
-                [.. d.Content!.Strokes.Zip(d.Colors, (s, color) => new ExportedStroke(color, s.StrokeWidth, [.. s.Points]))],
-                BucketId: InCopiedBucket(d.BucketId) ? d.BucketId : null, Id: d.Id))],
+            [.. drawings.Select(d => ClipDrawing(d, CopiedBucket(d.BucketId)))],
             tagColors,
             AppVersion.Number,
-            [.. Layout.BackToFront(buckets).Select(b => new ClippedBucket(b.Id, b.Name, b.Color, b.X, b.Y, b.Width, b.Height, b.Collapsed))],
+            [.. Layout.BackToFront(buckets).Select(ClipBucket)],
             what.Cut));
     }
+
+    /// <summary>A card as a clip holds it; <paramref name="bucketId"/> is its copied bucket, if any.</summary>
+    private static ClippedCard ClipCard(Card card, Guid? bucketId) => new(
+        card.Id, card.Number, card.Title, card.Color, card.Tags, card.X, card.Y,
+        [.. card.Components.Select(b => BoardTransferEndpoints.Exported(b, url => url))], card.AssigneeIds, bucketId);
+
+    /// <summary>An image as a clip holds it, with its bytes; <paramref name="bucketId"/> is its copied bucket, if any.</summary>
+    private static async Task<ClippedImage> ClipImageAsync(FileStore files, BoardImage image, Guid? bucketId, CancellationToken ct) => new(
+        image.CardId, image.File!.FileName, image.Caption, image.X, image.Y, image.Width, await files.ReadAllBytesAsync(image.File, ct),
+        bucketId, image.Id);
+
+    /// <summary>A drawing as a clip holds it; <paramref name="bucketId"/> is its copied bucket, if any.</summary>
+    private static ClippedDrawing ClipDrawing(BoardDrawing drawing, Guid? bucketId) =>
+        new(drawing.CardId, drawing.X, drawing.Y, BoardTransferEndpoints.ExportedStrokes(drawing), BucketId: bucketId, Id: drawing.Id);
+
+    private static ClippedBucket ClipBucket(Bucket bucket) =>
+        new(bucket.Id, bucket.Name, bucket.X, bucket.Y, bucket.Width, bucket.Height, bucket.Collapsed);
 
     /// <summary>Adds the clip's items to <paramref name="boardId"/>; see pasteItems. <paramref name="serverUrl"/> is this server.</summary>
     internal static async Task<Results<Ok<PastedItems>, NotFound, ValidationProblem>> PasteAsync(
@@ -177,32 +192,7 @@ public static class ClipEndpoints
         CancellationToken ct)
     {
         var clip = request.Clip;
-        if (clip.Version > BoardClip.CurrentVersion)
-        {
-            return Problems.Invalid("clip.version", $"These items were copied in a newer format (version {clip.Version}; this server reads up to " +
-                                           $"{BoardClip.CurrentVersion}). {MadeWith(clip)} Update PrikBoard to paste them.");
-        }
-        if (clip.Format != BoardClip.FormatName) return Problems.Invalid("clip.format", $"This is not a PrikBoard clip: format must be \"{BoardClip.FormatName}\".");
-        if (Problems.XWithoutY(request.X, request.Y) is { } apart) return apart;
-        if (request.BucketId is not null && request.X is not null) return Problems.Invalid("bucketId", "Give a bucketId, or X and Y, not both.");
-        if (clip.Cards.Select(n => n.Id).Distinct().Count() != clip.Cards.Count) return Problems.Invalid("clip.cards", "Card ids must be unique within the clip.");
-        var clipBuckets = clip.Buckets ?? [];
-        if (clipBuckets.Select(b => b.Id).Distinct().Count() != clipBuckets.Count) return Problems.Invalid("clip.buckets", "Bucket ids must be unique within the clip.");
-        var looseImages = clip.Images.Where(m => m.CardId is null).ToList();
-        var looseDrawings = clip.Drawings.Where(d => d.CardId is null).ToList();
-        var cardsOnly = clipBuckets.Count == 0 && looseImages.Count == 0 && looseDrawings.Count == 0;
-        if (cardsOnly && clip.Cards.Count == 0) return Problems.Invalid("clip", "The clip holds nothing to paste.");
-        if (!cardsOnly && request.BucketId is not null)
-        {
-            return Problems.Invalid("bucketId", "Only cards go into a bucket by bucketId; paste buckets, images and drawings at X and Y.");
-        }
-        var inBucket = clipBuckets.Select(b => b.Id).ToHashSet();
-        if (clip.Cards.Any(n => n.BucketId is { } b && !inBucket.Contains(b))
-            || looseImages.Any(m => m.BucketId is { } b && !inBucket.Contains(b))
-            || looseDrawings.Any(d => d.BucketId is { } b && !inBucket.Contains(b)))
-        {
-            return Problems.Invalid("clip.buckets", "An item names a bucket that is not in the clip.");
-        }
+        if (InvalidClip(request) is { } invalidClip) return invalidClip;
 
         var board = await db.Boards.AsNoTracking().FirstOrDefaultAsync(b => b.Id == boardId, ct);
         if (board is null) return TypedResults.NotFound();
@@ -225,200 +215,36 @@ public static class ClipEndpoints
             }
         }
 
-        // People from the clip stay on the copies only when they can be assigned here.
-        var people = clip.Cards.SelectMany(n => n.AssigneeIds ?? []).Distinct().ToList();
-        var assignable = people.Count == 0
-            ? []
-            : (await BoardAccess.AssignableIds(db, boardId).Where(id => people.Contains(id)).ToListAsync(ct)).ToHashSet();
-
+        var assignable = await AssignableAsync(db, boardId, clip, ct);
         var now = DateTimeOffset.UtcNow;
-        var cards = new List<Card>();
-        foreach (var (source, i) in clip.Cards.Select((n, i) => (n, i)))
-        {
-            var tags = CardTags.Normalize(source.Tags);
-            if (tags.Any(t => t.Length > CardTags.MaxLength)) return Problems.Invalid($"clip.cards[{i}].tags", $"A tag is at most {CardTags.MaxLength} characters.");
-            cards.Add(new Card
-            {
-                BoardId = boardId,
-                Title = source.Title.Trim(),
-                Color = source.Color,
-                Tags = tags,
-                AssigneeIds = [.. (source.AssigneeIds ?? []).Where(assignable.Contains).Distinct()],
-                CreatedById = me,
-                CreatedAt = now.AddMilliseconds(i),
-                UpdatedAt = now.AddMilliseconds(i),
-            });
-        }
+        if (BuildCards(clip, boardId, me, now, assignable, out var cards) is { } invalidCard) return invalidCard;
         var copies = clip.Cards.Select((n, i) => (n.Id, Card: cards[i])).ToDictionary(p => p.Id, p => p.Card);
-
-        if (clip.Images.Sum(m => (long)m.Data.Length) > BoardClip.MaxImageBytes)
-        {
-            return Problems.Invalid("clip.images", $"A clip holds at most {BoardClip.MaxImageBytes / 1024 / 1024} MB of images.");
-        }
-        var images = new List<(BoardImage Image, ClippedImage Source, byte[] Data)>();
-        foreach (var (source, i) in clip.Images.Select((m, i) => (m, i)))
-        {
-            Card? card = null;
-            if (source.CardId is { } on && !copies.TryGetValue(on, out card))
-            {
-                return Problems.Invalid($"clip.images[{i}].cardId", "The card is not in the clip.");
-            }
-            if (source.Data.Length > ImageFormats.MaxBytes)
-            {
-                return Problems.Invalid($"clip.images[{i}].data", $"Images can be at most {ImageFormats.MaxBytes / 1024 / 1024} MB.");
-            }
-            if (ImageFormats.Detect(source.Data) is not { } info)
-            {
-                return Problems.Invalid($"clip.images[{i}].data", "The file is not a PNG, JPEG, GIF or WebP image (or it is larger than 20000 pixels on a side).");
-            }
-            var image = new BoardImage
-            {
-                BoardId = boardId,
-                CardId = card?.Id,
-                PixelWidth = info.Width,
-                PixelHeight = info.Height,
-                Caption = PatchText.Apply(null, source.Caption),
-                AddedById = me,
-                File = StoredFile.For(boardId, ImageEndpoints.CleanFileName(source.FileName, info.ContentType), info.ContentType, source.Data),
-                CreatedAt = now.AddMilliseconds(i),
-                UpdatedAt = now.AddMilliseconds(i),
-            };
-            image.Resize(source.Width);
-            // On the board it gets its place with the rest, below.
-            if (card is not null) (image.X, image.Y) = Layout.OnCardCanvas(source.X, source.Y, image.Width, image.Height);
-            images.Add((image, source, source.Data));
-        }
-
+        if (BuildImages(clip, boardId, me, now, copies, out var images) is { } invalidImage) return invalidImage;
         if (clip.Drawings.Count > 0
             && await db.Drawings.CountAsync(d => d.BoardId == boardId, ct) + clip.Drawings.Count > BoardDrawing.MaxPerBoard)
         {
             return Problems.Invalid("clip.drawings", $"A board holds at most {BoardDrawing.MaxPerBoard} drawings, and these would pass that. Delete some first.");
         }
-        var drawings = new List<(BoardDrawing Drawing, ClippedDrawing Source)>();
-        foreach (var (source, i) in clip.Drawings.Select((d, i) => (d, i)))
-        {
-            Card? card = null;
-            if (source.CardId is { } on && !copies.TryGetValue(on, out card))
-            {
-                return Problems.Invalid($"clip.drawings[{i}].cardId", "The card is not in the clip.");
-            }
-            var drawing = new BoardDrawing
-            {
-                BoardId = boardId,
-                CardId = card?.Id,
-                AddedById = me,
-                CreatedAt = now.AddMilliseconds(i),
-                UpdatedAt = now.AddMilliseconds(i),
-            };
-            // A drawing on the board is built where it was and moved with the rest, below.
-            if (DrawingEndpoints.Build(drawing, source.AllStrokes(), source.X, source.Y, $"clip.drawings[{i}].") is { } invalid) return invalid;
-            drawings.Add((drawing, source));
-        }
-
-        // Tags new to the board come with their colors.
-        if (await TagEndpoints.EnsureBoardTagsAsync(db, boardId, [.. cards.SelectMany(n => n.Tags).Distinct()], ct) is { } tooManyTags)
-        {
-            return tooManyTags;
-        }
-        var colors = (clip.TagColors ?? []).GroupBy(p => CardTags.Normalize(p.Key)).ToDictionary(g => g.Key, g => g.First().Value);
-        foreach (var tag in db.ChangeTracker.Entries<BoardTag>().Where(e => e.State == EntityState.Added).Select(e => e.Entity))
-        {
-            if (colors.TryGetValue(tag.Name, out var color)) tag.Color = color;
-        }
+        if (BuildDrawings(clip, boardId, me, now, copies, out var drawings) is { } invalidDrawing) return invalidDrawing;
+        if (await AddTagsAsync(db, boardId, clip, cards, ct) is { } tooManyTags) return tooManyTags;
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var bucket = request.BucketId is { } bucketId ? await LockBucketAsync(db, boardId, bucketId, ct) : null;
         if (request.BucketId is not null && bucket is null) return Problems.Invalid("bucketId", "The bucket does not exist on this board.");
         var buckets = await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct);
-        if (bucket is null && cardsOnly && request.X is null && Layout.InListOrder(buckets).FirstOrDefault() is { } first)
+        if (bucket is null && CardsOnly(clip) && request.X is null && Layout.InListOrder(buckets).FirstOrDefault() is { } first)
         {
             bucket = await LockBucketAsync(db, boardId, first.Id, ct);
         }
         var others = await db.Cards.Where(n => n.BoardId == boardId).ToListAsync(ct);
-        var newBuckets = new List<Bucket>();
-        if (bucket is not null) await PackIntoAsync(db, bucket, buckets, others, cards, ct);
-        else
-        {
-            // Everything moves by the same step, from the top-left of what is on the board to X and Y (or a free spot).
-            var (x, y) = request is { X: { } px, Y: { } py } ? (Layout.Snap(px), Layout.Snap(py)) : Layout.FreeSpotOutside(buckets, others);
-            var lefts = clip.Cards.Select(n => n.X).Concat(clipBuckets.Select(b => b.X)).Concat(looseImages.Select(m => m.X)).Concat(looseDrawings.Select(d => d.X));
-            var tops = clip.Cards.Select(n => n.Y).Concat(clipBuckets.Select(b => b.Y)).Concat(looseImages.Select(m => m.Y)).Concat(looseDrawings.Select(d => d.Y));
-            var (dx, dy) = (x - Layout.Snap(lefts.Min()), y - Layout.Snap(tops.Min()));
-            static int Shift(int value, int by) => Math.Clamp(Layout.Snap(value) + by, Layout.MinCoordinate, Layout.MaxCoordinate);
-
-            // Pasted buckets go on top of the board's, in their own order; what was in them joins them again.
-            var pasted = new Dictionary<Guid, Bucket>();
-            foreach (var (source, i) in clipBuckets.Select((b, i) => (b, i)))
-            {
-                var made = new Bucket
-                {
-                    BoardId = boardId,
-                    Name = source.Name.Trim(),
-                    Color = source.Color,
-                    X = Shift(source.X, dx),
-                    Y = Shift(source.Y, dy),
-                    Width = Math.Min(Layout.MaxBucketSize, Layout.SnapSize(source.Width, Layout.MinBucketWidth)),
-                    Height = Math.Min(Layout.MaxBucketSize, Layout.SnapSize(source.Height, Layout.MinBucketHeight)),
-                    CreatedAt = now.AddMilliseconds(i),
-                    StackedAt = now.AddMilliseconds(i),
-                };
-                pasted[source.Id] = made;
-                newBuckets.Add(made);
-            }
-            var stacked = Layout.BackToFront([.. buckets, .. newBuckets]);
-
-            foreach (var (source, card) in clip.Cards.Zip(cards))
-            {
-                (card.X, card.Y) = (Shift(source.X, dx), Shift(source.Y, dy));
-                if (source.BucketId is { } b) card.BucketId = pasted[b].Id;
-                else Layout.Place(card, stacked);
-            }
-            foreach (var (image, source, _) in images.Where(m => m.Image.CardId is null))
-            {
-                (image.X, image.Y) = (Shift(source.X, dx), Shift(source.Y, dy));
-                if (source.BucketId is { } b) image.BucketId = pasted[b].Id;
-                else Layout.Place(image, stacked);
-            }
-            foreach (var (drawing, source) in drawings.Where(d => d.Drawing.CardId is null))
-            {
-                (drawing.X, drawing.Y) = (Shift(drawing.X, dx), Shift(drawing.Y, dy));
-                if (source.BucketId is { } b) drawing.BucketId = pasted[b].Id;
-                else Layout.Place(drawing, stacked);
-            }
-
-            // What was in them has joined them by id, so they can fold up now. An open one then takes the board's loose items
-            // it covers, like a bucket drawn there (not those in other buckets); a folded one takes none, as they would vanish.
-            foreach (var (source, made) in clipBuckets.Select(b => (b, pasted[b.Id]))) made.Collapsed = source.Collapsed;
-            if (newBuckets.Count > 0)
-            {
-                List<ICanvasItem> loose =
-                [
-                    .. await db.Images.Where(i => i.BoardId == boardId && i.CardId == null && i.BucketId == null).ToListAsync(ct),
-                    .. await db.Drawings.Where(d => d.BoardId == boardId && d.CardId == null && d.BucketId == null).ToListAsync(ct),
-                ];
-                foreach (var made in newBuckets) Layout.Adopt(made, stacked, others, loose, looseOnly: true);
-            }
-        }
+        List<Bucket> newBuckets = [];
+        // Into a bucket they go where there is room, growing it downwards when it is full.
+        if (bucket is not null) await BucketEndpoints.PackItemsAsync(db, bucket, buckets, others, new(cards, [], []), GrowSide.Down, ct);
+        else newBuckets = await PlaceOnBoardAsync(db, boardId, request, cards, images, drawings, buckets, others, now, ct);
 
         var number = cards.Count == 0 ? 0 : await CardEndpoints.TakeNumberAsync(db, boardId, ct, cards.Count);
         foreach (var card in cards) card.Number = number++;
-        var byNumber = clip.Cards.Zip(cards).ToDictionary(p => p.First.Number, p => p.Second);
-        foreach (var (source, i) in clip.Cards.Select((n, i) => (n, i)))
-        {
-            var components = (source.Components ?? [])
-                .Select(b => b with { Links = b.Links is null ? null : FollowLinks(b.Links, clip.Source, sameServer, copies, byNumber, board.ShortId) })
-                .ToList();
-            if (CardComponentEndpoints.BuildAll(cards[i], components, $"clip.cards[{i}].") is { } invalid) return invalid;
-            db.CardChanges.Add(new CardChange
-            {
-                CardId = cards[i].Id,
-                BoardId = boardId,
-                ById = me,
-                At = now,
-                Entries = [new(cutFrom is null ? CardChangeKind.Copied : CardChangeKind.Moved, CardLinks.ReadableId(clip.Source.BoardKey, source.Number),
-                    LinkTo(CardLinks.CardPath(clip.Source.BoardShortId, source.Number), clip.Source, sameServer))],
-            });
-        }
+        if (AddContentAndHistory(db, clip, cards, copies, board, me, now, sameServer, moved: cutFrom is not null) is { } invalid) return invalid;
 
         var moved = cutFrom is null ? null : await RemoveOriginalsAsync(db, cutFrom, clip, clip.Cards.Zip(cards), board, principal, ct);
         if (cutFrom is not null && moved is null)
@@ -447,6 +273,253 @@ public static class ClipEndpoints
             bucket is null ? null : BucketDetail.From(bucket),
             [.. newBuckets.Select(BucketDetail.From)],
             moved));
+    }
+
+    /// <summary>The checks on a clip that need no database, in the order pasteItems answers them.</summary>
+    private static ValidationProblem? InvalidClip(PasteItemsRequest request)
+    {
+        var clip = request.Clip;
+        if (clip.Version > BoardClip.CurrentVersion)
+        {
+            return Problems.Invalid("clip.version", $"These items were copied in a newer format (version {clip.Version}; this server reads up to " +
+                                           $"{BoardClip.CurrentVersion}). {MadeWith(clip)} Update PrikBoard to paste them.");
+        }
+        if (clip.Format != BoardClip.FormatName) return Problems.Invalid("clip.format", $"This is not a PrikBoard clip: format must be \"{BoardClip.FormatName}\".");
+        if (Problems.XWithoutY(request.X, request.Y) is { } apart) return apart;
+        if (request.BucketId is not null && request.X is not null) return Problems.Invalid("bucketId", "Give a bucketId, or X and Y, not both.");
+        if (clip.Cards.Select(n => n.Id).Distinct().Count() != clip.Cards.Count) return Problems.Invalid("clip.cards", "Card ids must be unique within the clip.");
+        var clipBuckets = clip.Buckets ?? [];
+        if (clipBuckets.Select(b => b.Id).Distinct().Count() != clipBuckets.Count) return Problems.Invalid("clip.buckets", "Bucket ids must be unique within the clip.");
+        var cardsOnly = CardsOnly(clip);
+        if (cardsOnly && clip.Cards.Count == 0) return Problems.Invalid("clip", "The clip holds nothing to paste.");
+        if (!cardsOnly && request.BucketId is not null)
+        {
+            return Problems.Invalid("bucketId", "Only cards go into a bucket by bucketId; paste buckets, images and drawings at X and Y.");
+        }
+        var inBucket = clipBuckets.Select(b => b.Id).ToHashSet();
+        bool Outside(Guid? bucketId) => bucketId is { } b && !inBucket.Contains(b);
+        if (clip.Cards.Any(n => Outside(n.BucketId)) || LooseImages(clip).Any(m => Outside(m.BucketId)) || LooseDrawings(clip).Any(d => Outside(d.BucketId)))
+        {
+            return Problems.Invalid("clip.buckets", "An item names a bucket that is not in the clip.");
+        }
+        return null;
+    }
+
+    /// <summary>A clip of cards alone: no buckets, and no images or drawings on the board itself.</summary>
+    private static bool CardsOnly(BoardClip clip) =>
+        (clip.Buckets ?? []).Count == 0 && !LooseImages(clip).Any() && !LooseDrawings(clip).Any();
+
+    private static IEnumerable<ClippedImage> LooseImages(BoardClip clip) => clip.Images.Where(m => m.CardId is null);
+
+    private static IEnumerable<ClippedDrawing> LooseDrawings(BoardClip clip) => clip.Drawings.Where(d => d.CardId is null);
+
+    /// <summary>The clip's assignees who can be assigned on the board: only they stay on the copies.</summary>
+    private static async Task<HashSet<Guid>> AssignableAsync(PrikBoardDbContext db, Guid boardId, BoardClip clip, CancellationToken ct)
+    {
+        var people = clip.Cards.SelectMany(n => n.AssigneeIds ?? []).Distinct().ToList();
+        if (people.Count == 0) return [];
+        return (await BoardAccess.AssignableIds(db, boardId).Where(id => people.Contains(id)).ToListAsync(ct)).ToHashSet();
+    }
+
+    /// <summary>The clip's cards as new cards by <paramref name="me"/>, in clip order, not placed or numbered yet.</summary>
+    private static ValidationProblem? BuildCards(
+        BoardClip clip, Guid boardId, Guid me, DateTimeOffset now, HashSet<Guid> assignable, out List<Card> cards)
+    {
+        cards = [];
+        foreach (var (i, source) in clip.Cards.Index())
+        {
+            var tags = CardTags.Normalize(source.Tags);
+            if (tags.Any(t => t.Length > CardTags.MaxLength)) return Problems.Invalid($"clip.cards[{i}].tags", $"A tag is at most {CardTags.MaxLength} characters.");
+            cards.Add(new Card
+            {
+                BoardId = boardId,
+                Title = source.Title.Trim(),
+                Color = source.Color,
+                Tags = tags,
+                AssigneeIds = [.. (source.AssigneeIds ?? []).Where(assignable.Contains).Distinct()],
+                CreatedById = me,
+                CreatedAt = now.AddMilliseconds(i),
+                UpdatedAt = now.AddMilliseconds(i),
+            });
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The clip's images as new images, in clip order: those on cards on their copy's canvas, the others not placed yet.
+    /// <paramref name="copies"/> maps the clip's card ids to the copies.
+    /// </summary>
+    private static ValidationProblem? BuildImages(
+        BoardClip clip, Guid boardId, Guid me, DateTimeOffset now, Dictionary<Guid, Card> copies, out List<PastedImage> images)
+    {
+        images = [];
+        if (clip.Images.Sum(m => (long)m.Data.Length) > BoardClip.MaxImageBytes)
+        {
+            return Problems.Invalid("clip.images", $"A clip holds at most {MaxClipMegabytes} MB of images.");
+        }
+        foreach (var (i, source) in clip.Images.Index())
+        {
+            Card? card = null;
+            if (source.CardId is { } on && !copies.TryGetValue(on, out card))
+            {
+                return Problems.Invalid($"clip.images[{i}].cardId", "The card is not in the clip.");
+            }
+            if (!ImageEndpoints.TryFromBytes(boardId, source.Data, source.FileName, source.Caption, source.Width, out var image, out var problem))
+            {
+                return Problems.Invalid($"clip.images[{i}].data", problem);
+            }
+            image.CardId = card?.Id;
+            image.AddedById = me;
+            image.CreatedAt = image.UpdatedAt = now.AddMilliseconds(i);
+            // On the board it gets its place with the rest (PlaceOnBoardAsync).
+            if (card is not null) (image.X, image.Y) = Layout.OnCardCanvas(source.X, source.Y, image.Width, image.Height);
+            images.Add((image, source, source.Data));
+        }
+        return null;
+    }
+
+    /// <summary>The clip's drawings as new drawings, in clip order: those on the board built where they were, to be moved with the rest.</summary>
+    private static ValidationProblem? BuildDrawings(
+        BoardClip clip, Guid boardId, Guid me, DateTimeOffset now, Dictionary<Guid, Card> copies, out List<PastedDrawing> drawings)
+    {
+        drawings = [];
+        foreach (var (i, source) in clip.Drawings.Index())
+        {
+            Card? card = null;
+            if (source.CardId is { } on && !copies.TryGetValue(on, out card))
+            {
+                return Problems.Invalid($"clip.drawings[{i}].cardId", "The card is not in the clip.");
+            }
+            var drawing = new BoardDrawing
+            {
+                BoardId = boardId,
+                CardId = card?.Id,
+                AddedById = me,
+                CreatedAt = now.AddMilliseconds(i),
+                UpdatedAt = now.AddMilliseconds(i),
+            };
+            if (DrawingEndpoints.Build(drawing, source.AllStrokes(), source.X, source.Y, $"clip.drawings[{i}].") is { } invalid) return invalid;
+            drawings.Add((drawing, source));
+        }
+        return null;
+    }
+
+    /// <summary>Adds the copies' tags that are new to the board, with their colors from the clip.</summary>
+    private static async Task<ValidationProblem?> AddTagsAsync(
+        PrikBoardDbContext db, Guid boardId, BoardClip clip, List<Card> cards, CancellationToken ct)
+    {
+        if (await TagEndpoints.EnsureBoardTagsAsync(db, boardId, [.. cards.SelectMany(n => n.Tags).Distinct()], ct) is { } tooMany) return tooMany;
+        var colors = (clip.TagColors ?? []).GroupBy(p => CardTags.Normalize(p.Key)).ToDictionary(g => g.Key, g => g.First().Value);
+        foreach (var tag in db.ChangeTracker.Entries<BoardTag>().Where(e => e.State == EntityState.Added).Select(e => e.Entity))
+        {
+            if (colors.TryGetValue(tag.Name, out var color)) tag.Color = color;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Places everything at X and Y (or a free spot), moved by one step from the top-left of what is on the board. Pasted
+    /// buckets go on top of the board's, in their own order, and what was in them joins them again; other items join the
+    /// bucket they land in. Returns the new buckets.
+    /// </summary>
+    private static async Task<List<Bucket>> PlaceOnBoardAsync(
+        PrikBoardDbContext db, Guid boardId, PasteItemsRequest request, List<Card> cards, List<PastedImage> images,
+        List<PastedDrawing> drawings, List<Bucket> buckets, List<Card> others, DateTimeOffset now, CancellationToken ct)
+    {
+        var clip = request.Clip;
+        var clipBuckets = clip.Buckets ?? [];
+        var (x, y) = request is { X: { } px, Y: { } py } ? (Layout.Snap(px), Layout.Snap(py)) : Layout.FreeSpotOutside(buckets, others);
+        List<(int X, int Y)> corners =
+        [
+            .. clip.Cards.Select(n => (n.X, n.Y)),
+            .. clipBuckets.Select(b => (b.X, b.Y)),
+            .. LooseImages(clip).Select(m => (m.X, m.Y)),
+            .. LooseDrawings(clip).Select(d => (d.X, d.Y)),
+        ];
+        var (dx, dy) = (x - Layout.Snap(corners.Min(c => c.X)), y - Layout.Snap(corners.Min(c => c.Y)));
+        static int Shift(int value, int by) => Math.Clamp(Layout.Snap(value) + by, Layout.MinCoordinate, Layout.MaxCoordinate);
+
+        var pasted = new Dictionary<Guid, Bucket>();
+        var newBuckets = new List<Bucket>();
+        foreach (var (i, source) in clipBuckets.Index())
+        {
+            var (width, height) = BoardTransferEndpoints.FittedBucketSize(source.Width, source.Height);
+            var made = new Bucket
+            {
+                BoardId = boardId,
+                Name = source.Name.Trim(),
+                X = Shift(source.X, dx),
+                Y = Shift(source.Y, dy),
+                Width = width,
+                Height = height,
+                CreatedAt = now.AddMilliseconds(i),
+                StackedAt = now.AddMilliseconds(i),
+            };
+            pasted[source.Id] = made;
+            newBuckets.Add(made);
+        }
+        var stacked = Layout.BackToFront([.. buckets, .. newBuckets]);
+
+        foreach (var (source, card) in clip.Cards.Zip(cards))
+        {
+            (card.X, card.Y) = (Shift(source.X, dx), Shift(source.Y, dy));
+            if (source.BucketId is { } b) card.BucketId = pasted[b].Id;
+            else Layout.Place(card, stacked);
+        }
+        foreach (var (image, source, _) in images.Where(m => m.Image.CardId is null))
+        {
+            (image.X, image.Y) = (Shift(source.X, dx), Shift(source.Y, dy));
+            if (source.BucketId is { } b) image.BucketId = pasted[b].Id;
+            else Layout.Place(image, stacked);
+        }
+        foreach (var (drawing, source) in drawings.Where(d => d.Drawing.CardId is null))
+        {
+            (drawing.X, drawing.Y) = (Shift(drawing.X, dx), Shift(drawing.Y, dy));
+            if (source.BucketId is { } b) drawing.BucketId = pasted[b].Id;
+            else Layout.Place(drawing, stacked);
+        }
+
+        // What was in them has joined them by id, so they can fold up now. An open one then takes the board's loose items
+        // it covers, like a bucket drawn there (not those in other buckets); a folded one takes none, as they would vanish.
+        foreach (var source in clipBuckets) pasted[source.Id].Collapsed = source.Collapsed;
+        if (newBuckets.Count > 0)
+        {
+            List<ICanvasItem> loose =
+            [
+                .. await db.Images.Where(i => i.BoardId == boardId && i.CardId == null && i.BucketId == null).ToListAsync(ct),
+                .. await db.Drawings.Where(d => d.BoardId == boardId && d.CardId == null && d.BucketId == null).ToListAsync(ct),
+            ];
+            foreach (var made in newBuckets) Layout.Adopt(made, stacked, others, loose, looseOnly: true);
+        }
+        return newBuckets;
+    }
+
+    /// <summary>
+    /// Gives each copy (numbered by now) its components, with their links followed (<see cref="FollowLinks"/>), and its
+    /// history: one Copied entry, or Moved for a cut, naming the original.
+    /// </summary>
+    private static ValidationProblem? AddContentAndHistory(
+        PrikBoardDbContext db, BoardClip clip, List<Card> cards, Dictionary<Guid, Card> copies, Board board, Guid me,
+        DateTimeOffset now, bool sameServer, bool moved)
+    {
+        var byNumber = clip.Cards.Zip(cards).ToDictionary(p => p.First.Number, p => p.Second);
+        foreach (var (i, source) in clip.Cards.Index())
+        {
+            var components = (source.Components ?? [])
+                .Select(b => b with { Links = b.Links is null ? null : FollowLinks(b.Links, clip.Source, sameServer, copies, byNumber, board.ShortId) })
+                .ToList();
+            if (CardComponentEndpoints.BuildAll(cards[i], components, $"clip.cards[{i}].") is { } invalid) return invalid;
+            db.CardChanges.Add(new CardChange
+            {
+                CardId = cards[i].Id,
+                BoardId = board.Id,
+                ById = me,
+                At = now,
+                Entries = [new(moved ? CardChangeKind.Moved : CardChangeKind.Copied, CardLinks.ReadableId(clip.Source.BoardKey, source.Number),
+                    LinkTo(CardLinks.CardPath(clip.Source.BoardShortId, source.Number), clip.Source, sameServer))],
+            });
+        }
+        return null;
     }
 
     /// <summary>
@@ -479,12 +552,8 @@ public static class ClipEndpoints
             [.. images.Select(ImageDetail.From)],
             [.. drawings.Select(DrawingDetail.From)]);
 
-        // One stamp, so a card's images and drawings come back with it (restoreCard).
         var stamp = DateTimeOffset.UtcNow;
-        var gone = cards.Select(n => n.Id).ToList();
-        await db.Cards.Where(n => gone.Contains(n.Id)).ExecuteUpdateAsync(s => s.SetProperty(n => n.DeletedAt, stamp), ct);
-        await db.Images.Where(i => i.CardId != null && gone.Contains(i.CardId.Value)).ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, stamp), ct);
-        await db.Drawings.Where(d => d.CardId != null && gone.Contains(d.CardId.Value)).ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, stamp), ct);
+        await Tombstones.DeleteCardsAsync(db, [.. cards.Select(n => n.Id)], stamp, ct);
         var looseImages = images.Select(i => i.Id).ToList();
         var looseDrawings = drawings.Select(d => d.Id).ToList();
         await db.Images.Where(i => looseImages.Contains(i.Id)).ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, stamp), ct);
@@ -513,28 +582,6 @@ public static class ClipEndpoints
     {
         await db.Database.ExecuteSqlInterpolatedAsync($"""SELECT 1 FROM "Buckets" WHERE "Id" = {bucketId} FOR UPDATE""", ct);
         return await db.Buckets.FirstOrDefaultAsync(b => b.Id == bucketId && b.BoardId == boardId, ct);
-    }
-
-    /// <summary>Puts the new cards into free spots in the bucket, as placeCardsInBucket does, growing it downwards when it is full.</summary>
-    private static async Task PackIntoAsync(
-        PrikBoardDbContext db, Bucket bucket, List<Bucket> buckets, List<Card> others, List<Card> cards, CancellationToken ct)
-    {
-        var images = await db.Images.Where(i => i.BoardId == bucket.BoardId && i.CardId == null).ToListAsync(ct);
-        bool InTheWay(Guid? owner) => owner is null || owner == bucket.Id;
-        List<(int X, int Y, int Width, int Height)> taken =
-        [
-            .. others.Where(n => InTheWay(n.BucketId)).Select(n => (n.X, n.Y, Layout.CardWidth, Layout.CardHeight)),
-            .. images.Where(i => InTheWay(i.BucketId)).Select(i => (i.X, i.Y, i.Width, i.Height)),
-        ];
-        bucket.ToFront();
-        foreach (var (card, (x, y)) in cards.Zip(Layout.PackIn(bucket, cards.Count, taken, GrowSide.Down)))
-        {
-            (card.X, card.Y) = (x, y);
-            card.BucketId = bucket.Id;
-        }
-        // A bucket that grew can now cover loose items too.
-        var drawings = await db.Drawings.Where(d => d.BoardId == bucket.BoardId && d.CardId == null).ToListAsync(ct);
-        Layout.Adopt(bucket, Layout.BackToFront(buckets), others, [.. images, .. drawings], looseOnly: true);
     }
 
     /// <summary>
@@ -573,7 +620,5 @@ public static class ClipEndpoints
         Uri.TryCreate(a, UriKind.Absolute, out var x) && Uri.TryCreate(b, UriKind.Absolute, out var y)
         && Uri.Compare(x, y, UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.Unescaped, StringComparison.OrdinalIgnoreCase) == 0;
 
-    private static string MadeWith(BoardClip clip) => clip.AppVersion is { } made
-        ? $"They were copied with PrikBoard {made}, and this server runs {AppVersion.Number}."
-        : "They were copied with a newer PrikBoard than this server runs.";
+    private static string MadeWith(BoardClip clip) => BoardTransferEndpoints.MadeWith(clip.AppVersion, "They were copied");
 }

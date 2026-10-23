@@ -577,7 +577,7 @@ main {
   font-weight: 600;
 }
 
-/* Avatars: people show initials on graphite, agents a sparkle on dark lilac, in both themes. */
+/* Avatars: people show initials on graphite, agents a sparkle on dark lilac. */
 
 .avatar {
   display: grid;
@@ -873,7 +873,7 @@ main {
   font: 11px/1.3 var(--mono);
 }
 
-/* A bucket's cards and images in its name bar, as on its collapsed square. */
+/* A bucket's cards, images and drawings in its name bar, as on its collapsed square. */
 .bucket-counts {
   display: flex;
   flex: none;
@@ -931,7 +931,7 @@ main {
   background: linear-gradient(135deg, transparent 50%, rgba(0, 0, 0, 0.14) 50%);
 }
 
-/* Hovered, a card grows a little where it is (a grid step keeps it clear of its neighbours). */
+/* Hovered, a card grows a little where it is (a grid step keeps it clear of its neighbors). */
 .canvas.tool-select .card:hover:not(.lifted) {
   transform: scale(1.02);
   box-shadow: 0 2px 2px rgba(0, 0, 0, 0.25), 0 14px 28px rgba(0, 0, 0, 0.4);
@@ -1127,7 +1127,7 @@ main {
 }
 
 /*
- * Corner handles of a selected item that can be resized (buckets, images, components): centred on the corners of the
+ * Corner handles of a selected item that can be resized (buckets, images, components): centered on the corners of the
  * selection outline (2 px, 3 px out), with a larger invisible area to grab.
  */
 .handle {
@@ -1364,7 +1364,7 @@ main {
   background: var(--text);
 }
 
-/* The top centre of the board: the search, then a tool hint or the view-only badge, stacked so they never overlap. */
+/* The top center of the board: the search, then a tool hint or the view-only badge, stacked so they never overlap. */
 .board-top {
   position: absolute;
   top: 16px;
@@ -2179,7 +2179,7 @@ input.editable {
   transform-origin: 0 0;
 }
 
-/* A new card over the trash can fades: letting go there puts it back. */
+/* A new card dragged back over the rail's trash can fades: letting go there adds no card. */
 .drag-ghost.card-ghost.over-trash {
   opacity: 0.35;
 }
@@ -2794,7 +2794,7 @@ a.button.primary:hover {
   cursor: default;
 }
 
-/* Above several selected cards, centred, at the same size on screen at any zoom (anchored at its bottom middle). */
+/* Above several selected cards, centered, at the same size on screen at any zoom (anchored at its bottom middle). */
 .selection-toolbar {
   position: absolute;
   z-index: 5;
@@ -2864,7 +2864,7 @@ a.button.primary:hover {
   background: color-mix(in srgb, var(--danger) 22%, transparent);
 }
 
-/* Images on the board: a frame with the picture and a mono caption underneath */
+/* Images on the board: the picture with a mono caption underneath */
 
 .board-image {
   position: absolute;
@@ -5063,7 +5063,7 @@ button.picker-color:hover,
   color: var(--accent);
 }
 
-/* The bucket opened, pressed or moved last and what is in it are drawn above the rest (only on this screen). What is lifted stays above them. */
+/* The topmost open bucket and what is in it are drawn above the rest. Lifted items stay above them. */
 .bucket.in-front,
 .card.in-front:not(.lifted, .link-copied),
 .board-image.in-front:not(.lifted),
@@ -5093,8 +5093,8 @@ button.picker-color:hover,
   color: var(--muted);
 }
 
-/* Cards and images both: two smaller lines, so the name still fits in the square. */
-.bucket-collapsed-counts.both .bucket-collapsed-count {
+/* Two or three kinds of items: smaller lines, so the name still fits in the square. */
+.bucket-collapsed-counts.several .bucket-collapsed-count {
   font-size: 17px;
 }
 
@@ -5606,7 +5606,7 @@ button.picker-color:hover,
   color: var(--text);
 }
 
-/* The dots under the tabs: which bucket of how many. They take a row of their own, centred. */
+/* The dots under the tabs: which bucket of how many. They take a row of their own, centered. */
 .m-dots {
   display: flex;
   justify-content: center;

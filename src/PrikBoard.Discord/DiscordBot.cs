@@ -222,7 +222,7 @@ public sealed class DiscordBot(
 
     private async Task HandleMessageAsync(SocketMessage message, CancellationToken ct)
     {
-        // Never answer bots, ourselves included.
+        // Never answer bots, this one included.
         if (message is not SocketUserMessage { Author.IsBot: false } user || user.Channel is not SocketGuildChannel channel) return;
         var links = _links.Find(user.Content);
         if (links.Count == 0) return;
@@ -247,7 +247,7 @@ public sealed class DiscordBot(
 
         await user.ReplyAsync(embeds: embeds, allowedMentions: AllowedMentions.None);
 
-        // Remove Discord's own "not signed in" preview from the message we answered, when we may.
+        // Remove Discord's own "not signed in" preview from the message answered, when the bot may.
         if (channel.Guild.CurrentUser.GetPermissions(channel).ManageMessages)
         {
             await user.ModifyAsync(m => m.Flags = MessageFlags.SuppressEmbeds);

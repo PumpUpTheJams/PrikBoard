@@ -112,7 +112,8 @@ public static partial class UserSignIn
         returnUrl is not null && InviteInReturnUrl().Match(returnUrl) is { Success: true } match ? match.Groups[1].Value : null;
 
     /// <summary>
-    /// The user a delegated token's subject belongs to: the one a browser sign-in with the same provider finds, or null
+    /// The user whose app sent an issuer token (a client in the issuer's UserClients), by the token's subject: the one a
+    /// browser sign-in with the same provider finds, or null
     /// when there is none (or it was deleted). Tokens never create users; a person joins through an invite in the
     /// browser first. Leaves the stored email hash alone: a token carries no email the provider vouched for.
     /// </summary>

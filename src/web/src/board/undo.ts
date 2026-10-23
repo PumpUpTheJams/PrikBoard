@@ -21,8 +21,9 @@ import { onBoard } from './layout'
 /**
  * Undo and redo for changes made in this tab. Each change is recorded as what it touched before and after (the fields
  * it changed, or the whole item when it was created or deleted). Undoing first checks a fresh board: if any of those
- * fields changed since (someone else, an agent, another tab), the step is refused with the reason. Otherwise the old
- * values are written back; deleted items come back through the restore endpoints, with the same ids.
+ * fields changed since (someone else, an agent, another tab) or someone is dragging the item, the step is refused with
+ * the reason. Otherwise the old values are written back; deleted items come back through the restore endpoints, with
+ * the same ids.
  */
 
 /** Some fields of an item, as the API returns them. */
@@ -69,7 +70,7 @@ export interface UndoEntry {
   changes: UndoChange[]
   /** Consecutive steps with the same key become one (picking several tags in a row). */
   coalesce?: string
-  /** Shown as a toast with an Undo button when recorded (deletes, which no longer ask first). */
+  /** Shown as a toast with an Undo button when recorded (for deletes, which don't ask first). */
   toast?: string
   at: number
 }
@@ -123,9 +124,9 @@ export const snap = {
   bucket: (b: BucketDetail): Snapshot => ({ name: b.name, x: b.x, y: b.y, width: b.width, height: b.height, collapsed: b.collapsed }),
   image: (i: ImageDetail): Snapshot => ({ cardId: i.cardId, x: i.x, y: i.y, width: i.width, caption: i.caption }),
   drawing: (d: DrawingDetail): Snapshot => ({ cardId: d.cardId, x: d.x, y: d.y, colors: d.colors }),
-  /** A drawing's corner and its strokes, as they are loaded here (null when they aren't: someone else changed them). */
+  /** A drawing's corner and strokes as loaded here (strokes null when they aren't loaded, as after someone else changed them). */
   shape: (d: DrawingDetail, strokes = loadedStrokes(d)): Snapshot => ({ x: d.x, y: d.y, strokes }),
-  /** A stroke that is there: whether it is still the drawing's last (only then can it be taken off again). */
+  /** A stroke, if the drawing has it: whether it is still the drawing's last one (undo only takes off the last). */
   stroke: (d: DrawingDetail, index: number): Snapshot | null => (d.colors.length > index ? { last: d.colors.length === index + 1 } : null),
   tag: (t: BoardTag): Snapshot => ({ name: t.name, color: t.color }),
 }
@@ -233,13 +234,13 @@ const noun: Record<UndoTarget['kind'], string> = {
   tag: 'the tag',
 }
 
-/** The other boards a step's items are on, to load with its own before checking and taking it. */
+/** The other boards a step's items are on, which are loaded with its own board before the step is checked and applied. */
 export const otherBoards = (entry: UndoEntry, boardId: string) =>
   [...new Set(entry.changes.flatMap((c) => (c.boardId && c.boardId !== boardId ? [c.boardId] : [])))]
 
 /**
- * Why the step can't be taken on `home` (and the `elsewhere` boards its items may be on) as they are now, or null when
- * it can. `moving` tells whether someone else is dragging an item right now.
+ * Why the step can't be applied to `home` (and the `elsewhere` boards its items may be on) as they are now, or null
+ * when it can. `moving` tells whether someone else is dragging an item right now.
  */
 export function check(
   entry: UndoEntry,
@@ -280,7 +281,7 @@ export function check(
   return null
 }
 
-/** Takes the step: writes the old values back (undo) or the new ones again (redo). */
+/** Applies the step: writes the old values back (undo) or the new ones again (redo). */
 export async function apply(entry: UndoEntry, direction: UndoDirection, home: BoardDetail, elsewhere: Record<string, BoardDetail> = {}) {
   const changes = direction === 'undo' ? entry.changes.toReversed() : entry.changes
   for (const change of changes) {
@@ -351,7 +352,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
     case 'bucket': {
       const at = (key: string) => to[key] as number | undefined
       if ('width' in to || 'height' in to) {
-        // A new place with a new size is a resize: the cards stay.
+        // x/y sent with a size is a resize, which leaves the bucket's items where they are.
         await api.updateBucket(t.id, { x: at('x'), y: at('y'), width: at('width'), height: at('height') })
       } else if ('x' in to) {
         await api.updateBucket(t.id, {
@@ -395,9 +396,10 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
 }
 
 /**
- * A moved bucket carries its cards, images and drawings by the same distance, but never past the end of the coordinate range.
- * One that was stopped there on the way doesn't come back exactly, so it is put where it belongs. Only what this bucket
- * carried: a step that moved several buckets has the others' too.
+ * A moved bucket carries its cards, images and drawings by the same distance, but never past the edge of the coordinate
+ * range, so an item stopped at the edge doesn't come back exactly when the bucket moves back. This puts such items
+ * where the step says they belong. It only touches what this bucket carried: a step that moved several buckets lists
+ * the others' items too.
  */
 async function fixCarried(entry: UndoEntry, direction: UndoDirection, carry: BucketCarry | undefined, from: Snapshot, to: Snapshot) {
   if (!('x' in to) || 'width' in to || 'height' in to) return

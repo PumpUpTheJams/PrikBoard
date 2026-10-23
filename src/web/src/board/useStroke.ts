@@ -33,7 +33,7 @@ interface Session {
  * stroke starts a new one. `toCanvas` turns a screen point into the canvas's own pixels.
  */
 export function useStroke(toCanvas: (e: { clientX: number; clientY: number }) => Point, active: boolean) {
-  /** The stroke being drawn (last), after the finished ones still being saved. */
+  /** The finished strokes still being saved, then the one being drawn (last). */
   const [strokes, setState] = useState<Stroke[]>([])
   /**
    * The strokes as they are right now. Pen events can come faster than renders, so the handlers read and write this
@@ -77,9 +77,10 @@ export function useStroke(toCanvas: (e: { clientX: number; clientY: number }) =>
       set((s) => s.filter((x) => x.done))
     },
     /**
-     * Saves the stroke, as one undo step: added to this pen session's drawing, or as a new drawing on the board, or on a
-     * card's canvas, when the session has none yet (or it is gone, or full). It stays on screen until the board has
-     * reloaded with it. The last move has the end of the line already (a pen lifting off reports no pressure).
+     * Saves the stroke as one undo step. It is added to this pen session's drawing, or starts a new drawing (on the
+     * board, or on the canvas of card `cardId`) when the session has none yet or its drawing is gone or full. It stays
+     * on screen until the board has reloaded with it. Lifting the pen adds no point: the last move already ends the line,
+     * and a pen lifting off reports no pressure.
      */
     finish(run: RecordingRun, boardId: string, cardId?: string) {
       const stroke = current()
@@ -99,7 +100,7 @@ export function useStroke(toCanvas: (e: { clientX: number; clientY: number }) =>
             if (existing && existing.cardId === (cardId ?? null)) {
               try {
                 const after = await api.addDrawingStroke(existing.id, sent)
-                // Its new strokes are in before the board reloads, so it doesn't blink.
+                // Load its new strokes before the board reloads, so the drawing doesn't blink.
                 await loadDrawingStrokes(after)
                 saved = after
                 return { before: existing, after }

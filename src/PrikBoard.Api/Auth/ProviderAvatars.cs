@@ -63,7 +63,7 @@ public class ProviderAvatars(HttpClient http, FileStore files)
 
             await using var stream = await response.Content.ReadAsStreamAsync(ct);
             using var buffer = new MemoryStream();
-            var chunk = new byte[81920];
+            var chunk = new byte[FileStore.BufferSize];
             int read;
             while ((read = await stream.ReadAsync(chunk, ct)) > 0)
             {

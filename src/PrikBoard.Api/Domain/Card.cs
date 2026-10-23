@@ -1,6 +1,6 @@
 namespace PrikBoard.Api.Domain;
 
-/// <summary>A card: one unit of work stuck somewhere on a board, inside a bucket or loose.</summary>
+/// <summary>A card: one unit of work on a board, inside a bucket or loose.</summary>
 public class Card
 {
     public Guid Id { get; set; } = Guid.CreateVersion7();
@@ -12,8 +12,8 @@ public class Card
     /// </summary>
     public int Number { get; set; }
     /// <summary>
-    /// The bucket the card is in, or null when it is loose: the topmost one containing its centre when it was put there,
-    /// kept while buckets move around it. Maintained by <see cref="Layout"/>.
+    /// The bucket the card is in, or null when it is loose: the one it joined when it last moved, kept while buckets
+    /// move around it. Maintained by <see cref="Layout"/>.
     /// </summary>
     public Guid? BucketId { get; set; }
     public required string Title { get; set; }
@@ -31,7 +31,7 @@ public class Card
     public bool AgentWorking { get; set; }
     public int X { get; set; }
     public int Y { get; set; }
-    /// <summary>The user or agent that stuck the card on the board; null for older cards, or once they no longer exist.</summary>
+    /// <summary>The user or agent that added the card to the board; null for older cards, or once they no longer exist.</summary>
     public Guid? CreatedById { get; set; }
     public Principal? CreatedBy { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

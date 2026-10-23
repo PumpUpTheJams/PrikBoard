@@ -38,7 +38,8 @@ public static class MemberEndpoints
             .WithName("addBoardAgent")
             .WithSummary("Add an agent")
             .WithDescription("Adds a machine client by its token issuer (see listTokenIssuers) and client id, even before it has " +
-                             "called the API. Its access tokens then work on this board with the given role, within their scopes.")
+                             "called the API. Its access tokens then work on this board with the given role, within their scopes. " +
+                             "400 for an issuer that isn't configured, 409 when it is already a member.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
 
@@ -53,7 +54,8 @@ public static class MemberEndpoints
             .RequireBoardRole(BoardRole.Viewer)
             .WithName("removeBoardMember")
             .WithSummary("Remove a member, or leave the board")
-            .WithDescription("Owners can remove anyone; everyone can remove themselves to leave. The last owner cannot leave (409).")
+            .WithDescription("Owners can remove anyone; everyone else can only remove themselves (403 otherwise), which leaves the " +
+                             "board. The last owner cannot be removed or leave (409).")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         members.MapPost("/members/lookup", FindUserByEmail)
@@ -64,7 +66,7 @@ public static class MemberEndpoints
             .WithSummary("Find a person by exact email")
             .WithDescription("Returns the people whose verified email is exactly this address (case-insensitive), to add them " +
                              "with addBoardMember. Nothing partial matches and no emails are stored or returned: PrikBoard " +
-                             "keeps only keyed hashes. People only, not agents; rate limited.")
+                             "keeps only keyed hashes. Finds people, not agents. Browser sessions only; rate limited.")
             .ProducesValidationProblem()
             .Produces(StatusCodes.Status429TooManyRequests);
 
@@ -184,7 +186,7 @@ public static class MemberEndpoints
     private static async Task<Results<Ok<List<UserMatch>>, ForbidHttpResult>> FindUserByEmail(
         Guid boardId, FindUserRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, KeyedHasher hasher, CancellationToken ct)
     {
-        // Only people search, so a token (possibly an agent following instructions it read somewhere) cannot probe addresses.
+        // Sessions only, so a token (possibly an agent following instructions it read somewhere) cannot probe addresses.
         if (principal.IsToken()) return TypedResults.Forbid();
 
         var hash = hasher.Email(request.Email);

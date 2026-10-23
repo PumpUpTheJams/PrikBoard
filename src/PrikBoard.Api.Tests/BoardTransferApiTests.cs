@@ -54,7 +54,8 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         Assert.Equal("Release 2.0.prikboard.json", exported.Content.Headers.ContentDisposition?.FileNameStar);
         var file = await exported.Content.ReadAsStringAsync();
         Assert.Contains("\"format\":\"prikboard-board\"", file);
-        Assert.Contains("\"version\":6", file);
+        Assert.Contains("\"version\":7", file);
+        Assert.DoesNotContain("\"color\":\"Blue\"", file);
         Assert.DoesNotContain("export-owner@example.com", file);
 
         // Someone else imports it: a new board they own, and nothing changes on the original.
@@ -66,8 +67,8 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
 
         Assert.NotEqual(board.Id, copy.Id);
         Assert.Equal(("Release 2.0", "Ship it", "Be brief.", BoardRole.Owner), (copy.Name, copy.Description, copy.Rules, copy.YourRole));
-        Assert.Equal(board.Buckets.Select(b => (b.Name, b.Color, b.X, b.Y, b.Width, b.Height)),
-            copy.Buckets.Select(b => (b.Name, b.Color, b.X, b.Y, b.Width, b.Height)));
+        Assert.Equal(board.Buckets.Select(b => (b.Name, b.X, b.Y, b.Width, b.Height)),
+            copy.Buckets.Select(b => (b.Name, b.X, b.Y, b.Width, b.Height)));
         Assert.Equal([("docs", TagColor.Default), ("release", TagColor.Default), ("unused", TagColor.Teal)],
             copy.Tags.Select(t => (t.Name, t.Color)).Order());
 
@@ -204,14 +205,18 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         var file = JsonNode.Parse(await (await client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync())!;
 
         Assert.Equal(BoardExport.CurrentVersion, file["version"]!.GetValue<int>());
-        Assert.Equal(6, BoardExport.CurrentVersion);
+        Assert.Equal(7, BoardExport.CurrentVersion);
         Assert.False(string.IsNullOrEmpty(file["appVersion"]!.GetValue<string>()));
         Assert.DoesNotContain("+", file["appVersion"]!.GetValue<string>());
 
-        // As 0.0.27 wrote them: version 3, without appVersion or the buckets' places in the stack.
+        // As 0.0.27 wrote them: version 3, without appVersion or the buckets' places in the stack, and with bucket colors.
         file["version"] = 3;
         file.AsObject().Remove("appVersion");
-        foreach (var bucket in file["buckets"]!.AsArray()) bucket!.AsObject().Remove("stack");
+        foreach (var bucket in file["buckets"]!.AsArray())
+        {
+            bucket!.AsObject().Remove("stack");
+            bucket["color"] = "Blue";
+        }
         Assert.Equal(HttpStatusCode.Created, (await Import(client, file.ToJsonString())).StatusCode);
     }
 

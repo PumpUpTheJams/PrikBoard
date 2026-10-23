@@ -10,7 +10,7 @@ interface Axis {
   dir: number
   /** The furthest point reached in that direction. */
   extreme: number
-  /** When it changed direction lately. */
+  /** When it recently changed direction (ms). */
   flips: number[]
 }
 

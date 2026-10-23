@@ -173,7 +173,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var drag = await viewerDrags.NextAsync();
         Assert.Equal((DragKind.Card, card.Id, 42d, -7d, joined.Key), (drag.Kind, drag.Id, drag.Dx, drag.Dy, drag.Key));
 
-        // A resize names its corner or edge; past the hub's throttle, so it isn't dropped.
+        // A resize names its corner or edge. Waiting out the hub's throttle first keeps it from being dropped.
         await Task.Delay(60);
         var bucketId = board.Buckets[0].Id;
         await ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Resize, bucketId, -20, 40, ResizeHandle.TopLeft));
@@ -298,7 +298,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var memberPresence = member.Inbox<BoardPresence>("Presence");
         await member.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
 
-        // People hidden: the guest counts heads; the members see one guest.
+        // With people hidden, the guest only sees how many are there; the member sees one guest.
         var joined = await guest.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
         Assert.Equal((true, BoardRole.Viewer, 0, 2), (joined.Visiting, joined.Role, joined.Viewers.Count, joined.Guests));
         var seen = await memberPresence.NextMatchingAsync(p => p.Guests == 1);

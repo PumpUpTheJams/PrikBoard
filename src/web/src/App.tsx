@@ -1,31 +1,18 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError, errorMessage, setUnauthorizedHandler } from './api/client'
-import type { BoardSummary, Caller } from './api/types'
+import type { BoardDetail, BoardSummary, Caller } from './api/types'
 import { BoardCanvas } from './board/BoardCanvas'
-import {
-  CheckIcon,
-  ChevronDownIcon,
-  ChatIcon,
-  DownloadIcon,
-  ExternalIcon,
-  PeopleIcon,
-  CardIcon,
-  RulesIcon,
-  ShieldIcon,
-  SignOutIcon,
-  TrashIcon,
-  UploadIcon,
-  UserIcon,
-} from './board/icons'
+import { CardIcon, PeopleIcon } from './board/icons'
 import { pickBoardFile, saveFile } from './board/files'
-import { boardRefFromHash, isBoard, trashPath } from './board/links'
-import { useBoard } from './board/useBoard'
+import { boardRefFromHash, isBoard } from './board/links'
+import { useBoard, type BoardState } from './board/useBoard'
 import { UndoHistory } from './board/useUndo'
-import { useLive } from './live/useLive'
+import { useLive, type LiveState } from './live/useLive'
 import { MobileLayout, useLayoutMode } from './layoutMode'
 import { MobileWorkspace } from './mobile/MobileWorkspace'
 import { AccountDialog, DisplayNameDialog } from './components/AccountDialogs'
 import { AdminPage } from './components/AdminPage'
+import { BoardMenu } from './components/BoardMenu'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { NoticeDialog } from './components/NoticeDialog'
 import { ConnectPage } from './components/ConnectPage'
@@ -33,12 +20,11 @@ import { connectFromHash } from './components/connect'
 import { DiscordConnectPage } from './components/DiscordConnectPage'
 import { DiscordDialog } from './components/DiscordDialog'
 import { discordConnectFromHash } from './components/discord'
-import { Face } from './components/Avatar'
 import { InvitePage } from './components/InvitePage'
-import { Menu } from './components/Menu'
 import { NoAccess } from './components/NoAccess'
 import { Presence } from './components/Presence'
 import { QuickAdd } from './components/QuickAdd'
+import { SettingsMenu } from './components/SettingsMenu'
 import { ShareDialog } from './components/ShareDialog'
 import { SignIn } from './components/SignIn'
 import { takeAuthError } from './components/authError'
@@ -53,8 +39,17 @@ const BoardRulesDialog = lazy(() => import('./components/BoardRulesDialog').then
 const inviteFromHash = () => window.location.hash.match(/^#\/invite\/([\w-]+)/)?.[1] ?? null
 const adminFromHash = () => window.location.hash === '#/admin'
 
+/** The board in the address isn't in your list: still being looked up once more, or not one you can open. */
+type MissingBoard = 'checking' | 'gone' | null
+
+/** The board in the address, or else (`fallBack`) the newest one. */
+function pickActiveBoard(boards: BoardSummary[] | null, selectedId: string | null, fallBack: boolean) {
+  if (!boards) return null
+  return boards.find((b) => isBoard(b, selectedId)) ?? (fallBack ? (boards[0] ?? null) : null)
+}
+
 export default function App() {
-  // undefined while checking the session, null when signed out.
+  // Undefined while checking the session, null when signed out.
   const [user, setUser] = useState<Caller | null | undefined>(undefined)
   const [invite, setInvite] = useState(inviteFromHash)
   const [connect, setConnect] = useState(connectFromHash)
@@ -186,10 +181,10 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
     void loadBoards().finally(() => setRecheckedId(selectedId))
   }, [selectedMissing, selectedId, recheckedId, loadBoards])
 
-  // Fall back to the newest board when nothing is selected (the mobile layout lists the boards instead); a board you
-  // can't open gets the sad page instead.
-  const activeBoard =
-    adminView || selectedMissing ? null : (boards?.find((b) => isBoard(b, selectedId)) ?? (mobile ? null : boards?.[0]) ?? null)
+  // Fall back to the newest board when nothing is selected (the mobile layout lists the boards instead). A board you
+  // can't open gets the sad page.
+  const activeBoard = adminView || selectedMissing ? null : pickActiveBoard(boards, selectedId, !mobile)
+  const missing: MissingBoard = selectedMissing ? (recheckedId === selectedId ? 'gone' : 'checking') : null
   const isOwner = activeBoard?.yourRole === 'Owner'
 
   // The board was deleted or you were removed from it (by an owner or admin, possibly in another tab): the board's
@@ -219,7 +214,8 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   // Someone's finished drag stays where they dropped it until the reload shows where it landed.
   useEffect(() => boardLoaded(), [board, boardLoaded])
   const othersHere = live.viewers.filter((v) => v.principalId !== user.id)
-  const provider = user.identities.find((i) => i.provider === user.provider)?.providerName ?? user.provider
+  /** Whether someone else is dragging an item right now (undo waits for that). */
+  const movedByOthers = (id: string) => live.drags.some((r) => !r.endedAt && (r.id === id || r.items?.includes(id)))
 
   /** Opens a board by its short id (what its address shows), or none. */
   function selectBoard(shortId: string | null) {
@@ -248,11 +244,10 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
     )
   }
 
-  async function createBoard(name: string) {
+  /** Runs a change; a failure shows in the error bar. Resolves whether it worked. */
+  async function guard(action: () => Promise<unknown>) {
     try {
-      const created = await api.createBoard(name)
-      setBoards((current) => [created, ...(current ?? [])])
-      selectBoard(created.shortId)
+      await action()
       return true
     } catch (e) {
       setError(errorMessage(e))
@@ -260,36 +255,41 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
     }
   }
 
-  async function updateBoard(target: BoardSummary, changes: { name?: string; key?: string }) {
-    try {
-      const updated = await api.updateBoard(target.id, changes)
-      setBoards((current) => current?.map((b) => (b.id === updated.id ? updated : b)) ?? null)
+  /** A board made here (created or imported): first in the list, and opened. */
+  function addBoard(created: BoardSummary) {
+    setBoards((current) => [created, ...(current ?? [])])
+    selectBoard(created.shortId)
+  }
+
+  const replaceBoard = (updated: BoardSummary) => setBoards((current) => current?.map((b) => (b.id === updated.id ? updated : b)) ?? null)
+
+  /** A board gone from your list (deleted, or you left it): nothing is open then. */
+  function dropBoard(target: BoardSummary) {
+    setBoards((current) => current?.filter((b) => b.id !== target.id) ?? null)
+    selectBoard(null)
+  }
+
+  const createBoard = (name: string) => guard(async () => addBoard(await api.createBoard(name)))
+
+  const updateBoard = (target: BoardSummary, changes: { name?: string; key?: string }) =>
+    guard(async () => {
+      replaceBoard(await api.updateBoard(target.id, changes))
       // Cards show the key in their readable ids (MPCT-415).
       if (changes.key !== undefined) refresh()
-      return true
-    } catch (e) {
-      setError(errorMessage(e))
-      return false
-    }
-  }
+    })
 
-  async function exportBoard(target: BoardSummary) {
-    try {
+  const exportBoard = (target: BoardSummary) =>
+    guard(async () => {
       const { blob, fileName } = await api.exportBoard(target.id)
       saveFile(blob, fileName)
-    } catch (e) {
-      setError(errorMessage(e))
-    }
-  }
+    })
 
   /** Picks an export file and opens the board made from it. */
   async function importBoard() {
     const file = await pickBoardFile()
     if (!file) return
     try {
-      const created = await api.importBoard(file)
-      setBoards((current) => [created, ...(current ?? [])])
-      selectBoard(created.shortId)
+      addBoard(await api.importBoard(file))
     } catch (e) {
       // A refused file says why (a newer PrikBoard made it, it isn't an export, ...): a dialog, so it isn't missed.
       if (e instanceof ApiError && e.status === 400) setImportRefused([...new Set(Object.values(e.errors).flat())].slice(0, 5))
@@ -299,30 +299,24 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
 
   async function leaveBoard(target: BoardSummary) {
     setBoardToLeave(null)
-    try {
+    await guard(async () => {
       await api.removeBoardMember(target.id, user.id)
       left(target)
-    } catch (e) {
-      setError(errorMessage(e))
-    }
+    })
   }
 
   /** You are no longer on this board. */
   function left(target: BoardSummary) {
     setDialog(null)
-    setBoards((current) => current?.filter((b) => b.id !== target.id) ?? null)
-    selectBoard(null)
+    dropBoard(target)
   }
 
   async function deleteBoard(target: BoardSummary) {
     setBoardToDelete(null)
-    try {
+    await guard(async () => {
       await api.deleteBoard(target.id)
-      setBoards((current) => current?.filter((b) => b.id !== target.id) ?? null)
-      selectBoard(null)
-    } catch (e) {
-      setError(errorMessage(e))
-    }
+      dropBoard(target)
+    })
   }
 
   // A board you're not a member of may be public: you see it as its visitors do, until it turns out not to be.
@@ -338,7 +332,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
           board={activeBoard}
           onClose={() => setDialog(null)}
           onLeft={() => left(activeBoard)}
-          onChanged={(updated) => setBoards((current) => current?.map((b) => (b.id === updated.id ? updated : b)) ?? null)}
+          onChanged={replaceBoard}
         />
       )}
       {dialog === 'rules' && board && (
@@ -398,10 +392,10 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
             boards={boards}
             activeBoard={activeBoard}
             board={board}
-            missing={selectedMissing ? (recheckedId === selectedId ? 'gone' : 'checking') : null}
+            missing={missing}
             run={run}
             undoHistory={undoHistory}
-            moving={(id) => live.drags.some((r) => !r.endedAt && (r.id === id || r.items?.includes(id)))}
+            moving={movedByOthers}
             onCreateBoard={createBoard}
             onDialog={setDialog}
             onSignOut={onSignOut}
@@ -424,166 +418,19 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
             <CardIcon size={16} />
           </span>
           <h1 className="visually-hidden">{activeBoard?.name ?? 'PrikBoard'}</h1>
-          <Menu
-            label="Boards"
-            triggerClassName="board-switcher"
-            trigger={
-              <>
-                <span className="board-name" title={activeBoard?.description ?? undefined}>
-                  {activeBoard?.name ?? 'PrikBoard'}
-                </span>
-                {activeBoard && (
-                  <span className="board-key" title={`Cards on this board are numbered ${activeBoard.key}-1, ${activeBoard.key}-2, …`}>
-                    {activeBoard.key}
-                  </span>
-                )}
-                <ChevronDownIcon />
-              </>
-            }
-          >
-            {(close) => (
-              <>
-                {boards && boards.length > 0 && <p className="menu-label">Boards</p>}
-                {boards?.map((b) => (
-                  <button
-                    key={b.id}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={b.id === activeBoard?.id}
-                    className="menu-item"
-                    onClick={() => {
-                      selectBoard(b.shortId)
-                      close()
-                    }}
-                  >
-                    <span className="menu-item-text">{b.name}</span>
-                    {b.id === activeBoard?.id && <CheckIcon />}
-                  </button>
-                ))}
-                <span className="menu-divider" role="separator" />
-                <QuickAdd
-                  label="New board"
-                  placeholder="Project name"
-                  onAdd={async (name) => {
-                    const ok = await createBoard(name)
-                    if (ok) close()
-                    return ok
-                  }}
-                />
-                {activeBoard && isOwner && (
-                  <QuickAdd label="Rename board" placeholder={activeBoard.name} onAdd={(name) => updateBoard(activeBoard, { name })} />
-                )}
-                {activeBoard && isOwner && (
-                  // The key goes before card numbers (MPCT-415); addresses use the short id, so links keep working.
-                  <QuickAdd
-                    label="Change key"
-                    placeholder={`${activeBoard.key}, as in ${activeBoard.key}-1`}
-                    onAdd={(key) => updateBoard(activeBoard, { key })}
-                  />
-                )}
-                {board && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="menu-item"
-                    title="What this board is about and how agents should handle its cards"
-                    onClick={() => {
-                      close()
-                      setDialog('rules')
-                    }}
-                  >
-                    <RulesIcon />
-                    Agent rules
-                  </button>
-                )}
-                {activeBoard && isOwner && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="menu-item"
-                    title="Discord servers that preview this board's links"
-                    onClick={() => {
-                      close()
-                      setDialog('discord')
-                    }}
-                  >
-                    <ChatIcon />
-                    Discord
-                  </button>
-                )}
-                {board && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="menu-item"
-                    title="Cards deleted in the last 7 days"
-                    onClick={() => {
-                      close()
-                      // The board opens its trash window from the address.
-                      window.location.hash = trashPath(board.shortId).slice(1)
-                    }}
-                  >
-                    <TrashIcon />
-                    Deleted items
-                  </button>
-                )}
-                {activeBoard && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="menu-item"
-                    onClick={() => {
-                      close()
-                      void exportBoard(activeBoard)
-                    }}
-                  >
-                    <DownloadIcon />
-                    Export board
-                  </button>
-                )}
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="menu-item"
-                  onClick={() => {
-                    close()
-                    void importBoard()
-                  }}
-                >
-                  <UploadIcon />
-                  Import board
-                </button>
-                {activeBoard && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="menu-item"
-                    onClick={() => {
-                      close()
-                      setBoardToLeave(activeBoard)
-                    }}
-                  >
-                    <SignOutIcon />
-                    Leave board
-                  </button>
-                )}
-                {activeBoard && isOwner && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="menu-item danger"
-                    onClick={() => {
-                      close()
-                      setBoardToDelete(activeBoard)
-                    }}
-                  >
-                    <TrashIcon />
-                    Delete board
-                  </button>
-                )}
-              </>
-            )}
-          </Menu>
+          <BoardMenu
+            boards={boards}
+            activeBoard={activeBoard}
+            board={board}
+            onSelect={selectBoard}
+            onCreate={createBoard}
+            onUpdate={updateBoard}
+            onDialog={setDialog}
+            onExport={(target) => void exportBoard(target)}
+            onImport={() => void importBoard()}
+            onLeave={setBoardToLeave}
+            onDelete={setBoardToDelete}
+          />
           {activeBoard && (
             <button type="button" className="share-button" onClick={() => setDialog('share')}>
               <PeopleIcon />
@@ -595,139 +442,93 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
         <div className="topbar-end">
           <Presence viewers={othersHere} guests={live.guests} />
           <span className="topbar-divider" aria-hidden="true" />
-          <Menu
-            label="Your settings"
-            align="end"
-            triggerClassName="settings-trigger"
-            trigger={
-              <>
-                <span className="me">
-                  <Face name={user.displayName} avatarUrl={user.avatarUrl} />
-                </span>
-                <ChevronDownIcon />
-              </>
-            }
-          >
-            {(close) => (
-              <>
-                <div className="menu-user">
-                  <span className="me">
-                  <Face name={user.displayName} avatarUrl={user.avatarUrl} />
-                </span>
-                  <span className="menu-user-text">
-                    <span className="menu-user-name">{user.displayName}</span>
-                    <span className="menu-user-detail">{provider ? `Signed in with ${provider}` : 'Signed in'}</span>
-                  </span>
-                </div>
-                <span className="menu-divider" role="separator" />
-                {user.kind === 'Session' && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="menu-item"
-                    onClick={() => {
-                      close()
-                      setDialog('account')
-                    }}
-                  >
-                    <UserIcon />
-                    Account
-                  </button>
-                )}
-                {user.isAdmin && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="menu-item"
-                    onClick={() => {
-                      close()
-                      window.location.hash = '/admin'
-                    }}
-                  >
-                    <ShieldIcon />
-                    Admin
-                  </button>
-                )}
-                {layout.canSwitch && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="menu-item"
-                    onClick={() => {
-                      close()
-                      layout.choose('mobile')
-                    }}
-                  >
-                    <CardIcon />
-                    Mobile view
-                  </button>
-                )}
-                <a role="menuitem" className="menu-item" href="/scalar" target="_blank" rel="noreferrer" onClick={close}>
-                  <ExternalIcon />
-                  API reference
-                </a>
-                <a role="menuitem" className="menu-item" href="/openapi/v1.json" target="_blank" rel="noreferrer" onClick={close}>
-                  <ExternalIcon />
-                  OpenAPI document
-                </a>
-                <span className="menu-divider" role="separator" />
-                <button type="button" role="menuitem" className="menu-item" onClick={onSignOut}>
-                  <SignOutIcon />
-                  Sign out
-                </button>
-              </>
-            )}
-          </Menu>
+          <SettingsMenu
+            user={user}
+            canSwitch={layout.canSwitch}
+            onAccount={() => setDialog('account')}
+            onMobile={() => layout.choose('mobile')}
+            onSignOut={onSignOut}
+          />
         </div>
       </header>
 
       {errorBar}
 
       <main>
-        {adminView ? (
-          user.isAdmin ? (
-            <AdminPage
-              onYouChanged={() => void api.whoAmI().then(onUserChange)}
-              onBack={leaveAdmin}
-            />
-          ) : (
-            <NoAccess
-              title="This page is for admins"
-              message="Only admins of this PrikBoard can see it."
-              onBack={leaveAdmin}
-            />
-          )
-        ) : boards === null ? (
-          <p className="status">Loading…</p>
-        ) : selectedMissing ? (
-          recheckedId === selectedId ? <NoAccess onBack={() => selectBoard(null)} /> : <p className="status">Loading…</p>
-        ) : activeBoard ? (
-          board ? (
-            <BoardCanvas
-              key={activeBoard.id}
-              board={board}
-              run={run}
-              undoHistory={undoHistory}
-              setPaused={setPaused}
-              remoteDrags={live.drags}
-              onDrag={live.sendDrag}
-            />
-          ) : (
-            <p className="status">Loading board…</p>
-          )
-        ) : (
-          <div className="empty">
-            <span className="board-tile large" aria-hidden="true">
-              <CardIcon size={28} />
-            </span>
-            <h2>No boards yet</h2>
-            <p>Create a board for your project, then start sticking cards on it.</p>
-            <QuickAdd label="Create a board" placeholder="Project name" onAdd={createBoard} />
-          </div>
-        )}
+        <WorkspaceMain
+          user={user}
+          adminView={adminView}
+          boards={boards}
+          missing={missing}
+          activeBoard={activeBoard}
+          board={board}
+          run={run}
+          undoHistory={undoHistory}
+          setPaused={setPaused}
+          live={live}
+          onCreateBoard={createBoard}
+          onBack={() => selectBoard(null)}
+          onLeaveAdmin={leaveAdmin}
+          onYouChanged={() => void api.whoAmI().then(onUserChange)}
+        />
       </main>
 
       {dialogs}
     </div>
+  )
+}
+
+interface WorkspaceMainProps {
+  user: Caller
+  adminView: boolean
+  boards: BoardSummary[] | null
+  missing: MissingBoard
+  activeBoard: BoardSummary | null
+  board: BoardDetail | null
+  run: BoardState['run']
+  undoHistory: UndoHistory
+  setPaused: BoardState['setPaused']
+  live: LiveState
+  onCreateBoard: (name: string) => Promise<boolean>
+  /** Leaves a board you can't open, for none. */
+  onBack: () => void
+  onLeaveAdmin: () => void
+  onYouChanged: () => void
+}
+
+/** What the desktop shows under the top bar: the admin page, the open board, or why there is none. */
+function WorkspaceMain(props: WorkspaceMainProps) {
+  const { user, adminView, boards, missing, activeBoard, board, run, undoHistory, setPaused, live } = props
+  const { onCreateBoard, onBack, onLeaveAdmin, onYouChanged } = props
+
+  if (adminView) {
+    if (user.isAdmin) return <AdminPage onYouChanged={onYouChanged} onBack={onLeaveAdmin} />
+    return <NoAccess title="This page is for admins" message="Only admins of this PrikBoard can see it." onBack={onLeaveAdmin} />
+  }
+  if (boards === null || missing === 'checking') return <p className="status">Loading…</p>
+  if (missing === 'gone') return <NoAccess onBack={onBack} />
+  if (!activeBoard) {
+    return (
+      <div className="empty">
+        <span className="board-tile large" aria-hidden="true">
+          <CardIcon size={28} />
+        </span>
+        <h2>No boards yet</h2>
+        <p>Create a board for your project, then start sticking cards on it.</p>
+        <QuickAdd label="Create a board" placeholder="Project name" onAdd={onCreateBoard} />
+      </div>
+    )
+  }
+  if (!board) return <p className="status">Loading board…</p>
+  return (
+    <BoardCanvas
+      key={activeBoard.id}
+      board={board}
+      run={run}
+      undoHistory={undoHistory}
+      setPaused={setPaused}
+      remoteDrags={live.drags}
+      onDrag={live.sendDrag}
+    />
   )
 }

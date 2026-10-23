@@ -8,7 +8,7 @@ namespace PrikBoard.Api.Auth;
 
 /// <summary>
 /// Personal access tokens: <c>pb_pat_</c>, 43 characters of randomness (32 bytes, base64url) and a 6-character checksum.
-/// The prefix lets the API (and secret scanners) recognise them without a database lookup; the checksum rejects typos
+/// The prefix lets the API (and secret scanners) recognize them without a database lookup; the checksum rejects typos
 /// and garbage before one.
 /// </summary>
 public static class AccessTokens
@@ -33,6 +33,10 @@ public static class AccessTokens
     /// <summary>Whether the caller is a Discord server's token (<see cref="AccessTokenKind.Discord"/>).</summary>
     public static bool IsDiscordToken(this ClaimsPrincipal principal) =>
         principal.FindFirstValue(KindClaim) == nameof(AccessTokenKind.Discord);
+
+    /// <summary>Whether the caller authenticated with one of PrikBoard's own access tokens (any kind), which <see cref="TokenId"/> names.</summary>
+    public static bool IsAccessToken(this ClaimsPrincipal principal) =>
+        principal.FindFirstValue(ApiScopes.IssuerIdClaim) == Agent.AccessTokenIssuer;
 
     /// <summary>The id of the personal access token the caller authenticated with.</summary>
     public static Guid TokenId(this ClaimsPrincipal principal) => Guid.Parse(principal.FindFirstValue("client_id")!);

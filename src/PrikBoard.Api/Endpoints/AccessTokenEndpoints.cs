@@ -22,15 +22,16 @@ public static class AccessTokenEndpoints
         tokens.MapGet("/", ListAccessTokens)
             .WithName("listAccessTokens")
             .WithSummary("List your access tokens")
-            .WithDescription("Your personal access tokens (never the tokens themselves), newest first. Browser sessions only.")
+            .WithDescription("Lists your personal access tokens, newest first, without the secret tokens themselves. Browser sessions only.")
             .Produces(StatusCodes.Status403Forbidden);
 
         tokens.MapPost("/", CreateAccessToken)
             .WithName("createAccessToken")
             .WithSummary("Create an access token")
             .WithDescription("Creates a personal access token for an agent or script. It acts as its own agent on your boards, " +
-                             "with your role there capped at Access (Viewer or Editor), optionally only on chosen boards. " +
-                             "The token is returned once. Browser sessions only.")
+                             "with your role there capped at access (Viewer or Editor), optionally only on the boards in boardIds. " +
+                             "It expires after expiresInDays (default 90). The token is returned only in this answer. " +
+                             "409 when you already have the maximum number of tokens. Browser sessions only.")
             .ProducesValidationProblem()
             .Produces(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status409Conflict);

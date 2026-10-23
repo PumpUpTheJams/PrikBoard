@@ -9,8 +9,8 @@ internal static class StoredFileResults
 {
     /// <summary>
     /// Answers with the file, shown inline but saved under its own name. A file's content never changes for its id and
-    /// every request is authenticated, so browsers may cache it privately for good; the id is the ETag, so revalidations
-    /// get a 304, and ranges are served. Small files come from memory, larger ones straight from disk.
+    /// access is checked on every request, so browsers may cache it privately for good. The id is the ETag, so
+    /// revalidations get a 304, and ranges are served. Small files come from memory, larger ones straight from disk.
     /// </summary>
     public static async Task<Results<FileContentHttpResult, PhysicalFileHttpResult, NotFound>> ServeAsync(
         StoredFile file, FileStore files, HttpResponse response, CancellationToken ct)

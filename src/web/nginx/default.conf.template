@@ -1,4 +1,4 @@
-# Keep an X-Forwarded-Proto set by a TLS-terminating proxy in front of this container; otherwise use our own scheme.
+# Keep an X-Forwarded-Proto set by a TLS-terminating proxy in front of this container; otherwise use this server's scheme.
 map $http_x_forwarded_proto $forwarded_proto {
     default $http_x_forwarded_proto;
     ''      $scheme;
@@ -10,7 +10,7 @@ map $http_x_forwarded_host $forwarded_host {
     ''      $http_host;
 }
 
-# WebSocket upgrades for the live-updates hub; plain requests keep a normal Connection header.
+# WebSocket upgrades for the live-updates hub; plain requests get Connection: close.
 map $http_upgrade $connection_upgrade {
     default upgrade;
     ''      close;

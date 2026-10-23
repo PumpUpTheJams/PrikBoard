@@ -115,7 +115,7 @@ export async function listenForCode(port: number, state: string, signal: AbortSi
     })
   })
 
-  // Cancelling can happen before the caller starts waiting; the caller still gets the rejection when it does.
+  // Canceling can happen before the caller starts waiting; the caller still gets the rejection when it does.
   code.catch(() => undefined)
 
   const close = () => {

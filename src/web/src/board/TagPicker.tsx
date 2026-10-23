@@ -4,7 +4,7 @@ import { PickerWindow, type PickerRow } from '../components/PickerWindow'
 import { CheckIcon, TrashIcon } from './icons'
 import { TagColorPalette } from './TagColorPalette'
 import { tagColorClass, type TagColorPreview, type TagColors } from './tagColors'
-import { MAX_TAG_LENGTH, MAX_TAGS, normalizeTag, useDraftList } from './tags'
+import { MAX_TAG_LENGTH, MAX_TAGS, normalizeTag, toggleIn, useDraftList } from './tags'
 
 interface TagPickerProps {
   anchor: DOMRect
@@ -45,7 +45,7 @@ export function TagPicker(props: TagPickerProps) {
 
   const wanted = normalizeTag(query)
   const full = draft.length >= MAX_TAGS
-  const toggle = (name: string) => change(draft.includes(name) ? draft.filter((t) => t !== name) : [...draft, name])
+  const toggle = (name: string) => change(toggleIn(draft, name))
   const matches = boardTags.filter((t) => t.name.includes(wanted))
 
   async function rename() {

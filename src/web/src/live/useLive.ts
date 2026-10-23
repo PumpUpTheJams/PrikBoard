@@ -22,7 +22,7 @@ export interface LiveState {
   connected: boolean
   /** Everyone on the open board, including you (members only; see guests). */
   viewers: LiveViewer[]
-  /** How many visitors of a public board look at it (for visitors of one that hides people: everyone, you too). */
+  /** How many visitors of a public board are looking at it (for visitors of one that hides people: everyone, you too). */
   guests: number
   /** Drags by others (and your other tabs) on the open board. */
   drags: LiveDrag[]

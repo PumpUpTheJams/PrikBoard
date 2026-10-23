@@ -45,14 +45,15 @@ interface DrawingViewProps {
   rect: Rect
   selected: boolean
   lifted: boolean
-  /** Drawn above the rest, with the bucket that was opened or pressed last. */
+  /** Drawn above the rest, with the front bucket it sits in. */
   front?: boolean
   onPointerDown: (e: PointerEvent<Element>) => void
   /** The canvas's zoom, to turn pointer travel into canvas pixels. */
   zoom?: number
   /**
-   * Scales or turns it (its corner handles and the round one above it, shown while selected; none without this). The
-   * preview stays until the promise settles, by when the board shows the new strokes.
+   * Scales or turns the drawing, from its corner handles and the round handle above it while it is selected. Without
+   * it the corners do nothing and there is no round handle. The preview stays until the promise settles, by when the
+   * board shows the new strokes.
    */
   onReshape?: (reshape: Reshape) => Promise<unknown>
 }
@@ -61,14 +62,14 @@ type Corner = 'TopLeft' | 'TopRight' | 'BottomLeft' | 'BottomRight'
 const corners: Corner[] = ['TopLeft', 'TopRight', 'BottomLeft', 'BottomRight']
 
 /**
- * Scaling from a corner (the opposite one stays put; keeping its shape unless Shift is held) or turning with the handle
- * above (about the middle, in steps of 15° with Shift). Points are on screen; `centre` is the box's middle there.
+ * Scaling from a corner (the opposite one stays put; it keeps its shape unless Shift is held) or turning with the handle
+ * above (about the center, in steps of 15° with Shift). Points are on screen; `centre` is the box's center there.
  */
 type ReshapeGesture = ({ kind: 'scale'; corner: Corner } | { kind: 'rotate'; centre: Point }) & {
   start: Point
   current: Point
   shift: boolean
-  /** Released: waiting for the server, which will give the drawing a new content URL than this one. */
+  /** Set on release to the drawing's content URL: the preview stays until the saved drawing has a new one. */
   done?: string
 }
 
@@ -110,7 +111,7 @@ const unchanged = (r: Reshape) => r.scaleX === 1 && r.scaleY === 1 && r.rotation
 export function DrawingView({ drawing, rect, selected, lifted, front, onPointerDown, zoom = 1, onReshape }: DrawingViewProps) {
   const loaded = useDrawingStrokes(drawing)
   const [held, setGesture] = useState<ReshapeGesture | null>(null)
-  // Once the new strokes are in, they show as they are.
+  // Once the drawing has a new content URL, its saved strokes replace the preview.
   const gesture = held?.done && held.done !== drawing.contentUrl ? null : held
   const reshape = gesture && loaded ? reshapeOf(gesture, rect, zoom) : null
   const shaped = reshape && loaded && !unchanged(reshape) ? reshapeStrokes(rect, loaded, reshape) : null
@@ -191,10 +192,10 @@ interface DrawingToolbarProps {
   onDelete: () => void
 }
 
-/** Its one ink, or null when its strokes have different ones. */
+/** The drawing's ink, or null when its strokes have different inks. */
 const inkOf = (drawing: DrawingDetail) => (drawing.colors.every((c) => c === drawing.colors[0]) ? drawing.colors[0] : null)
 
-/** Under a selected drawing: who drew it, its ink (to change it, for all its lines at once) and a delete button. */
+/** Under a selected drawing: who drew it, its ink (picking another recolors all its lines) and a delete button. */
 export function DrawingToolbar({ drawing, rect, zoom, onRecolor, onDelete }: DrawingToolbarProps) {
   return (
     <div

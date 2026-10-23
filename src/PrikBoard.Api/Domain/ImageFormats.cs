@@ -3,7 +3,7 @@ using System.Buffers.Binary;
 namespace PrikBoard.Api.Domain;
 
 /// <summary>
-/// Recognises the supported image formats from their first bytes and reads the pixel size from the header, without
+/// Recognizes the supported image formats from their first bytes and reads the pixel size from the header, without
 /// decoding the image. The declared content type of an upload is never trusted. SVG is deliberately not supported,
 /// because it can carry script.
 /// </summary>
@@ -11,6 +11,15 @@ public static class ImageFormats
 {
     public const int MaxBytes = 10 * 1024 * 1024;
     public const int MaxPixels = 20_000;
+
+    /// <summary><see cref="MaxBytes"/> in MB, for messages.</summary>
+    public const int MaxMegabytes = MaxBytes / 1024 / 1024;
+
+    /// <summary>The answer to a file over <see cref="MaxBytes"/>.</summary>
+    public static readonly string TooLarge = $"Images can be at most {MaxMegabytes} MB.";
+
+    /// <summary>The answer to a file that <see cref="Detect"/> refuses.</summary>
+    public static readonly string NotAnImage = $"The file is not a PNG, JPEG, GIF or WebP image (or it is larger than {MaxPixels} pixels on a side).";
 
     public static readonly string[] ContentTypes = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 

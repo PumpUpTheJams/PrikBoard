@@ -251,7 +251,7 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         var todo = board.Buckets[0];
         var card = (await (await _client.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Canvas" })).Content.ReadFromJsonAsync<CardDetail>())!;
 
-        // The squiggle is 103 by 32, so its centre is 51 right of and 16 below its corner.
+        // The squiggle is 103 by 32, so its center is 51 right of and 16 below its corner.
         var inside = await Create(board.Id, new { x = todo.X + 20, y = todo.Y + 100, points = Squiggle });
         var outside = await Create(board.Id, new { x = 3000, y = 100, points = Squiggle });
         var onCard = await Create(board.Id, new { cardId = card.Id, x = 20, y = 20, points = Squiggle });
@@ -356,7 +356,7 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         Assert.Equal(copyTodo.Id, Assert.Single(copy.Drawings).BucketId);
     }
 
-    /// <summary>A stroke the way the web app sends one: on the grid, half a line at full pressure clear of its points.</summary>
+    /// <summary>A stroke as the web app sends one: its corner on the grid, at least half the thickest line clear of every point.</summary>
     private static readonly double[][] Neat = [[10, 10, 0.5], [50, 30, 0.5], [90, 10, 0.5]];
 
     [Fact]
@@ -365,7 +365,7 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         var board = await _client.CreateBoardAsync("Sketch");
         var drawing = await Create(board.Id, new { x = 100, y = 100, points = Neat, color = "Sky" });
 
-        // A second stroke starting above and left of it moves the corner there and shifts the first stroke's points.
+        // A second stroke below and left of the first moves the corner left to it and shifts the first stroke's points right.
         var grown = await AddStroke(drawing.Id, new { x = 41, y = 199, points = Neat, color = "Brick", strokeWidth = 8 });
         Assert.Equal((drawing.Id, 40, 100), (grown.Id, grown.X, grown.Y));
         Assert.Equal([InkColor.Sky, InkColor.Brick], grown.Colors);
@@ -529,7 +529,7 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         var content = (await _client.GetFromJsonAsync<DrawingContentDetail>(back.ContentUrl))!;
         Assert.Equal(strokes.Select(s => (s.StrokeWidth, s.Points)), content.Strokes.Select(s => (s.StrokeWidth, s.Points)));
 
-        // Every stroke needs its points.
+        // It needs the points of every stroke the drawing has.
         var tooFew = await _client.PutAsJsonAsync($"/api/drawings/{drawing.Id}/strokes", new { x = 0, y = 0, strokes = strokes.Take(1) });
         Assert.Equal(HttpStatusCode.BadRequest, tooFew.StatusCode);
         Assert.Contains("\"strokes\"", await tooFew.Content.ReadAsStringAsync());
