@@ -3,11 +3,11 @@ import type { BoardDetail, BoardSummary, Caller, CardDetail } from '../api/types
 import { MoreIcon, PeopleIcon, RulesIcon, SignOutIcon, UserIcon, ExpandIcon } from '../board/icons'
 import { bucketInHash, cardInHash, cardLabel, imageInHash } from '../board/links'
 import { tagColorsOf } from '../board/tagColors'
-import type { RecordingRun } from '../board/undo'
+import { recordingRun } from '../board/ops'
 import type { BoardState } from '../board/useBoard'
 import { useUndo, type UndoHistory } from '../board/useUndo'
 import { Face } from '../components/Avatar'
-import { Menu } from '../components/Menu'
+import { Menu, MenuItem } from '../components/Menu'
 import { NoAccess } from '../components/NoAccess'
 import { Toast, type ToastMessage } from '../components/Toast'
 import { BoardList } from './BoardList'
@@ -48,7 +48,7 @@ export function MobileWorkspace(props: MobileWorkspaceProps) {
 
   const settings = (
     <Menu label="Your settings" align="end" triggerClassName="m-bar-button" trigger={<span className="me"><Face name={user.displayName} avatarUrl={user.avatarUrl} /></span>}>
-      {(close) => (
+      {() => (
         <>
           <div className="menu-user">
             <span className="menu-user-text">
@@ -57,11 +57,11 @@ export function MobileWorkspace(props: MobileWorkspaceProps) {
           </div>
           <span className="menu-divider" role="separator" />
           {user.kind === 'Session' && (
-            <MenuItem icon={<UserIcon />} onClick={() => (close(), onDialog('account'))}>
+            <MenuItem icon={<UserIcon />} onClick={() => onDialog('account')}>
               Account
             </MenuItem>
           )}
-          <MenuItem icon={<ExpandIcon />} onClick={() => (close(), onDesktop())}>
+          <MenuItem icon={<ExpandIcon />} onClick={onDesktop}>
             Desktop view
           </MenuItem>
           <span className="menu-divider" role="separator" />
@@ -80,15 +80,6 @@ export function MobileWorkspace(props: MobileWorkspaceProps) {
   return <MobileBoard key={board.id} {...props} board={board} />
 }
 
-function MenuItem({ icon, onClick, children }: { icon: ReactNode; onClick: () => void; children: ReactNode }) {
-  return (
-    <button type="button" role="menuitem" className="menu-item" onClick={onClick}>
-      {icon}
-      {children}
-    </button>
-  )
-}
-
 /** One board on the phone: picks the screen from the address, and keeps undo and the toast for all of them. */
 function MobileBoard({ board, run, undoHistory, moving, onDialog, onDesktop }: MobileWorkspaceProps & { board: BoardDetail }) {
   const [hash, setHash] = useState(() => window.location.hash)
@@ -105,14 +96,7 @@ function MobileBoard({ board, run, undoHistory, moving, onDialog, onDesktop }: M
   const notify = (message: string | Omit<ToastMessage, 'id'>) => setToast({ id: Date.now(), ...(typeof message === 'string' ? { text: message } : message) })
   const undo = useUndo({ boardId: board.id, history: undoHistory, run, notify, moving })
   /** Runs a change and records it for undo, the same way the board canvas does. */
-  const runRec: RecordingRun = (action, describe) =>
-    undo.track(
-      run(async () => {
-        const result = await action()
-        const entry = describe?.(result)
-        if (entry) undo.record(entry)
-      }),
-    )
+  const runRec = recordingRun(run, undo)
   const tagColors = tagColorsOf(board.tags)
 
   // The screen follows the address (hash is read so this runs again when it changes).
@@ -130,15 +114,15 @@ function MobileBoard({ board, run, undoHistory, moving, onDialog, onDesktop }: M
 
   const actions = (
     <Menu label="Board menu" align="end" triggerClassName="m-bar-button" trigger={<MoreIcon />}>
-      {(close) => (
+      {() => (
         <>
-          <MenuItem icon={<RulesIcon />} onClick={() => (close(), onDialog('rules'))}>
+          <MenuItem icon={<RulesIcon />} onClick={() => onDialog('rules')}>
             Agent rules
           </MenuItem>
-          <MenuItem icon={<PeopleIcon />} onClick={() => (close(), onDialog('share'))}>
+          <MenuItem icon={<PeopleIcon />} onClick={() => onDialog('share')}>
             Share
           </MenuItem>
-          <MenuItem icon={<ExpandIcon />} onClick={() => (close(), onDesktop())}>
+          <MenuItem icon={<ExpandIcon />} onClick={onDesktop}>
             Desktop view
           </MenuItem>
         </>
