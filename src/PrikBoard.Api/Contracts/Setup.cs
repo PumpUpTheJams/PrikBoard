@@ -121,5 +121,5 @@ public enum CheckStatus
 /// <param name="Id">database, migrations, storage, keys, hashKey, https, providers or version.</param>
 /// <param name="Title">What was checked.</param>
 /// <param name="Status">Ok, Warning or Failed.</param>
-/// <param name="Message">What was found, and what to do about a warning or failure.</param>
+/// <param name="Message">What was found, such as a version or a path.</param>
 public sealed record SystemCheck(string Id, string Title, CheckStatus Status, string Message);

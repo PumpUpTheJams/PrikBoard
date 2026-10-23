@@ -6,7 +6,7 @@ import { DownloadIcon } from '../board/icons'
 
 const statusLabel: Record<CheckStatus, string> = { Ok: 'OK', Warning: 'Warning', Failed: 'Failed' }
 
-/** How the server runs (getSystemChecks), each check with what to do about a warning or failure. */
+/** How the server runs (getSystemChecks). */
 export function SystemChecks() {
   const [checks, setChecks] = useState<SystemCheck[] | null>(null)
   const [error, setError] = useState<string | null>(null)

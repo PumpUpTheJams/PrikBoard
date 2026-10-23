@@ -128,7 +128,7 @@ public static partial class SetupEndpoints
             .WithName("getSystemChecks")
             .WithSummary("Check how PrikBoard runs")
             .WithDescription("Setup or admins. The database and its migrations, the data folder, the sign-in keys and the hash key, " +
-                             "HTTPS, the sign-in providers and the version, each Ok, Warning or Failed with what to do.");
+                             "HTTPS, the sign-in providers and the version, each Ok, Warning or Failed.");
 
         setup.MapGet("/recovery-kit", GetRecoveryKit)
             .RequireAdmin()
@@ -409,48 +409,44 @@ public static partial class SetupEndpoints
         try
         {
             var version = await db.Database.SqlQuery<string>($"SELECT current_setting('server_version') AS \"Value\"").SingleAsync(ct);
-            checks.Add(new("database", "Database", CheckStatus.Ok, $"PostgreSQL {version}."));
+            // "17.11 (Debian 17.11-1.pgdg13+2)": the number is enough.
+            checks.Add(new("database", "Database", CheckStatus.Ok, $"PostgreSQL {version.Split(' ')[0]}"));
             var pending = (await db.Database.GetPendingMigrationsAsync(ct)).Count();
             checks.Add(pending == 0
-                ? new("migrations", "Database schema", CheckStatus.Ok, "Up to date.")
-                : new("migrations", "Database schema", CheckStatus.Failed, $"{pending} migrations didn't run. Restart PrikBoard and read its log."));
+                ? new("migrations", "Database schema", CheckStatus.Ok, "Up to date")
+                : new("migrations", "Database schema", CheckStatus.Failed, $"{pending} migrations pending"));
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {
-            checks.Add(new("database", "Database", CheckStatus.Failed, $"Can't reach the database: {error.Message}"));
+            checks.Add(new("database", "Database", CheckStatus.Failed, error.Message));
         }
 
         checks.Add(files.WriteProblem() is { } problem
-            ? new("storage", "Data folder", CheckStatus.Failed, $"Can't write to {files.Root}: {problem}")
-            : new("storage", "Data folder", CheckStatus.Ok, $"{files.Root} is writable. Back it up with the database."));
+            ? new("storage", "Data folder", CheckStatus.Failed, $"{files.Root} is not writable: {problem}")
+            : new("storage", "Data folder", CheckStatus.Ok, files.Root));
 
         checks.Add(keyManagement.Value.XmlRepository is FileSystemXmlRepository keys
-            ? new("keys", "Sign-in keys", CheckStatus.Ok,
-                $"Kept in {keys.Directory.FullName}, so people stay signed in when PrikBoard restarts.")
-            : new("keys", "Sign-in keys", CheckStatus.Warning,
-                "Not kept in the data folder: a restart may sign everyone out and lose stored provider secrets."));
+            ? new("keys", "Data Protection keys", CheckStatus.Ok, keys.Directory.FullName)
+            : new("keys", "Data Protection keys", CheckStatus.Warning, "Not stored on disk; lost on restart"));
 
         checks.Add(hasher.Source switch
         {
-            HashKeySource.Configuration => new("hashKey", "Hash key", CheckStatus.Ok,
-                $"Set in {KeyedHasher.ConfigKey}. Keep a copy: download the recovery kit."),
-            HashKeySource.File => new("hashKey", "Hash key", CheckStatus.Ok,
-                $"Generated in {Path.Combine(files.Root, KeyedHasher.KeyFileName)}. Keep a copy: download the recovery kit."),
-            _ => new("hashKey", "Hash key", CheckStatus.Warning,
-                "The public development key. Fine for trying PrikBoard out, never for real accounts."),
+            HashKeySource.Configuration => new("hashKey", "Hash key", CheckStatus.Ok, KeyedHasher.ConfigKey),
+            HashKeySource.File => new("hashKey", "Hash key", CheckStatus.Ok, Path.Combine(files.Root, KeyedHasher.KeyFileName)),
+            _ => new("hashKey", "Hash key", CheckStatus.Warning, "Development key"),
         });
 
         checks.Add(http.IsHttps || IsLoopback(http.Host.Host)
-            ? new("https", "HTTPS", CheckStatus.Ok, http.IsHttps ? "Served over HTTPS." : "Served on this computer only, where http is fine.")
-            : new("https", "HTTPS", CheckStatus.Warning,
-                "Served over plain http. Sign-in providers need HTTPS on any address but localhost: put PrikBoard behind a " +
-                "proxy with a certificate, such as Caddy in the compose file."));
+            ? new("https", "HTTPS", CheckStatus.Ok, http.IsHttps ? "HTTPS" : "http on localhost")
+            : new("https", "HTTPS", CheckStatus.Warning, "Plain http; sign-in providers require HTTPS"));
 
         checks.Add(providers.All.Count > 0
-            ? new("providers", "Sign-in", CheckStatus.Ok, $"{providers.All.Count} sign-in providers: {string.Join(", ", providers.All.Select(p => p.Name))}.")
-            : new("providers", "Sign-in", CheckStatus.Failed, "No sign-in providers yet, so nobody can sign in. Add one."));
+            ? new("providers", "Sign-in providers", CheckStatus.Ok, string.Join(", ", providers.All.Select(p => p.Name)))
+            : new("providers", "Sign-in providers", CheckStatus.Failed, "None"));
 
-        checks.Add(new("version", "Version", CheckStatus.Ok, $"PrikBoard {AppVersion.Current}."));
+        var commit = AppVersion.Current.IndexOf('+') is >= 0 and var plus ? AppVersion.Current[(plus + 1)..] : null;
+        checks.Add(new("version", "Version", CheckStatus.Ok,
+            commit is null ? AppVersion.Number : $"{AppVersion.Number} ({commit[..Math.Min(7, commit.Length)]})"));
         return TypedResults.Ok(checks);
     }
 
