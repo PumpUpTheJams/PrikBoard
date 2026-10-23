@@ -105,7 +105,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
 
         modelBuilder.Entity<BoardImage>(image =>
         {
-            image.Property(i => i.Caption).HasMaxLength(500);
+            image.Property(i => i.Caption).HasMaxLength(BoardImage.MaxCaptionLength);
             image.HasOne(i => i.AddedBy).WithMany().HasForeignKey(i => i.AddedById).OnDelete(DeleteBehavior.SetNull);
             image.HasOne(i => i.Board).WithMany(b => b.Images).HasForeignKey(i => i.BoardId).OnDelete(DeleteBehavior.Cascade);
             // An attached image goes when its card goes.
@@ -121,7 +121,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
 
         modelBuilder.Entity<StoredFile>(file =>
         {
-            file.Property(f => f.FileName).HasMaxLength(255);
+            file.Property(f => f.FileName).HasMaxLength(StoredFile.MaxFileNameLength);
             file.Property(f => f.ContentType).HasMaxLength(50);
             file.Property(f => f.Sha256).HasMaxLength(32);
         });
@@ -234,8 +234,8 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
         {
             upload.Property(u => u.TokenHash).HasMaxLength(32);
             upload.HasIndex(u => u.TokenHash).IsUnique();
-            upload.Property(u => u.Caption).HasMaxLength(500);
-            upload.Property(u => u.FileName).HasMaxLength(255);
+            upload.Property(u => u.Caption).HasMaxLength(BoardImage.MaxCaptionLength);
+            upload.Property(u => u.FileName).HasMaxLength(StoredFile.MaxFileNameLength);
             upload.Property(u => u.Cap).HasConversion<string>().HasMaxLength(10);
             upload.HasOne<Board>().WithMany().HasForeignKey(u => u.BoardId).OnDelete(DeleteBehavior.Cascade);
             upload.HasOne<Card>().WithMany().HasForeignKey(u => u.CardId).OnDelete(DeleteBehavior.Cascade);

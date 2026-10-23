@@ -11,6 +11,7 @@ namespace PrikBoard.Api.Domain;
 /// </summary>
 public class StoredFile
 {
+    public const int MaxFileNameLength = 255;
     public Guid Id { get; set; } = Guid.CreateVersion7();
     /// <summary>
     /// The board the file belongs to, which is its folder on disk; null for files of no board (avatars). Never changes, as

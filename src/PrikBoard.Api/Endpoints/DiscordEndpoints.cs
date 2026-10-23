@@ -299,7 +299,7 @@ public static class DiscordEndpoints
         if (path.StartsWith(InvitePrefix, StringComparison.Ordinal))
         {
             var token = path[InvitePrefix.Length..];
-            if (token.Length == 0 || token.Length > 100 || !token.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_')) return TypedResults.NotFound();
+            if (token.Length == 0 || token.Length > BoardInvite.MaxTokenLength || !token.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_')) return TypedResults.NotFound();
             if (await InviteEndpoints.FindOpenAsync(db, token, ct) is not { } found) return TypedResults.NotFound();
             var (invite, invited) = found;
             return TypedResults.Ok(new LinkPreview(LinkPreviewKind.Invite, invited.Name,

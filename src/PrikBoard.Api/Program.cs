@@ -103,7 +103,7 @@ builder.Services.AddRateLimiter(options =>
     // Every request with a PrikBoard access token counts against its principal (the token's agent, or its owner for app
     // tokens), so a leaked token in a loop cannot hammer the API.
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
-        context.User.FindFirstValue(ApiScopes.IssuerIdClaim) == Agent.AccessTokenIssuer
+        context.User.IsAccessToken()
             ? RateLimitPartition.GetFixedWindowLimiter(context.User.FindFirstValue(UserPrincipal.PrincipalClaim)!, _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = builder.Configuration.GetValue("RateLimits:AccessTokenRequestsPerMinute", 600),

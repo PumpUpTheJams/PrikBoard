@@ -211,17 +211,30 @@ public static class CardComponentEndpoints
     }
 
     /// <summary>Why <see cref="Build"/> returned null.</summary>
-    private static ValidationProblem InvalidComponent(NewCardComponent request, string prefix) =>
-        request.Kind is not { } kind ? Problems.Invalid(prefix + "kind", "Give the kind: Text, Checklist or Links.")
-        : Misfit(kind, request.Text, request.Items, request.Links, prefix)
-          ?? Problems.Invalid(prefix + (request.X is null ? "x" : "y"), "Give X and Y together.");
+    private static ValidationProblem InvalidComponent(NewCardComponent request, string prefix)
+    {
+        if (request.Kind is not { } kind) return Problems.Invalid(prefix + "kind", "Give the kind: Text, Checklist or Links.");
+        return Misfit(kind, request.Text, request.Items, request.Links, prefix)
+            ?? Problems.Invalid(prefix + (request.X is null ? "x" : "y"), "Give X and Y together.");
+    }
 
     /// <summary>A problem when content is given that does not fit a component of <paramref name="kind"/>.</summary>
-    private static ValidationProblem? Misfit(CardComponentKind kind, string? text, List<ChecklistItem>? items, List<CardLink>? links, string prefix) =>
-        kind != CardComponentKind.Text && !string.IsNullOrEmpty(text) ? Problems.Invalid(prefix + "text", $"A {kind} component has no text; use a Text component.")
-        : kind != CardComponentKind.Checklist && items is { Count: > 0 } ? Problems.Invalid(prefix + "items", $"A {kind} component has no checklist items; use a Checklist component.")
-        : kind != CardComponentKind.Links && links is { Count: > 0 } ? Problems.Invalid(prefix + "links", $"A {kind} component has no links; use a Links component.")
-        : null;
+    private static ValidationProblem? Misfit(CardComponentKind kind, string? text, List<ChecklistItem>? items, List<CardLink>? links, string prefix)
+    {
+        if (kind != CardComponentKind.Text && !string.IsNullOrEmpty(text))
+        {
+            return Problems.Invalid(prefix + "text", $"A {kind} component has no text; use a Text component.");
+        }
+        if (kind != CardComponentKind.Checklist && items is { Count: > 0 })
+        {
+            return Problems.Invalid(prefix + "items", $"A {kind} component has no checklist items; use a Checklist component.");
+        }
+        if (kind != CardComponentKind.Links && links is { Count: > 0 })
+        {
+            return Problems.Invalid(prefix + "links", $"A {kind} component has no links; use a Links component.");
+        }
+        return null;
+    }
 
     private static ValidationProblem? Check(CardComponent component, string prefix) =>
         component.Links.Find(l => !CardLinks.IsValid(l.Url)) is { } bad

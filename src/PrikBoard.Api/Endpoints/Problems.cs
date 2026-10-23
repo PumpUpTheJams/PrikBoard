@@ -15,6 +15,10 @@ internal static class Problems
 
     public static ValidationProblem CardNotOnBoard() => Invalid("cardId", "The card does not exist on this board.");
 
+    /// <summary>A 403 for a token limited to chosen boards, which can't <paramref name="cannot"/> (create new ones, import new ones).</summary>
+    public static ProblemHttpResult LimitedToken(string cannot) => TypedResults.Problem(statusCode: StatusCodes.Status403Forbidden,
+        title: "Limited access token", detail: $"This access token is limited to chosen boards, so it cannot {cannot}.");
+
     /// <summary>A 409 for restoring something that is not deleted.</summary>
     public static ProblemHttpResult NotDeleted(string what) => TypedResults.Problem(
         statusCode: StatusCodes.Status409Conflict, title: "Not deleted", detail: $"The {what} is not deleted, so there is nothing to restore.");

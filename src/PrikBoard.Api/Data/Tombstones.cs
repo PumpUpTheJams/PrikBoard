@@ -19,6 +19,30 @@ public static class Tombstones
     /// <summary>The query with deleted rows too: it bypasses the <see cref="PrikBoardDbContext.SoftDelete"/> filter (and only that one).</summary>
     public static IQueryable<T> WithDeleted<T>(this IQueryable<T> query) where T : class => query.IgnoreQueryFilters(SoftDeleteFilter);
 
+    /// <summary>
+    /// Deletes the cards with their images and drawings, all with one stamp, so they come back together (restoreCard) and
+    /// ones deleted earlier don't. Returns how many cards went; with none, it touches nothing else.
+    /// </summary>
+    public static async Task<int> DeleteCardsAsync(PrikBoardDbContext db, IReadOnlyCollection<Guid> cardIds, DateTimeOffset stamp, CancellationToken ct)
+    {
+        var deleted = await db.Cards.Where(n => cardIds.Contains(n.Id)).ExecuteUpdateAsync(s => s.SetProperty(n => n.DeletedAt, stamp), ct);
+        if (deleted == 0) return 0;
+        await db.Images.Where(i => i.CardId != null && cardIds.Contains(i.CardId.Value)).ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, stamp), ct);
+        await db.Drawings.Where(d => d.CardId != null && cardIds.Contains(d.CardId.Value)).ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, stamp), ct);
+        return deleted;
+    }
+
+    /// <summary>Brings back the images and drawings deleted with a card: those with the card's <paramref name="stamp"/>.</summary>
+    public static async Task RestoreWithCardAsync(PrikBoardDbContext db, Guid cardId, DateTimeOffset stamp, CancellationToken ct)
+    {
+        await db.Images.WithDeleted()
+            .Where(i => i.CardId == cardId && i.DeletedAt == stamp)
+            .ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, (DateTimeOffset?)null), ct);
+        await db.Drawings.WithDeleted()
+            .Where(d => d.CardId == cardId && d.DeletedAt == stamp)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, (DateTimeOffset?)null), ct);
+    }
+
     /// <summary>Deletes for good everything deleted before <paramref name="cutoff"/>. Returns how many rows went.</summary>
     public static async Task<int> PurgeAsync(PrikBoardDbContext db, DateTimeOffset cutoff, CancellationToken ct)
     {

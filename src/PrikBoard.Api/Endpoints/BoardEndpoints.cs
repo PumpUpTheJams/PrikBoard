@@ -96,11 +96,7 @@ public static class BoardEndpoints
         CreateBoardRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
     {
         var caller = BoardCaller.Of(principal);
-        if (caller.Boards is not null)
-        {
-            return TypedResults.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Limited access token",
-                detail: "This access token is limited to chosen boards, so it cannot create new ones.");
-        }
+        if (caller.Boards is not null) return Problems.LimitedToken("create new ones");
 
         var board = new Board
         {

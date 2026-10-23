@@ -45,6 +45,9 @@ public sealed class FileStore : IDisposable
     /// Creates the folder when needed and checks that files can be written there, so a missing or read-only volume stops
     /// startup instead of the first upload.
     /// </summary>
+    /// <summary>The buffer for reading and writing files and streams: Stream.CopyTo's default, under the large object heap.</summary>
+    public const int BufferSize = 81920;
+
     public FileStore(string root, ILogger logger, long memoryCacheBytes = 64 * 1024 * 1024, long maxCachedFileBytes = 1024 * 1024)
     {
         Root = Path.GetFullPath(root);
@@ -97,7 +100,7 @@ public sealed class FileStore : IDisposable
     {
         var path = PathOf(file);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        await using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous);
+        await using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, FileOptions.Asynchronous);
         await stream.WriteAsync(data, ct);
         // On disk before the row is committed, so a crash right after the commit can't lose it.
         stream.Flush(flushToDisk: true);

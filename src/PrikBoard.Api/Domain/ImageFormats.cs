@@ -12,6 +12,15 @@ public static class ImageFormats
     public const int MaxBytes = 10 * 1024 * 1024;
     public const int MaxPixels = 20_000;
 
+    /// <summary><see cref="MaxBytes"/> in MB, for messages.</summary>
+    public const int MaxMegabytes = MaxBytes / 1024 / 1024;
+
+    /// <summary>The answer to a file over <see cref="MaxBytes"/>.</summary>
+    public static readonly string TooLarge = $"Images can be at most {MaxMegabytes} MB.";
+
+    /// <summary>The answer to a file that <see cref="Detect"/> refuses.</summary>
+    public static readonly string NotAnImage = $"The file is not a PNG, JPEG, GIF or WebP image (or it is larger than {MaxPixels} pixels on a side).";
+
     public static readonly string[] ContentTypes = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
     public record Info(string ContentType, int Width, int Height);

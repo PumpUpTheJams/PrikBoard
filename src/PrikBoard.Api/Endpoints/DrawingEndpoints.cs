@@ -117,7 +117,7 @@ public static class DrawingEndpoints
             AddedBy = await db.Principals.FindAsync([principal.PrincipalId()], ct),
         };
         if (Build(drawing, [(request.Color, request.StrokeWidth, request.Points)], request.X!.Value, request.Y!.Value, "") is { } invalid) return invalid;
-        Layout.Place(drawing, await ImageEndpoints.StackAsync(db, boardId, ct));
+        Layout.Place(drawing, await BucketEndpoints.StackAsync(db, boardId, ct));
 
         if (await db.Drawings.CountAsync(d => d.BoardId == boardId, ct) >= BoardDrawing.MaxPerBoard)
         {
@@ -229,7 +229,7 @@ public static class DrawingEndpoints
         // A drawing that moved joins the bucket it now sits in; only a new color leaves it where it is.
         if (moving || request.X is not null || request.Y is not null)
         {
-            Layout.Place(drawing, await ImageEndpoints.StackAsync(db, drawing.BoardId, ct));
+            Layout.Place(drawing, await BucketEndpoints.StackAsync(db, drawing.BoardId, ct));
         }
         if (request.Color is { } color) drawing.Colors = [.. drawing.Colors.Select(_ => color)];
         if (request.Colors is { } inks) drawing.Colors = [.. inks];
@@ -325,7 +325,7 @@ public static class DrawingEndpoints
     private static async Task SettleAsync(PrikBoardDbContext db, BoardDrawing drawing, CancellationToken ct)
     {
         Place(drawing, drawing.X, drawing.Y);
-        Layout.Place(drawing, await ImageEndpoints.StackAsync(db, drawing.BoardId, ct));
+        Layout.Place(drawing, await BucketEndpoints.StackAsync(db, drawing.BoardId, ct));
         drawing.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
     }
@@ -368,7 +368,7 @@ public static class DrawingEndpoints
         }
 
         drawing.DeletedAt = null;
-        Layout.Recheck(drawing, await ImageEndpoints.StackAsync(db, drawing.BoardId, ct));
+        Layout.Recheck(drawing, await BucketEndpoints.StackAsync(db, drawing.BoardId, ct));
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok(DrawingDetail.From(drawing));
     }

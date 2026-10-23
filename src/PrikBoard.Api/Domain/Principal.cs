@@ -129,6 +129,8 @@ public class BoardMember
 /// <summary>A single-use link that makes whoever accepts it a member with <see cref="Role"/>. Only a hash of the token is kept.</summary>
 public class BoardInvite
 {
+    /// <summary>The longest invite token there is (the limit on the token in invite requests too).</summary>
+    public const int MaxTokenLength = 100;
     public Guid Id { get; set; } = Guid.CreateVersion7();
     public Guid BoardId { get; set; }
     public BoardRole Role { get; set; }

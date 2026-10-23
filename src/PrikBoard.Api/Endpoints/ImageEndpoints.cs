@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Text;
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -124,32 +125,52 @@ public static class ImageEndpoints
         var data = await ReadUpTo(body, ImageFormats.MaxBytes, ct);
         if (data is null)
         {
-            return TypedResults.Problem(statusCode: StatusCodes.Status413PayloadTooLarge, title: "Image too large",
-                detail: $"Images can be at most {ImageFormats.MaxBytes / 1024 / 1024} MB.");
+            return TypedResults.Problem(statusCode: StatusCodes.Status413PayloadTooLarge, title: "Image too large", detail: ImageFormats.TooLarge);
         }
-        if (ImageFormats.Detect(data) is not { } info)
-        {
-            return Unsupported("The file is not a PNG, JPEG, GIF or WebP image (or it is larger than 20000 pixels on a side).");
-        }
+        if (!TryFromBytes(boardId, data, fileName, caption, width, out var image, out var problem)) return Unsupported(problem);
 
-        var image = new BoardImage
-        {
-            BoardId = boardId,
-            CardId = cardId,
-            PixelWidth = info.Width,
-            PixelHeight = info.Height,
-            Caption = PatchText.Apply(null, caption),
-            AddedBy = await db.Principals.FindAsync([addedById], ct),
-            File = StoredFile.For(boardId, CleanFileName(fileName, info.ContentType), info.ContentType, data),
-        };
-        image.Resize(width ?? Math.Min(info.Width, Layout.DefaultImageWidth));
+        image.CardId = cardId;
+        image.AddedBy = await db.Principals.FindAsync([addedById], ct);
         await PlaceAsync(db, image, card, x, y, ct);
-        Layout.Place(image, await StackAsync(db, boardId, ct));
+        Layout.Place(image, await BucketEndpoints.StackAsync(db, boardId, ct));
 
-        await files.WriteAsync(image.File, data, ct);
+        await files.WriteAsync(image.File!, data, ct);
         db.Images.Add(image);
         await db.SaveChangesAsync(ct);
         return TypedResults.Created($"/api/images/{image.Id}", ImageDetail.From(image));
+    }
+
+    /// <summary>
+    /// A new image on <paramref name="boardId"/> from a file's bytes (uploads, imports and pastes), at
+    /// <paramref name="width"/> (default: its own width, at most <see cref="Layout.DefaultImageWidth"/>), not yet placed,
+    /// written or saved. False with the answer in <paramref name="problem"/> when the file is too large or not an image.
+    /// </summary>
+    internal static bool TryFromBytes(
+        Guid boardId, byte[] data, string? fileName, string? caption, int? width,
+        [NotNullWhen(true)] out BoardImage? image, [NotNullWhen(false)] out string? problem)
+    {
+        image = null;
+        if (data.Length > ImageFormats.MaxBytes)
+        {
+            problem = ImageFormats.TooLarge;
+            return false;
+        }
+        if (ImageFormats.Detect(data) is not { } info)
+        {
+            problem = ImageFormats.NotAnImage;
+            return false;
+        }
+        problem = null;
+        image = new BoardImage
+        {
+            BoardId = boardId,
+            PixelWidth = info.Width,
+            PixelHeight = info.Height,
+            Caption = PatchText.Apply(null, caption),
+            File = StoredFile.For(boardId, CleanFileName(fileName, info.ContentType), info.ContentType, data),
+        };
+        image.Resize(width ?? Math.Min(info.Width, Layout.DefaultImageWidth));
+        return true;
     }
 
     /// <summary>
@@ -185,16 +206,14 @@ public static class ImageEndpoints
             PrincipalId = principalId,
             MemberId = caller.MemberId,
             Cap = caller.Cap,
-            AccessTokenId = http.User.FindFirstValue(ApiScopes.IssuerIdClaim) == Agent.AccessTokenIssuer
-                ? Guid.Parse(http.User.FindFirstValue("client_id")!)
-                : null,
+            AccessTokenId = http.User.IsAccessToken() ? http.User.TokenId() : null,
             TokenHash = AccessTokens.Hash(token),
             ExpiresAt = now.Add(ImageUpload.Lifetime),
         };
         db.ImageUploads.Add(upload);
         await db.SaveChangesAsync(ct);
 
-        var url = $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}/api/image-uploads/{token}";
+        var url = $"{ClipEndpoints.ServerUrl(http.Request)}/api/image-uploads/{token}";
         return TypedResults.Ok(new ImageUploadUrl(url, upload.ExpiresAt, $"curl -sS -T FILE \"{url}\""));
     }
 
@@ -257,11 +276,8 @@ public static class ImageEndpoints
 
         var detach = request.Detach == true;
         var moving = (request.CardId is { } to && to != image.CardId) || (detach && image.CardId is not null);
-        if ((Invalid(request.CardId is not null && detach, "detach", "Give either a cardId or detach, not both.")
-            ?? Invalid(moving && request.X is null != request.Y is null, request.X is null ? "x" : "y", "Give x and y together.")) is { } invalid)
-        {
-            return invalid;
-        }
+        if (request.CardId is not null && detach) return Problems.Invalid("detach", "Give either a cardId or detach, not both.");
+        if (moving && request.X is null != request.Y is null) return Problems.Invalid(request.X is null ? "x" : "y", "Give x and y together.");
         if (request.Width is { } width) image.Resize(width);
         if (moving)
         {
@@ -284,7 +300,7 @@ public static class ImageEndpoints
         // An image that moved (or changed size) joins the bucket it now sits in; only a new caption leaves it where it is.
         if (moving || request.X is not null || request.Y is not null || request.Width is not null)
         {
-            Layout.Place(image, await StackAsync(db, image.BoardId, ct));
+            Layout.Place(image, await BucketEndpoints.StackAsync(db, image.BoardId, ct));
         }
         image.Caption = PatchText.Apply(image.Caption, request.Caption);
         image.UpdatedAt = DateTimeOffset.UtcNow;
@@ -348,14 +364,10 @@ public static class ImageEndpoints
         }
 
         image.DeletedAt = null;
-        Layout.Recheck(image, await StackAsync(db, image.BoardId, ct));
+        Layout.Recheck(image, await BucketEndpoints.StackAsync(db, image.BoardId, ct));
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok(ImageDetail.From(image));
     }
-
-    /// <summary>The board's buckets, back to front: what decides which bucket an image or drawing joins.</summary>
-    internal static async Task<List<Bucket>> StackAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
-        Layout.BackToFront(await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct));
 
     /// <summary>The whole body, or null when it is longer than <paramref name="limit"/> bytes.</summary>
     private static async Task<byte[]?> ReadUpTo(Stream body, int limit, CancellationToken ct)
@@ -371,7 +383,7 @@ public static class ImageEndpoints
         }
 
         using var buffer = new MemoryStream();
-        var chunk = ArrayPool<byte>.Shared.Rent(81920);
+        var chunk = ArrayPool<byte>.Shared.Rent(FileStore.BufferSize);
         try
         {
             int read;
@@ -392,20 +404,26 @@ public static class ImageEndpoints
     internal static string CleanFileName(string? fileName, string contentType)
     {
         var name = PatchText.OneLine(Path.GetFileName(fileName ?? ""));
-        return name.Length > 0 ? Truncate(name, 255) : $"image.{ImageFormats.ExtensionOf(contentType)}";
+        return name.Length > 0 ? Truncate(name, StoredFile.MaxFileNameLength) : $"image.{ImageFormats.ExtensionOf(contentType)}";
     }
 
     private static string Truncate(string value, int length) => value.Length <= length ? value : value[..length];
 
     /// <summary>The checks on where an image goes that DataAnnotations can't make (uploadImage takes them as query parameters).</summary>
-    private static ValidationProblem? InvalidPlacement(int? x, int? y, int? width, string? caption) =>
-        Invalid(x is null != y is null, x is null ? "x" : "y", "Give x and y together.")
-        ?? Invalid(x is < Layout.MinCoordinate or > Layout.MaxCoordinate || y is < Layout.MinCoordinate or > Layout.MaxCoordinate, "x", $"Coordinates run from {Layout.MinCoordinate} to {Layout.MaxCoordinate}.")
-        ?? Invalid(width is < Layout.MinImageWidth or > Layout.MaxImageWidth, "width", $"Width runs from {Layout.MinImageWidth} to {Layout.MaxImageWidth}.")
-        ?? Invalid(caption?.Length > 500, "caption", "A caption is at most 500 characters.");
-
-    private static ValidationProblem? Invalid(bool condition, string field, string message) =>
-        condition ? Problems.Invalid(field, message) : null;
+    private static ValidationProblem? InvalidPlacement(int? x, int? y, int? width, string? caption)
+    {
+        if (x is null != y is null) return Problems.Invalid(x is null ? "x" : "y", "Give x and y together.");
+        if (x is < Layout.MinCoordinate or > Layout.MaxCoordinate || y is < Layout.MinCoordinate or > Layout.MaxCoordinate)
+        {
+            return Problems.Invalid("x", $"Coordinates run from {Layout.MinCoordinate} to {Layout.MaxCoordinate}.");
+        }
+        if (width is < Layout.MinImageWidth or > Layout.MaxImageWidth)
+        {
+            return Problems.Invalid("width", $"Width runs from {Layout.MinImageWidth} to {Layout.MaxImageWidth}.");
+        }
+        if (caption?.Length > BoardImage.MaxCaptionLength) return Problems.Invalid("caption", $"A caption is at most {BoardImage.MaxCaptionLength} characters.");
+        return null;
+    }
 
     private static ProblemHttpResult Unsupported(string detail) =>
         TypedResults.Problem(statusCode: StatusCodes.Status415UnsupportedMediaType, title: "Unsupported image", detail: detail);

@@ -34,6 +34,10 @@ public static class AccessTokens
     public static bool IsDiscordToken(this ClaimsPrincipal principal) =>
         principal.FindFirstValue(KindClaim) == nameof(AccessTokenKind.Discord);
 
+    /// <summary>Whether the caller authenticated with one of PrikBoard's own access tokens (any kind), which <see cref="TokenId"/> names.</summary>
+    public static bool IsAccessToken(this ClaimsPrincipal principal) =>
+        principal.FindFirstValue(ApiScopes.IssuerIdClaim) == Agent.AccessTokenIssuer;
+
     /// <summary>The id of the personal access token the caller authenticated with.</summary>
     public static Guid TokenId(this ClaimsPrincipal principal) => Guid.Parse(principal.FindFirstValue("client_id")!);
 
