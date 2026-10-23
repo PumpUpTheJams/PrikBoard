@@ -194,7 +194,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
         {
             grant.Property(g => g.CodeHash).HasMaxLength(32);
             grant.HasIndex(g => g.CodeHash).IsUnique();
-            grant.Property(g => g.CodeChallenge).HasMaxLength(64);
+            grant.Property(g => g.CodeChallenge).HasMaxLength(AppSignInGrant.CodeChallengeLength);
             grant.Property(g => g.Name).HasMaxLength(100);
             grant.HasOne(g => g.Owner).WithMany().HasForeignKey(g => g.OwnerId).OnDelete(DeleteBehavior.Cascade);
             grant.HasIndex(g => g.OwnerId);
@@ -223,7 +223,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
         {
             grant.Property(g => g.CodeHash).HasMaxLength(32);
             grant.HasIndex(g => g.CodeHash).IsUnique();
-            grant.Property(g => g.CodeChallenge).HasMaxLength(64);
+            grant.Property(g => g.CodeChallenge).HasMaxLength(AppSignInGrant.CodeChallengeLength);
             grant.PrimitiveCollection(g => g.ChannelBoardIds).IsRequired();
             grant.PrimitiveCollection(g => g.WholeServerBoardIds).IsRequired();
             grant.HasOne(g => g.Owner).WithMany().HasForeignKey(g => g.OwnerId).OnDelete(DeleteBehavior.Cascade);

@@ -110,6 +110,31 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
     }
 
     [Fact]
+    public async Task A_board_takes_a_limited_number_of_channels_per_server()
+    {
+        var owner = await factory.CreateSignedInClientAsync("discord-channels@example.com");
+        var board = await owner.CreateBoardAsync("Channels");
+        var guildId = NewGuildId();
+        await ConnectAsync(owner, guildId, "Guild", [new(board.Id)]);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+            var limit = await db.DiscordBoardChannels.SingleAsync(c => c.GuildId == guildId);
+            limit.Channels = [.. Enumerable.Range(0, DiscordBoardChannels.MaxChannels).Select(i => new DiscordChannel((1300000000000000000 + i).ToString(), $"c{i}"))];
+            await db.SaveChangesAsync();
+        }
+
+        var (verifier, challenge) = Pkce();
+        var code = await ApproveAsync(owner, challenge, [new(board.Id)]);
+        Assert.Equal(HttpStatusCode.Conflict, (await Exchange(code.Code, verifier, guildId, channelId: OtherChannel)).StatusCode);
+
+        // A channel it already has can still be renamed, and the whole server is always possible.
+        await ConnectAsync(owner, guildId, "Guild", [new(board.Id)], channelId: "1300000000000000000", channelName: "renamed");
+        var (connected, _) = await ConnectAsync(owner, guildId, "Guild", [new(board.Id, WholeServer: true)], channelId: OtherChannel);
+        Assert.Null(Assert.Single(connected.Boards).Channels);
+    }
+
+    [Fact]
     public async Task A_code_works_once_with_its_verifier_for_5_minutes_and_only_for_owners()
     {
         var owner = await factory.CreateSignedInClientAsync("discord-code@example.com");

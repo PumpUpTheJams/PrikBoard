@@ -54,7 +54,8 @@ public static class DiscordEndpoints
             .WithDescription("The Discord bot sends the code from approveDiscordConnect, its PKCE code verifier, and the server and " +
                              "channel from Discord's interaction. The server becomes a Viewer on the approved boards and gets a " +
                              "read-only token for 365 days, replacing its old one. Only boards the approver still owns are connected. " +
-                             "Each code works once, for 5 minutes. 409 when the approver already has the maximum number of tokens.")
+                             "Each code works once, for 5 minutes. 409 when the approver already has the maximum number of tokens, or a board " +
+                             "is already limited to the maximum number of channels (50) of this server.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict)
             .Produces(StatusCodes.Status429TooManyRequests);
@@ -235,6 +236,12 @@ public static class DiscordEndpoints
             }
             else if (limit.Channels is { } channels)
             {
+                if (channels.Count >= DiscordBoardChannels.MaxChannels && !channels.Any(c => c.Id == channel.Id))
+                {
+                    return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Too many channels",
+                        detail: $"A board can be limited to at most {DiscordBoardChannels.MaxChannels} channels of a server. Connect it to the whole server instead, or remove channels in the board's Discord menu.");
+                }
+
                 // Another channel, or the same one under a new name.
                 limit.Channels = [.. channels.Where(c => c.Id != channel.Id), channel];
             }

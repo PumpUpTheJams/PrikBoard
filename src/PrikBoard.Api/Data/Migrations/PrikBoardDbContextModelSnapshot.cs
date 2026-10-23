@@ -91,8 +91,8 @@ namespace PrikBoard.Api.Data.Migrations
 
                     b.Property<string>("CodeChallenge")
                         .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
+                        .HasMaxLength(43)
+                        .HasColumnType("character varying(43)");
 
                     b.Property<byte[]>("CodeHash")
                         .IsRequired()
@@ -598,8 +598,8 @@ namespace PrikBoard.Api.Data.Migrations
 
                     b.Property<string>("CodeChallenge")
                         .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
+                        .HasMaxLength(43)
+                        .HasColumnType("character varying(43)");
 
                     b.Property<byte[]>("CodeHash")
                         .IsRequired()
