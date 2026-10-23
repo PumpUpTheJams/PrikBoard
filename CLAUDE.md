@@ -25,7 +25,7 @@ dotnet ef migrations add <Name> --project src/PrikBoard.Api --output-dir Data/Mi
 
 No local Node here: run web checks in Docker, e.g. `sg docker -c 'docker run --rm -u "$(id -u):$(id -g)" -e npm_config_cache=/tmp/.npm -v "$PWD/src/web":/app -w /app node:22 sh -c "npm run lint && npm run build"'` (the `web-docker` launch config runs the dev server the same way).
 
-`dotnet run --project src/PrikBoard.Discord` runs the Discord bot (needs `Discord:BotToken`, `PrikBoard:ApiUrl`, `PrikBoard:PublicUrl`; or `docker compose --profile discord up -d`). The link-preview PNGs in `src/web/public` are rendered from `src/web/icons` (see its README).
+`dotnet run --project src/PrikBoard.Discord` runs the Discord bot (needs `Discord:BotToken`, `PrikBoard:ApiUrl`, `PrikBoard:PublicUrl`; or `docker compose --profile discord up -d` with the token in `DISCORD_BOT_TOKEN`, which plain `docker compose up -d` doesn't need). The link-preview PNGs in `src/web/public` are rendered from `src/web/icons` (see its README).
 
 `.claude/launch.json` defines `api` and `web` preview servers. The frontend has no test suite. Set `PRIKBOARD_API_URL` to point the Vite proxy at a different API. In a worktree, the Development file store (`src/PrikBoard.Api/files`) is the worktree's own, empty folder while the compose database is shared, so existing images and avatars 404 in its dev app; that's expected.
 
