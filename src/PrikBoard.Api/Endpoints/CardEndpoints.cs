@@ -277,7 +277,7 @@ public static class CardEndpoints
     /// all their content would be loaded and compared on save for nothing. <see cref="TrackMoved"/> saves the ones that
     /// changed bucket.
     /// </summary>
-    private static Task<List<Card>> PlacedCardsAsync(PrikBoardDbContext db, Guid boardId, Guid? except, CancellationToken ct) =>
+    internal static Task<List<Card>> PlacedCardsAsync(PrikBoardDbContext db, Guid boardId, Guid? except, CancellationToken ct) =>
         db.Cards.AsNoTracking()
             .Where(n => n.BoardId == boardId && n.Id != except)
             .Select(n => new Card { Id = n.Id, BoardId = n.BoardId, BucketId = n.BucketId, X = n.X, Y = n.Y, Title = "" })
@@ -287,11 +287,17 @@ public static class CardEndpoints
     /// Saves the bucket of cards from <see cref="PlacedCardsAsync"/> that joined another one (<see cref="Layout.Adopt"/>):
     /// tracked as they were, so only their bucket is written, and their history records the move.
     /// </summary>
-    private static void TrackMoved(PrikBoardDbContext db, IEnumerable<Card> cards, Dictionary<Guid, Guid?> was)
+    internal static void TrackMoved(PrikBoardDbContext db, IEnumerable<Card> cards, Dictionary<Guid, Guid?> was)
     {
         foreach (var card in cards)
         {
             if (!was.TryGetValue(card.Id, out var bucketId) || bucketId == card.BucketId) continue;
+            // One the context tracks already (MCP tools call several handlers on one context) changes itself.
+            if (db.Cards.Local.FindEntry(card.Id) is { } entry)
+            {
+                entry.Entity.BucketId = card.BucketId;
+                continue;
+            }
             var now = card.BucketId;
             card.BucketId = bucketId;
             db.Cards.Attach(card);

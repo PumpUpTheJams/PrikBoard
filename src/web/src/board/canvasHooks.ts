@@ -20,6 +20,59 @@ export function useScrollView(scrollRef: RefObject<HTMLDivElement | null>): Rect
   return view
 }
 
+/** A scroll viewport (screen pixels) kept outside React state: read it when needed, or subscribe to its changes. */
+export interface ScrollView {
+  get: () => Rect
+  subscribe: (listener: () => void) => () => void
+  /** Reads the viewport again now, for a scroll position set in code (a zoom) before its scroll event arrives. */
+  refresh: () => void
+}
+
+/**
+ * Like useScrollView, but a scroll doesn't render the component: only the viewport's size is state (it changes when the
+ * window resizes), and where it is scrolled to is in `view`, for what shows it (the minimap's viewport) to subscribe to.
+ */
+export function useScrollStore(scrollRef: RefObject<HTMLDivElement | null>): { size: { width: number; height: number }; view: ScrollView } {
+  const [size, setSize] = useState({ width: 0, height: 0 })
+  const [view] = useState(() => {
+    let current: Rect = { x: 0, y: 0, width: 0, height: 0 }
+    const listeners = new Set<() => void>()
+    return {
+      get: () => current,
+      refresh() {
+        const el = scrollRef.current
+        if (el) this.set({ x: el.scrollLeft, y: el.scrollTop, width: el.clientWidth, height: el.clientHeight })
+      },
+      subscribe(listener: () => void) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      set(next: Rect) {
+        if (next.x === current.x && next.y === current.y && next.width === current.width && next.height === current.height) return
+        current = next
+        for (const listener of listeners) listener()
+      },
+    }
+  })
+  useLayoutEffect(() => {
+    const el = scrollRef.current!
+    const scrolled = () => view.refresh()
+    const resized = () => {
+      scrolled()
+      setSize((s) => (s.width === el.clientWidth && s.height === el.clientHeight ? s : { width: el.clientWidth, height: el.clientHeight }))
+    }
+    resized()
+    const observer = new ResizeObserver(resized)
+    observer.observe(el)
+    el.addEventListener('scroll', scrolled, { passive: true })
+    return () => {
+      observer.disconnect()
+      el.removeEventListener('scroll', scrolled)
+    }
+  }, [scrollRef, view])
+  return { size, view }
+}
+
 /** A pan in progress: where the pointer went down and the scroll position at that moment, in screen pixels. */
 interface Pan {
   x: number

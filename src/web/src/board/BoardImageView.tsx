@@ -48,7 +48,7 @@ export function BoardImageView({ image, rect, selected, lifted, front, onPointer
       onKeyDown={(e) => !rect && e.key === 'Enter' && e.target === e.currentTarget && onOpen?.()}
     >
       <div className="board-image-frame" style={rect ? { height: rect.height } : { aspectRatio: `${image.pixelWidth} / ${image.pixelHeight}` }}>
-        <img src={image.contentUrl} alt={label} draggable={false} />
+        <img src={image.contentUrl} alt={label} draggable={false} loading="lazy" decoding="async" />
         {image.contentType === 'image/gif' && <span className="gif-badge">GIF</span>}
         {onDelete && (
           <button

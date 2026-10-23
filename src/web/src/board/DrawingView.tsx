@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type PointerEvent, type Ref } from 'react'
+import { useMemo, useState, type CSSProperties, type PointerEvent, type Ref } from 'react'
 import { inkColors, type DrawingDetail, type DrawingStroke, type InkColor, type Point, type Rect, type StrokePoint } from '../api/types'
 import { keepPress } from './gesture'
 import { inkHex, MAX_SCALE, MIN_SCALE, reshapeStrokes, strokePaths, strokeSizes, useDrawingStrokes, type Reshape } from './drawings'
@@ -21,10 +21,12 @@ export function StrokeSvg({ points, color, strokeWidth, at }: { points: StrokePo
  * takes presses near it, so pressing any of its lines picks up the whole drawing.
  */
 export function DrawingSvg({ strokes, colors, at, hit }: { strokes: DrawingStroke[]; colors: InkColor[]; at: Point; hit?: boolean }) {
+  // Worked out again only for other strokes (the loaded ones stay the same while the drawing does).
+  const shapes = useMemo(() => strokes.map((stroke) => strokePaths(stroke.points, stroke.strokeWidth)), [strokes])
   return (
     <svg className="stroke" style={{ left: at.x, top: at.y }} width={1} height={1} aria-hidden="true">
       {strokes.map((stroke, i) => {
-        const paths = strokePaths(stroke.points, stroke.strokeWidth)
+        const paths = shapes[i]
         const color = inkHex[colors[i] ?? colors.at(-1) ?? 'Chalk']
         return (
           <g key={i}>

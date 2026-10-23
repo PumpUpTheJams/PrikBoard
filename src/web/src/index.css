@@ -990,6 +990,45 @@ main {
   outline-offset: 3px;
 }
 
+/*
+ * Zoomed far out (FAR_ZOOM), a card is only its fill, a big title and its tag chips without their words (FarCard), and
+ * cards drop their shadows, folded corner and hover growth: painting those for a whole board at once is what makes
+ * zooming out slow. The title takes the lines the chips leave (--title-lines): three above one row, two above two.
+ */
+.card.far {
+  gap: 8px;
+}
+
+.card-far-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--title-lines, 3);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+/* The chips keep the size their words give them, but the words are too small to read at this zoom. */
+.card.far .tag {
+  color: transparent;
+}
+
+.canvas.far .card {
+  box-shadow: none;
+  transition: none;
+}
+
+.canvas.far .card::after {
+  display: none;
+}
+
+.canvas.far.tool-select .card:hover:not(.lifted) {
+  transform: none;
+  box-shadow: none;
+}
+
 .card.selected {
   outline: 2px solid var(--accent);
   outline-offset: 3px;

@@ -204,8 +204,8 @@ public static class BucketEndpoints
             return Problems.Invalid("cardIds", "Name at least one card, image or drawing to put in the bucket.");
         }
 
-        var boardCards = await db.Cards.Where(n => n.BoardId == bucket.BoardId).ToDictionaryAsync(n => n.Id, ct);
-        if (!cardIds.TrueForAll(boardCards.ContainsKey)) return Problems.Invalid("cardIds", "Every card must be on the bucket's board.");
+        var cards = await db.Cards.Where(n => n.BoardId == bucket.BoardId && cardIds.Contains(n.Id)).ToDictionaryAsync(n => n.Id, ct);
+        if (cards.Count != cardIds.Count) return Problems.Invalid("cardIds", "Every card must be on the bucket's board.");
         var images = await db.Images.Include(i => i.File).Include(i => i.AddedBy)
             .Where(i => i.BoardId == bucket.BoardId && i.CardId == null && imageIds.Contains(i.Id))
             .ToDictionaryAsync(i => i.Id, ct);
@@ -215,11 +215,14 @@ public static class BucketEndpoints
             .ToDictionaryAsync(d => d.Id, ct);
         if (drawings.Count != drawingIds.Count) return Problems.Invalid("drawingIds", "Every drawing must be on the bucket's board itself, not on a card.");
 
-        var items = new BucketItems(cardIds.ConvertAll(id => boardCards[id]), imageIds.ConvertAll(id => images[id]), drawingIds.ConvertAll(id => drawings[id]));
+        var items = new BucketItems(cardIds.ConvertAll(id => cards[id]), imageIds.ConvertAll(id => images[id]), drawingIds.ConvertAll(id => drawings[id]));
         var buckets = await db.Buckets.Where(b => b.BoardId == bucket.BoardId).ToListAsync(ct);
-        var picked = cardIds.ToHashSet();
-        var others = boardCards.Values.Where(n => !picked.Contains(n.Id)).ToList();
+        // The board's other cards only by place and bucket: with all their content they would be loaded and compared on
+        // save for nothing. The ones the grown bucket takes are saved with their new bucket.
+        var others = (await CardEndpoints.PlacedCardsAsync(db, bucket.BoardId, null, ct)).Where(n => !cards.ContainsKey(n.Id)).ToList();
+        var was = others.ToDictionary(n => n.Id, n => n.BucketId);
         await PackItemsAsync(db, bucket, buckets, others, items, request.Grow ?? GrowSide.Down, ct);
+        CardEndpoints.TrackMoved(db, others, was);
         var now = DateTimeOffset.UtcNow;
         foreach (var card in items.Cards) card.UpdatedAt = now;
         foreach (var image in items.Images) image.UpdatedAt = now;

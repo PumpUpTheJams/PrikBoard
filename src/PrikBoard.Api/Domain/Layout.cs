@@ -195,8 +195,9 @@ public static class Layout
     /// of what is <paramref name="taken"/> and of buckets stacked above it (a card placed there by position would belong to
     /// that one; for a collapsed one only its square counts, as the rest takes no cards). When there aren't enough, the
     /// bucket grows a row or column at a time towards <paramref name="grow"/> (growing left or up moves that edge out;
-    /// what is in it stays put), and downwards once that side reaches the size or coordinate limit. Slots that can't be
-    /// found at all fall back to the top-left one.
+    /// what is in it stays put), downwards once that side reaches the size or coordinate limit, and to the right or left
+    /// once it is as tall as it can be (<see cref="GrowAny"/>). Slots that can't be found at all fall back to the
+    /// top-left one.
     /// </summary>
     private static List<(int X, int Y)> FreeSpotsIn(
         Bucket bucket, int count, IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, IEnumerable<Bucket> buckets, GrowSide grow)
@@ -207,7 +208,7 @@ public static class Layout
                 : (b.X, b.Y, b.Width, b.Height))
             .ToList();
         var spots = SlotsIn(bucket, count, taken, above);
-        while (spots.Count < count && (Grow(bucket, grow) || Grow(bucket, GrowSide.Down)))
+        while (spots.Count < count && GrowAny(bucket, grow))
         {
             spots = SlotsIn(bucket, count, taken, above);
         }
@@ -246,7 +247,7 @@ public static class Layout
         (int X, int Y)?[] spots)
     {
         // Every place with the gap around it lies inside the bucket, so only what reaches into the bucket can be in the way.
-        var inTheWay = Touching(taken, Bounds(bucket));
+        var inTheWay = new Blockers(Touching(taken, Bounds(bucket)));
         // Items placed before the bucket grew keep their places.
         for (var i = 0; i < spots.Length; i++)
         {
@@ -266,26 +267,30 @@ public static class Layout
     }
 
     /// <summary>The first place for an item of <paramref name="size"/> inside the bucket from <paramref name="from"/> on, row by row, a gap clear of <paramref name="inTheWay"/>.</summary>
-    private static (int X, int Y)? FirstFree(
-        Bucket bucket, (int Width, int Height) size, (int X, int Y) from, List<(int X, int Y, int Width, int Height)> inTheWay)
+    private static (int X, int Y)? FirstFree(Bucket bucket, (int Width, int Height) size, (int X, int Y) from, Blockers inTheWay)
     {
         var left = bucket.X + Gap;
         var right = bucket.X + Math.Max(bucket.Width, MinBucketWidth) - Gap;
         var bottom = bucket.Y + Math.Max(bucket.Height, MinBucketHeight) - Gap;
         for (var y = from.Y; y + size.Height <= bottom; y += Grid)
         {
-            for (var x = y == from.Y ? from.X : left; x + size.Width <= right; x += Grid)
+            for (var x = y == from.Y ? from.X : left; x + size.Width <= right;)
             {
                 var around = (x - Gap, y - Gap, size.Width + 2 * Gap, size.Height + 2 * Gap);
-                if (!AnyIntersects(inTheWay, around)) return (x, y);
+                if (inTheWay.RightEdgeAt(around) is not { } blockedTo) return (x, y);
+                // Every grid step before a gap past that edge would be in its way too.
+                x += StepsPast(blockedTo + Gap - x, Grid);
             }
         }
         return null;
     }
 
+    /// <summary>The distance of whole <paramref name="step"/>s that reaches <paramref name="distance"/> (at least one step).</summary>
+    private static int StepsPast(int distance, int step) => Math.Max(1, (distance + step - 1) / step) * step;
+
     /// <summary>
     /// Grows the bucket for an item that found no place: towards <paramref name="grow"/>, except across when the item is
-    /// wider or taller than the bucket's room that way, then downwards once that side reaches the limit.
+    /// wider or taller than the bucket's room that way, then as <see cref="GrowAny"/> does.
     /// </summary>
     private static bool GrowFor(Bucket bucket, (int Width, int Height) size, GrowSide grow)
     {
@@ -294,7 +299,7 @@ public static class Layout
         var vertical = grow is GrowSide.Down or GrowSide.Up;
         if (vertical && tooWide && (Grow(bucket, GrowSide.Right) || Grow(bucket, GrowSide.Left))) return true;
         if (!vertical && tooTall && (Grow(bucket, GrowSide.Down) || Grow(bucket, GrowSide.Up))) return true;
-        return Grow(bucket, grow) || Grow(bucket, GrowSide.Down);
+        return GrowAny(bucket, grow);
     }
 
     private const int ColumnStep = CardWidth + Gap;
@@ -309,18 +314,31 @@ public static class Layout
         var bottom = bucket.Y + Math.Max(bucket.Height, MinBucketHeight) - Gap;
         // Slots lie inside the bucket, so only what reaches into it can cover one.
         var bounds = Bounds(bucket);
-        var inTheWay = Touching(taken, bounds);
-        inTheWay.AddRange(Touching(above, bounds));
+        var inTheWay = new Blockers(Touching(taken, bounds));
+        foreach (var rect in Touching(above, bounds)) inTheWay.Add(rect);
         for (var y = bucket.Y + Gap; y + CardHeight <= bottom && spots.Count < count; y += RowStep)
         {
-            for (var x = bucket.X + Gap; x + CardWidth <= right && spots.Count < count; x += ColumnStep)
+            for (var x = bucket.X + Gap; x + CardWidth <= right && spots.Count < count;)
             {
-                if (AnyIntersects(inTheWay, (x, y, CardWidth, CardHeight))) continue;
+                if (inTheWay.RightEdgeAt((x, y, CardWidth, CardHeight)) is { } blockedTo)
+                {
+                    // Every slot before that edge would be covered too.
+                    x += StepsPast(blockedTo - x, ColumnStep);
+                    continue;
+                }
                 spots.Add((x, y));
+                x += ColumnStep;
             }
         }
         return spots;
     }
+
+    /// <summary>
+    /// Grows the bucket a step towards <paramref name="side"/>, else downwards, else to the right or left once it is as tall
+    /// as it can be; false when it can grow no further.
+    /// </summary>
+    private static bool GrowAny(Bucket bucket, GrowSide side) =>
+        Grow(bucket, side) || Grow(bucket, GrowSide.Down) || Grow(bucket, GrowSide.Right) || Grow(bucket, GrowSide.Left);
 
     /// <summary>
     /// Makes a bucket one row or column of card slots bigger towards a side (slots are laid out from its top-left).
@@ -453,5 +471,58 @@ public static class Layout
             if (Intersects(other, rect)) return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Rectangles in the way of placing something, filed by the squares of a coarse grid they reach into, so a search
+    /// only checks the ones near where it looks instead of all of them.
+    /// </summary>
+    private sealed class Blockers
+    {
+        /// <summary>The coarse grid's squares are 2^9 = 512 px.</summary>
+        private const int Shift = 9;
+        private readonly Dictionary<(int, int), List<(int X, int Y, int Width, int Height)>> _squares = [];
+
+        public Blockers(IEnumerable<(int X, int Y, int Width, int Height)> rects)
+        {
+            foreach (var rect in rects) Add(rect);
+        }
+
+        public void Add((int X, int Y, int Width, int Height) rect)
+        {
+            foreach (var square in Squares(rect))
+            {
+                if (!_squares.TryGetValue(square, out var list)) _squares[square] = list = [];
+                list.Add(rect);
+            }
+        }
+
+        /// <summary>The right edge of the rightmost rectangle that intersects <paramref name="area"/>; null when none does.</summary>
+        public int? RightEdgeAt((int X, int Y, int Width, int Height) area)
+        {
+            int? edge = null;
+            foreach (var square in Squares(area))
+            {
+                if (!_squares.TryGetValue(square, out var list)) continue;
+                foreach (var rect in list)
+                {
+                    if (Intersects(rect, area) && (edge is null || rect.X + rect.Width > edge)) edge = rect.X + rect.Width;
+                }
+            }
+            return edge;
+        }
+
+        /// <summary>The squares a rectangle reaches into (an empty one counts where it sits).</summary>
+        private static IEnumerable<(int, int)> Squares((int X, int Y, int Width, int Height) rect)
+        {
+            // An arithmetic shift rounds down, negative coordinates too.
+            var (left, top) = (rect.X >> Shift, rect.Y >> Shift);
+            var right = (rect.X + Math.Max(1, rect.Width) - 1) >> Shift;
+            var bottom = (rect.Y + Math.Max(1, rect.Height) - 1) >> Shift;
+            for (var x = left; x <= right; x++)
+            {
+                for (var y = top; y <= bottom; y++) yield return (x, y);
+            }
+        }
     }
 }

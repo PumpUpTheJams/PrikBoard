@@ -95,26 +95,32 @@ export interface Size {
  * on the 20 px grid inside it, row by row, a grid step clear of `taken` (the bucket's own items and loose ones) and of
  * the items placed before it. When one doesn't fit, the bucket grows a row or column of card slots at a time towards
  * `grow` (or across, for an item too wide or too tall that way; left and up move that edge out), over its neighbors too,
- * and downwards once that side reaches the limit. Returns the grown bucket and the places.
+ * downwards once that side reaches the limit, and to the right or left once it is as tall as it can be. Returns the
+ * grown bucket and the places.
  */
 export function packIn(bucket: Rect, sizes: Size[], taken: Rect[], grow: GrowSide): { bucket: Rect; spots: Point[] } {
   let rect = { x: bucket.x, y: bucket.y, width: bucket.width, height: bucket.height }
   // The free room it has fills first; growing only makes room for the rest.
   const spots: (Point | null)[] = sizes.map(() => null)
-  const firstFree = (size: Size, from: Point, inTheWay: Rect[]): Point | null => {
+  const firstFree = (size: Size, from: Point, inTheWay: Blockers): Point | null => {
     const right = rect.x + Math.max(rect.width, MIN_BUCKET_WIDTH) - GRID
     const bottom = rect.y + Math.max(rect.height, MIN_BUCKET_HEIGHT) - GRID
     for (let y = from.y; y + size.height <= bottom; y += GRID) {
-      for (let x = y === from.y ? from.x : rect.x + GRID; x + size.width <= right; x += GRID) {
+      for (let x = y === from.y ? from.x : rect.x + GRID; x + size.width <= right; ) {
         const around = { x: x - GRID, y: y - GRID, width: size.width + 2 * GRID, height: size.height + 2 * GRID }
-        if (!inTheWay.some((t) => intersects(t, around))) return { x, y }
+        const blockedTo = inTheWay.rightEdgeAt(around)
+        if (blockedTo === null) return { x, y }
+        // Every grid step before a grid step past that edge would be in its way too.
+        x += stepsPast(blockedTo + GRID - x, GRID)
       }
     }
     return null
   }
   const pack = () => {
-    // Items placed before the bucket grew keep their places.
-    const inTheWay = [...taken, ...spots.flatMap((s, i) => (s ? [{ ...s, ...sizes[i] }] : []))]
+    // Every place with the gap around it lies inside the bucket, so only what reaches into it can be in the way. Items
+    // placed before the bucket grew keep their places.
+    const area = { x: rect.x, y: rect.y, width: Math.max(rect.width, MIN_BUCKET_WIDTH), height: Math.max(rect.height, MIN_BUCKET_HEIGHT) }
+    const inTheWay = new Blockers([...taken.filter((t) => intersects(t, area)), ...spots.flatMap((s, i) => (s ? [{ ...s, ...sizes[i] }] : []))])
     let last: Rect | null = null
     sizes.forEach((size, i) => {
       if (spots[i]) return
@@ -124,7 +130,7 @@ export function packIn(bucket: Rect, sizes: Size[], taken: Rect[], grow: GrowSid
       spots[i] = spot
       if (!spot) return
       last = { ...spot, ...size }
-      inTheWay.push(last)
+      inTheWay.add(last)
     })
   }
   const grown = (side: GrowSide): Rect | null => {
@@ -148,7 +154,8 @@ export function packIn(bucket: Rect, sizes: Size[], taken: Rect[], grow: GrowSid
     const tooTall = size.height > Math.max(rect.height, MIN_BUCKET_HEIGHT) - 2 * GRID
     const vertical = grow === 'Down' || grow === 'Up'
     const across = vertical ? (tooWide ? (grown('Right') ?? grown('Left')) : null) : tooTall ? (grown('Down') ?? grown('Up')) : null
-    return across ?? grown(grow) ?? grown('Down')
+    // Then downwards, and to the right or left once it is as tall as it can be (Layout.GrowAny).
+    return across ?? grown(grow) ?? grown('Down') ?? grown('Right') ?? grown('Left')
   }
   pack()
   for (let next = spots.indexOf(null); next >= 0; next = spots.indexOf(null)) {
@@ -158,6 +165,54 @@ export function packIn(bucket: Rect, sizes: Size[], taken: Rect[], grow: GrowSid
     pack()
   }
   return { bucket: rect, spots: spots.map((s) => s ?? { x: rect.x + GRID, y: rect.y + GRID }) }
+}
+
+/** The distance of whole `step`s that reaches `distance` (at least one step). */
+const stepsPast = (distance: number, step: number) => Math.max(1, Math.ceil(distance / step)) * step
+
+/** The coarse grid's squares (Layout.Blockers on the server). */
+const SQUARE = 512
+
+/**
+ * Rectangles in the way of placing something, filed by the squares of a coarse grid they reach into, so a search only
+ * checks the ones near where it looks instead of all of them (Layout.Blockers on the server).
+ */
+class Blockers {
+  private readonly squares = new Map<string, Rect[]>()
+
+  constructor(rects: Rect[]) {
+    for (const rect of rects) this.add(rect)
+  }
+
+  add(rect: Rect) {
+    for (const key of squaresOf(rect)) {
+      const list = this.squares.get(key)
+      if (list) list.push(rect)
+      else this.squares.set(key, [rect])
+    }
+  }
+
+  /** The right edge of the rightmost rectangle that intersects `area`; null when none does. */
+  rightEdgeAt(area: Rect): number | null {
+    let edge: number | null = null
+    for (const key of squaresOf(area)) {
+      for (const rect of this.squares.get(key) ?? []) {
+        if (intersects(rect, area) && (edge === null || rect.x + rect.width > edge)) edge = rect.x + rect.width
+      }
+    }
+    return edge
+  }
+}
+
+/** The squares a rectangle reaches into (an empty one counts where it sits). */
+function squaresOf(rect: Rect): string[] {
+  const left = Math.floor(rect.x / SQUARE)
+  const top = Math.floor(rect.y / SQUARE)
+  const right = Math.floor((rect.x + Math.max(1, rect.width) - 1) / SQUARE)
+  const bottom = Math.floor((rect.y + Math.max(1, rect.height) - 1) / SQUARE)
+  const keys: string[] = []
+  for (let x = left; x <= right; x++) for (let y = top; y <= bottom; y++) keys.push(`${x},${y}`)
+  return keys
 }
 
 /** The square a collapsed bucket folds into, in the top-right corner of `rect` (where the bucket is now, also mid-drag). */
