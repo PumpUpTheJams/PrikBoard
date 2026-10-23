@@ -16,11 +16,14 @@ export type LiveDrag = RemoteDrag & { updatedAt: number; endedAt?: number }
 /** Someone else's pointer on the open board, and when it last moved. */
 export type LiveCursor = RemoteCursor & { updatedAt: number }
 
+/** Someone else's selection on the open board, and since when each item has been in it. */
+export type LiveSelection = RemoteSelection & { since: Record<string, number> }
+
 /** Others' pointers and selections on the open board, as `CursorStore.snapshot` gives them. */
 export interface Peers {
   cursors: LiveCursor[]
   /** Only those with something selected. */
-  selections: RemoteSelection[]
+  selections: LiveSelection[]
 }
 
 /**
@@ -287,10 +290,16 @@ function cursorStore() {
       if (peers.cursors.some((c) => c.key === key)) set({ ...peers, cursors: peers.cursors.filter((c) => c.key !== key) })
     },
     select(selection: RemoteSelection) {
-      const others = peers.selections.filter((s) => s.key !== selection.key)
-      if (selection.items.length > 0 || others.length < peers.selections.length) {
-        set({ ...peers, selections: selection.items.length > 0 ? [...others, selection] : others })
+      const before = peers.selections.find((s) => s.key === selection.key)
+      const others = peers.selections.filter((s) => s !== before)
+      if (selection.items.length === 0) {
+        if (before) set({ ...peers, selections: others })
+        return
       }
+      // Items still selected keep when they were selected, so pins in the same item keep their order.
+      const now = Date.now()
+      const since = Object.fromEntries(selection.items.map((id) => [id, before?.since[id] ?? now]))
+      set({ ...peers, selections: [...others, { ...selection, since }] })
     },
     clear() {
       if (peers.cursors.length > 0 || peers.selections.length > 0) set({ cursors: [], selections: [] })
