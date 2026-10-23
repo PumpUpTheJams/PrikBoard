@@ -11,6 +11,7 @@ import type {
   CardDetail,
   CardLink,
 } from '../../web/src/api/types'
+import { cardPath, cardRoute, type CardRoute } from '../../web/src/api/cardLinks'
 import { webUrl } from './auth'
 
 /**
@@ -26,8 +27,11 @@ export type Node =
   | { kind: 'card'; card: CardDetail; canEdit: boolean; where?: string }
   /** One item of one of the card's checklist components. */
   | { kind: 'checklist'; card: CardDetail; component: CardComponent; index: number; canEdit: boolean }
-  | { kind: 'link'; link: CardLink }
+  /** `under` is the card row it sits under, so following a link to a card knows where it was clicked. */
+  | { kind: 'link'; link: CardLink; under: CardNode }
   | { kind: 'assignee'; assignee: Assignee }
+
+export type CardNode = Extract<Node, { kind: 'card' }>
 
 const cardColors: Record<CardColor, string> = {
   Butter: 'charts.yellow',
@@ -46,6 +50,22 @@ const linksOf = (card: CardDetail) => card.components.flatMap((b) => b.links ?? 
 export const titleOf = (card: CardDetail) => card.title || 'Untitled card'
 
 const icon = (id: string, color?: string) => new vscode.ThemeIcon(id, color ? new vscode.ThemeColor(color) : undefined)
+
+/** The PrikBoard site that full card links must be on to count as card links, or '' when webUrl isn't a URL. */
+const webOrigin = () => {
+  try {
+    return new URL(webUrl()).origin
+  } catch {
+    return ''
+  }
+}
+
+/** The card a link points at, when it is a card's path or a full link to it on this server. */
+export const cardRouteOf = (link: CardLink) => cardRoute(link.url, webOrigin())
+
+/** How a card under "Assigned to you" says where it is. */
+const whereOf = (board: BoardDetail, bucketId: string | null) =>
+  `${board.name} · ${board.buckets.find((bucket) => bucket.id === bucketId)?.name ?? 'no bucket'}`
 
 /** Menus in package.json match these, for example `viewItem == card.edit`. */
 const contextOf = (kind: string, canEdit = false) => (canEdit ? `${kind}.edit` : kind)
@@ -101,7 +121,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
             ...checklistsOf(node.card).flatMap((component) =>
               (component.items ?? []).map((_, index): Node => ({ kind: 'checklist', card: node.card, component, index, canEdit: node.canEdit })),
             ),
-            ...linksOf(node.card).map((link): Node => ({ kind: 'link', link })),
+            ...linksOf(node.card).map((link): Node => ({ kind: 'link', link, under: node })),
             ...node.card.assignees.map((assignee): Node => ({ kind: 'assignee', assignee })),
           ]
         default:
@@ -119,6 +139,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
     switch (node.kind) {
       case 'mine': {
         const item = new vscode.TreeItem('Assigned to you', vscode.TreeItemCollapsibleState.Expanded)
+        item.id = 'mine'
         item.contextValue = contextOf('mine')
         item.iconPath = icon('account')
         item.description = node.me.displayName
@@ -127,6 +148,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
       }
       case 'board': {
         const item = new vscode.TreeItem(node.board.name, vscode.TreeItemCollapsibleState.Collapsed)
+        item.id = `board:${node.board.id}`
         item.contextValue = contextOf('board')
         item.iconPath = icon('project')
         // Always shown: it decides whether the edit commands appear.
@@ -136,13 +158,18 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
       }
       case 'bucket': {
         const item = new vscode.TreeItem(node.bucket?.name ?? 'No bucket', vscode.TreeItemCollapsibleState.Expanded)
+        item.id = `bucket:${node.boardId}:${node.bucket?.id ?? 'loose'}`
         item.contextValue = contextOf('bucket', node.canEdit)
         item.iconPath = icon('circle-filled')
         item.description = String(node.cards.length)
         return item
       }
-      case 'card':
-        return this.cardItem(node.card, node.canEdit, node.where)
+      case 'card': {
+        const item = this.cardItem(node.card, node.canEdit, node.where)
+        // A card can show twice: under its board and under "Assigned to you".
+        item.id = `${node.where === undefined ? '' : 'mine:'}card:${node.card.id}`
+        return item
+      }
       case 'checklist': {
         const entry = node.component.items![node.index]
         const item = new vscode.TreeItem(entry.text)
@@ -154,10 +181,14 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
       }
       case 'link': {
         const item = new vscode.TreeItem(node.link.title || node.link.url)
-        item.contextValue = contextOf('link')
-        item.iconPath = icon('link')
+        const toCard = cardRouteOf(node.link) !== null
+        // `link.card` rows get "Open in PrikBoard"; clicking them shows the card in the tree.
+        item.contextValue = contextOf(toCard ? 'link.card' : 'link')
+        item.iconPath = icon(toCard ? 'note' : 'link')
         item.tooltip = node.link.url
-        item.command = { command: 'vscode.open', title: 'Open link', arguments: [vscode.Uri.parse(node.link.url)] }
+        item.command = toCard
+          ? { command: 'prikboard.openLink', title: 'Show linked card', arguments: [node] }
+          : { command: 'vscode.open', title: 'Open link', arguments: [vscode.Uri.parse(node.link.url)] }
         return item
       }
       case 'assignee': {
@@ -169,10 +200,66 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
     }
   }
 
-  /** The web app address of a board or card row, for "Open in PrikBoard". */
+  /** The web app address of a board, card or card link row, for "Open in PrikBoard". */
   urlOf(node: Node): string | undefined {
-    const boardId = node.kind === 'board' ? node.board.id : node.kind === 'card' ? node.card.boardId : undefined
-    return boardId ? `${webUrl()}/#/boards/${boardId}` : undefined
+    switch (node.kind) {
+      case 'board':
+        return `${webUrl()}/#/boards/${node.board.shortId}`
+      case 'card':
+        return webUrl() + node.card.path
+      case 'link': {
+        const route = cardRouteOf(node.link)
+        return route ? webUrl() + cardPath(route) : undefined
+      }
+      default:
+        return undefined
+    }
+  }
+
+  /** The row above a row, so the view can reveal cards. Only boards, buckets, cards and links need one. */
+  getParent(node: Node): Node | undefined {
+    switch (node.kind) {
+      case 'bucket': {
+        const board = this.boards?.find((summary) => summary.id === node.boardId)
+        return board && { kind: 'board', board }
+      }
+      case 'card': {
+        if (node.where !== undefined) {
+          const me = this.me()
+          return me && { kind: 'mine', me }
+        }
+        const board = this.details.get(node.card.boardId)
+        return board && this.bucketNodes(board).find((bucket) => bucket.kind === 'bucket' && (bucket.bucket?.id ?? null) === node.card.bucketId)
+      }
+      case 'link':
+        return node.under
+      default:
+        return undefined
+    }
+  }
+
+  /**
+   * The row of the card a link points at, or undefined when it isn't on the caller's boards. `assignedRow` asks for its
+   * row under "Assigned to you" when it is assigned to the caller. Data loaded earlier may miss a newer card, so a miss
+   * loads everything once more.
+   */
+  async cardNode(route: CardRoute, assignedRow: boolean): Promise<CardNode | undefined> {
+    const find = async (): Promise<CardNode | undefined> => {
+      const summary = (await this.loadBoards()).find((board) => board.id === route.board || board.shortId === route.board)
+      if (!summary) return undefined
+      const board = await this.loadBoard(summary.id)
+      const card = board.cards.find((c) => c.id === route.card || String(c.number) === route.card)
+      if (!card) return undefined
+      const canEdit = board.yourRole !== 'Viewer'
+      const me = this.me()
+      return assignedRow && me && card.assignees.some((assignee) => assignee.principalId === me.id)
+        ? { kind: 'card', card, canEdit, where: whereOf(board, card.bucketId) }
+        : { kind: 'card', card, canEdit }
+    }
+    const found = await find()
+    if (found) return found
+    this.refresh()
+    return find()
   }
 
   private cardItem(card: CardDetail, canEdit: boolean, where?: string) {
@@ -211,7 +298,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
                 kind: 'card',
                 card,
                 canEdit: node.canEdit,
-                where: `${board.name} · ${node.bucket?.name ?? 'no bucket'}`,
+                where: whereOf(board, node.bucket?.id ?? null),
               })),
       ),
     )

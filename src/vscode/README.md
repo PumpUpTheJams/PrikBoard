@@ -11,6 +11,8 @@ On boards where you are an Editor or Owner you can, from the tree:
 - tick or untick a checklist item (click it),
 - toggle **Agent working** (the sparkle on the card row).
 
+On every board, **Open in PrikBoard** (the arrow on board and card rows) opens the board or the card itself in the browser. Clicking a link to another card shows that card in the tree (under **Assigned to you** when you clicked it there and it is yours); a card that isn't on your boards opens in the browser instead, and so does the arrow on the link row.
+
 Viewers get a read-only tree. The server decides what is allowed and its message is shown if a change is refused.
 
 ## Use it
@@ -51,7 +53,7 @@ Viewers get a read-only tree. The server decides what is allowed and its message
 
 ## Code
 
-The extension reuses the web app's API client and types (`src/web/src/api`) instead of keeping a copy. esbuild bundles them in, so those two files must stay free of DOM and React imports. `configureClient` points the client at a server and adds the bearer token.
+The extension reuses the web app's API client and types (`src/web/src/api`) instead of keeping a copy. esbuild bundles them in, so those files (`client.ts`, `types.ts` and `cardLinks.ts`) must stay free of DOM and React imports. `configureClient` points the client at a server and adds the bearer token.
 
 ```bash
 npm run build      # type check and bundle to dist/
