@@ -6356,3 +6356,21 @@ button.picker-color:hover,
 .app.mobile .toast-region {
   bottom: calc(88px + env(safe-area-inset-bottom, 0px));
 }
+
+/* Tooltips for every title (components/Tooltips), above everything else. */
+.tooltip {
+  position: fixed;
+  z-index: 100;
+  max-width: 320px;
+  padding: 5px 8px;
+  border: 1px solid var(--dialog-line);
+  border-radius: 6px;
+  background: var(--dialog);
+  box-shadow: var(--float-shadow);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
