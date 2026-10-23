@@ -1,0 +1,6 @@
+# Serves PrikBoard on DOMAIN with an automatic certificate. Caddy passes the browser's Host on and sets
+# X-Forwarded-For/-Proto, which the app uses for OAuth callback URLs and rate limits; it also streams the live updates
+# (WebSockets) and MCP responses without buffering.
+{$DOMAIN} {
+	reverse_proxy app:8080
+}

@@ -71,21 +71,26 @@ public sealed class FileStore : IDisposable
     /// Reads <c>Storage:Path</c> and the memory cache sizes. The path is required outside Development (which uses a "files"
     /// folder next to the app), so the API never puts files where a restart would lose them.
     /// </summary>
-    public static FileStore FromConfiguration(IConfiguration configuration, IHostEnvironment environment, ILogger<FileStore> logger)
-    {
-        var path = configuration[PathKey];
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            if (!environment.IsDevelopment())
-            {
-                throw new InvalidOperationException(
-                    $"{PathKey} is not set. Point it at a persistent folder (a volume of its own) for images and avatars.");
-            }
-            path = Path.Combine(environment.ContentRootPath, "files");
-        }
-        return new FileStore(path, logger,
+    public static FileStore FromConfiguration(IConfiguration configuration, IHostEnvironment environment, ILogger<FileStore> logger) =>
+        new(RootFrom(configuration, environment), logger,
             configuration.GetValue("Storage:MemoryCacheBytes", 64L * 1024 * 1024),
             configuration.GetValue("Storage:MemoryCacheMaxFileBytes", 1024L * 1024));
+
+    /// <summary>
+    /// The data folder: <c>Storage:Path</c>, or a "files" folder next to the app in Development. Besides the files it holds
+    /// the Data Protection keys (<c>keys/</c>) and a generated hash key (<see cref="Auth.KeyedHasher.KeyFileName"/>), which
+    /// <see cref="SweepAsync"/> leaves alone.
+    /// </summary>
+    public static string RootFrom(IConfiguration configuration, IHostEnvironment environment)
+    {
+        var path = configuration[PathKey];
+        if (!string.IsNullOrWhiteSpace(path)) return Path.GetFullPath(path);
+        if (!environment.IsDevelopment())
+        {
+            throw new InvalidOperationException(
+                $"{PathKey} is not set. Point it at a persistent folder (a volume of its own) for images and avatars.");
+        }
+        return Path.Combine(environment.ContentRootPath, "files");
     }
 
     /// <summary>Where the file is (or would be) on disk.</summary>

@@ -10,6 +10,7 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Validators;
 
+using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Auth;
@@ -81,8 +82,10 @@ public static partial class AuthSetup
         });
 
         // Resolved (and so validated) at startup in Program.cs; see KeyedHasher.FromConfiguration.
-        builder.Services.AddSingleton(services =>
-            KeyedHasher.FromConfiguration(services.GetRequiredService<IConfiguration>(), services.GetRequiredService<IHostEnvironment>()));
+        // The data folder comes from the FileStore, which creates it and checks that it can be written.
+        builder.Services.AddSingleton(services => KeyedHasher.FromConfiguration(
+            services.GetRequiredService<IConfiguration>(), services.GetRequiredService<IHostEnvironment>(),
+            services.GetRequiredService<FileStore>().Root, services.GetRequiredService<ILogger<KeyedHasher>>()));
         builder.Services.AddMemoryCache();
         builder.Services.AddSingleton<AccessTokenLookups>();
 

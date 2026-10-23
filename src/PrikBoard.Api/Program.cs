@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
@@ -37,6 +38,13 @@ builder.Services.AddHostedService<TombstonePurger>();
 // Resolved (and so validated) at startup below; see FileStore.FromConfiguration.
 builder.Services.AddSingleton(services => FileStore.FromConfiguration(
     services.GetRequiredService<IConfiguration>(), services.GetRequiredService<IHostEnvironment>(), services.GetRequiredService<ILogger<FileStore>>()));
+// Session cookies, sign-ins in progress and stored provider secrets are encrypted with these keys, so they live in the
+// data folder: a restart keeps everyone signed in.
+builder.Services.AddDataProtection()
+    .SetApplicationName("PrikBoard")
+    .PersistKeysToFileSystem(new DirectoryInfo(builder.Configuration["DataProtection:KeysPath"] is { Length: > 0 } keys
+        ? keys
+        : Path.Combine(FileStore.RootFrom(builder.Configuration, builder.Environment), "keys")));
 builder.Services.AddHttpClient<ProviderAvatars>(http =>
 {
     http.Timeout = TimeSpan.FromSeconds(10);
@@ -146,10 +154,10 @@ builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document,
 
 var app = builder.Build();
 
-// Fail fast when Auth:HashKey is missing outside Development, rather than on the first sign-in, and when Storage:Path is
-// missing or not writable, before the migrations move files there.
-app.Services.GetRequiredService<KeyedHasher>();
+// Fail fast when Storage:Path is missing or not writable, before the migrations move files there, and when Auth:HashKey
+// is invalid, rather than on the first sign-in. Without one the hash key is generated into the data folder now.
 var files = app.Services.GetRequiredService<FileStore>();
+app.Services.GetRequiredService<KeyedHasher>();
 
 await using (var scope = app.Services.CreateAsyncScope())
 {
@@ -159,6 +167,29 @@ await using (var scope = app.Services.CreateAsyncScope())
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+// The container image serves the built web app from wwwroot; in development Vite serves it. Routing is in the URL hash,
+// so only / needs index.html and unknown paths stay 404.
+if (app.Environment.WebRootFileProvider.GetFileInfo("index.html").Exists)
+{
+    app.UseDefaultFiles();
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        OnPrepareResponse = context =>
+        {
+            var headers = context.Context.Response.Headers;
+            // Vite puts a content hash in every asset's name, so those never change.
+            if (context.Context.Request.Path.StartsWithSegments("/assets"))
+            {
+                headers.CacheControl = "public, max-age=31536000, immutable";
+                return;
+            }
+            headers.CacheControl = "no-cache";
+            // Not framed anywhere, so the app sign-in's Allow button can't be clickjacked (like the Vite dev server).
+            headers.XFrameOptions = "DENY";
+            headers.ContentSecurityPolicy = "frame-ancestors 'none'";
+        },
+    });
+}
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
