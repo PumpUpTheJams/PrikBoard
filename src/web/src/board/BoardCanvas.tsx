@@ -11,7 +11,7 @@ import { bucketOf, cardBox, type Selection } from './boardItems'
 import type { Gesture, GestureTarget, GroupGesture, ItemDrag, ItemGesture } from './boardGesture'
 import { BoardSearch } from './BoardSearch'
 import { BoardTrash } from './BoardTrash'
-import { BucketView, CollapsedBucketView } from './BucketView'
+import { BucketView, CollapsedBucketView, type BucketCount } from './BucketView'
 import { usePan, useFileDrop } from './canvasHooks'
 import { Card } from './Card'
 import { BOARD_PEN, inkHex, movePenRing, usePen } from './drawings'
@@ -603,8 +603,11 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const selectedImage = selection?.kind === 'image' ? board.images.find((i) => i.id === selection.id) : undefined
   const selectedDrawing = selection?.kind === 'drawing' ? drawings.find((d) => d.drawing.id === selection.id) : undefined
   const expandedCard = address.openCard
-  const countIn = (bucketId: string) => board.cards.filter((n) => n.bucketId === bucketId).length
-  const imagesIn = (bucketId: string) => board.images.filter((i) => i.bucketId === bucketId && !i.cardId).length
+  const countIn = (bucketId: string): BucketCount => ({
+    cards: board.cards.filter((n) => n.bucketId === bucketId).length,
+    images: board.images.filter((i) => i.bucketId === bucketId && !i.cardId).length,
+    drawings: board.drawings.filter((d) => d.bucketId === bucketId && !d.cardId).length,
+  })
   /** Cards the filters or the search fade. */
   const dimmed = (card: CardDetail) => filters.faded(card) || search.misses(card)
   const hint = edits.uploads > 0 ? 'Uploading…' : fileDrop.over ? 'Drop to add the image here' : readOnly ? undefined : hints[tool]
@@ -664,8 +667,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                   key={bucket.id}
                   bucket={bucket}
                   rect={rect}
-                  cards={countIn(bucket.id)}
-                  images={imagesIn(bucket.id)}
+                  count={countIn(bucket.id)}
                   dropTarget={foldDrop === bucket.id}
                   hits={search.hits.get(bucket.id) ?? 0}
                   selected={isSelected('bucket', bucket.id)}
@@ -678,8 +680,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                   key={bucket.id}
                   bucket={bucket}
                   rect={rect}
-                  cards={countIn(bucket.id)}
-                  images={imagesIn(bucket.id)}
+                  count={countIn(bucket.id)}
                   front={front === bucket.id}
                   dropTarget={dropTarget?.id === bucket.id || arrangingInto === bucket.id}
                   searchHit={search.hits.has(bucket.id)}

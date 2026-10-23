@@ -1,34 +1,38 @@
 import type { MouseEvent, PointerEvent } from 'react'
 import type { BucketDetail, Rect, ResizeHandle } from '../api/types'
-import { CardIcon, ChevronDownIcon, ChevronUpIcon, ImageIcon } from './icons'
+import { plural } from '../components/plural'
+import { CardIcon, ChevronDownIcon, ChevronUpIcon, ImageIcon, PenIcon } from './icons'
 import { collapsedRect } from './layout'
 import { ResizeHandles } from './ResizeHandles'
 
-/** How many cards and images are in a bucket, and how its label says that ("3 cards, 1 image"). */
-function contentsOf(cards: number, images: number) {
-  const cardsLabel = cards === 1 ? '1 card' : `${cards} cards`
-  const imagesLabel = images === 1 ? '1 image' : `${images} images`
-  return { cards, images, cardsLabel, imagesLabel, label: `${cardsLabel}${images > 0 ? `, ${imagesLabel}` : ''}` }
+/** How many items a bucket holds. */
+export interface BucketCount {
+  cards: number
+  images: number
+  drawings: number
 }
 
-/** The cards and images in a bucket, each with its icon: a zero is left out, but an empty bucket shows 0 cards. */
-function BucketCounts({ contents: { cards, images, cardsLabel, imagesLabel }, className }: { contents: ReturnType<typeof contentsOf>; className: string }) {
-  return (
-    <>
-      {(cards > 0 || images === 0) && (
-        <span className={className} title={cardsLabel}>
-          <CardIcon size={12} />
-          {cards}
-        </span>
-      )}
-      {images > 0 && (
-        <span className={className} title={imagesLabel}>
-          <ImageIcon size={12} />
-          {images}
-        </span>
-      )}
-    </>
-  )
+/**
+ * The counts a bucket shows, each with its icon and label: a zero is left out, but an empty bucket shows 0 cards. The
+ * bucket's label joins them ("3 cards, 1 image").
+ */
+function contentsOf({ cards, images, drawings }: BucketCount) {
+  const shown = [
+    { kind: 'cards', n: cards, label: plural(cards, 'card', 'cards'), Icon: CardIcon },
+    { kind: 'images', n: images, label: plural(images, 'image', 'images'), Icon: ImageIcon },
+    { kind: 'drawings', n: drawings, label: plural(drawings, 'drawing', 'drawings'), Icon: PenIcon },
+  ].filter((c) => c.n > 0 || (c.kind === 'cards' && images === 0 && drawings === 0))
+  return { shown, label: shown.map((c) => c.label).join(', ') }
+}
+
+/** The counts of a bucket's items, each with its icon. */
+function BucketCounts({ contents: { shown }, className }: { contents: ReturnType<typeof contentsOf>; className: string }) {
+  return shown.map(({ kind, n, label, Icon }) => (
+    <span key={kind} className={className} title={label}>
+      <Icon size={12} />
+      {n}
+    </span>
+  ))
 }
 
 const classes = (...names: (string | false)[]) => names.filter(Boolean).join(' ')
@@ -37,9 +41,8 @@ interface BucketViewProps {
   bucket: BucketDetail
   /** Where it is shown right now. */
   rect: Rect
-  /** How many cards and images on the board are in it. */
-  cards: number
-  images: number
+  /** How many cards, and images and drawings on the board, are in it. */
+  count: BucketCount
   /** Drawn above the others, with what is in it. */
   front: boolean
   dropTarget: boolean
@@ -61,7 +64,7 @@ interface BucketViewProps {
 /** A bucket on the board: an outlined rectangle with its name and counts at the top. */
 export function BucketView(props: BucketViewProps) {
   const { bucket, rect, front, dropTarget, searchHit, selected, readOnly, resizable, onPress, onGrab, onPick, onToggle, onResize } = props
-  const contents = contentsOf(props.cards, props.images)
+  const contents = contentsOf(props.count)
   return (
     <section
       aria-label={bucket.name}
@@ -105,8 +108,7 @@ export function BucketView(props: BucketViewProps) {
 interface CollapsedBucketViewProps {
   bucket: BucketDetail
   rect: Rect
-  cards: number
-  images: number
+  count: BucketCount
   dropTarget: boolean
   /** How many cards folded away in it match the search. */
   hits: number
@@ -118,8 +120,8 @@ interface CollapsedBucketViewProps {
 }
 
 /** A collapsed bucket: a square in its top-right corner with its name and what is inside. */
-export function CollapsedBucketView({ bucket, rect, cards, images, dropTarget, hits, selected, readOnly, onGrab, onToggle }: CollapsedBucketViewProps) {
-  const contents = contentsOf(cards, images)
+export function CollapsedBucketView({ bucket, rect, count, dropTarget, hits, selected, readOnly, onGrab, onToggle }: CollapsedBucketViewProps) {
+  const contents = contentsOf(count)
   const square = collapsedRect(rect)
   const found = hits === 0 ? '' : hits === 1 ? '1 card inside matches the search' : `${hits} cards inside match the search`
   return (
@@ -131,7 +133,7 @@ export function CollapsedBucketView({ bucket, rect, cards, images, dropTarget, h
       title={found ? `${found}. Open the bucket to see them` : 'Drag to move the bucket'}
       onPointerDown={onGrab}
     >
-      <span className={`bucket-collapsed-counts${cards > 0 && images > 0 ? ' both' : ''}`} aria-hidden>
+      <span className={`bucket-collapsed-counts${contents.shown.length > 1 ? ' several' : ''}`} aria-hidden>
         <BucketCounts contents={contents} className="bucket-collapsed-count" />
       </span>
       <span className="bucket-collapsed-name">{bucket.name}</span>

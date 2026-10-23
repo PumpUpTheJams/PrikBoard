@@ -873,7 +873,7 @@ main {
   font: 11px/1.3 var(--mono);
 }
 
-/* A bucket's cards and images in its name bar, as on its collapsed square. */
+/* A bucket's cards, images and drawings in its name bar, as on its collapsed square. */
 .bucket-counts {
   display: flex;
   flex: none;
@@ -5093,8 +5093,8 @@ button.picker-color:hover,
   color: var(--muted);
 }
 
-/* Cards and images both: two smaller lines, so the name still fits in the square. */
-.bucket-collapsed-counts.both .bucket-collapsed-count {
+/* Two or three kinds of items: smaller lines, so the name still fits in the square. */
+.bucket-collapsed-counts.several .bucket-collapsed-count {
   font-size: 17px;
 }
 
