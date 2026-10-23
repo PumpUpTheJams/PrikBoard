@@ -140,7 +140,7 @@ public record CopyItemsRequest(
 /// <summary>
 /// A clip to paste, and where. With X and Y everything keeps its place relative to the rest, the top-left at X and Y; an
 /// item joins its pasted bucket, or else the bucket it lands in. With a bucketId (cards only) they go into free spots in that
-/// bucket. With neither, cards go into the board's first bucket, and a clip with buckets, images or drawings to a free spot.
+/// bucket. With neither, a clip of cards alone goes into the board's first bucket, and any other clip to a free spot.
 /// </summary>
 /// <param name="Clip">The clip from copyItems, as it was.</param>
 /// <param name="X">Where the left edge of the leftmost item goes; give it with Y.</param>

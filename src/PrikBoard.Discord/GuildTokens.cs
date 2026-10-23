@@ -6,8 +6,8 @@ namespace PrikBoard.Discord;
 
 /// <summary>
 /// Each connected server's PrikBoard token, encrypted at rest with Data Protection, in one JSON file under
-/// <c>Storage:Path</c>. Keep the Data Protection keys (<c>DataProtection:KeysPath</c>) on another volume than the file
-/// for the encryption to mean much: then a copy of one alone reveals no token.
+/// <c>Storage:Path</c>. Keep the Data Protection keys (<c>DataProtection:KeysPath</c>) on a different volume from the
+/// file, so a copy of either one alone reveals no token.
 /// </summary>
 public sealed class GuildTokens
 {

@@ -121,7 +121,7 @@ export class Auth implements vscode.Disposable {
   /**
    * Asks for the PrikBoard address, checks that PrikBoard answers there, and stores it in the user settings. The web
    * app and the API share it (nginx in a deployment, Vite's proxy in development), so a separate web address is
-   * cleared. Signs out when the server changes, since the credential belongs to the old one. Returns false when cancelled.
+   * cleared. Signs out when the server changes, since the credential belongs to the old one. Returns false when canceled.
    */
   async chooseServer() {
     const address = await new Promise<string | undefined>((resolve) => {

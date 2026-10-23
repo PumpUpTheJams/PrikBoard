@@ -49,10 +49,10 @@ type Kind = 'component' | 'component-resize' | 'image' | 'image-resize' | 'drawi
 type Item = Picked<'component' | 'image' | 'drawing'>
 
 /**
- * A press on a component or image, in card pixels, with the last screen point and whether it is outside the window (an
- * image dragged out, to drop on the board). A finished gesture (`done`) stays until the board has reloaded, so the item
- * doesn't jump back meanwhile. `group`: several selected items moved together, `id` the one pressed. `select`: the
- * selection rectangle (`id` empty).
+ * A press on a component, image or drawing, in card pixels, with the last screen point (`client`) and whether it is
+ * outside the window (`outside`: an image or drawing dragged out, to drop on the board). A finished gesture (`done`)
+ * stays until the board has reloaded, so the item doesn't jump back meanwhile. `group`: several selected items moved
+ * together, `id` the one pressed. `select`: the selection rectangle (`id` empty).
  */
 interface Gesture {
   kind: Kind | 'group' | 'select'
@@ -77,7 +77,7 @@ interface Pan {
 
 const NO_INSET = { x: 0, y: 0 }
 
-/** Empty canvas kept beyond the furthest component or image: one grid step, so scroll bars only come when something sticks out. */
+/** Empty canvas kept beyond the furthest item: one grid step, so the canvas only outgrows the view when something sticks out. */
 const CANVAS_MARGIN = 20
 
 interface CardCanvasProps {
@@ -100,14 +100,14 @@ interface CardCanvasProps {
   incomingDrawing: IncomingDrawing | null
   onAddImages: (files: File[], at?: Point) => void
   onPickImages: () => void
-  /** A screen point on the board (canvas pixels) when it is over the board, to drop an image there; else null. */
+  /** A screen point in board canvas pixels when it is over the board, to drop an image or drawing there; else null. */
   boardPoint: (client: Point) => Point | null
   boardZoom: number
   /** Asks to delete the whole card. */
   onDeleteCard: () => void
 }
 
-/** The card's own small board: its components and images, moved and resized like items on the board, with zoom and pan. */
+/** The card's own small board: its components, images and drawings, moved and resized like items on the board, with zoom and pan. */
 export function CardCanvas(props: CardCanvasProps) {
   const { card, images, drawings, cards, readOnly, highlight, handle, run, onBusy, incoming, incomingDrawing, onAddImages, onPickImages, boardPoint, boardZoom, onDeleteCard } = props
   /** The selected items: one, or several (Shift or Ctrl/Cmd + click, or the selection rectangle). */
@@ -130,7 +130,7 @@ export function CardCanvas(props: CardCanvasProps) {
   /** The images the last two presses were on: the canvas holds the pointer, so double-clicks reach it, not the image. */
   const imagePresses = useRef<[string | null, string | null]>([null, null])
   const { zoom, zoomTo } = useZoom(scrollRef, NO_INSET)
-  /** The card's pen: on or off (a press then draws instead of panning), with an ink and size of its own. */
+  /** The card's pen: on or off (while on, a press draws instead of selecting or moving), with an ink and size of its own. */
   const [penOn, setPenOn] = useState(false)
   const cardPen = usePen(CARD_PEN)
   const penRing = useRef<HTMLDivElement>(null)
@@ -215,7 +215,7 @@ export function CardCanvas(props: CardCanvasProps) {
     const image = kind === 'image' ? images.find((i) => i.id === id) : undefined
     const drawing = kind === 'drawing' ? drawings.find((d) => d.id === id) : undefined
     if (component) {
-      // An empty component goes quietly; it can still be undone.
+      // An empty component goes without a toast; it can still be undone.
       void settle(...ops.removeComponent(card.id, component))
     } else if (image) {
       void settle(...ops.deleteImage(image))
@@ -259,9 +259,9 @@ export function CardCanvas(props: CardCanvasProps) {
     )
   }
 
-  /** Drops several items moved together, where the drag shows them, as one step. */
+  /** Saves a group move as one step: each item goes where the drag shows it. */
   function moveGroup(items: Item[]) {
-    // Where they go, worked out now: the drag ends with the first reply.
+    // Work out every place now, as the drag shows it, before any request changes the card.
     const requests = items.flatMap(({ kind, id }) => {
       const component = kind === 'component' ? card.components.find((b) => b.id === id) : undefined
       const image = kind === 'image' ? images.find((i) => i.id === id) : undefined
@@ -325,8 +325,9 @@ export function CardCanvas(props: CardCanvasProps) {
   }
 
   /**
-   * A press on a component's header, an image or a drawing: selects it and starts dragging it. One of several selected drags
-   * them all; with Shift or Ctrl/Cmd it joins or leaves the selection instead. With Space held, the canvas pans.
+   * A press on a component's header, an image or a drawing: selects it and starts dragging it. Pressing one of several
+   * selected items drags them all; with Shift or Ctrl/Cmd the item joins or leaves the selection instead. With Space
+   * held, the canvas pans.
    */
   function onItemPointerDown(e: PointerEvent<HTMLElement>, kind: Kind, id: string, handle: ResizeHandle = 'BottomRight') {
     // With the pen on, a press draws over whatever is there (onPenPointerDown took it already).
@@ -382,7 +383,7 @@ export function CardCanvas(props: CardCanvasProps) {
   /**
    * A press on empty canvas draws a selection rectangle (viewers: pans). The middle button pans, over a component or image
    * too, like on the board, and so does the left one with Space held (without touching the selection or the field being
-   * typed in). Other presses inside components and images are theirs.
+   * typed in). Other presses inside components and images are left to them.
    */
   function onCanvasPointerDown(e: PointerEvent) {
     const empty = e.target === e.currentTarget
@@ -434,7 +435,7 @@ export function CardCanvas(props: CardCanvasProps) {
     }
     if (!gesture || gesture.done) return
     if (gesture.kind === 'select') {
-      // A click without dragging leaves only what it was adding to.
+      // A click without a drag keeps only the selection it was adding to (none without Shift or Ctrl/Cmd).
       setGesture(null)
       if (!isDrag(gesture)) setSelected(gesture.items ?? [])
       return
@@ -453,7 +454,7 @@ export function CardCanvas(props: CardCanvasProps) {
     }
     const { id } = gesture
     if (leaving) {
-      // Dropped outside the window: onto the board, at the same grab point, or back where it was.
+      // Dropped outside the window: onto the board, held at the point where it was grabbed; elsewhere it goes back.
       const item = gesture.kind === 'drawing' ? drawings.find((d) => d.id === id)! : images.find((i) => i.id === id)!
       const at = boardPoint(gesture.client)
       if (!at) {

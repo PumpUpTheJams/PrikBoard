@@ -16,7 +16,7 @@ namespace PrikBoard.Api.Endpoints;
 /// </summary>
 public static class AdminEndpoints
 {
-    /// <summary>Key of the PostgreSQL advisory lock that serialises admin changes, so there is always an admin left.</summary>
+    /// <summary>Key of the PostgreSQL advisory lock that serializes admin changes, so there is always an admin left.</summary>
     private const long AdminLock = 0x7072_696b_6164_6d6e; // "prikadmn"
 
     public static RouteGroupBuilder MapAdminEndpoints(this RouteGroupBuilder api)
@@ -34,8 +34,8 @@ public static class AdminEndpoints
             .RequireAdmin()
             .WithName("adminDeleteBoard")
             .WithSummary("Delete any board")
-            .WithDescription("Admins only. Permanently deletes the board with all of its buckets, cards, images, members " +
-                             "and invites, like deleteBoard does for its owners. Admins don't need to be a member.");
+            .WithDescription("Admins only. Permanently deletes the board with everything on it, its members and its invites, " +
+                             "like deleteBoard does for its owners. Admins don't need to be a member.");
 
         admin.MapGet("/users", ListUsers)
             .RequireAdmin()
@@ -47,7 +47,7 @@ public static class AdminEndpoints
         admin.MapPut("/boards/{boardId:guid}/members/{userId:guid}", SetBoardMember)
             .RequireAdmin()
             .WithName("adminSetBoardMember")
-            .WithSummary("Give a person a role on any board")
+            .WithSummary("Set a person's role on any board")
             .WithDescription("Admins only. Adds the user to the board with the role, or changes the role they have. " +
                              "A board always keeps at least one owner (409 otherwise).")
             .ProducesProblem(StatusCodes.Status409Conflict);
@@ -55,15 +55,15 @@ public static class AdminEndpoints
         admin.MapDelete("/boards/{boardId:guid}/members/{principalId:guid}", RemoveBoardMember)
             .RequireAdmin()
             .WithName("adminRemoveBoardMember")
-            .WithSummary("Take anyone off any board")
+            .WithSummary("Remove anyone from any board")
             .WithDescription("Admins only. Removes a person or agent from the board. The last owner cannot be removed (409).")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         admin.MapPatch("/users/{userId:guid}", UpdateUser)
             .RequireAdmin()
             .WithName("adminUpdateUser")
-            .WithSummary("Make a user an admin, or take it away")
-            .WithDescription("Admins only. There is always at least one admin (409 otherwise).")
+            .WithSummary("Grant or revoke admin rights")
+            .WithDescription("Admins only. Sets isAdmin on the user. There is always at least one admin (409 otherwise).")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         admin.MapDelete("/users/{userId:guid}", DeleteUser)
@@ -237,7 +237,7 @@ public static class AdminEndpoints
         await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock({AdminLock})", ct);
         if (!await db.Users.AnyAsync(u => u.Id == userId, ct)) return TypedResults.NotFound();
 
-        // Lock the boards they own (in a fixed order), so nobody demotes the other owner while we check.
+        // Lock the boards they own (in a fixed order), so nobody demotes another owner during the check.
         var boardIds = await db.BoardMembers.Where(m => m.PrincipalId == userId).Select(m => m.BoardId).ToListAsync(ct);
         var owned = await db.BoardMembers.Where(m => m.PrincipalId == userId && m.Role == BoardRole.Owner)
             .Select(m => m.BoardId).OrderBy(id => id).ToListAsync(ct);

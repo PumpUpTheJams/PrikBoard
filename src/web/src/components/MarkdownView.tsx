@@ -8,7 +8,7 @@ interface MarkdownViewProps {
 }
 
 /**
- * Rendered Markdown (GitHub flavour). Raw HTML in the text is shown as text, never rendered, and react-markdown drops
+ * Rendered Markdown (GitHub flavor). Raw HTML in the text is shown as text, never rendered, and react-markdown drops
  * unsafe link protocols. A link to a card opens it in place; any other link opens in a new tab.
  */
 export function MarkdownView({ text, className }: MarkdownViewProps) {

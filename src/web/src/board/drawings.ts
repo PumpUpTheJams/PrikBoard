@@ -27,9 +27,9 @@ export const strokeSizes = [
   { width: 8, name: 'Bold', dot: 12 },
 ] as const
 
-/** Where the board's pen and the cards' pen keep their ink and size in this browser. */
+/** The board's pen: the storage key for its ink and size in this browser, and the ink it starts with. */
 export const BOARD_PEN = { key: 'prikboard.pen', ink: 'Chalk' } as const
-/** The cards' pen keeps its own ink and size. The inside of an open card is dark like the board, so it starts light too. */
+/** The cards' pen keeps its own ink and size. An open card is dark inside like the board, so it starts light too. */
 export const CARD_PEN = { key: 'prikboard.cardPen', ink: 'Chalk' } as const
 
 function storedPen({ key, ink }: { key: string; ink: InkColor }): { ink: InkColor; width: number } {
@@ -62,10 +62,10 @@ export function usePen(pen: { key: string; ink: InkColor }) {
 /** The most points a stroke can have (BoardDrawing.MaxPoints), and how far apart (canvas px) points need to be to count. */
 const MAX_POINTS = 5000
 const MIN_STEP = 1
-/** Points of a drawing reach this far from its x/y. */
+/** A point lies at most this far (both ways) from its drawing's x/y (BoardDrawing.MaxSize). */
 const MAX_OFFSET = 10_000
 
-/** Pressure of a pointer event: a pen's own, 0.5 for a mouse or a touch (which report none, or only 0 and 1). */
+/** The pressure of a pointer event: a pen's own, or 0.5 for a mouse or touch (which report none, or only 0 and 1). */
 export function pressureOf(e: { pointerType: string; pressure: number }) {
   return e.pointerType === 'pen' && e.pressure > 0 ? Math.min(1, e.pressure) : 0.5
 }
@@ -90,9 +90,9 @@ export function addPoint(points: StrokePoint[], p: Point, pressure: number): Str
 }
 
 /**
- * A finished stroke as the API takes it: its top-left on the grid, at least half a (thickest) line clear of every point,
- * and the points measured from there. `min` is where the canvas starts: 0 on a card, where a line drawn right at
- * the edge is pushed in a little. The server snaps x/y, so they are on the grid already and the line stays put.
+ * A finished stroke as the API takes it: a top-left on the grid, at least half the thickest line clear of every point,
+ * and the points measured from there. `min` is where the canvas starts (0 on a card): the top-left never goes past it,
+ * and points beyond it move onto it. The server snaps x/y, so having them on the grid already keeps the line in place.
  */
 export function strokeToDrawing(points: StrokePoint[], strokeWidth: number, min = MIN_COORDINATE) {
   const margin = maxWidth(strokeWidth) / 2
@@ -112,10 +112,10 @@ const widthAt = (base: number, pressure: number) => base * (0.4 + 1.2 * pressure
 const maxWidth = (base: number) => widthAt(base, 1)
 
 /**
- * SVG paths for a stroke. The line runs through the middle of each pair of points, curving around the points themselves
- * (quadratic curves), so it reads smooth rather than as straight pieces. Pressure changes the width along it, so runs of
- * pieces with about the same width share a path (round caps and joins hide the seams); without pressure (a mouse) it is
- * one path.
+ * SVG paths for a stroke. The line runs through the midpoint of each pair of points and curves around the points
+ * themselves (quadratic curves), so it looks smooth rather than made of straight pieces. Pressure changes the width
+ * along it, so each run of pieces with about the same width gets its own path (round caps and joins hide the seams);
+ * without pressure (a mouse) it is one path.
  */
 export function strokePaths(points: StrokePoint[], base: number): { d: string; width: number }[] {
   if (points.length === 0) return []
@@ -256,8 +256,8 @@ export function useDrawingStrokes(drawing: DrawingDetail): DrawingStroke[] | nul
 }
 
 /**
- * Puts a pen ring (PenRing) at a point on its canvas, or hides it: off the canvas, or for a finger, which covers it
- * anyway. It is moved directly rather than through state, so it keeps up with the pointer.
+ * Puts a pen ring (PenRing) at a point on its canvas. It is hidden when the pointer is off the canvas (`at` null) or is
+ * a finger, which covers it anyway. It moves through its style rather than through state, so it keeps up with the pointer.
  */
 export function movePenRing(ring: HTMLElement | null, at: Point | null, pointerType?: string) {
   if (!ring) return

@@ -21,12 +21,12 @@ public static class ImageEndpoints
         images.MapPost("/boards/{boardId:guid}/images", UploadImage)
             .RequireBoardRole(BoardRole.Editor)
             .WithName("uploadImage")
-            .WithSummary("Add an image or GIF to a board")
+            .WithSummary("Upload an image")
             .WithDescription("Send the file itself as the request body with its content type (image/png, image/jpeg, image/gif or " +
-                             "image/webp; at most 10 MB), for example curl --data-binary @shot.png -H \"Content-Type: image/png\". " +
+                             "image/webp; at most 10 MB, 413 otherwise), for example curl --data-binary @shot.png -H \"Content-Type: image/png\". " +
                              "Query parameters: fileName, cardId (attach to a card instead of the board), x and y (top-left on the " +
                              "board, or on the card's canvas with cardId; default: a free spot), width (display width; default: the image's own width, " +
-                             "at most 360) and caption. The format and pixel size are read from the file; SVG is not accepted.")
+                             "at most 360) and caption. The format and pixel size are read from the file; other formats, SVG included, get a 415.")
             .Accepts<Stream>(ImageFormats.ContentTypes[0], ImageFormats.ContentTypes[1..])
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
@@ -36,7 +36,7 @@ public static class ImageEndpoints
             .RequireBoardRole(BoardRole.Editor)
             .Quiet()
             .WithName("createImageUpload")
-            .WithSummary("Get a one-time URL to upload an image to")
+            .WithSummary("Get a one-time image upload URL")
             .WithDescription("For agents that can run commands: instead of sending the file through this API (or base64 through MCP), " +
                              "get a URL and send the file there with a plain PUT, e.g. curl -T shot.png \"<uploadUrl>\". The URL needs no " +
                              "authentication, adds one image where this request says (a card, x and y, width, caption, file name) as you, " +
@@ -50,10 +50,10 @@ public static class ImageEndpoints
             .NoBoardScope()
             .WithName("completeImageUpload")
             .WithSummary("Upload an image to a one-time URL")
-            .WithDescription("The uploadUrl from createImageUpload. Send the file itself as the body (PNG, JPEG, GIF or WebP, at most 10 MB; " +
+            .WithDescription("The uploadUrl that createImageUpload returns. Send the file itself as the body (PNG, JPEG, GIF or WebP, at most 10 MB; " +
                              "the format is read from the file, so the content type does not matter). No authentication: the URL is the key. " +
                              "Answers the new image (201); 404 when the URL is unknown, used or expired, or its creator lost access. " +
-                             "After a 413 or 415 the URL can be used again.")
+                             "After a 400, 413 or 415 the URL can be used again.")
             .Accepts<Stream>(ImageFormats.ContentTypes[0], [.. ImageFormats.ContentTypes[1..], "application/octet-stream"])
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status413PayloadTooLarge)

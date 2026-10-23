@@ -10,7 +10,7 @@ export type LayoutMode = 'desktop' | 'mobile'
 const PHONE = '(max-width: 760px) and (pointer: coarse)'
 /** Devices that are touch first (tablets too): they can switch layouts in the settings menu. */
 const TOUCH = '(pointer: coarse)'
-/** The layout picked in the settings menu on this device; none follows the screen. */
+/** The layout picked in the settings menu on this device; without one, the layout follows the screen. */
 const KEY = 'prikboard.layout'
 
 function stored(): LayoutMode | null {

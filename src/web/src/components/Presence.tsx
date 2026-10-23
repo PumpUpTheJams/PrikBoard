@@ -8,7 +8,7 @@ const MAX_SHOWN = 4
 
 /**
  * Who else is looking at the board right now, each ringed in the color their drags show in, and how many guests
- * (visitors of a public board who aren't members) look along. `anonymous`: a visitor of a board that hides its
+ * (visitors of a public board who aren't members) are looking too. `anonymous`: a visitor of a board that hides its
  * people, for whom `guests` is everyone else looking.
  */
 export function Presence({ viewers, guests = 0, anonymous = false }: { viewers: LiveViewer[]; guests?: number; anonymous?: boolean }) {

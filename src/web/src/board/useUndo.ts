@@ -33,7 +33,7 @@ export class UndoHistory {
     const stacks = this.stacks(boardId)
     const top = stacks.undo.at(-1)
     if (top && entry.coalesce && top.coalesce === entry.coalesce && entry.at - top.at < COALESCE_MS) {
-      // The first step's before, the last one's after.
+      // The merged step keeps the first step's before and the latest after.
       for (const change of entry.changes) {
         const same = top.changes.find((c) => c.target.kind === change.target.kind && c.target.id === change.target.id)
         if (same) same.after = change.after
@@ -70,11 +70,11 @@ interface UndoOptions {
   notify: (message: { text: string; tone?: 'warn'; action?: { label: string; onAction: () => void } }) => void
   /** Whether someone else is dragging an item right now. */
   moving: (id: string) => boolean
-  /** Called after a step was taken, e.g. to close a card that is gone now. */
+  /** Called after a step is undone or redone, e.g. to close a card that is gone now. */
   onApplied?: (entry: UndoEntry, direction: UndoDirection) => void
 }
 
-/** Undo and redo on one board: recording steps, and taking them one at a time. */
+/** Undo and redo on one board: records steps and undoes or redoes them one at a time. */
 export function useUndo({ boardId, history, run, notify, moving, onApplied }: UndoOptions) {
   useSyncExternalStore(history.subscribe, history.snapshot)
   const stacks = history.stacks(boardId)
@@ -110,7 +110,7 @@ export function useUndo({ boardId, history, run, notify, moving, onApplied }: Un
           try {
             elsewhere[id] = await api.getBoard(id)
           } catch {
-            // No longer there, or no longer ours.
+            // Deleted, or no longer open to you.
           }
         }
         from.pop()

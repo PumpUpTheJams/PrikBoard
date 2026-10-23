@@ -82,8 +82,6 @@ import { useZoom } from './useZoom'
 import { ViewControls } from './ViewControls'
 import { stepZoom } from './zoom'
 
-// Loaded on first open: the Markdown renderer is the biggest part of it.
-
 type SelectionKind = 'card' | 'bucket' | 'image' | 'drawing'
 
 interface Selection {
@@ -95,16 +93,16 @@ interface Selection {
 
 /**
  * A pointer gesture on the canvas, in canvas coordinates. A finished gesture (`done`) stays until the board has
- * reloaded, so the dropped item doesn't jump back to its old place while the request is in flight. Dragging a card or
- * a group, `home` is the area the items took up when it began, and `away` says the pointer has left it since: released
+ * reloaded, so the dropped item doesn't jump back to its old place while the request is in flight. For a card or group
+ * drag, `home` is the area the items took up when it began, and `away` says the pointer has left it since; released
  * back over it, the drag is called off.
  */
 type Gesture = GestureTarget & { start: Point; current: Point; done?: boolean; home?: Rect; away?: boolean }
 type ItemGesture = 'card' | 'bucket' | 'resize' | 'image' | 'image-resize' | 'drawing'
 /**
  * `handle`: for resizes, the corner or edge being dragged. `group`: moving several selected items at once, `held` the
- * one pressed and `members` the ones that move themselves (not those in a bucket that moves too: it carries them);
- * cards only, shaken, they line up in a grid (`grid`: where each goes, before the drag's distance is added).
+ * one pressed and `members` the ones that move themselves (not those in a bucket that moves too: it carries them). A
+ * group of only cards that is shaken lines up in a grid (`grid`: where each goes, before the drag's distance is added).
  * `select`: the selection rectangle, over the board or inside one bucket (`bucketId`), adding to `base`.
  */
 type GestureTarget =
@@ -188,7 +186,6 @@ const fromDragKind: Record<Exclude<DragKind, 'Group'>, ItemGesture> = {
 /** Drags others are told about (not drawings, yet). */
 const toDragKind = Object.fromEntries(Object.entries(fromDragKind).map(([k, v]) => [v, k])) as Partial<Record<ItemGesture, DragKind>>
 
-/** Where in a card's title text a screen point is, as a character offset; undefined when it isn't on the text. */
 /** Whether a clip's server is the one this page is on (its scheme may differ behind a proxy). */
 function sameHost(url: string) {
   try {
@@ -201,6 +198,7 @@ function sameHost(url: string) {
 /** Whether text on the page is selected, which Ctrl/Cmd+C then copies as usual instead of the selected cards. */
 const textSelected = () => (window.getSelection()?.toString().trim() ?? '') !== ''
 
+/** Where in a card's title text a screen point is, as a character offset; undefined when it isn't on the text. */
 function caretAt(x: number, y: number): number | undefined {
   const position = document.caretPositionFromPoint?.(x, y)
   const node = position?.offsetNode ?? document.caretRangeFromPoint?.(x, y)?.startContainer
@@ -322,8 +320,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [newCard, setNewCard] = useState<Point | null>(null)
   /**
    * While a card or several selected items are dragged (or a new card carried), the rail's card button is a trash
-   * can: dropping them on it deletes them, dropping a new one there puts it back. Whether the pointer is over it, and
-   * what was dropped there, hidden until the reload takes it away.
+   * can: dropping them on it deletes them, dropping a new one there puts it back. `overTrash`: the pointer is over it.
+   * `binned`: what was dropped there, hidden until the reload removes it.
    */
   const trashRef = useRef<HTMLButtonElement>(null)
   const [overTrash, setOverTrash] = useState(false)
@@ -347,15 +345,15 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   /** Buckets as they stack, the same for everyone (`stackedAt`): drawn in this order, the last one on top. */
   const stacked = backToFront(board.buckets)
   /**
-   * A bucket just opened, pressed or moved here, shown in front before the server has put it on top for everyone (and
-   * for viewers, who can't, only here). `over` is the bucket on top when it was picked: once that changes, the server's
-   * order says what is in front again.
+   * A bucket just opened, pressed or moved here. It shows in front at once, before the server has put it on top for
+   * everyone (for viewers, who can't change the stack, only here). `over` is the bucket that was on top when it was
+   * picked: once that changes, the server's order decides what is in front again.
    */
   const [picked, setPicked] = useState<{ id: string; over: string | undefined } | null>(null)
   const top = stacked.at(-1)?.id
   /**
    * The bucket drawn above the others with what is in it, so a bucket over others isn't a tangle of cards: the topmost
-   * open one. While selected cards are dragged into a bucket, that one, so how it would grow over its neighbours shows.
+   * open one. While selected cards are dragged into a bucket, that one, so you see how it would grow over its neighbors.
    */
   const front =
     board.buckets.find((b) => b.id === (arrangeDrop?.bucket.id ?? (picked?.over === top ? picked?.id : undefined)) && !b.collapsed)?.id ??
@@ -366,7 +364,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
    * itself (moving, opening or filling it) or it is on top already.
    */
   function toFront(id: string, server = true) {
-    // A press and the click after it ask once.
+    // A press and the click after it both call this; ask the server only once.
     const asked = picked?.id === id && picked.over === top
     setPicked({ id, over: top })
     if (server && !readOnly && top !== id && !asked) void run(() => api.bringBucketToFront(id))
@@ -374,8 +372,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   /** Whether an item is drawn in front, with its bucket. */
   const inFront = (item: { bucketId: string | null }) => front !== null && item.bucketId === front
   /**
-   * Whether the front bucket hides a canvas point from what isn't in it (`bucketId`, or a collapsed bucket's own id): its
-   * fill covers the buckets, collapsed squares, cards and images under it, so a drop there doesn't reach them.
+   * Whether the front bucket covers canvas point `p` for an item outside it (`bucketId`: the item's bucket, or a
+   * collapsed bucket's own id). Its fill hides the buckets, collapsed squares, cards and images under it, so a drop there
+   * doesn't reach them.
    */
   function coveredAt(p: Point, bucketId: string | null): boolean {
     const bucket = front !== null && bucketId !== front ? board.buckets.find((b) => b.id === front) : undefined
@@ -383,7 +382,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     return contains(bucketRect(bucket), p)
   }
   /**
-   * A card put at a point, naming the bucket in front when it covers the card's centre there: by position alone the
+   * A card put at a point, naming the front bucket when it contains the card's center there: by position alone the
    * server would put it in the bucket stacked on top, which this screen may show behind the front one.
    */
   const cardPlace = (at: Point): Point & { bucketId?: string } =>
@@ -407,8 +406,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
    */
   const margin = { x: Math.round(view.width / 2), y: Math.round(Math.max(view.height / 2, search ? SEARCH_MARGIN : 0)) }
   /**
-   * Where the canvas's top-left corner is in the scrolled area: the margin, and the tool rail's room on the left. The
-   * board has no edge, so that corner is its leftmost and topmost item, or 0,0 (`low`, below); `origin` is where 0,0 is.
+   * Where the canvas's top-left corner is in the scrolled area: the margin, plus room for the tool rail on the left. The
+   * board has no edge, so that corner is at its leftmost and topmost item, or 0,0 (`low`, below); `origin` is where 0,0 is.
    */
   const corner = { x: margin.x + RAIL_INSET, y: margin.y }
   // The wheel zooms the board (Shift + wheel scrolls). A quick-edit window sits next to the card on screen; after
@@ -608,7 +607,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     focusSearch.current = null
   })
 
-  // Pasting copied cards puts them on the board where the pointer was. Pasting an image puts it on the board there, or on
+  // Pasting copied items puts them on the board where the pointer was. Pasting an image puts it on the board there, or on
   // the open card when the pointer or focus is there.
   useEffect(() => {
     function onPaste(e: ClipboardEvent) {
@@ -781,8 +780,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }
 
   /**
-   * Adds copied items with their top-left where the pointer was (with no pointer yet, cards go to the first bucket and
-   * anything else to a free spot), and selects them: the buckets and what isn't in them, as the selection rectangle would.
+   * Adds copied items with their top-left where the pointer was (with no pointer yet, a clip of only cards goes into the
+   * first bucket, anything else to a free spot), and selects them: the buckets and what isn't in them, as the selection
+   * rectangle would.
    */
   function pasteClip(clip: BoardClip) {
     const at = lastPointer.current
@@ -855,7 +855,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     return list.find((i) => i.id === item.id)?.bucketId ?? null
   }
 
-  /** Everything a request in several changes did, as one step: what made it, when one of them fails. */
+  /** Runs a change made of several requests as one step; when one fails, the step keeps the changes that went through. */
   async function runAll(label: string, toast: string | undefined, work: (changes: (UndoChange | null)[]) => Promise<unknown>) {
     const ok = await undo.track(
       run(async () => {
@@ -934,9 +934,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }
 
   /**
-   * Where shaken cards go: a grid as square as it can be, one grid step apart, in the order they were read in (top
-   * to bottom, then left to right), placed so the card held stays where it is. Undefined unless they are all
-   * cards (two or more).
+   * Where shaken cards go: a grid as square as it can be, one grid step apart, in reading order (top to bottom, then
+   * left to right), placed so the card held stays where it is. Undefined unless the group is two or more cards and
+   * nothing else.
    */
   function gridFor(heldId: string, members: Selection[]): Record<string, Point> | undefined {
     if (members.length < 2 || members.some((m) => m.kind !== 'card')) return undefined
@@ -952,15 +952,15 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }
 
   /**
-   * Drops several items moved together, where the drag shows them (moved on `by`: a cut pasted here). Buckets go first,
-   * carrying what is in them, so the loose items that follow land among them as they are shown.
+   * Saves a group move as one step: each item goes where the drag shows it, shifted by `by` (for a cut pasted here).
+   * Buckets go first, carrying what is in them, so the loose items that follow land among them as shown.
    */
   function moveGroup(members: Selection[], label = `Move ${count(members.length, 'item', 'items')}`, by: Point = { x: 0, y: 0 }) {
     const groupBuckets = members.flatMap((m) => (m.kind === 'bucket' ? board.buckets.filter((b) => b.id === m.id) : []))
     const groupCards = members.flatMap((m) => (m.kind === 'card' ? board.cards.filter((n) => n.id === m.id) : []))
     const groupImages = members.flatMap((m) => (m.kind === 'image' ? board.images.filter((i) => i.id === m.id) : []))
     const groupDrawings = members.flatMap((m) => (m.kind === 'drawing' ? board.drawings.filter((d) => d.id === m.id) : []))
-    // Where they go, worked out now: the drag ends with the first reply.
+    // Work out every place now, as the drag shows it, before any request changes the board.
     const spots = new Map<string, Point>([
       ...groupBuckets.map((b) => [b.id, bucketRect(b)] as const),
       ...groupCards.map((n) => [n.id, cardPoint(n)] as const),
@@ -1011,7 +1011,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         }),
       ])
       const placed = await api.placeCardsInBucket(bucket.id, { cardIds: cards.map((n) => n.id), grow })
-      // Undone, the cards go back first, then the bucket shrinks to its old size.
+      // Undo reverses the order: the cards go back first, then the bucket shrinks to its old size.
       changes.push(patched(target.bucket(bucket.id), snap.bucket(bucket), snap.bucket(placed.bucket), ['x', 'y', 'width', 'height']))
       for (const after of placed.cards) {
         const before = cards.find((n) => n.id === after.id)
@@ -1104,7 +1104,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             added.push(await api.uploadImage(board.id, file, placement))
           }
         } finally {
-          // One step for all of them; when one fails, the ones that made it.
+          // One step for all of them; when one fails, for the ones uploaded before it.
           const entry = step(added.length === 1 ? 'Add image' : 'Add images', added.map((image) => created(target.image(image.id), snap.image(image))))
           if (entry) undo.record(entry)
         }
@@ -1248,7 +1248,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     return { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom }
   }
 
-  /** A screen point in canvas pixels when it is over the board (and not over the open card); else null. */
+  /** A screen point in canvas pixels when it is over the board's viewport (open windows included); else null. */
   function boardPoint(client: Point): Point | null {
     const rect = scrollRef.current!.getBoundingClientRect()
     const inside = client.x >= rect.left && client.x < rect.right && client.y >= rect.top && client.y < rect.bottom
@@ -1259,8 +1259,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const drawOrder = (a: CardDetail, b: CardDetail) => Number(inFront(a)) - Number(inFront(b)) || a.updatedAt.localeCompare(b.updatedAt)
 
   /**
-   * The topmost card on the board under a canvas point, other than `except` (one id, or the ids of a group). Not one
-   * the front bucket hides there.
+   * The topmost card on the board under a canvas point, other than `except` (one id, or the ids of a group). Cards the
+   * front bucket hides at that point don't count.
    */
   function cardAt(p: Point, except?: string | Set<string>): CardDetail | undefined {
     const skip = (id: string) => (typeof except === 'string' ? id === except : !!except?.has(id))
@@ -1290,9 +1290,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }
 
   /**
-   * Adds links to `linked` cards on a card: into the links component at `at` on its canvas, else its first links
-   * component; only a card without one gets a new links component (at `at`, or in a free spot). Cards it already links
-   * to are left out; the undo step (null when nothing changed) and how many links were added.
+   * Adds links to the `linked` cards on `card`: into the Links component at `at` on its canvas, else its first Links
+   * component; only a card without one gets a new Links component (at `at`, or in a free spot). Cards it already links
+   * to are left out. Returns the undo step (null when nothing changed) and how many links were added.
    */
   async function linkCards({ card, at }: LinkDrop, linked: CardDetail[]): Promise<{ entry: UndoEntry | null; added: number }> {
     const links = linked
@@ -1314,9 +1314,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }
 
   /**
-   * Where several selected images and drawings being dragged would be attached when released at a screen point: the
-   * open card (over its canvas) or the card under the pointer on the board. Null unless the group is only images and
-   * drawings.
+   * Where several selected cards being dragged would go into the bucket under the pointer, when they aren't all in it
+   * already: its free spots, growing towards the edge nearest the pointer. Null for a group with buckets or without cards.
    */
   function arrangeFor(g: Gesture): ArrangeDrop | null {
     if (g.kind !== 'group' || g.members.some((m) => m.kind === 'bucket')) return null
@@ -1336,8 +1335,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       ['Down', bucket.y + bucket.height - p.y],
     ]
     const side = edges.reduce((a, b) => (b[1] < a[1] ? b : a))[0]
-    // What is in the way: the bucket's own cards and images and loose ones, not its neighbours' (they join it by id, so
-    // it may grow over those, only as far as needed), and the group's images where they are dropped (they move first).
+    // What is in the way: the bucket's own cards and images and loose ones, not its neighbors' (the cards join it by id,
+    // so it may grow over those, only as far as needed), and the group's images where they are dropped (they move first).
     const ids = new Set(g.members.map((m) => m.id))
     const inTheWay = (owner: string | null) => owner === null || owner === bucket.id
     const taken = [
@@ -1351,6 +1350,11 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     return { bucket, side, grown, spots: Object.fromEntries(cards.map((n, i) => [n.id, spots[i]])) }
   }
 
+  /**
+   * Where several selected images and drawings being dragged would be attached when released at a screen point: the
+   * open card (over its canvas) or the card under the pointer on the board. Null unless the group is only images and
+   * drawings.
+   */
   function attachDropFor(g: Gesture, client: Point): AttachDrop | null {
     if (g.kind !== 'group' || !g.members.every((m) => m.kind === 'image' || m.kind === 'drawing')) return null
     const win = expandedRef.current
@@ -1366,7 +1370,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
   /**
    * An image dropped on a card on the board is sucked into it: it shrinks into the card's middle and fades, then
-   * the card gives a little gulp. The image stays hidden (until the reload takes it off the board) unless cancelled.
+   * the card gives a little gulp. Unless the animation is canceled, the image stays hidden until the reload takes it
+   * off the board.
    */
   function suckInto(imageId: string, card: CardDetail): Animation | undefined {
     const el = canvasRef.current?.querySelector(`[data-image="${imageId}"]`)
@@ -1529,9 +1534,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }
 
   /**
-   * A press on an item: selects it and starts dragging it (`handle`: resizing from that corner or edge). One of several
-   * selected drags them all; with Shift or Ctrl/Cmd it joins or leaves the selection instead. With Space held, the
-   * press goes on to the canvas, which pans.
+   * A press on an item: selects it and starts dragging it (`handle`: resizing from that corner or edge). Pressing one of
+   * several selected items drags them all; with Shift or Ctrl/Cmd the item joins or leaves the selection instead. With
+   * Space held, the press goes on to the canvas, which pans.
    */
   function onItemPointerDown(e: PointerEvent<HTMLElement>, kind: ItemGesture, id: string, { handle }: { handle?: ResizeHandle } = {}) {
     if (e.button !== 0 || tool !== 'select' || spaceHeld) return
@@ -1620,10 +1625,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     }
   }
 
-  /** Where a new card carried from the rail goes: centred on a canvas point (the pointer holds it there), snapped. */
+  /** Where a new card carried from the rail goes: centered on a canvas point (the pointer holds it there), snapped. */
   const cardSpot = (p: Point) => snapPoint({ x: p.x - CARD_WIDTH / 2, y: p.y - CARD_HEIGHT / 2 })
 
-  /** Sticks a new card with its top-left corner at a (snapped) canvas point, selects it and opens it with its title ready to type. */
+  /** Adds a new card with its top-left corner at a (snapped) canvas point, selects it and opens it with its title ready to type. */
   function stickCard(at: Point) {
     void settle(
       async () => {
@@ -1650,9 +1655,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }
 
   /**
-   * A press on the rail's card button. Dragging from there carries a new card, which is stuck where it is released
+   * A press on the rail's card button. Dragging from there carries a new card, which is added where it is released
    * (over a bucket, it lands in that bucket). Without a drag it stays a click, which picks the card tool. Escape, or
-   * releasing it off the board or back on the button (a trash can by then), drops it.
+   * releasing it off the board or back on the button (a trash can by then), discards the new card.
    */
   function onCardPointerDown(e: PointerEvent<HTMLButtonElement>) {
     if (e.button !== 0 || readOnly) return
@@ -1765,8 +1770,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
   /**
    * Drops several selected items dragged together. On the trash can or the open deleted items they are deleted, as
-   * Delete does. Cards go into a collapsed bucket, or link from another card (or the open one) to each of them, and
-   * stay where they were; images and drawings over a card are attached to it. Anywhere else they move.
+   * Delete does. Cards alone go into a collapsed bucket, or, dropped on another card (or the open one), stay where they
+   * were while that card links to each of them. Cards over a bucket they aren't all in take its free spots. Images and
+   * drawings alone, over a card, are attached to it. Anywhere else they move.
    */
   function dropGroup(g: Extract<Gesture, { kind: 'group' }>, client: Point) {
     const intoDeleted = deletedDrop !== null
@@ -1804,8 +1810,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       return
     }
     if (arrange) {
-      // Into a bucket they aren't all in: the cards take its free spots (it grows towards the side asked when they don't
-      // fit, over its neighbours too, so the server puts it on top); images and drawings dropped with them land where they are dropped.
+      // Into a bucket they aren't all in: the cards take its free spots (when they don't fit, it grows towards the side
+      // asked, over its neighbors too, so the server puts it on top); images and drawings dropped with them land where
+      // they are dropped.
       setGesture({ ...g, done: true })
       toFront(arrange.bucket.id, false)
       const ordered = cards.toSorted((a, b) => arrange.spots[a.id].y - arrange.spots[b.id].y || arrange.spots[a.id].x - arrange.spots[b.id].x)
@@ -1844,8 +1851,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
   /**
    * Attaches several images and drawings dragged together to a card. On the open card they land where the drag shows
-   * them; on a card on the board the images are sucked in and the server finds each a free spot, and the drawings keep
-   * how they lie together, from the canvas's top-left.
+   * them. On a card on the board the images are sucked in and the server finds each a free spot, and the drawings keep
+   * their places relative to each other, from the top-left of the card's canvas.
    */
   function attachGroup(g: Extract<Gesture, { kind: 'group' }>, { card, window: onWindow }: AttachDrop, client: Point) {
     const groupImages = g.members.flatMap((m) => (m.kind === 'image' ? board.images.filter((i) => i.id === m.id) : []))
@@ -1897,8 +1904,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     if (!gesture || gesture.done) return
     if (gesture.kind === 'select') {
       setGesture(null)
-      // A click without dragging: inside a bucket it selects the bucket (or, adding, it joins or leaves the selection);
-      // on the board it leaves only what was added to.
+      // A click without a drag: inside a bucket it selects the bucket (or, adding, it joins or leaves the selection);
+      // on the board it keeps only the selection it was adding to (none without Shift or Ctrl/Cmd).
       if (!isDrag(gesture)) setSelected(gesture.bucketId ? togglePicked(gesture.base, { kind: 'bucket', id: gesture.bucketId }) : gesture.base)
       return
     }
@@ -2065,7 +2072,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         (moved) => step('Move bucket', bucketMove(bucket, moved)),
       )
     } else {
-      // With a new size, a new place is a resize from a top or left corner or edge: the server leaves the cards where they are.
+      // With a new size, a new place is a resize from a top or left corner or edge: the server leaves its items where they are.
       const bucket = board.buckets.find((b) => b.id === id)!
       const { x, y, width, height } = bucketRect(bucket)
       void settle(
@@ -2075,8 +2082,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     }
   }
 
-  // What was dropped on the trash is gone at once.
-  // Drawn as they stack, so where buckets overlap the one on top covers the others.
+  // Buckets are drawn as they stack, so where they overlap the one on top covers the others. What was dropped on the
+  // trash is gone at once.
   const buckets = stacked.filter((b) => !binned.includes(b.id)).map((bucket) => ({ bucket, rect: bucketRect(bucket) }))
   // Images in a collapsed bucket fold away with its cards.
   const images = board.images
@@ -2284,7 +2291,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               setDeletedDrop(null)
               setOverTrash(false)
             }}
-            // Losing the pointer without a release ends a pan or an unfinished drag, so nothing stays stuck mid-air.
+            // Losing the pointer without a release ends a pan or an unfinished drag, so nothing is left hanging mid-air.
             onLostPointerCapture={() => {
               setPan(null)
               setGesture((g) => (g && !g.done ? null : g))
@@ -2393,7 +2400,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                     className="bucket-head"
                     title="Drag to move the bucket and its cards"
                     onPointerDown={(e) => onItemPointerDown(e, 'bucket', bucket.id)}
-                    // Enter or Space on the name. A press that added to the selection is a click here too: leave it be.
+                    // Enter or Space on the name. A Shift or Ctrl/Cmd press that toggled the selection also ends in a
+                    // click: ignore it.
                     onClick={(e) => {
                       if (adds(e)) return
                       setSelection({ kind: 'bucket', id: bucket.id })
@@ -2646,7 +2654,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
       {selectedBucket && (
         <BucketInspector
-          // A new name (an undo, someone else) starts the field afresh.
+          // A new name (from an undo, or someone else) resets the field.
           key={`${selectedBucket.id}:${selectedBucket.name}`}
           bucket={selectedBucket}
           cardCount={countIn(selectedBucket.id)}

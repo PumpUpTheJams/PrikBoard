@@ -73,7 +73,7 @@ export function BucketScreen({ board, bucketId, tagColors, run, onCreated, actio
                 </button>
               ))}
             </nav>
-            {/* Which bucket of how many, centred under the tabs (which may scroll out of sight). */}
+            {/* Which bucket of how many, centered under the tabs (which may scroll out of sight). */}
             <span className="m-dots" aria-hidden="true">
               {tabs.map((t) => (
                 <span key={t.id} className={t.id === bucketId ? 'current' : undefined} />

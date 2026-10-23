@@ -16,27 +16,27 @@ public static class BucketEndpoints
         buckets.MapPost("/boards/{boardId:guid}/buckets", CreateBucket)
             .RequireBoardRole(BoardRole.Editor)
             .WithName("createBucket")
-            .WithSummary("Draw a bucket on a board")
+            .WithSummary("Create a bucket")
             .WithDescription("Creates a bucket at the given rectangle (or to the right of the existing buckets), on top of " +
-                             "the others. The cards, images and drawings whose centre it covers join it. Coordinates snap to the 20 px grid.")
+                             "the others. The cards, images and drawings whose center it covers join it. Coordinates snap to the 20 px grid.")
             .ProducesValidationProblem();
 
         buckets.MapPatch("/buckets/{bucketId:guid}", UpdateBucket)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Bucket)
             .WithName("updateBucket")
             .WithSummary("Rename, recolor, move or resize a bucket")
-            .WithDescription("Changes any of name, color, position and size. Omitted fields stay unchanged. " +
+            .WithDescription("Changes any of name, color, collapsed, position and size. Omitted fields stay unchanged. " +
+                             "An x or y sent with a size is a resize from a top or left corner or edge. " +
                              "Moving a bucket carries its cards, images and drawings along (or exactly carryCardIds, carryImageIds " +
-                             "and carryDrawingIds) " +
-                             "and changes no item's bucket, also where it overlaps another bucket. A resize lets go of " +
-                             "items now outside it and takes loose ones it now covers. Moving, resizing and opening it put it " +
-                             "on top of the other buckets.")
+                             "and carryDrawingIds, which only a move takes) and changes no item's bucket, even where it overlaps " +
+                             "another bucket. A resize lets go of items now outside it and takes loose ones it now covers; a " +
+                             "collapsed bucket can't be resized (400). Moving, resizing and opening a bucket put it on top of the others.")
             .ProducesValidationProblem();
 
         buckets.MapPost("/buckets/{bucketId:guid}/front", BringBucketToFront)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Bucket)
             .WithName("bringBucketToFront")
-            .WithSummary("Put a bucket on top of the others")
+            .WithSummary("Bring a bucket to the front")
             .WithDescription("Puts the bucket on top of the stack, for everyone: where buckets overlap, it is drawn above the " +
                              "others and items put there join it. No item changes bucket. Moving, resizing, opening and filling a " +
                              "bucket do this too.");
@@ -45,11 +45,12 @@ public static class BucketEndpoints
             .RequireBoardRole(BoardRole.Editor, BoardScope.Bucket)
             .WithName("placeCardsInBucket")
             .WithSummary("Put several cards into a bucket")
-            .WithDescription("Moves the cards into the free room of the bucket (on the 20 px grid, row by row in the order given), a " +
-                             "grid step clear of the cards and images in it (also a collapsed bucket); other buckets' items don't count. " +
-                             "When they don't fit, the bucket grows towards grow (Down, Right, Left or Up) by whole rows or columns, " +
-                             "only as far as they need, also over neighbouring buckets (the cards still belong to this one). " +
-                             "The bucket goes on top of the others. Returns the bucket and the cards.")
+            .WithDescription("Moves the cards into free room in the bucket, row by row in the order given, on the 20 px grid and a " +
+                             "grid step clear of the bucket's own and loose cards and images; other buckets' items don't count. " +
+                             "When they don't fit, the bucket grows towards grow (Down by default, or Right, Left or Up) by whole rows " +
+                             "or columns, only as far as needed, also over neighboring buckets (the cards still join this one). " +
+                             "Works on a collapsed bucket too. The bucket goes on top of the others. Returns the bucket and the cards; " +
+                             "400 when a card is not on the bucket's board.")
             .ProducesValidationProblem();
 
         buckets.MapDelete("/buckets/{bucketId:guid}", DeleteBucket)
@@ -64,7 +65,7 @@ public static class BucketEndpoints
             .WithName("restoreBucket")
             .WithSummary("Restore a deleted bucket")
             .WithDescription($"Brings back a bucket deleted in the last {Tombstones.RetentionText} with the same id, place and size, " +
-                             "and the cards, images and drawings whose centre it covers join it again. 409 when it is not deleted.")
+                             "and the cards, images and drawings whose center it covers join it again. 409 when it is not deleted.")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         return api;
@@ -203,14 +204,14 @@ public static class BucketEndpoints
             return Problems.Invalid("cardIds", "Every card must be on the bucket's board.");
         }
         var cards = ids.ConvertAll(id => boardCards[id]);
-        // It may grow over its neighbours, so it comes on top of them, with the cards it takes.
+        // It may grow over its neighbors, so it comes on top of them, with the cards it takes.
         bucket.ToFront();
 
         var buckets = await db.Buckets.Where(b => b.BoardId == bucket.BoardId).ToListAsync(ct);
         var images = await db.Images.Where(i => i.BoardId == bucket.BoardId && i.CardId == null).ToListAsync(ct);
         var picked = ids.ToHashSet();
         var others = boardCards.Values.Where(n => !picked.Contains(n.Id)).ToList();
-        // They join the bucket by id, so only its own items (and loose ones) are in the way, not its neighbours': it may
+        // They join the bucket by id, so only its own items (and loose ones) are in the way, not its neighbors': it may
         // grow over those, only as far as needed.
         bool InTheWay(Guid? owner) => owner is null || owner == bucket.Id;
         List<(int X, int Y, int Width, int Height)> taken =
@@ -224,7 +225,7 @@ public static class BucketEndpoints
         foreach (var (card, (x, y)) in cards.Zip(spots))
         {
             (card.X, card.Y) = (x, y);
-            // Asked for by name, so they join even a collapsed bucket (which other cards don't).
+            // Put in this bucket on purpose, so they join it even when it is collapsed (which other cards don't).
             card.BucketId = bucket.Id;
             card.UpdatedAt = now;
         }

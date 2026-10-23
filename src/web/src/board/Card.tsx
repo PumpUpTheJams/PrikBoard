@@ -44,13 +44,13 @@ interface CardProps {
    * of a list (the mobile layout), as wide as the list, and a tap opens it.
    */
   point?: Point
-  /** How many images are attached to it (they count with its components in the content badge). */
+  /** How many images are attached to it (counted with its components in the corner). */
   images?: number
   /** The board's tag colors; tags without one are a shade of the fill. */
   tagColors?: TagColors
   selected: boolean
   lifted: boolean
-  /** Drawn above the rest, with the bucket that was opened or pressed last. */
+  /** Drawn above the rest, with the topmost open bucket it is in. */
   front?: boolean
   /** Faded: it doesn't match the board's filters or search. */
   dimmed?: boolean
@@ -71,7 +71,7 @@ interface CardProps {
   titleCaret?: number
   /** Saves a new title; resolves false when that failed. */
   onRenameTitle?: (title: string) => Promise<boolean>
-  /** Editing the title ended (saved or cancelled). */
+  /** Editing the title ended (saved or canceled). */
   onTitleDone?: () => void
   /**
    * For a card in the trash: puts it back where it was on the board. Its button takes the place of the people button
@@ -90,7 +90,7 @@ interface CardProps {
 export function Card(props: CardProps) {
   const { card, point, images = 0, tagColors, selected, lifted, front, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
   const { editingTitle, titleCaret, onRenameTitle, onTitleDone, onPutBack, onPurge } = props
-  /** A saved title, shown until the reload brings it (while the server still has `from`). */
+  /** A title just saved, shown until the reload brings it (while the card still has the old title, `from`). */
   const [saved, setSaved] = useState<{ title: string; from: string } | null>(null)
   const title = saved && saved.from === card.title ? saved.title : card.title
   /** The title in labels, with a stand-in when it is empty. */
@@ -124,8 +124,8 @@ export function Card(props: CardProps) {
     card.assignees.length > 0 ? <AvatarStack assignees={card.assignees} /> : <span className="avatar-slot" aria-hidden="true" />
   const contents = card.components.length + images
   const summary = contentSummary(card, images)
-  // The corner's buttons work on a click of their own: no drag (keepPress, which lets the middle button pan), and a
-  // double-click doesn't expand the card twice.
+  // The corner's buttons act on their own click: pressing one doesn't start a drag (keepPress still lets the middle
+  // button pan), and double-clicking one doesn't also expand the card.
   const stop = (e: PointerEvent | MouseEvent) => e.stopPropagation()
 
   return (
@@ -226,7 +226,7 @@ export function Card(props: CardProps) {
 }
 
 /**
- * The title edited in place: Enter (or clicking elsewhere) saves, Escape cancels. Presses (but the middle button's, which
+ * The title edited in place: Enter (or clicking elsewhere) saves, Escape cancels. Presses (except the middle button's, which
  * pans) and double-clicks stay inside, so selecting text doesn't drag the card and a double-click selects a word
  * instead of expanding it.
  */

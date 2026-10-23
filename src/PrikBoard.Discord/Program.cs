@@ -11,7 +11,7 @@ if (string.IsNullOrWhiteSpace(bot.BotToken)) throw new InvalidOperationException
 if (!Uri.TryCreate(prikboard.ApiUrl, UriKind.Absolute, out var apiUrl)) throw new InvalidOperationException("Set PrikBoard:ApiUrl to where the API is reachable.");
 if (!Uri.TryCreate(prikboard.PublicUrl, UriKind.Absolute, out _)) throw new InvalidOperationException("Set PrikBoard:PublicUrl to the address people use PrikBoard at.");
 
-// Tokens are kept under Storage:Path (a volume in production); Development defaults to a folder next to the project.
+// Tokens are kept under Storage:Path (a volume in production); Development defaults to a data folder in the project.
 var storage = builder.Configuration["Storage:Path"] is { Length: > 0 } path
     ? path
     : builder.Environment.IsDevelopment()

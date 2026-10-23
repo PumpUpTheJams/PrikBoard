@@ -69,7 +69,7 @@ public class MigrationTests : IAsyncLifetime
         Assert.Equal([(board, "backend"), (board, "ui"), (other, "ui")], tags.Select(t => (t.BoardId, t.Name)));
 
         var linked = await db.Cards.Where(n => n.Id == card).Select(n => n.AssigneeIds).SingleAsync();
-        // The duplicate "Mila V." keeps its first place; the outsider (not on this board) and "Nobody" are dropped.
+        // Mila keeps the place of her first mention ("mila v.") and her second is dropped, as are the outsider (not on this board) and "Nobody".
         Assert.Equal([mila, agent, unnamed], linked);
         Assert.Empty(await db.Cards.Where(n => n.Id == untouched).Select(n => n.AssigneeIds).SingleAsync());
     }

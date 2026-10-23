@@ -53,7 +53,8 @@ public static class DiscordEndpoints
             .WithSummary("Trade a Discord connect code for the server's token")
             .WithDescription("The Discord bot sends the code from approveDiscordConnect, its PKCE code verifier, and the server and " +
                              "channel from Discord's interaction. The server becomes a Viewer on the approved boards and gets a " +
-                             "read-only token for 365 days, replacing its old one. Each code works once, for 5 minutes.")
+                             "read-only token for 365 days, replacing its old one. Only boards the approver still owns are connected. " +
+                             "Each code works once, for 5 minutes. 409 when the approver already has the maximum number of tokens.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict)
             .Produces(StatusCodes.Status429TooManyRequests);
@@ -62,8 +63,8 @@ public static class DiscordEndpoints
 
         bot.MapGet("/discord/status", GetDiscordStatus)
             .WithName("getDiscordStatus")
-            .WithSummary("The connected Discord server's boards")
-            .WithDescription("The boards this server is connected to, with their channel limits, and when its token expires. " +
+            .WithSummary("Get the Discord server's boards")
+            .WithDescription("Returns the boards this server is connected to, with their channel limits, and when its token expires. " +
                              "Discord server tokens only.")
             .Produces(StatusCodes.Status403Forbidden);
 
@@ -71,7 +72,7 @@ public static class DiscordEndpoints
             .RequireRateLimiting(PreviewLimit)
             .WithName("getLinkPreview")
             .WithSummary("Preview a pasted PrikBoard link")
-            .WithDescription("What a link pasted in Discord points to: a card (readable id, title, description, color), a board " +
+            .WithDescription("Returns what a link pasted in Discord points to: a card (readable id, title, description, color), a board " +
                              "(name, description) or an open invite (board, role, expiry; never spent). Every other link gives " +
                              "the same 404: another host, a board or card this server can't see or that doesn't exist, a channel " +
                              "the board isn't previewed in, or a used, revoked or expired invite. Discord server tokens only.")
@@ -92,7 +93,7 @@ public static class DiscordEndpoints
             .RequireBoardRole(BoardRole.Owner)
             .WithName("listDiscordConnections")
             .WithSummary("List the Discord servers connected to a board")
-            .WithDescription("The Discord servers whose PrikBoard bot previews this board's links, with the channels it may do so in.");
+            .WithDescription("Lists the Discord servers whose PrikBoard bot previews this board's links, with the channels it may do so in.");
 
         board.MapDelete("/{guildId}", RemoveDiscordConnection)
             .RequireBoardRole(BoardRole.Owner)
@@ -106,7 +107,8 @@ public static class DiscordEndpoints
             .WithName("removeDiscordChannel")
             .WithSummary("Stop previewing a board in a Discord channel")
             .WithDescription("Removes one channel from where the server previews the board's links. Removing the last one " +
-                             "disconnects the server from the board. 404 when the server previews the board everywhere.");
+                             "disconnects the server from the board. 404 when the channel is not in the list, also when the server " +
+                             "previews the board in every channel.");
 
         return api;
     }

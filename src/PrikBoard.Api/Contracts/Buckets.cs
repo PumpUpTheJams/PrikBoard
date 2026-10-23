@@ -4,7 +4,7 @@ using PrikBoard.Api.Domain;
 namespace PrikBoard.Api.Contracts;
 
 /// <summary>
-/// A bucket: a named rectangle on the board. A card, image or drawing put down with its centre inside it (where it is the
+/// A bucket: a named rectangle on the board. A card, image or drawing put down with its center inside it (where it is the
 /// topmost bucket) belongs to it and moves with it.
 /// </summary>
 /// <param name="Id">Bucket identifier.</param>
@@ -15,7 +15,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Y">Top edge in canvas pixels, a multiple of the 20 px grid.</param>
 /// <param name="Width">Width in pixels, a multiple of 20 and at least 240.</param>
 /// <param name="Height">Height in pixels, a multiple of 20 and at least 160.</param>
-/// <param name="Collapsed">Folded up into a 120 px square in its top-right corner: its cards are hidden on the board (they keep their places, and still belong to it) until it is opened again.</param>
+/// <param name="Collapsed">Folded up into a 120 px square in its top-right corner: its cards, images and drawings are hidden on the board (they keep their places and still belong to it) until it is opened again.</param>
 /// <param name="StackedAt">Its place in the stack, the same for everyone: the later, the higher. Where buckets overlap, the topmost is drawn above the others and an item put there joins it. Drawing, moving, resizing, opening or filling a bucket puts it on top, and so does bringBucketToFront.</param>
 public record BucketDetail(
     Guid Id, Guid BoardId, string Name, BucketColor Color, int X, int Y, int Width, int Height, bool Collapsed, DateTimeOffset StackedAt)
@@ -24,7 +24,7 @@ public record BucketDetail(
         new(bucket.Id, bucket.BoardId, bucket.Name, bucket.Color, bucket.X, bucket.Y, bucket.Width, bucket.Height, bucket.Collapsed, bucket.StackedAt);
 }
 
-/// <summary>Draws a bucket on a board, on top of the others. The cards, images and drawings whose centre it covers join it. Coordinates snap to the 20 px grid.</summary>
+/// <summary>Draws a bucket on a board, on top of the others. The cards, images and drawings whose center it covers join it. Coordinates snap to the 20 px grid.</summary>
 /// <param name="Name">Bucket name.</param>
 /// <param name="Color">Outline color; defaults to Blue.</param>
 /// <param name="X">Left edge; omit X and Y to place the bucket to the right of the existing ones.</param>
@@ -41,8 +41,8 @@ public record CreateBucketRequest(
 
 /// <summary>
 /// Renames, recolors, moves and/or resizes a bucket. Omitted (null) fields stay unchanged.
-/// Moving a bucket carries its own cards, images and drawings along and changes no item's bucket, also where it overlaps
-/// another one. Giving a new X or Y together with a new Width or Height resizes it from a top or left corner or edge
+/// Moving a bucket carries its own cards, images and drawings along and changes no item's bucket, even where it ends up
+/// over another bucket. Giving a new X or Y together with a new Width or Height resizes it from a top or left corner or edge
 /// instead: its items stay where they are, those now outside it leave it, and loose ones it now covers join it.
 /// </summary>
 /// <param name="Name">New name.</param>
@@ -51,7 +51,7 @@ public record CreateBucketRequest(
 /// <param name="Y">New top edge.</param>
 /// <param name="Width">New width.</param>
 /// <param name="Height">New height.</param>
-/// <param name="Collapsed">True folds the bucket up into a square in its top-right corner, hiding its cards; false opens it again with its cards where they were. A collapsed bucket can be moved but not resized.</param>
+/// <param name="Collapsed">True folds the bucket up into a square in its top-right corner, hiding what is in it; false opens it again with everything where it was. A collapsed bucket can be moved but not resized.</param>
 /// <param name="CarryCardIds">
 /// Only with a move (X and/or Y without Width or Height): exactly these cards move along, instead of the cards in the
 /// bucket. Used to undo a move, where the cards that came along must go back. Ids not on the board are ignored.
@@ -76,7 +76,8 @@ public record UpdateBucketRequest(
 
 /// <summary>
 /// Puts cards into a bucket, in its free room row by row (in the order given), a grid step clear of the cards and images
-/// already in it. When they don't fit, the bucket grows towards <c>grow</c> by whole rows or columns, over its neighbours too.
+/// already there (its own and loose ones). When they don't fit, the bucket grows towards <c>grow</c> a row or column at a
+/// time, over neighboring buckets too.
 /// </summary>
 /// <param name="CardIds">The cards, all on the bucket's board, in the order they fill the free slots.</param>
 /// <param name="Grow">The side the bucket grows towards when it is full: Down (default), Right, Left or Up. Left and Up move its left or top edge out; what is in it stays.</param>

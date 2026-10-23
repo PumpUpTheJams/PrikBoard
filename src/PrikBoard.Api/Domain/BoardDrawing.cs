@@ -104,9 +104,9 @@ public class BoardDrawing : ICanvasItem
     }
 
     /// <summary>
-    /// Takes away the stroke at <paramref name="index"/>; the corner then moves in as far as the others allow (on the grid,
-    /// half the thickest line clear of each, as the web app places a new drawing), so taking away the stroke just added
-    /// gives back the drawing as it was.
+    /// Takes away the stroke at <paramref name="index"/>. The corner then moves in as far as the other strokes allow (on
+    /// the grid, as the web app places a new drawing, see <see cref="DrawingStroke.Inset"/>), so taking away the stroke
+    /// just added gives back the drawing as it was.
     /// </summary>
     public void RemoveStroke(int index)
     {
@@ -122,9 +122,9 @@ public class BoardDrawing : ICanvasItem
     /// <summary>
     /// Scales the drawing by (<paramref name="scaleX"/>, <paramref name="scaleY"/>) and then turns it
     /// <paramref name="degrees"/> clockwise, both about (<paramref name="pivotX"/>, <paramref name="pivotY"/>) on its canvas.
-    /// The points themselves change (the line widths don't), and the corner moves to the last grid line half the thickest
-    /// line clear of them, as for a new drawing, so the lines stay exactly where the transform puts them. Returns the
-    /// problem when the result would be bigger than <see cref="MaxSize"/> or leave the board, and changes nothing then.
+    /// The points themselves change (the line widths don't), and the corner moves to where a new drawing of them would
+    /// have it (<see cref="DrawingStroke.Inset"/>), so the lines stay exactly where the transform puts them. When the
+    /// result would be bigger than <see cref="MaxSize"/> or leave the board, returns the problem and changes nothing.
     /// </summary>
     public string? Transform(double scaleX, double scaleY, double degrees, double pivotX, double pivotY)
     {
@@ -193,8 +193,8 @@ public record DrawingStroke(int StrokeWidth, double[][] Points)
     }
 
     /// <summary>
-    /// How far a drawing of only this stroke would have its corner from 0 on one axis: the last grid line at least half
-    /// the line at full pressure (0.8 × the base width) before its first point.
+    /// Where a drawing of only this stroke would have its corner on one axis: the last grid line at least half the
+    /// line at full pressure (0.8 × the base width) before the stroke's lowest coordinate on that axis.
     /// </summary>
     public int Inset(Func<double[], double> axis) =>
         (int)Math.Floor((Points.Min(axis) - StrokeWidth * 0.8) / Layout.Grid) * Layout.Grid;

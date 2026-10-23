@@ -39,7 +39,7 @@ function clamp(r: Rect, containerWidth: number, containerHeight: number): Rect {
 }
 
 /**
- * A window floating over its offset parent (the board), moved by dragging `startMove` and resized from its right and
+ * A window floating over its offset parent (the board), moved by a press passed to `startMove` and resized from its right and
  * bottom edges. Its last size and place are remembered in localStorage. Null until the board has been measured.
  */
 export function useFloatingWindow(windowRef: RefObject<HTMLElement | null>, storageKey = STORAGE_KEY) {

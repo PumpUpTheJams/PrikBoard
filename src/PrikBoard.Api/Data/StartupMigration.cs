@@ -88,9 +88,9 @@ public static class StartupMigration
     }
 
     /// <summary>
-    /// Writes the file, then adds its row and runs <paramref name="refer"/>, which points its owner at it. The row has no
-    /// BoardId yet: that column comes with <see cref="StoredFileBoards"/>, which fills it in from the image, so the file is
-    /// already in its board's folder.
+    /// Writes the file, then adds its row and runs <paramref name="refer"/>, which points its owner at it. The row is
+    /// inserted without BoardId, a column that only comes with <see cref="StoredFileBoards"/> (which fills it in from the
+    /// image), but the file is already written to its board's folder.
     /// </summary>
     private static async Task SaveAsync(
         PrikBoardDbContext db, FileStore files, StoredFile file, byte[] data, FormattableString refer, CancellationToken ct)

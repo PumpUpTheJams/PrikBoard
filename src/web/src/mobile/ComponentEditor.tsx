@@ -21,7 +21,7 @@ interface ComponentEditorProps {
 }
 
 /**
- * A component written on a screen of its own, new or opened with its edit button: the same frame and editor as on the
+ * A component written on a screen of its own, new or opened with its edit button: the same component view and editor as on the
  * desktop card, kept as a draft until Add or Save (Cancel drops it, and nothing reaches the board).
  */
 export function ComponentEditor({ kind, card, cards, component, onCancel, onSave, onRemove }: ComponentEditorProps) {
@@ -76,7 +76,7 @@ export function ComponentEditor({ kind, card, cards, component, onCancel, onSave
           component={shown}
           selected={false}
           lifted={false}
-          // Removing is a button of its own below (the frame's small one is hidden here).
+          // Removing has a button of its own below; the small remove button in the component's header is hidden here.
           onSelect={() => {}}
           onTitle={(title) => void change({ title: title || null })}
           onRemove={onRemove ?? onCancel}

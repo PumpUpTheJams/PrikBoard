@@ -13,7 +13,7 @@ namespace PrikBoard.Api.Data;
 /// <remarks>
 /// The file is written before its row is committed, and a row is only inserted together with the row that refers to it.
 /// A failed save or a crash therefore leaves at most a file without a row, never a row without a file. <see cref="SweepAsync"/>
-/// deletes both rows nothing refers to (deleted boards and users, purged images, replaced avatars) and such stray files.
+/// deletes both rows nothing refers to (deleted boards and users, purged images, replaced or removed avatars) and such stray files.
 /// </remarks>
 public sealed class FileStore : IDisposable
 {
@@ -124,7 +124,8 @@ public sealed class FileStore : IDisposable
         {
             return null;
         }
-        // Content never changes for an id, so entries only leave to make room or when the file is deleted.
+        // Content never changes for an id, so entries never go stale: they leave to make room, after an hour unused, or
+        // when the file is deleted.
         _cache.Set(file.Id, data, new MemoryCacheEntryOptions { Size = data.Length, SlidingExpiration = TimeSpan.FromHours(1) });
         return data;
     }

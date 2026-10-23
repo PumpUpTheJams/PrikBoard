@@ -21,7 +21,7 @@ interface ToolRailProps {
   onToolChange: (tool: Tool) => void
   /** Fill for new cards. */
   fill: CardColor
-  /** A press on the card button: dragging from there sticks a new card where it is released. */
+  /** A press on the card button: dragging from there adds a new card where it is released. */
   onCardPointerDown?: (e: PointerEvent<HTMLButtonElement>) => void
   /**
    * While a card is dragged (or a new one carried), the card button is a trash can to drop it on; `over` while the

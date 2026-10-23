@@ -32,7 +32,7 @@ public class CardHistoryApiTests(PrikBoardApiFactory factory) : IClassFixture<Pr
         var me = await _client.MeAsync();
         var (toDo, doing) = (board.Buckets[0], board.Buckets[1]);
         var card = await _client.CreateCardAsync(board.Id, "First title");
-        // A title given right after creating is part of it, so a component comes first.
+        // A title given right after creating is part of the Created change, so a component comes first.
         var component = await Ok<CardComponentDetail>(await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Checklist", title = "Steps" }));
         await Patch(card.Id, new { title = "Second title", tags = new[] { "backend" }, assigneeIds = new[] { me.Id } });
         (await _client.PatchAsJsonAsync($"/api/cards/{card.Id}/components/{component.Id}", new { items = new[] { new { text = "Do it" } } })).EnsureSuccessStatusCode();
@@ -83,7 +83,7 @@ public class CardHistoryApiTests(PrikBoardApiFactory factory) : IClassFixture<Pr
     {
         var board = await _client.CreateBoardAsync("Merging");
         var card = await _client.CreateCardAsync(board.Id, "Start");
-        // Named right after sticking it on: part of creating it.
+        // Named right after creating it, so part of the Created change.
         await Patch(card.Id, new { title = "Named" });
         (await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Text" })).EnsureSuccessStatusCode();
 

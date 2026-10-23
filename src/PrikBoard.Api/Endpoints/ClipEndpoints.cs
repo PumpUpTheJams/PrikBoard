@@ -30,7 +30,8 @@ public static class ClipEndpoints
             .WithSummary("Copy cards, buckets, images and drawings")
             .WithDescription("Returns the items as a clip: one self-contained piece of JSON with the cards' title, fill, tags, assignees " +
                              "and content, the images (bytes as base64) and drawings on them, buckets with everything in them, and images " +
-                             "and drawings on the board. Changes nothing. Pass the clip to pasteItems on any board, on this server or " +
+                             "and drawings on the board. Changes nothing, even with cut (Editors only): that only marks the clip, so " +
+                             "pasting it on another board of this server moves the items. Pass the clip to pasteItems on any board, on this server or " +
                              $"another PrikBoard server. At most {BoardClip.MaxCards} cards, {BoardClip.MaxBuckets} buckets and " +
                              $"{BoardClip.MaxImageBytes / 1024 / 1024} MB of images per clip.")
             .ProducesValidationProblem();
@@ -47,7 +48,9 @@ public static class ClipEndpoints
                              "bucketId (a clip of cards alone) the cards go into free spots in that bucket; with neither, cards go into " +
                              "the board's first bucket and anything else to a free spot. Tags the board doesn't have yet are added with " +
                              "their colors; assignees stay only when they can be assigned here. Links between the pasted cards point at " +
-                             "the new cards; links to other cards stay, or, for a clip from another server, become full links to it. A clip " +
+                             "the new cards; links to other cards stay, or, for a clip from another server, become full links to it. " +
+                             "A cut pasted on another board of this server moves the items: the originals go to their board's trash " +
+                             "(you need Editor there) and come back as moved; on the board it was cut from it is a 400. A clip " +
                              "from a newer PrikBoard (a newer version, or fields this server doesn't know) is refused with a 400 keyed on " +
                              "clip.version.")
             .ProducesValidationProblem();

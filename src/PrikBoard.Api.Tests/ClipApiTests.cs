@@ -6,7 +6,7 @@ using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
 
-/// <summary>Copying cards into a clip (copyItems) and pasting it on a board (pasteItems).</summary>
+/// <summary>Copying or cutting cards, buckets, images and drawings into a clip (copyItems) and pasting it on a board (pasteItems).</summary>
 public class ClipApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiFactory>
 {
     private static readonly double[][] Squiggle = [[2, 2, 0.5], [40, 10, 0.5], [100, 30, 1]];
@@ -213,7 +213,7 @@ public class ClipApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var clip = (await copied.Content.ReadFromJsonAsync<JsonObject>())!;
         Assert.Equal(BoardClip.CurrentVersion, (int)clip["version"]!);
 
-        // The top-left of what is on the board (Sprint's corner) goes to 0, 3000.
+        // The clip's top-left (Sprint's corner) goes to 0, 3000.
         var pasted = await PasteAsync(owner, to.Id, new { clip, x = 0, y = 3000 });
         Assert.Null(pasted.Bucket);
         Assert.Equal(["Sprint", "Later"], pasted.Buckets.Select(b => b.Name));
@@ -257,7 +257,7 @@ public class ClipApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var placed = await PasteAsync(owner, board.Id, new { clip = withImage });
         Assert.Equal("loose.png", Assert.Single(placed.Images).FileName);
 
-        // As PR 1's servers wrote it: version 1, no buckets, no bucketId on items.
+        // As the first clip version was written: version 1, no buckets, no bucketId on items.
         var card = await owner.CreateCardAsync(board.Id, "Old style");
         var old = await CopyAsync(owner, board.Id, card.Id);
         old["version"] = 1;
@@ -342,7 +342,7 @@ public class ClipApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         Assert.Equal(HttpStatusCode.BadRequest, sameBoard.StatusCode);
         Assert.Contains("clip.cut", await sameBoard.Content.ReadAsStringAsync());
 
-        // The viewer's own board: they can paste there, but not take the card off the board they only view.
+        // Pasting the cut on the viewer's own board is refused too: they can't take the card off a board they only view.
         var own = await viewer.CreateBoardAsync("Viewer's own");
         var notTheirs = await viewer.PostAsJsonAsync($"/api/boards/{own.Id}/paste", new { clip = cut, x = 0, y = 0 });
         Assert.Equal(HttpStatusCode.BadRequest, notTheirs.StatusCode);

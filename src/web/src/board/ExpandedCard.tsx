@@ -34,7 +34,7 @@ import { useFloatingWindow } from './useFloatingWindow'
 
 /** What the board needs from the open card: its canvas, and whether a paste is meant for it. */
 export interface ExpandedCardHandle extends CardCanvasHandle {
-  /** The pointer is over the window, or focus is in it. */
+  /** Whether a paste is meant for the card: the pointer is over the window, or focus is in it. */
   wantsPaste: () => boolean
   /** Whether a screen point is over the window. */
   contains: (client: Point) => boolean
@@ -45,7 +45,7 @@ export interface ExpandedCardHandle extends CardCanvasHandle {
 interface ExpandedCardProps {
   card: CardDetail
   bucket: BucketDetail | undefined
-  /** Focus and select the title, for a card that was just stuck on. */
+  /** Focus and select the title, for a card just added to the board. */
   focusTitle: boolean
   onChange: (changes: CardChanges) => Promise<boolean>
   /** The board's tags and the people who can be assigned, to pick from. */
@@ -111,7 +111,7 @@ export function ExpandedCard(props: ExpandedCardProps) {
   const titleRef = useRef<HTMLInputElement & HTMLTextAreaElement>(null)
   const { rect, moving, startMove, startResize } = useFloatingWindow(dialogRef)
 
-  // Focus goes to the window, or for a card just stuck on the board to its title with the text selected, so typing
+  // Focus goes to the window, or, for a card just added to the board, to its title with the text selected, so typing
   // replaces it. Only once the window shows: it is hidden until it has measured the board, and hidden things can't
   // take focus.
   const shown = rect !== null
@@ -398,7 +398,7 @@ function AssigneeChips({ assignees, highlight, onRemove, onAdd }: AssigneeChipsP
   )
 }
 
-/** The card's ID. Clicking it copies a link that opens this card. */
+/** The card's readable id (MPCT-415). Clicking it copies a link that opens this card. */
 export function CardIdButton({ card }: { card: CardDetail }) {
   /** Whether the last copy worked; null shows the ID again. */
   const { copied, copy } = useCopyLink(card)

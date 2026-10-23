@@ -14,14 +14,14 @@ interface BoardImageViewProps {
   rect?: Rect
   selected: boolean
   lifted: boolean
-  /** Drawn above the rest, with the bucket that was opened or pressed last. */
+  /** Drawn above the rest, with the topmost open bucket it is in. */
   front?: boolean
   onPointerDown?: (e: PointerEvent<HTMLElement>) => void
   /** In a list: shows the image on its own. */
   onOpen?: () => void
   /** A press on a corner or edge handle (shown while selected, for editors) starts resizing from there. */
   onResizePointerDown?: (e: PointerEvent<HTMLElement>, handle: ResizeHandle) => void
-  /** Asks to delete the image (the caller confirms first); without it there is no trash button (viewers). */
+  /** Deletes the image, without asking first (undo brings it back); without it there is no trash button (viewers). */
   onDelete?: () => void
 }
 

@@ -182,7 +182,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var (doing, done) = (board.Buckets[1], board.Buckets[2]);
         await CreateCard(board.Id, new { title = "First", bucketId = doing.Id });
         await CreateCard(board.Id, new { title = "Done's", bucketId = done.Id });
-        // Done (stacked on top) lies over Doing below its first row, folded into a square over its second slot.
+        // Done (stacked on top) moves over Doing, below Doing's first row, and folds into a square over Doing's second slot.
         (await _client.PatchAsJsonAsync($"/api/buckets/{done.Id}", new { x = doing.X, y = doing.Y + 140 })).EnsureSuccessStatusCode();
         (await _client.PatchAsJsonAsync($"/api/buckets/{done.Id}", new { collapsed = true })).EnsureSuccessStatusCode();
 
@@ -207,7 +207,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var named = await MoveCard(card.Id, new { x, y, bucketId = todo.Id });
         var created = await CreateCard(board.Id, new { title = "New", x, y, bucketId = todo.Id });
         var elsewhere = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/move", new { x, y, bucketId = done.Id });
-        // Named, it joins a collapsed bucket too (as by bucketId alone), as a redo of a drop on one does.
+        // Named with the position, a collapsed bucket takes the card too, as with bucketId alone; redoing a drop on one needs that.
         (await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { collapsed = true })).EnsureSuccessStatusCode();
         await MoveCard(card.Id, new { x, y });
         var collapsed = await MoveCard(card.Id, new { x, y, bucketId = todo.Id });
@@ -270,7 +270,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     {
         var board = await CreateBoard("Stacked");
         var todo = board.Buckets[0];
-        // Drawn later, so on top of To do's growth below it.
+        // Created later, so it is stacked above To do, right where To do would grow.
         var below = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/buckets",
             new { name = "Parking", x = todo.X, y = todo.Y + todo.Height, width = todo.Width, height = 300 });
         below.EnsureSuccessStatusCode();
@@ -278,7 +278,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         CardDetail last = null!;
         for (var i = 0; i < 5; i++) last = await CreateCard(board.Id, new { title = $"Card {i}", bucketId = todo.Id });
 
-        // To do holds four; the fifth goes below the parking bucket instead of under it, and stays in To do.
+        // To do holds four; the fifth goes below the parking bucket instead of hidden under it, and still joins To do.
         Assert.Equal(todo.Id, last.BucketId);
         Assert.True(last.Y >= todo.Y + todo.Height + 300, $"Expected the card below the parking bucket, got y {last.Y}.");
     }

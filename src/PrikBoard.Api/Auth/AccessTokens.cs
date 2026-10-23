@@ -8,7 +8,7 @@ namespace PrikBoard.Api.Auth;
 
 /// <summary>
 /// Personal access tokens: <c>pb_pat_</c>, 43 characters of randomness (32 bytes, base64url) and a 6-character checksum.
-/// The prefix lets the API (and secret scanners) recognise them without a database lookup; the checksum rejects typos
+/// The prefix lets the API (and secret scanners) recognize them without a database lookup; the checksum rejects typos
 /// and garbage before one.
 /// </summary>
 public static class AccessTokens

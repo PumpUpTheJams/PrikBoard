@@ -38,7 +38,7 @@ public sealed record CreateAccessTokenRequest(
 /// <param name="Details">The token as it will be listed.</param>
 public sealed record CreatedAccessToken(string Token, AccessTokenDetail Details);
 
-/// <summary>You approve signing an app in (the VS Code extension), from the PrikBoard page the app opened.</summary>
+/// <summary>Approves an app's sign-in (the VS Code extension), from the PrikBoard page the app opened.</summary>
 /// <param name="Name">What the app calls itself, for example "VS Code on laptop"; the token gets this name.</param>
 /// <param name="CodeChallenge">The app's PKCE code challenge: base64url SHA-256 of its code verifier (S256), 43 characters.</param>
 /// <param name="RedirectUri">Where the app listens for the code: a loopback address (http://127.0.0.1, localhost or [::1] with a port). Omit when you will paste the code into the app.</param>

@@ -10,9 +10,9 @@ namespace PrikBoard.Api.Live;
 public sealed class LiveViewers
 {
     /// <summary>
-    /// One connection. Replaced as a whole on change, so readers never see half an update. Someone not signed in has a
-    /// principal id of their own connection's. <paramref name="Visitor"/>: on a public board without being a member,
-    /// which shows people to its visitors or not (<paramref name="ShowsPeople"/>).
+    /// One connection. Replaced as a whole on change, so readers never see half an update. Someone not signed in gets a
+    /// random principal id for this connection. <paramref name="Visitor"/>: on a public board without being a member;
+    /// <paramref name="ShowsPeople"/>: whether that board shows its people to visitors.
     /// </summary>
     public sealed record Entry(
         string ConnectionId,
@@ -41,7 +41,7 @@ public sealed class LiveViewers
         lock (gate) return connections.GetValueOrDefault(connectionId);
     }
 
-    /// <summary>Applies a change to a connection that is still open; answers the new entry, or null when it is gone.</summary>
+    /// <summary>Applies a change to a connection that is still open; returns the new entry, or null when it is gone.</summary>
     public Entry? Update(string connectionId, Func<Entry, Entry> change)
     {
         lock (gate)

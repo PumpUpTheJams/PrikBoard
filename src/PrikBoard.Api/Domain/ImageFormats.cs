@@ -3,7 +3,7 @@ using System.Buffers.Binary;
 namespace PrikBoard.Api.Domain;
 
 /// <summary>
-/// Recognises the supported image formats from their first bytes and reads the pixel size from the header, without
+/// Recognizes the supported image formats from their first bytes and reads the pixel size from the header, without
 /// decoding the image. The declared content type of an upload is never trusted. SVG is deliberately not supported,
 /// because it can carry script.
 /// </summary>

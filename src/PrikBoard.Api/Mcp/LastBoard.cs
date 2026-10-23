@@ -6,10 +6,10 @@ using PrikBoard.Api.Data;
 namespace PrikBoard.Api.Mcp;
 
 /// <summary>
-/// The board each caller last used through the MCP tools (<see cref="Domain.Principal.LastBoardId"/>), so an agent that
-/// connects is told which board that was and can ask its user whether they mean it, rather than looking boards up.
-/// The board id is kept in the memory cache too, as every tool call records it and every MCP request (stateless) reads it;
-/// access to it is checked on every read.
+/// The board each caller last used through the MCP tools (<see cref="Domain.Principal.LastBoardId"/>). An agent that
+/// connects is told which board that was, so it can ask its user whether they mean it instead of looking boards up.
+/// The id is also kept in the memory cache, since every tool call records it and every MCP request (stateless) reads it;
+/// access to the board is checked on every read.
 /// </summary>
 internal static class LastBoard
 {
@@ -17,7 +17,7 @@ internal static class LastBoard
 
     private static string Key(Guid principalId) => "mcp-last-board:" + principalId;
 
-    /// <summary>Records that the caller used <paramref name="boardId"/>; a database write only when it is another board than last time.</summary>
+    /// <summary>Records that the caller used <paramref name="boardId"/>; writes to the database only when it is a different board from last time.</summary>
     public static async Task RememberAsync(HttpContext http, Guid boardId)
     {
         var cache = http.RequestServices.GetRequiredService<IMemoryCache>();
@@ -90,8 +90,8 @@ internal static class LastBoard
         }
         else
         {
-            parts.Add($"Its agent rules (last changed {rules.RulesUpdatedAt:yyyy-MM-dd HH:mm:ss}Z), written by its owners, follow; " +
-                      "follow them in every action on this board, unless they conflict with your user's instructions. With these, " +
+            parts.Add($"Its agent rules (last changed {rules.RulesUpdatedAt:yyyy-MM-dd HH:mm:ss}Z), written by its owners, are below. " +
+                      "Follow them in every action on this board, unless they conflict with your user's instructions. With these, " +
                       $"you can call create_card on it without get_board.\n<board-rules>\n{rules.Rules}\n</board-rules>");
         }
         brief = string.Join(' ', parts);

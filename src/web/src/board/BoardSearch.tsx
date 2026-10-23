@@ -20,7 +20,7 @@ interface BoardSearchProps {
   results: SearchResult[]
   /** The active result: outlined on the board, highlighted in the list. */
   current: string | null
-  /** The list folds away while you work on the board or in the open card, and comes back in the field. */
+  /** The list folds away while you work on the board or in the open card, and comes back when you return to the field. */
   listOpen: boolean
   onListOpenChange: (open: boolean) => void
   onMove: (direction: 1 | -1) => void
@@ -35,7 +35,7 @@ interface BoardSearchProps {
 }
 
 /**
- * The search at the top of the board, opened with / or Ctrl+F: a field with the number of matches, and the matching
+ * The search at the top of the board, opened with / or Ctrl/Cmd+F: a field with the number of matches, and the matching
  * cards listed under it. ↑ and ↓ move through them, Enter opens one, Escape closes the search.
  */
 export function BoardSearch(props: BoardSearchProps) {

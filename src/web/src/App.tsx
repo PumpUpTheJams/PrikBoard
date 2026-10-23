@@ -54,7 +54,7 @@ const inviteFromHash = () => window.location.hash.match(/^#\/invite\/([\w-]+)/)?
 const adminFromHash = () => window.location.hash === '#/admin'
 
 export default function App() {
-  // undefined while checking the session, null when signed out.
+  // Undefined while checking the session, null when signed out.
   const [user, setUser] = useState<Caller | null | undefined>(undefined)
   const [invite, setInvite] = useState(inviteFromHash)
   const [connect, setConnect] = useState(connectFromHash)
@@ -186,8 +186,8 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
     void loadBoards().finally(() => setRecheckedId(selectedId))
   }, [selectedMissing, selectedId, recheckedId, loadBoards])
 
-  // Fall back to the newest board when nothing is selected (the mobile layout lists the boards instead); a board you
-  // can't open gets the sad page instead.
+  // Fall back to the newest board when nothing is selected (the mobile layout lists the boards instead). A board you
+  // can't open gets the sad page.
   const activeBoard =
     adminView || selectedMissing ? null : (boards?.find((b) => isBoard(b, selectedId)) ?? (mobile ? null : boards?.[0]) ?? null)
   const isOwner = activeBoard?.yourRole === 'Owner'

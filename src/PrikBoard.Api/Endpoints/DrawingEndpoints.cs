@@ -61,7 +61,7 @@ public static class DrawingEndpoints
             .WithSummary("Scale or rotate a drawing")
             .WithDescription("Scales a drawing (scaleX, scaleY) and then turns it clockwise (rotation, in degrees), both about a pivot " +
                              "on its canvas (pivotX, pivotY; by default the middle of its box). Its points change and its box follows " +
-                             "them; line widths stay. On the board it joins the bucket containing its new centre. " +
+                             "them; line widths stay. On the board it joins the bucket containing its new center. " +
                              $"409 when it would reach more than {BoardDrawing.MaxSize} px from its corner or leave the board.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
@@ -188,8 +188,8 @@ public static class DrawingEndpoints
             .FirstOrDefaultAsync(ct);
         if (content is null) return TypedResults.NotFound();
 
-        // contentUrl names the revision, so that URL always gets these strokes and can be cached (privately: every request
-        // is authenticated). Any other URL, for an old revision or none, has to ask again.
+        // contentUrl names the revision, so that URL always gets these strokes and can be cached (privately: access is
+        // checked on every request). Any other URL, for an old revision or none, has to ask again.
         response.Headers[HeaderNames.CacheControl] = v == content.Revision ? "private, max-age=31536000, immutable" : "private, no-cache";
         return TypedResults.Ok(DrawingContentDetail.From(drawingId, content.Strokes));
     }

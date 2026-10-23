@@ -29,8 +29,8 @@ export const touches = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + 
 export const contains = (r: Rect, p: Point) => p.x >= r.x && p.x < r.x + r.width && p.y >= r.y && p.y < r.y + r.height
 
 /**
- * Whether Space is held down: a left press then pans the canvas, as the middle button does. Fields, buttons, menus and
- * dialogs keep the key.
+ * Whether Space is held down: a left press then pans the canvas, as the middle button does. Space pressed in a field,
+ * button, menu or dialog is left to it.
  */
 export function useSpaceHeld(): boolean {
   const [held, setHeld] = useState(false)

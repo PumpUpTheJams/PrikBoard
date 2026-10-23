@@ -83,7 +83,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             card.PrimitiveCollection(n => n.Tags).IsRequired();
             card.PrimitiveCollection(n => n.AssigneeIds).IsRequired();
             card.Property(n => n.Components).HasColumnType("jsonb").HasConversion(CardComponentsJson.Converter, CardComponentsJson.Comparer);
-            // Deleting a bucket leaves its cards on the board as loose cards.
+            // A card still in a bucket when the bucket is purged stays on the board, loose.
             card.HasOne<Bucket>()
                 .WithMany()
                 .HasForeignKey(n => n.BucketId)

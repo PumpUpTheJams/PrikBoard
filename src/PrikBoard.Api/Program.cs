@@ -74,7 +74,8 @@ builder.Services.AddMcpServer(options =>
     .WithTools<BoardTools>(McpCall.Json)
     .WithRequestFilters(filters => filters.AddCallToolFilter(McpCall.RulesReminder));
 
-// Per-principal limits on endpoints that take guessable input (email lookup, invite tokens, app sign-in codes).
+// Per-caller limits (by user, else by IP address) on endpoints that take guessable input (email lookup, invite tokens,
+// app sign-in and Discord connect codes).
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -99,7 +100,8 @@ builder.Services.AddRateLimiter(options =>
             Window = TimeSpan.FromMinutes(1),
         }));
 
-    // Every request with a personal access token counts against that token, so a leaked token in a loop cannot hammer the API.
+    // Every request with a PrikBoard access token counts against its principal (the token's agent, or its owner for app
+    // tokens), so a leaked token in a loop cannot hammer the API.
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
         context.User.FindFirstValue(ApiScopes.IssuerIdClaim) == Agent.AccessTokenIssuer
             ? RateLimitPartition.GetFixedWindowLimiter(context.User.FindFirstValue(UserPrincipal.PrincipalClaim)!, _ => new FixedWindowRateLimiterOptions
@@ -116,20 +118,11 @@ builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document,
         Title = "PrikBoard API",
         Version = "v1",
         Description = """
-            PrikBoard is a board of cards for small project management.
-            A board is a freeform canvas holding buckets (named rectangles, by default "To do", "Doing" and "Done")
-            and cards (200x120 px cards). A card belongs to the topmost bucket containing its centre, or is loose.
-            Boards are members-only, with roles Viewer (read), Editor (change content) and Owner (manage the board and its members).
-            A 404 means "not found, or you are not a member"; a 403 means your role (or token scope) is too low.
-            Start with listBoards, then getBoard for a complete snapshot of a project.
-            Progress work by moving cards between buckets with moveCard and a bucketId; the server finds a free spot.
-            Coordinates are canvas pixels from the top-left and snap to a 20 px grid.
-            Machines send "Authorization: Bearer <token>". A personal access token (pb_pat_..., made by a person in
-            PrikBoard) acts as an agent of its own on that person's boards, with at most the role it was given.
-            An OAuth 2.0 access token from a configured identity provider (usually the Client Credentials grant for the
-            audience api://prikboard) acts as an agent too: call whoAmI and ask a board owner to add your issuer and
-            client id (addBoardAgent). Boards such an agent creates are its own.
-            Scope boards:read allows GET requests; boards:write allows everything.
+            PrikBoard is a board of cards for small projects: buckets such as To do, Doing and Done, with cards in them.
+            Start with listBoards, then getBoard; move work between buckets with moveCard.
+
+            Boards are members-only: a 404 means not found or not a member, a 403 that your role or token scope is too low.
+            Machines send a bearer token: a personal access token (pb_pat_...) or an OAuth access token (see whoAmI).
             """,
     };
 
@@ -169,7 +162,8 @@ app.UseStatusCodePages();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
-// importBoard reads its body twice: bound to the file, and again as plain JSON for fields this server doesn't know.
+// importBoard and pasteItems read their body twice: once bound to the request, and again as plain JSON for fields this
+// server doesn't know.
 app.Use((context, next) =>
 {
     if (context.GetEndpoint()?.Metadata.GetMetadata<BufferedBody>() is not null) context.Request.EnableBuffering();
@@ -181,7 +175,7 @@ app.Use((context, next) =>
 app.MapOpenApi().AllowAnonymous();
 app.MapHealthChecks("/health").AllowAnonymous();
 
-// Interactive API reference at /scalar. People sign in first (with the default provider, GitHub), so "Try it"
+// Interactive API reference at /scalar. People sign in first (with the default provider, usually GitHub), so "Try it"
 // requests carry their session cookie. Machines can paste a Bearer token in its authentication panel instead.
 app.MapScalarApiReference("/scalar", options => options
         .WithTitle("PrikBoard API")
@@ -189,7 +183,8 @@ app.MapScalarApiReference("/scalar", options => options
         .DisableAgent())
     .RedirectToSignIn();
 
-// Everything under /api requires a signed-in user (the fallback policy) unless an endpoint allows anonymous access.
+// Everything under /api requires a caller, a session or a token with the right scope (the fallback policy), unless an
+// endpoint allows anonymous access or visitors.
 var api = app.MapGroup("/api");
 api.MapAuthEndpoints();
 api.MapBoardEndpoints();
@@ -210,7 +205,7 @@ api.MapAdminEndpoints();
 // MCP at /mcp, outside /api where MCP clients expect it; each tool checks board access itself.
 app.MapMcp("/mcp").RequireAuthorization(AuthSetup.McpPolicy).ExcludeFromDescription();
 
-// Live updates (SignalR): checks board membership itself, per board joined.
+// Live updates (SignalR): the hub checks board access itself, per board joined.
 api.MapHub<BoardHub>("/live").RequireAuthorization(AuthSetup.LivePolicy).NoBoardScope();
 
 app.Run();

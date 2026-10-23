@@ -6,7 +6,7 @@ using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
 
-/// <summary>The trash (cards deleted in the last days, put back from there) and buckets that fold up into a square.</summary>
+/// <summary>The trash (recently deleted cards, which can be put back from there) and buckets that fold up into a square.</summary>
 public class TrashAndCollapseApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiFactory>, IAsyncLifetime
 {
     private HttpClient _client = null!;
@@ -129,9 +129,9 @@ public class TrashAndCollapseApiTests(PrikBoardApiFactory factory) : IClassFixtu
         var inside = await _client.CreateCardAsync(board.Id, "Inside");
 
         var collapsed = await Ok<BucketDetail>(await _client.PatchAsJsonAsync($"/api/buckets/{toDo.Id}", new { collapsed = true }));
-        // A card put down where the collapsed bucket is stays loose (it would vanish otherwise)...
+        // A card put down inside the collapsed bucket's open area stays loose (it would vanish otherwise)...
         var loose = await CreateCard(board.Id, new { title = "Loose", x = toDo.X + 20, y = toDo.Y + 300 });
-        // ...but one sent into it by name goes in.
+        // ...but one sent into it by bucketId goes in.
         var sent = await CreateCard(board.Id, new { title = "Sent", bucketId = toDo.Id });
         var resize = await _client.PatchAsJsonAsync($"/api/buckets/{toDo.Id}", new { width = 600 });
         var moved = await Ok<BucketDetail>(await _client.PatchAsJsonAsync($"/api/buckets/{toDo.Id}", new { x = toDo.X + 1000 }));

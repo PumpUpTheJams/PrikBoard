@@ -27,13 +27,13 @@ interface ComponentFrameProps {
   onHeadPointerDown?: (e: PointerEvent<HTMLElement>) => void
   /**
    * A press on a corner or edge handle (shown while selected) starts resizing from there. Without it there are no
-   * handles (one of several selected).
+   * handles, as when it is one of several selected.
    */
   onResizePointerDown?: (e: PointerEvent<HTMLElement>, handle: ResizeHandle) => void
   /** A press in the component's content selects it (the header and handles select it as they start a gesture). */
   onSelect: () => void
   onTitle: (title: string) => void
-  /** Asks to remove the component (the canvas confirms first). */
+  /** Removes the component, without asking first (undo brings it back). */
   onRemove: () => void
   /**
    * Opens the component in an editor of its own (the mobile layout edits there): an edit button at the end of the

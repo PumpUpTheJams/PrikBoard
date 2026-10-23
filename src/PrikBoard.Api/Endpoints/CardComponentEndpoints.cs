@@ -21,9 +21,9 @@ public static class CardComponentEndpoints
             .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
             .WithName("addCardComponent")
             .WithSummary("Add a component to a card")
-            .WithDescription("Adds a text, checklist or links component to the card's content. Without x and y it goes in the first " +
-                             $"free spot on the card's canvas. A card has at most {CardComponent.MaxComponents} components. " +
-                             "To put back a removed component, send it with the id it had.")
+            .WithDescription("Adds a Text, Checklist or Links component to the card. Without x and y it goes in the first " +
+                             $"free spot on the card's canvas. A card has at most {CardComponent.MaxComponents} components (409 when full). " +
+                             "To put back a removed component, send it with the id it had (409 when the card already has that id).")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
 
@@ -31,15 +31,17 @@ public static class CardComponentEndpoints
             .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
             .WithName("updateCardComponent")
             .WithSummary("Edit, move or resize a component")
-            .WithDescription("Changes any of a component's title, content (text, checklist items or links, whichever fits its kind), " +
-                             "position and size. Omitted fields stay unchanged; a list that is given replaces the component's whole list. " +
-                             "appendText, addItems, checkItems and uncheckItems change a Text or Checklist component without sending its content back.")
+            .WithDescription("Changes any of a component's title, content (text, checklist items or links, whichever fits its kind; " +
+                             "other content is a 400), position and size. Omitted fields stay unchanged; a list that is given replaces " +
+                             "the component's whole list. appendText, addItems, checkItems and uncheckItems change a Text or Checklist " +
+                             "component without sending its content back; checkItems and uncheckItems name items by their text, ignoring case.")
             .ProducesValidationProblem();
 
         components.MapDelete("/{componentId:guid}", DeleteCardComponent)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
             .WithName("deleteCardComponent")
-            .WithSummary("Remove a component from a card");
+            .WithSummary("Remove a component from a card")
+            .WithDescription("Removes the component from the card. To undo, add it again with addCardComponent and the id it had.");
 
         return api;
     }
@@ -118,7 +120,8 @@ public static class CardComponentEndpoints
 
     /// <summary>
     /// Builds the components of a new card, laying out the ones without a position. Returns a problem (keyed on
-    /// "components[i].field", after <paramref name="keyPrefix"/>) for content that does not fit a component's kind or an invalid link.
+    /// "components[i].field", after <paramref name="keyPrefix"/>) for a missing kind, content that does not fit the kind,
+    /// X without Y or an invalid link.
     /// </summary>
     internal static ValidationProblem? BuildAll(Card card, IReadOnlyList<NewCardComponent> requests, string keyPrefix = "")
     {

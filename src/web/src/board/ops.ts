@@ -21,9 +21,9 @@ import { loadDrawingStrokes, type Reshape } from './drawings'
 import { cardEdit, componentEdit, created, deleted, patched, reshaped, snap, step, target, type UndoChange, type UndoEntry } from './undo'
 
 /**
- * A change to the board as a request and the undo step it makes from the result, to hand to a RecordingRun (or the
- * board's `settle`) spread out: `run(...ops.editCard(card, { title }))`. The board canvas, the card's canvas and the
- * mobile layout make the same changes through these, so they are recorded for undo the same way everywhere.
+ * A change to the board: the request, and a function that builds its undo step from the result. Spread it into a
+ * RecordingRun (or the board's `settle`): `run(...ops.editCard(card, { title }))`. The board canvas, the card's canvas
+ * and the mobile layout make the same changes through these, so undo records them the same way everywhere.
  */
 export type Op<T> = [action: () => Promise<T>, describe: (result: T) => UndoEntry | null]
 
@@ -36,7 +36,7 @@ export const pastedSummary = (pasted: PastedItems) =>
     [pasted.drawings.filter((d) => !d.cardId).length, 'drawing'],
   ])
 
-/** Whether a component has nothing in it: removing it then needs no toast to undo it (it still can be). */
+/** Whether a component is empty. Removing an empty one shows no undo toast, though it can still be undone. */
 export const isEmptyComponent = (c: CardComponent) => !c.text && !c.items?.length && !c.links?.length && !c.title
 
 export const ops = {
@@ -53,8 +53,8 @@ export const ops = {
   ],
 
   /**
-   * Adds copied items (a clip) to the board as one step; undo deletes the buckets, cards, and images and drawings on the
-   * board it added (the images and drawings on the cards go with them).
+   * Adds copied items (a clip) to the board as one step. Undo deletes the buckets, cards, images and drawings it added
+   * (images and drawings on the pasted cards go with their cards).
    */
   paste: (boardId: string, clip: BoardClip, place: PastePlace, label = 'Paste'): Op<PastedItems> => [
     () => api.pasteItems(boardId, clip, place),

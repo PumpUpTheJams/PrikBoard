@@ -1,4 +1,4 @@
-/** Colors that tell people apart on the board (drag outlines, presence rings); readable on both themes. */
+/** Colors that tell people apart on the board (drag outlines, presence rings), each readable on the dark board. */
 const colors = ['#f2994a', '#56ccf2', '#6fcf97', '#bb6bd9', '#eb5757', '#f2c94c', '#2d9cdb', '#9b51e0']
 
 /** A stable color per person or agent, so everyone sees the same person in the same color. */

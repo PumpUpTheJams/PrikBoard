@@ -40,7 +40,7 @@ public partial class Board
     public List<Card> Cards { get; set; } = [];
     /// <summary>Images on the canvas and images attached to cards.</summary>
     public List<BoardImage> Images { get; set; } = [];
-    /// <summary>Freehand pen strokes on the canvas and on cards.</summary>
+    /// <summary>Freehand drawings on the canvas and on cards.</summary>
     public List<BoardDrawing> Drawings { get; set; } = [];
     /// <summary>The tags cards on this board can have.</summary>
     public List<BoardTag> Tags { get; set; } = [];
@@ -73,8 +73,8 @@ public partial class Board
     private static readonly SearchValues<char> ShortIdCharacters = SearchValues.Create(ShortIdAlphabet);
 
     /// <summary>
-    /// A key from a board name: the initials of its words (letters and digits only), or the start of the name when that
-    /// gives fewer than two, at most four, never starting with a digit; "PB" when nothing usable is left.
+    /// A key from a board name: the initials of its words (letters and digits only) or, when that gives fewer than two,
+    /// the start of the name. At most four characters, never starting with a digit; "PB" when nothing usable is left.
     /// "MCP me some tickets" becomes MMST, "PrikBoard" PRIK. The ReadableIds migration does the same in SQL.
     /// </summary>
     public static string KeyFrom(string name)

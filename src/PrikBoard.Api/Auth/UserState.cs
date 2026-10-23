@@ -5,8 +5,9 @@ using PrikBoard.Api.Data;
 namespace PrikBoard.Api.Auth;
 
 /// <summary>
-/// Whether a user still exists, for credentials that outlive their user: a session cookie lasts 14 days and a delegated
-/// token's user id is cached. Answers are cached for a minute; deleting a user evicts at once on this instance.
+/// Whether a user still exists, for credentials that outlive their user: a session cookie lasts 14 days, and the user an
+/// app's issuer token acts for is cached (<see cref="UserSignIn.ResolveUserIdAsync"/>). Answers are cached for a minute;
+/// deleting a user evicts at once on this instance.
 /// </summary>
 public static class UserState
 {

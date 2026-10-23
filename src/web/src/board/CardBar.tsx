@@ -21,7 +21,7 @@ interface CardBarProps {
   /** Opens the file picker to attach images. */
   onAddImage: () => void
   pen: CardPen
-  /** Asks to delete the whole card. */
+  /** Deletes the whole card, without asking first (undo brings it back). */
   onDelete: () => void
 }
 

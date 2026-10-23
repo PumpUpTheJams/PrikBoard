@@ -6,7 +6,7 @@ using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
 
-/// <summary>Small HTTP helpers shared by the tests that involve several people.</summary>
+/// <summary>Small HTTP helpers shared by the tests: boards, cards, members, display names and tokens.</summary>
 internal static class TestApi
 {
     public static async Task<Caller> MeAsync(this HttpClient client) => (await client.GetFromJsonAsync<Caller>("/api/me"))!;

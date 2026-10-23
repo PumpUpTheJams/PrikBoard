@@ -36,8 +36,8 @@ public static class BoardEndpoints
             .AllowVisitors()
             .WithName("getBoard")
             .WithSummary("Get a full board snapshot")
-            .WithDescription("Returns the board with every bucket and card and where they sit on the canvas. " +
-                             "This is the best single call to understand the current state of a project. " +
+            .WithDescription("Returns the board with its agent rules, buckets, cards, images, drawings, tags and people, and where " +
+                             "everything sits on the canvas. This is the best single call to understand the current state of a project. " +
                              "A public board answers anyone, signed in or not (visiting is then true).");
 
         boards.MapGet($"/{{shortId:length({Board.ShortIdLength})}}", GetBoardByShortId)
@@ -53,8 +53,9 @@ public static class BoardEndpoints
             .AllowVisitors()
             .WithName("getBoardAvatar")
             .WithSummary("Download the avatar of someone on a board")
-            .WithDescription("The picture of a member, creator or assignee of the board, as getAvatar serves it, for visitors of a " +
-                             "public board that shows people (avatarUrl points here for them). 404 for anyone else.");
+            .WithDescription("Returns the picture of a member, creator or assignee of the board, as getAvatar does. avatarUrl points " +
+                             "here for visitors of a public board that shows people. 404 for anyone else, and for visitors when the " +
+                             "board doesn't show people.");
 
         boards.MapPatch("/{boardId:guid}", UpdateBoard)
             .RequireBoardRole(BoardRole.Owner)
@@ -69,7 +70,7 @@ public static class BoardEndpoints
             .RequireBoardRole(BoardRole.Owner)
             .WithName("deleteBoard")
             .WithSummary("Delete a board")
-            .WithDescription("Permanently deletes the board including all of its buckets, cards, images, members and invites.");
+            .WithDescription("Permanently deletes the board with everything on it, its members and its invites. There is no undo.");
 
         return api;
     }
@@ -206,7 +207,7 @@ public static class BoardEndpoints
         board.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
-        // MCP calls keep the rules' timestamp (and the connect note shows the rules).
+        // MCP caches the rules' timestamp and the board brief that agents get when they connect, which holds the rules.
         if (rulesChanged) Mcp.McpCall.ForgetRules(http.RequestServices.GetRequiredService<IMemoryCache>(), boardId);
         await events.BoardsChangedForMembersAsync(db, boardId, ct);
         // Visitors look again: gone when it is no longer public, and with or without people.

@@ -151,7 +151,7 @@ public sealed class BoardHub(LiveViewers viewers, PrikBoardDbContext db) : Hub<I
             new RemoteDrag(entry.Key, entry.PrincipalId, entry.DisplayName, update.Kind, update.Id, update.Dx, update.Dy, update.Handle, update.Items));
     }
 
-    /// <summary>The drag is over (dropped or cancelled).</summary>
+    /// <summary>The drag is over (dropped or canceled).</summary>
     public async Task DragEnd()
     {
         var entry = Current();

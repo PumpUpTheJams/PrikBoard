@@ -34,8 +34,8 @@ internal static class McpCall
         accessor.HttpContext ?? throw new InvalidOperationException("MCP tools run inside an HTTP request.");
 
     /// <summary>
-    /// Checks the caller's role on the board an id belongs to; answers the board id. The board becomes the one the caller
-    /// last used (<see cref="LastBoard"/>).
+    /// Checks the caller's role (and, for writes, the token's scope) on the board an id belongs to, and returns the board
+    /// id. The board becomes the one the caller last used (<see cref="LastBoard"/>).
     /// </summary>
     public static Task<Guid> AuthorizeAsync(HttpContext http, BoardScope scope, Guid id, BoardRole minimum) =>
         CheckedAsync(http, minimum, () => BoardAccess.AuthorizeAsync(http, scope, id, minimum));
@@ -130,8 +130,8 @@ internal static class McpCall
     private static string RulesKey(Guid boardId) => "mcp-rules:" + boardId;
 
     /// <summary>
-    /// When the board's rules last changed, or null without rules: cached, as every write asks, and dropped by
-    /// <see cref="ForgetRules"/> when they change (on this instance; the cache entry lasts a minute anyway).
+    /// When the board's rules last changed, or null when it has none. Cached for a minute, as every write asks;
+    /// <see cref="ForgetRules"/> drops it when the rules change (on this instance only).
     /// </summary>
     private static async Task<DateTimeOffset?> RulesUpdatedAtAsync(HttpContext http, Guid boardId, CancellationToken ct)
     {
@@ -144,7 +144,7 @@ internal static class McpCall
         return updatedAt;
     }
 
-    /// <summary>Drops what MCP calls keep of a board's rules, after they changed.</summary>
+    /// <summary>Drops what the MCP code caches about a board's rules (here and in <see cref="LastBoard"/>), after they change.</summary>
     public static void ForgetRules(IMemoryCache cache, Guid boardId)
     {
         cache.Remove(RulesKey(boardId));

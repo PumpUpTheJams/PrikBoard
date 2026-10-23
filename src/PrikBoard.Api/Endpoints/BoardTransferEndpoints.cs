@@ -30,7 +30,7 @@ public static class BoardTransferEndpoints
             .WithName("exportBoard")
             .WithSummary("Export a board to a file")
             .WithDescription("Returns the board's content as one self-contained JSON file (sent as a download): name, description, agent rules, " +
-                             "buckets, tags, cards and images with their bytes as base64. Members, roles and user ids are not included. " +
+                             "buckets, tags, cards, drawings and images with their bytes as base64. Members, roles and user ids are not included. " +
                              "Pass the file to importBoard to make a new board from it.");
 
         boards.MapPost("/import", ImportBoard)
@@ -38,9 +38,9 @@ public static class BoardTransferEndpoints
             .WithMetadata(new RequestSizeLimitAttribute(MaxImportBytes), new BufferedBody())
             .WithName("importBoard")
             .WithSummary("Import a board from an export file")
-            .WithDescription("Send the file from exportBoard as the request body. It always creates a new board, which you own, and never changes " +
-                             "an existing one. Ids and the short id are made new (cards keep their numbers), positions are snapped to the grid, " +
-                             "and each card's bucket follows from where it sits. " +
+            .WithDescription("Send the file from exportBoard as the request body (at most 64 MB). It always creates a new board, which you own, " +
+                             "and never changes an existing one. Ids and the short id are new (cards keep their numbers when each has its own), " +
+                             "positions are snapped to the grid, and each item's bucket follows from where it sits. " +
                              "Cards are created by you and have no assignees. Tokens limited to chosen boards cannot import. " +
                              "A file from a newer PrikBoard (a newer version, or fields this server doesn't know) is refused with a 400 " +
                              "keyed on version, rather than imported without what it can't read.")
@@ -63,7 +63,7 @@ public static class BoardTransferEndpoints
             .FirstOrDefaultAsync(b => b.Id == boardId, ct);
         if (board is null) return TypedResults.NotFound();
 
-        // Links to cards on this board point at them by id, the one thing the file keeps of them (see FollowLinks).
+        // Links to this board's own cards are written in the id form: the file keeps card ids, not the short id, so FollowLinks can map them.
         var ids = board.Cards.ToDictionary(n => n.Number, n => n.Id);
         string InFile(string url) =>
             CardLinks.TryParse(url, out var target) && target.BoardShortId == board.ShortId && ids.TryGetValue(target.Number, out var id)
@@ -291,8 +291,9 @@ public static class BoardTransferEndpoints
     }
 
     /// <summary>
-    /// A link to another card in the file (by its id in the file) becomes that card's new path; web links stay (and invalid
-    /// ones are left for the component's own check); a path to a card outside the file is dropped, as it would dangle.
+    /// A link to another card in the file (by its id in the file) becomes that card's new path. Web links stay (invalid ones
+    /// are left for the component's own check). Any other card path, by number or to a card outside the file, is dropped, as
+    /// it would dangle.
     /// </summary>
     private static List<CardLink> FollowLinks(
         IEnumerable<CardLink> links, Dictionary<Guid, Guid> newIds, string shortId, Dictionary<Guid, int> numbers)

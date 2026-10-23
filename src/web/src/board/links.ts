@@ -18,7 +18,7 @@ export interface CardRoute {
   card: string
 }
 
-/** Suggested title, shown greyed in an empty title field. Never stored: a new card's title is empty. */
+/** Suggested title, shown grayed out in an empty title field. Never stored: a new card's title is empty. */
 export const TITLE_SUGGESTION = 'Card title'
 
 /** How a card is named where its title is text in a list or label: its title, or a stand-in when it has none. */
@@ -54,7 +54,7 @@ export const linkedCard = <T extends { id: string; path: string }>(cards: T[], u
 
 const TRASH_HASH = new RegExp(`^#/boards/(?:${BOARD_REF})/trash$`, 'i')
 
-/** The open trash keeps its place in the address too (the board menu opens it through it): /#/boards/{shortId}/trash. */
+/** The open trash is in the address too (the board menu opens it by setting it): /#/boards/{shortId}/trash. */
 export const trashPath = (boardRef: string) => `/#/boards/${boardRef}/trash`
 
 /** Whether the address has the trash open. */

@@ -28,7 +28,7 @@ public class PlaceCardsApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
 
         var placed = await Place(todo.Id, new { cardIds = new[] { first.Id, second.Id } });
 
-        // A grid step below the card, then below the image (100 high), then below that card.
+        // The image sits a grid step below the card; the first goes a grid step below the image (100 high), the second below the first.
         Assert.Equal((60, 60), (there.X, there.Y));
         Assert.Equal([(60, 320), (60, 460)], placed.Cards.Select(n => (n.X, n.Y)));
         Assert.All(placed.Cards, n => Assert.Equal(todo.Id, n.BucketId));
@@ -70,7 +70,7 @@ public class PlaceCardsApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
 
         var placed = await Place(todo.Id, new { cardIds = new[] { extra.Id }, grow = "Right" });
 
-        // One column more, over Doing (stacked above it), and the card is To do's all the same.
+        // To do grows by one column, over Doing (stacked above it), and the card still joins To do.
         Assert.Equal((40, 460), (placed.Bucket.X, placed.Bucket.Width));
         Assert.Equal((280, 60, todo.Id), (placed.Cards[0].X, placed.Cards[0].Y, placed.Cards[0].BucketId));
         var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");

@@ -103,7 +103,8 @@ export function PickerWindow(props: PickerWindowProps) {
       if (!panel.current?.contains(e.target as Node)) onClose()
     }
     document.addEventListener('pointerdown', onPointerDown, true)
-    // A sheet stays put while the page scrolls or the keyboard resizes it; a window would point at nothing.
+    // A window closes when the page scrolls or resizes, since it would no longer sit next to what opened it. A sheet
+    // stays open (the keyboard resizes the page).
     if (sheet) return () => document.removeEventListener('pointerdown', onPointerDown, true)
     document.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', onClose)

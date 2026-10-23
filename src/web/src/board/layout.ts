@@ -40,16 +40,16 @@ export function imageSize(image: { pixelWidth: number; pixelHeight: number }, wi
 export const snapPoint = ({ x, y }: Point): Point => ({ x: onBoard(snap(x)), y: onBoard(snap(y)) })
 
 /**
- * Buckets in stacking order, back to front (Layout.BackToFront on the server): by `stackedAt`, then in list order, as
- * the API lists them. How they are drawn, and which one an item put where they overlap joins.
+ * Buckets in stacking order, back to front (Layout.BackToFront on the server): by `stackedAt`, ties in the order the
+ * API lists them. Buckets are drawn in this order, and an item dropped where buckets overlap joins the topmost.
  */
 export const backToFront = (buckets: BucketDetail[]) => buckets.toSorted((a, b) => Date.parse(a.stackedAt) - Date.parse(b.stackedAt))
 
 /**
- * The topmost bucket containing a card's centre: the bucket a card dropped there joins (Layout.Place on the server). It
- * stays in that bucket while buckets move around it. `buckets` is back to front (`backToFront`). A collapsed
- * bucket only keeps the cards it has (`own`): others don't join it, as on the server. The bucket this screen shows in
- * `front` wins where it covers the card's centre: a drop there names it (`bucketId` with `x` and `y`), so the card joins it.
+ * The bucket a card dropped at `card` joins: the topmost one containing its center (Layout.Place on the server). The
+ * card then stays in it while buckets move around it. `buckets` is back to front (`backToFront`). A collapsed bucket
+ * takes no new cards, as on the server; it only counts for its own card (`own`). `front`, the bucket this screen shows
+ * in front, wins wherever it contains the center: the drop names it (`bucketId` with `x` and `y`), so the card joins it.
  */
 export function bucketUnderCard(buckets: BucketDetail[], card: Point, own?: string | null, front?: string | null): BucketDetail | undefined {
   const cx = card.x + CARD_WIDTH / 2
@@ -64,12 +64,12 @@ const ROW_STEP = CARD_HEIGHT + GRID
 /**
  * Where cards put into a bucket by id go (Layout.PackIn on the server): the first `count` places on the 20 px grid
  * inside it, row by row, a grid step clear of `taken` (the bucket's own cards and images, and loose ones) and of each
- * other. When there aren't enough, the bucket grows a row or column at a time towards `grow` (left and up move its edge
- * out), over its neighbours too, downwards once that side reaches the limit. The bucket as it would be, and the places.
+ * other. When there aren't enough, the bucket grows a row or column at a time towards `grow` (left and up move that edge
+ * out), over its neighbors too, and downwards once that side reaches the limit. Returns the grown bucket and the places.
  */
 export function packIn(bucket: Rect, count: number, taken: Rect[], grow: GrowSide): { bucket: Rect; spots: Point[] } {
   let rect = { x: bucket.x, y: bucket.y, width: bucket.width, height: bucket.height }
-  // The room it has is used first; what it grows by only takes the rest.
+  // The free room it has fills first; growing only makes room for the rest.
   const spots: Point[] = []
   const pack = () => {
     const right = rect.x + Math.max(rect.width, MIN_BUCKET_WIDTH) - GRID
@@ -108,7 +108,7 @@ export function packIn(bucket: Rect, count: number, taken: Rect[], grow: GrowSid
   return { bucket: rect, spots }
 }
 
-/** The square a collapsed bucket folds up into: in its top-right corner (of `rect`, where the bucket is now, mid-drag too). */
+/** The square a collapsed bucket folds into, in the top-right corner of `rect` (where the bucket is now, also mid-drag). */
 export function collapsedRect(rect: Rect): Rect {
   return { x: rect.x + rect.width - COLLAPSED_SIZE, y: rect.y, width: COLLAPSED_SIZE, height: COLLAPSED_SIZE }
 }
@@ -149,9 +149,9 @@ export function bucketSize(width: number, height: number) {
 }
 
 /**
- * A rectangle resized by dragging a corner or an edge by `d`, the opposite corner or edge staying put (as long as the
- * top-left stays at or right of and below `min`: 0 on a card's canvas, MIN_COORDINATE on the board); an edge only
- * changes the size in its own direction. `size` snaps and limits the new size, as the server does for that kind of item.
+ * A rectangle resized by dragging a corner or an edge by `d`. The opposite corner or edge stays put, and an edge only
+ * changes the size in its own direction. The top-left never goes left of or above `min` (0 on a card's canvas,
+ * MIN_COORDINATE on the board). `size` snaps and limits the new size, as the server does for that kind of item.
  */
 export function resizeFrom(
   rect: Rect,
@@ -196,7 +196,7 @@ export const intersects = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x
 
 /**
  * The first grid slot inside `area`, row by row, where a rectangle of `size` keeps a grid step clear of everything in
- * `taken`; null when there is none (the server then finds a spot further out).
+ * `taken`; null when there is none (the caller then lets the server pick a spot).
  */
 export function freeSpot(taken: Rect[], size: { width: number; height: number }, area: Rect): Point | null {
   const left = Math.max(GRID, Math.ceil(area.x / GRID) * GRID)
@@ -212,8 +212,8 @@ export function freeSpot(taken: Rect[], size: { width: number; height: number },
 
 /**
  * Items in reading order: top to bottom, and left to right for items that start on the same grid row. The mobile
- * layout lists a bucket's cards and images, and a card's components and images, this way, so the list follows the
- * canvas.
+ * layout lists buckets, a bucket's cards and images, and a card's components and images this way, so each list follows
+ * the canvas.
  */
 export function readingOrder<T extends Point>(items: T[]): T[] {
   return [...items].sort((a, b) => snap(a.y) - snap(b.y) || a.x - b.x)

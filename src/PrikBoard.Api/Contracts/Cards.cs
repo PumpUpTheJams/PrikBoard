@@ -7,17 +7,17 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Id">Card identifier.</param>
 /// <param name="Number">The card's number on its board: 1 for the first card, never reused. Part of its path and readable id.</param>
 /// <param name="ReadableId">How to refer to the card in text: the board's key and the card's number, e.g. "MPCT-415". MCP tools take it wherever they take a card. The key may change; the number does not.</param>
-/// <param name="BoardId">Board the card is stuck on.</param>
-/// <param name="BucketId">Bucket containing the card's centre, or null when the card is loose on the board.</param>
+/// <param name="BoardId">Board the card is on.</param>
+/// <param name="BucketId">Bucket the card belongs to (it moves along with the bucket), or null when the card is loose on the board.</param>
 /// <param name="Title">Short title shown on the card.</param>
 /// <param name="Color">Card fill.</param>
-/// <param name="Tags">Names of the board's tags on the card, shown on the card, e.g. "backend".</param>
+/// <param name="Tags">The card's tags by name, e.g. "backend"; each is one of the board's tags.</param>
 /// <param name="Assignees">People and agents working on the card, in display order, with their current names.</param>
 /// <param name="Components">The card's content, shown when the card is expanded: text, checklists and lists of links, laid out on the card's own canvas. Change them with addCardComponent, updateCardComponent and deleteCardComponent.</param>
 /// <param name="AgentWorking">True while an AI agent is actively working on the card. The board shows a lilac halo around it.</param>
 /// <param name="X">Left edge in canvas pixels, a multiple of the 20 px grid.</param>
 /// <param name="Y">Top edge in canvas pixels, a multiple of the 20 px grid.</param>
-/// <param name="CreatedBy">Current display name of whoever stuck the card on the board; null for cards from before this was recorded, or once they no longer exist.</param>
+/// <param name="CreatedBy">Current display name of whoever created the card; null for cards from before this was recorded, or once they no longer exist.</param>
 /// <param name="CreatedById">Principal id of whoever created the card, or null (see createdBy).</param>
 /// <param name="CreatedAt">When the card was created (UTC).</param>
 /// <param name="UpdatedAt">When the card was last edited or moved (UTC). The most recently updated card is drawn on top.</param>
@@ -89,13 +89,13 @@ public record CardLink(
     [property: Required, StringLength(2000)] string Url);
 
 /// <summary>
-/// Sticks a new card on a board. Give a bucketId to drop it in a free spot inside that bucket, or X and Y to place it exactly.
+/// Creates a card on a board. Give a bucketId to drop it in a free spot inside that bucket, or X and Y to place it exactly.
 /// With neither, it goes into the board's first bucket (or a free spot on the board when there are no buckets).
 /// A full bucket grows to make room.
 /// </summary>
 /// <param name="Title">Short title shown on the card; trimmed. May be empty: a card without a title shows none.</param>
 /// <param name="Color">Card fill; defaults to Butter.</param>
-/// <param name="BucketId">Bucket to put the card in, in a free spot. With X and Y: the bucket it joins where buckets overlap there, which must contain the card's centre (without it, the topmost one does).</param>
+/// <param name="BucketId">Bucket to put the card in, in a free spot. With X and Y: the bucket it joins where buckets overlap, which must contain the card's center (without a bucketId it joins the topmost one there).</param>
 /// <param name="X">Left edge in canvas pixels; snapped to the 20 px grid. Give it together with Y.</param>
 /// <param name="Y">Top edge in canvas pixels; snapped to the 20 px grid. Give it together with X.</param>
 /// <param name="Tags">Tag names; trimmed, lower-cased, hyphenated and de-duplicated, each at most 30 characters. Prefer the board's tags (tags in getBoard); new names are added to the board.</param>
@@ -139,10 +139,10 @@ public record SetWorkingRequest(bool Working);
 
 /// <summary>
 /// Moves a card. Give a bucketId (the card lands in a free spot inside that bucket, which grows when full) or X and Y
-/// (the card goes exactly there and belongs to the topmost bucket containing its centre, or none). Give both to put it
-/// exactly there in that bucket, where buckets overlap: the bucket must contain the card's centre.
+/// (the card goes exactly there and belongs to the topmost bucket containing its center, or none). Give both to put it
+/// exactly there in that bucket, where buckets overlap: the bucket must contain the card's center.
 /// </summary>
-/// <param name="BucketId">Destination bucket on the same board; with X and Y, the one of the buckets there it joins.</param>
+/// <param name="BucketId">Destination bucket on the same board. With X and Y: which of the overlapping buckets there the card joins.</param>
 /// <param name="X">New left edge in canvas pixels; snapped to the 20 px grid.</param>
 /// <param name="Y">New top edge in canvas pixels; snapped to the 20 px grid.</param>
 public record MoveCardRequest(

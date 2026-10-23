@@ -63,7 +63,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         Assert.Contains($"{updatedAt.UtcDateTime:yyyy-MM-dd HH:mm:ss}Z", reminder);
         Assert.DoesNotContain(rules, reminder);
 
-        // Reads carry no reminder, and failed writes neither.
+        // Reads carry no reminder, and neither do failed writes.
         Assert.Single((await CallRawAsync(reader, "get_board", new() { ["board"] = board.Id })).Content);
         var failed = await CallRawAsync(writer, "move_card", new() { ["card"] = Guid.NewGuid(), ["bucket"] = "Done" });
         Assert.True(failed.IsError);
@@ -616,7 +616,7 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         Assert.DoesNotContain("last used", first.ServerInstructions);
         await CallAsync(first, "get_board", new() { ["board"] = older.ShortId });
 
-        // A new connection hears of it, its name quoted on one line, and list_boards puts it first.
+        // A new connection is told about it (the name in quotes, without its own), and list_boards puts it first.
         var next = await ConnectAsync(token);
         Assert.Contains($"You last used the board \"Launch Q4\" (short id {older.ShortId}, your role Editor)", next.ServerInstructions);
         var boards = (await CallAsync(next, "list_boards")).EnumerateArray().ToList();

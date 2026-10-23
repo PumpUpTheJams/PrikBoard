@@ -6,7 +6,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Id">The board id.</param>
 /// <param name="Name">The board's name.</param>
 /// <param name="CreatedAt">When the board was created (UTC).</param>
-/// <param name="UpdatedAt">When the board last changed (UTC).</param>
+/// <param name="UpdatedAt">When the board's settings (name, description, key, rules or sharing) last changed (UTC); changes to its buckets and cards don't count.</param>
 /// <param name="Members">People and agents on the board, owners first.</param>
 public record AdminBoard(Guid Id, string Name, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, IReadOnlyList<AdminBoardMember> Members);
 

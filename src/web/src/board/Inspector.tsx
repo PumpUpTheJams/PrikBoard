@@ -62,7 +62,7 @@ const fileSize = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.r
 interface ImageInspectorProps {
   image: ImageDetail
   onSave: (changes: ImageChanges) => Promise<boolean>
-  /** Asks to delete the image (the canvas confirms first). */
+  /** Deletes the image, without asking first (undo brings it back). */
   onDelete: () => void
   onClose: () => void
 }

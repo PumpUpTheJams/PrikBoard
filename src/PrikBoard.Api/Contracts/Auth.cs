@@ -20,7 +20,7 @@ public enum CallerKind
     /// <summary>A person signed in through the browser, with a session cookie.</summary>
     Session,
 
-    /// <summary>A Bearer access token from a trusted issuer, for example a machine using Client Credentials.</summary>
+    /// <summary>A Bearer access token: a PrikBoard personal access token, or one from a trusted issuer (Client Credentials).</summary>
     Token,
 }
 
@@ -35,7 +35,7 @@ public enum PrincipalKind
 /// <summary>Who the request is authenticated as. No email or provider name is stored or returned.</summary>
 /// <param name="Kind">Session for a signed-in person, Token for a Bearer access token.</param>
 /// <param name="PrincipalKind">User (a person) or Agent (a machine client; every token acts as one).</param>
-/// <param name="Id">The principal id: what board members and invites refer to. Agents tell a board owner this, or their issuer and client id, to be added.</param>
+/// <param name="Id">The principal id: what board members and invites refer to. To be added to a board, an agent gives its owner this id, or its issuer and client id.</param>
 /// <param name="DisplayName">The name others see: the chosen display name, or a fallback such as "User 1a2b" or "Agent my-client".</param>
 /// <param name="ChosenDisplayName">The display name the principal set, or null when they have not picked one.</param>
 /// <param name="SuggestedDisplayName">Sessions only: the sign-in provider's name for the person, offered while no name is chosen. Never stored.</param>

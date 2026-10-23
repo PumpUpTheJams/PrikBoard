@@ -10,7 +10,7 @@ public enum DragKind
     /// <summary>Moving a card.</summary>
     Card,
 
-    /// <summary>Moving a bucket (its cards move along).</summary>
+    /// <summary>Moving a bucket (what is in it moves along).</summary>
     Bucket,
 
     /// <summary>Resizing a bucket from one of its corners or edges (see <see cref="ResizeHandle"/>).</summary>
@@ -53,7 +53,7 @@ public sealed record LiveViewer(Guid PrincipalId, PrincipalKind Kind, string Dis
 /// <summary>Who is on a board right now; sent whenever someone joins or leaves it.</summary>
 /// <param name="BoardId">The board.</param>
 /// <param name="Viewers">Its members looking at it. Visitors of a public board that hides people get none: only Guests.</param>
-/// <param name="Guests">How many visitors (not members) of a public board look at it; for visitors of a board that hides people, everyone looking.</param>
+/// <param name="Guests">How many visitors (not members) are looking at the public board. Visitors of a board that hides people get the count of everyone looking instead.</param>
 public sealed record BoardPresence(Guid BoardId, List<LiveViewer> Viewers, int Guests = 0);
 
 /// <summary>The answer to Join.</summary>

@@ -217,12 +217,12 @@
         "prikboard.serverUrl": {
           "type": "string",
           "default": "http://localhost:5080",
-          "markdownDescription": "The address you open PrikBoard at, for example `https://prikboard.example.com` (the part before `/api`). **Sign in** asks for it the first time; **PrikBoard: Set PrikBoard Address** changes it. For local development use `http://localhost:5173`, whose proxy serves both the web app and the API."
+          "markdownDescription": "The address you open PrikBoard at, for example `https://prikboard.example.com` (the part before `/api`). **Sign In** asks for it the first time; **PrikBoard: Set PrikBoard Address** changes it. For local development use `http://localhost:5173`, whose proxy serves both the web app and the API."
         },
         "prikboard.webUrl": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Where the PrikBoard web app runs, used by **Sign in** and **Open in PrikBoard**. Leave empty to use `#prikboard.serverUrl#`."
+          "markdownDescription": "Where the PrikBoard web app runs, used by **Sign In** and **Open in PrikBoard**. Leave empty to use `#prikboard.serverUrl#`."
         },
         "prikboard.refreshSeconds": {
           "type": "number",

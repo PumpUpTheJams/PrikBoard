@@ -23,7 +23,7 @@ public class DiscordApiFactory : PrikBoardApiFactory
     {
         base.ConfigureWebHost(builder);
         builder.UseSetting("Discord:PublicUrl", PublicUrl);
-        // Every exchange in this class comes from the same (missing) address.
+        // Every exchange in this class comes from the same (missing) address, so its limit is raised.
         builder.UseSetting("RateLimits:DiscordConnectsPerMinute", "1000");
     }
 }
@@ -79,7 +79,7 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         Assert.Equal((guildId, "Night owls"), (status.GuildId, status.GuildName));
         Assert.Equal(board.Id, Assert.Single(status.Boards).BoardId);
 
-        // Owners see the connection; the guild's server record keeps who connected it.
+        // Owners see the connection, and the server's DiscordGuild row keeps who connected it.
         var listed = Assert.Single((await owner.GetFromJsonAsync<List<DiscordConnection>>($"/api/boards/{board.Id}/discord"))!);
         Assert.Equal((guildId, "Night owls", member.PrincipalId), (listed.GuildId, listed.GuildName, listed.AgentId));
         await using var scope = factory.Services.CreateAsyncScope();
@@ -125,7 +125,7 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         var (agent, _) = await factory.TokenAsync(owner, "Agent");
         Assert.Equal(HttpStatusCode.Forbidden, (await Approve(agent, challenge, [new(board.Id)])).StatusCode);
 
-        // Once, and a wrong verifier (another server's) spends it too.
+        // A code works once, and a wrong verifier (another server's) spends it too.
         var (verifier, ok) = Pkce();
         var code = await ApproveAsync(owner, ok, [new(board.Id)]);
         Assert.Equal(HttpStatusCode.BadRequest, (await Exchange(code.Code, Pkce().Verifier, NewGuildId())).StatusCode);
@@ -260,7 +260,7 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         {
             var response = await Preview(bot, link);
             Assert.True(response.StatusCode == HttpStatusCode.NotFound, $"{link}: {response.StatusCode}");
-            // Problem details, alike but for their trace id.
+            // The same problem details every time, apart from the trace id.
             bodies.Add(Regex.Replace(await response.Content.ReadAsStringAsync(), "\"traceId\":\"[^\"]*\"", ""));
         }
         Assert.Single(bodies);

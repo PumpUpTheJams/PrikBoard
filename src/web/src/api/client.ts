@@ -200,7 +200,7 @@ export const api = {
     request<BucketDetail>('PATCH', `/buckets/${bucketId}`, changes),
   /** Puts a bucket on top of the others, for everyone (no item changes bucket). */
   bringBucketToFront: (bucketId: string) => request<BucketDetail>('POST', `/buckets/${bucketId}/front`),
-  /** Puts cards into free slots of a bucket, in order, growing it towards `grow` when they don't fit. */
+  /** Puts cards into a bucket's free room, in order, growing it towards `grow` when they don't fit. */
   placeCardsInBucket: (bucketId: string, placement: PlaceCardsRequest) =>
     request<PlacedCards>('POST', `/buckets/${bucketId}/cards`, placement),
 
@@ -226,20 +226,21 @@ export const api = {
   getCardByNumber: (shortId: string, number: number) => request<CardDetail>('GET', `/boards/${shortId}/cards/${number}`),
   updateCard: (cardId: string, changes: CardChanges) => request<CardDetail>('PATCH', `/cards/${cardId}`, changes),
   /**
-   * Into a free spot inside a bucket, or exactly to a point (the server then works out the bucket; with a `bucketId` too,
-   * it joins that one, which must contain the card's centre: the bucket shown in front where buckets overlap).
+   * Moves a card into a free spot in a bucket, or exactly to a point. With a point alone the server works out the bucket;
+   * with a `bucketId` too, the card joins that bucket, which must contain the card's center (the web app sends the bucket
+   * shown in front where buckets overlap).
    */
   moveCard: (cardId: string, to: { bucketId: string } | (Point & { bucketId?: string })) =>
     request<CardDetail>('POST', `/cards/${cardId}/move`, to),
   deleteCard: (cardId: string) => request<void>('DELETE', `/cards/${cardId}`),
   /**
-   * Brings back a card deleted in the last 7 days, with the same id and the images deleted along with it: where it was,
-   * or at `at` (dragged out of the trash).
+   * Brings back a card deleted in the last 7 days, with the same id and the images and drawings deleted along with it:
+   * where it was, or at `at` (dragged out of the trash).
    */
   restoreCard: (cardId: string, at?: Point) => request<CardDetail>('POST', `/cards/${cardId}/restore`, at),
-  /** The cards deleted in the last 7 days, most recently deleted first. */
   /** Who changed what on a card and when, newest first; also for cards in the trash (members only). */
   listCardHistory: (cardId: string) => request<CardChange[]>('GET', `/cards/${cardId}/history`),
+  /** The cards deleted in the last 7 days, most recently deleted first, with the images deleted with them. */
   listDeletedCards: (boardId: string) => request<TrashContents>('GET', `/boards/${boardId}/trash`),
   /** Deletes a card in the trash for good, with its images and drawings. */
   purgeCard: (boardId: string, cardId: string) => request<void>('DELETE', `/boards/${boardId}/trash/${cardId}`),
@@ -282,8 +283,7 @@ export const api = {
   restoreImage: (imageId: string) => request<ImageDetail>('POST', `/images/${imageId}/restore`),
 
   createDrawing: (boardId: string, drawing: NewDrawing) => request<DrawingDetail>('POST', `/boards/${boardId}/drawings`, drawing),
-  /** The stroke's points; they never change, so the browser may cache them. */
-  /** The strokes at a drawing's contentUrl (which names their revision). */
+  /** The strokes at a drawing's contentUrl. The URL names their revision, so the browser may cache the answer. */
   getDrawingContent: (contentUrl: string) => request<DrawingContent>('GET', contentUrl.replace(/^\/api/, '')),
   addDrawingStroke: (drawingId: string, stroke: NewDrawingStroke) => request<DrawingDetail>('POST', `/drawings/${drawingId}/strokes`, stroke),
   /** Takes a stroke (by its index in drawing order) off a drawing; not its only one. */

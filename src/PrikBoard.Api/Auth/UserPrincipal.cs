@@ -5,7 +5,8 @@ namespace PrikBoard.Api.Auth;
 
 /// <summary>
 /// The claims in PrikBoard's session cookie, and how to find who a request acts for. The cookie holds no personal data
-/// beyond a one-off name suggestion from the sign-in provider, shown to the person themselves until they pick a name.
+/// beyond what the sign-in provider suggests (a name until they pick one, and a picture URL), offered only to the
+/// person themselves.
 /// </summary>
 public static class UserPrincipal
 {
@@ -41,7 +42,7 @@ public static class UserPrincipal
     /// <summary>The signed-in user's id. Sessions only; see <see cref="PrincipalId"/> for code that also serves tokens.</summary>
     public static Guid UserId(this ClaimsPrincipal principal) => Guid.Parse(principal.FindFirstValue(IdClaim)!);
 
-    /// <summary>The user (session) or agent (token) the request acts for.</summary>
+    /// <summary>The user or agent the request acts for: the session's user, or a token's <see cref="PrincipalClaim"/>.</summary>
     public static Guid PrincipalId(this ClaimsPrincipal principal) =>
         principal.IsToken() ? Guid.Parse(principal.FindFirstValue(PrincipalClaim)!) : principal.UserId();
 }

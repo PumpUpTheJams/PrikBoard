@@ -83,7 +83,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
     this.changed.fire(undefined)
   }
 
-  /** The buckets of a board that is open in the tree, in the order the board draws them. */
+  /** The buckets of a board that is open in the tree, in list order (oldest first). */
   bucketsOf(boardId: string): BucketDetail[] {
     return this.details.get(boardId)?.buckets ?? []
   }

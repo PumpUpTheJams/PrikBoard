@@ -22,12 +22,13 @@ public static class Tombstones
     /// <summary>Deletes for good everything deleted before <paramref name="cutoff"/>. Returns how many rows went.</summary>
     public static async Task<int> PurgeAsync(PrikBoardDbContext db, DateTimeOffset cutoff, CancellationToken ct)
     {
-        // Images and drawings first; a card's images and drawings (and their content) would also go with it through the
-        // cascades. Image files go at the next sweep.
+        // Images and drawings first, though a card's would also go with it through the cascades (their content too).
+        // Image files go in the sweep that follows.
         var count = await db.Images.WithDeleted().Where(i => i.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         count += await db.Drawings.WithDeleted().Where(d => d.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         count += await db.Cards.WithDeleted().Where(n => n.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
-        // Cards, images and drawings still pointing at a purged bucket lose the reference (SetNull); live ones never do, see Layout.Release.
+        // Deleted cards, images and drawings still pointing at a purged bucket lose the reference (SetNull). Live ones never
+        // point at a deleted bucket: deleting it lets them go (Layout.Release).
         count += await db.Buckets.WithDeleted().Where(b => b.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         count += await db.BoardTags.WithDeleted().Where(t => t.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         return count;
@@ -36,7 +37,7 @@ public static class Tombstones
 
 /// <summary>
 /// Runs <see cref="Tombstones.PurgeAsync"/> every hour, deletes expired image upload URLs, and then runs
-/// <see cref="FileStore.SweepAsync"/> for the files that freed.
+/// <see cref="FileStore.SweepAsync"/> to delete the files nothing refers to any more.
 /// </summary>
 public sealed class TombstonePurger(IServiceScopeFactory scopes, ILogger<TombstonePurger> logger) : BackgroundService
 {

@@ -16,8 +16,9 @@ namespace PrikBoard.Api.Auth;
 
 /// <summary>
 /// Wires up authentication. Browsers sign in through an external provider and then hold a session cookie.
-/// Machines send an access token from a trusted issuer (usually obtained with Client Credentials) as a Bearer token.
-/// A policy scheme picks the cookie or the matching issuer's JWT scheme per request.
+/// Machines send a Bearer token: a PrikBoard personal access token, or a JWT from a trusted issuer (usually obtained with
+/// Client Credentials). A policy scheme picks the cookie, the personal access token scheme or the matching issuer's JWT
+/// scheme per request.
 /// </summary>
 public static partial class AuthSetup
 {
@@ -187,10 +188,10 @@ public static partial class AuthSetup
     }
 
     /// <summary>
-    /// Cookie unless there is a Bearer token. Personal access tokens are recognised by their prefix. An empty "Bearer" header counts as none: Scalar sends one while its token
-    /// field is blank, and a signed-in person's cookie should still work then. With several issuers, the token's (not yet validated) iss claim picks the
-    /// scheme; that scheme then validates everything, including the issuer. An unknown issuer goes to the first scheme,
-    /// which rejects it.
+    /// Cookie unless there is a Bearer token. Personal access tokens are recognized by their prefix. An empty "Bearer"
+    /// header counts as none: Scalar sends one while its token field is blank, and a signed-in person's cookie should
+    /// still work then. With several issuers, the token's (not yet validated) iss claim picks the scheme; that scheme
+    /// then validates everything, including the issuer. An unknown issuer goes to the first scheme, which rejects it.
     /// </summary>
     private static string SelectScheme(HttpContext context, TokenOptions tokens, List<KeyValuePair<string, TokenIssuerOptions>> issuers)
     {
@@ -250,7 +251,8 @@ public static partial class AuthSetup
                         : await AgentRegistry.ResolveAsync(services, id, clientId, ct);
                     if (principalId is null)
                     {
-                        // Only people who joined through an invite in the browser have a user for the app to act as.
+                        // Only people who signed up in the browser (the first user, or through an invite) have a user
+                        // for the app to act as.
                         context.Fail("This person has no PrikBoard account.");
                         return;
                     }

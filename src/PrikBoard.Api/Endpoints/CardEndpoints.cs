@@ -26,16 +26,17 @@ public static class CardEndpoints
         cards.MapPost("/boards/{boardId:guid}/cards", CreateCard)
             .RequireBoardRole(BoardRole.Editor)
             .WithName("createCard")
-            .WithSummary("Stick a new card on a board")
-            .WithDescription("Creates a card in a free spot inside the given bucket (default: the board's first bucket), " +
-                             "or exactly at X and Y, optionally with its first content components. " +
+            .WithSummary("Create a card")
+            .WithDescription("Creates a card in a free spot inside bucketId (default: the board's first bucket; a full bucket grows " +
+                             "downwards), or exactly at x and y. With all three, the card goes at x and y and joins that bucket, which " +
+                             "must contain its center (400 otherwise). Optionally with its first components. " +
                              "Tags the board does not have yet are added to it (see listBoardTags).")
             .ProducesValidationProblem();
 
         cards.MapPost("/boards/{boardId:guid}/cards/batch", CreateCards)
             .RequireBoardRole(BoardRole.Editor)
             .WithName("createCards")
-            .WithSummary("Stick several new cards on a board")
+            .WithSummary("Create several cards")
             .WithDescription($"Creates up to {MaxBatch} cards at once, in the order given, like createCard does one: each in a free " +
                              "spot of its bucket (default: the board's first bucket) or at its X and Y. All of them are created, or none " +
                              "(a 400 keyed on cards[i]).")
@@ -44,7 +45,8 @@ public static class CardEndpoints
         cards.MapGet("/cards/{cardId:guid}", GetCard)
             .RequireBoardRole(BoardRole.Viewer, BoardScope.Card)
             .WithName("getCard")
-            .WithSummary("Get a card");
+            .WithSummary("Get a card")
+            .WithDescription("Returns the card with its components, tags, assignees, readable id and path.");
 
         cards.MapGet($"/boards/{{shortId:length({Board.ShortIdLength})}}/cards/{{number:int}}", GetCardByNumber)
             .RequireBoardRole(BoardRole.Viewer, BoardScope.ShortBoard)
@@ -58,39 +60,42 @@ public static class CardEndpoints
             .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
             .WithName("updateCard")
             .WithSummary("Edit a card")
-            .WithDescription("Changes any of title, fill, tags, assignees and the agent-working flag. " +
-                             "Omitted fields stay unchanged; a list that is given replaces the whole list. Use moveCard to move it, " +
+            .WithDescription("Changes any of title, color (the card's fill), tags, assignees and the agent-working flag. " +
+                             "Omitted fields stay unchanged; a list that is given replaces the whole list. New assignees must be able " +
+                             "to reach the board (people in getBoard); ones already on the card may stay. Use moveCard to move it, " +
                              "and addCardComponent, updateCardComponent and deleteCardComponent to change its content.")
             .ProducesValidationProblem();
 
         cards.MapPost("/cards/{cardId:guid}/working", SetCardWorking)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
             .WithName("setCardWorking")
-            .WithSummary("Say you are working on a card")
-            .WithDescription("With working true, assigns you (the caller) to the card and shows a halo around the card; " +
-                             "with false, the halo goes and you stay assigned. Agents call this when they start and finish a card.")
+            .WithSummary("Start or stop working on a card")
+            .WithDescription("With working true, assigns you (the caller) to the card and shows a halo around it; " +
+                             "with false, the halo goes and you stay assigned. Agents call this when they start and finish a card. " +
+                             "409 when the card already has the most assignees it can have.")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         cards.MapPost("/cards/{cardId:guid}/move", MoveCard)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
             .WithName("moveCard")
             .WithSummary("Move a card")
-            .WithDescription("Moves the card into a bucket on the same board (e.g. from \"Doing\" to \"Done\"), " +
-                             "or to exact X and Y coordinates on the board.")
+            .WithDescription("Moves the card into a free spot in a bucket on the same board (e.g. from \"Doing\" to \"Done\"; " +
+                             "a full bucket grows downwards), or to exact x and y, where it joins the topmost bucket containing its " +
+                             "center. With all three, it goes at x and y and joins that bucket, which must contain its center (400 otherwise).")
             .ProducesValidationProblem();
 
         cards.MapDelete("/cards/{cardId:guid}", DeleteCard)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
             .WithName("deleteCard")
             .WithSummary("Delete a card")
-            .WithDescription($"Deletes the card and the images attached to it. restoreCard brings them back within {Tombstones.RetentionText}.");
+            .WithDescription($"Deletes the card with its images and drawings. restoreCard brings them back within {Tombstones.RetentionText}.");
 
         cards.MapPost("/cards/{cardId:guid}/restore", RestoreCard)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
             .WithName("restoreCard")
             .WithSummary("Restore a deleted card")
-            .WithDescription($"Brings back a card deleted in the last {Tombstones.RetentionText}: same id, content, creator and " +
-                             "images, at the place it had, or at X and Y when both are given (a card dragged out of the trash). " +
+            .WithDescription($"Brings back a card deleted in the last {Tombstones.RetentionText}: same id, content, creator, " +
+                             "images and drawings, at the place it had, or at x and y when both are given (a card dragged out of the trash). " +
                              "It joins whichever bucket is there now. 409 when the card is not deleted; 404 when it never existed " +
                              "or is gone for good.")
             .ProducesValidationProblem()
@@ -547,9 +552,9 @@ public static class CardEndpoints
     private sealed record CardWithBoard(Card Card, BoardRef Board);
 
     /// <summary>
-    /// Positions <paramref name="card"/> exactly at X and Y, or in a free spot inside the bucket (and in it), or (with
-    /// neither) in a free spot on the board, then sets its bucket from where it landed. Other cards keep theirs. Returns a
-    /// problem for an invalid combination.
+    /// Positions <paramref name="card"/> exactly at X and Y (joining the named bucket, or else the topmost one there), in a
+    /// free spot inside the named bucket (joining it), or, with neither, in a free spot outside the buckets. Other cards keep
+    /// their bucket, except loose ones that a bucket grown to make room now covers. Returns a problem for an invalid combination.
     /// </summary>
     private static ValidationProblem? Place(
         Card card, Guid? bucketId, int? x, int? y, List<Bucket> buckets, List<Card> others)
@@ -575,7 +580,7 @@ public static class CardEndpoints
         else if (bucket is not null)
         {
             (card.X, card.Y) = Layout.MakeRoomIn(bucket, others, buckets);
-            // Asked for by name, so it joins even a collapsed bucket (which other cards don't).
+            // Put in this bucket on purpose, so it joins it even when it is collapsed (which other cards don't).
             card.BucketId = bucket.Id;
             // A bucket that grew to make room can now cover loose cards too.
             Layout.Adopt(bucket, stacked, others, [], looseOnly: true);
