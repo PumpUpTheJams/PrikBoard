@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
@@ -28,7 +29,7 @@ public enum DiscordBotState
 /// <summary>A server the bot is in, with the channels it can preview links in (it may read and post there).</summary>
 public sealed record DiscordServerInfo(string Id, string Name, IReadOnlyList<DiscordChannel> Channels);
 
-/// <summary>The Discord bot's connection, as the endpoints see it; tests replace it with a fake.</summary>
+/// <summary>The Discord bot's connection, as the rest of PrikBoard sees it; tests replace it with a fake.</summary>
 public interface IDiscordGateway
 {
     DiscordBotState State { get; }
@@ -50,17 +51,27 @@ public interface IDiscordGateway
 
     /// <summary>Makes the bot leave the server; false when it isn't in it.</summary>
     Task<bool> LeaveAsync(string guildId);
+
+    /// <summary>Posts embeds in a channel; the message's id, or null when the bot can't post there.</summary>
+    Task<string?> PostAsync(string channelId, IReadOnlyList<Embed> embeds);
+
+    /// <summary>Replaces the embeds of one of the bot's messages; false when the message is gone.</summary>
+    Task<bool> EditAsync(string channelId, string messageId, IReadOnlyList<Embed> embeds);
 }
 
 /// <summary>
 /// The Discord bot itself, inside the API (docs/discord.md). It connects out to Discord's gateway, so it needs no inbound
-/// port, and answers every message with links to this PrikBoard with one reply holding an embed per link the server may
-/// see (<see cref="LinkPreviews"/>). <see cref="DiscordBot"/> gives it its token and public URL, at startup and whenever
-/// an admin changes them. One instance only, like the rest of PrikBoard: two would answer every message twice.
+/// port. It answers messages with previews of links and readable ids (<see cref="DiscordPreviews"/>), offers Save to
+/// PrikBoard on messages (<see cref="DiscordSaves"/>) and /prikboard board, and posts and edits what
+/// <see cref="DiscordActivity"/> passes on. <see cref="DiscordBot"/> gives it its token and public URL, at startup and
+/// whenever an admin changes them. One instance only, like the rest of PrikBoard: two would answer every message twice.
 /// </summary>
 public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration config, ILogger<DiscordGateway> logger)
     : IDiscordGateway, IHostedService
 {
+    /// <summary>The message command that saves a message as a card.</summary>
+    public const string SaveCommand = "Save to PrikBoard";
+
     /// <summary>Close codes after which Discord won't take the bot back until something changes.</summary>
     private static readonly Dictionary<int, string> Fatal = new()
     {
@@ -69,8 +80,12 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
         [4014] = "Turn on Message Content Intent on the Bot tab of your application: without it the bot can't see pasted links.",
     };
 
+    /// <summary>How long Save to PrikBoard's choices wait for the Save button.</summary>
+    private static readonly TimeSpan DraftLifetime = TimeSpan.FromMinutes(15);
+
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly CancellationTokenSource _stopping = new();
+    private readonly ConcurrentDictionary<string, SaveDraft> _drafts = new();
 
     // Per server, not per bot: one busy server can't use up the others' previews.
     private readonly PartitionedRateLimiter<string> _previews = PartitionedRateLimiter.Create<string, string>(guildId =>
@@ -122,6 +137,11 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
             client.Ready += () => Background(() => ReadyAsync(client));
             client.Disconnected += error => Disconnected(client, error);
             client.MessageReceived += message => Background(() => HandleMessageAsync(message, _stopping.Token));
+            client.MessageCommandExecuted += command => Background(() => SaveCommandAsync(command, _stopping.Token));
+            client.SlashCommandExecuted += command => Background(() => SlashCommandAsync(command, _stopping.Token));
+            client.SelectMenuExecuted += component => Background(() => DraftChoiceAsync(component));
+            client.ButtonExecuted += component => Background(() => DraftButtonAsync(component, _stopping.Token));
+            client.ModalSubmitted += modal => Background(() => TitleSubmittedAsync(modal));
             _client = client;
             _state = DiscordBotState.Connecting;
             try
@@ -173,6 +193,37 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
         return true;
     }
 
+    public async Task<string?> PostAsync(string channelId, IReadOnlyList<Embed> embeds)
+    {
+        if (!ulong.TryParse(channelId, out var id) || _client?.GetChannel(id) is not IMessageChannel channel) return null;
+        try
+        {
+            var message = await channel.SendMessageAsync(embeds: [.. embeds], allowedMentions: AllowedMentions.None);
+            return message.Id.ToString();
+        }
+        catch (HttpException error)
+        {
+            logger.LogInformation(error, "The Discord bot could not post in channel {Channel}.", channelId);
+            return null;
+        }
+    }
+
+    public async Task<bool> EditAsync(string channelId, string messageId, IReadOnlyList<Embed> embeds)
+    {
+        if (!ulong.TryParse(channelId, out var id) || !ulong.TryParse(messageId, out var message)) return false;
+        // A channel the bot can't see any more keeps its message, but the bot can't follow it either.
+        if (_client?.GetChannel(id) is not ITextChannel channel) return _client is null;
+        try
+        {
+            await channel.ModifyMessageAsync(message, m => m.Embeds = embeds.ToArray());
+            return true;
+        }
+        catch (HttpException error) when (error.HttpCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
+        {
+            return false;
+        }
+    }
+
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -212,6 +263,17 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
         _state = DiscordBotState.Online;
         var app = await client.GetApplicationInfoAsync();
         _application = new DiscordApplication(app.Id.ToString(), client.CurrentUser.Username, app.IsBotPublic == true);
+        await client.BulkOverwriteGlobalApplicationCommandsAsync(
+        [
+            new MessageCommandBuilder().WithName(SaveCommand).WithContextTypes(InteractionContextType.Guild).Build(),
+            new SlashCommandBuilder()
+                .WithName("prikboard")
+                .WithDescription("PrikBoard in this channel")
+                .WithContextTypes(InteractionContextType.Guild)
+                .AddOption(new SlashCommandOptionBuilder().WithName("board").WithType(ApplicationCommandOptionType.SubCommand)
+                    .WithDescription("What is on the board connected to this channel, only for you"))
+                .Build(),
+        ]);
         logger.LogInformation("The Discord bot {Name} is online in {Servers} server(s).", client.CurrentUser.Username, client.Guilds.Count);
     }
 
@@ -257,40 +319,230 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
         return new DiscordServerInfo(guild.Id.ToString(), guild.Name, channels);
     }
 
+    /// <summary>A thread counts as its channel.</summary>
+    private static string ChannelOf(IChannel channel) =>
+        (channel is SocketThreadChannel { ParentChannel: { } parent } ? parent.Id : channel.Id).ToString();
+
     private async Task HandleMessageAsync(SocketMessage message, CancellationToken ct)
     {
         // Never answer bots, this one included.
         if (message is not SocketUserMessage { Author.IsBot: false } user || user.Channel is not SocketGuildChannel channel) return;
         if (_site is not { } site) return;
-        var links = site.Links.Find(user.Content);
-        if (links.Count == 0) return;
+        if (LinkPreviews.Sources(user.Content, site.Links).Count == 0) return;
 
         var guildId = channel.Guild.Id.ToString();
-        // A thread previews what its channel does.
-        var channelId = (channel is SocketThreadChannel { ParentChannel: { } parent } ? parent.Id : channel.Id).ToString();
-
+        var channelId = ChannelOf(channel);
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
-        List<Embed> embeds = [];
-        foreach (var link in links)
-        {
-            using var lease = _previews.AttemptAcquire(guildId);
-            if (!lease.IsAcquired) break;
-            if (await LinkPreviews.FindAsync(db, guildId, link, channelId, site.Url, ct) is { } preview)
+        var shown = await DiscordPreviews.ForMessageAsync(db, guildId, channelId, user.Content, site.Links, site.Url, ct,
+            allow: () =>
             {
-                embeds.Add(site.Embeds.For(preview, link));
-            }
-        }
-        // Silent about links without a preview: saying "no access" would tell that the board exists.
-        if (embeds.Count == 0) return;
+                using var lease = _previews.AttemptAcquire(guildId);
+                return lease.IsAcquired;
+            });
+        // Silent about sources without a preview: saying "no access" would tell that the board exists.
+        if (shown.Count == 0) return;
 
-        await user.ReplyAsync(embeds: [.. embeds], allowedMentions: AllowedMentions.None);
+        var reply = await user.ReplyAsync(embeds: shown.Select(s => site.Embeds.For(s.Preview, s.Source)).ToArray(), allowedMentions: AllowedMentions.None);
+        await DiscordPreviews.RememberAsync(db, reply.Id.ToString(), guildId, channelId, shown, ct);
 
         // Remove Discord's own "not signed in" preview from the message answered, when the bot may.
-        if (channel.Guild.CurrentUser?.GetPermissions(channel).ManageMessages == true)
+        if (channel.Guild.CurrentUser?.GetPermissions(channel).ManageMessages == true && user.Embeds.Count > 0)
         {
             await user.ModifyAsync(m => m.Flags = MessageFlags.SuppressEmbeds);
         }
+    }
+
+    private static string NameOf(IUser user) =>
+        (user as IGuildUser)?.DisplayName ?? user.GlobalName ?? user.Username;
+
+    /// <summary>Save to PrikBoard on a message: who you are, then where it goes (<see cref="SaveDraft"/>).</summary>
+    private async Task SaveCommandAsync(SocketMessageCommand command, CancellationToken ct)
+    {
+        if (command.CommandName != SaveCommand) return;
+        if (_site is not { } site || command.GuildId is not { } guild || command.Data.Message.Channel is not IGuildChannel channel)
+        {
+            await command.RespondAsync("Save to PrikBoard works in servers only.", ephemeral: true);
+            return;
+        }
+        await command.DeferAsync(ephemeral: true);
+
+        await using var scope = scopes.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+        var accounts = scope.ServiceProvider.GetRequiredService<DiscordAccounts>();
+        if (await accounts.FindUserAsync(db, command.User.Id.ToString(), ct) is not { } userId)
+        {
+            var code = accounts.StartLink(command.User.Id.ToString(), NameOf(command.User));
+            await command.FollowupAsync(
+                "PrikBoard doesn't know you yet. Connect your PrikBoard account once, then use Save to PrikBoard again.",
+                components: new ComponentBuilder()
+                    .WithButton("Connect your PrikBoard account", style: ButtonStyle.Link, url: $"{site.Url}/#/connect/discord-account?code={code}")
+                    .Build(),
+                ephemeral: true);
+            return;
+        }
+
+        var channelId = ChannelOf(channel);
+        var targets = await DiscordSaves.TargetsAsync(db, userId, guild.ToString(), channelId, ct);
+        if (targets.Count == 0)
+        {
+            await command.FollowupAsync(
+                "There is no board here you can add cards to. A board owner connects boards to this server under Integrations in PrikBoard.",
+                ephemeral: true);
+            return;
+        }
+
+        var message = command.Data.Message;
+        var saved = new SavedMessage(message.CleanContent, NameOf(message.Author), channel.Name, message.GetJumpUrl(), message.Timestamp,
+            message.Attachments.Select(a => new SavedAttachment(a.Url, a.Filename, a.ContentType, a.Size)).ToList());
+        var token = Guid.NewGuid().ToString("N");
+        foreach (var (key, old) in _drafts) if (old.ExpiresAt <= DateTimeOffset.UtcNow) _drafts.TryRemove(key, out _);
+        var draft = new SaveDraft(command.User.Id, userId, saved, message, targets, DateTimeOffset.UtcNow + DraftLifetime)
+        {
+            BoardId = targets[0].BoardId,
+            BucketId = targets[0].DefaultBucketId,
+            Title = DiscordSaves.TitleFor(saved),
+        };
+        _drafts[token] = draft;
+        await command.FollowupAsync(draft.Text(), components: draft.Components(token), ephemeral: true);
+    }
+
+    /// <summary>The board or bucket picked in a draft.</summary>
+    private async Task DraftChoiceAsync(SocketMessageComponent component)
+    {
+        if (DraftOf(component.Data.CustomId) is not var (token, kind, draft) || draft is null) return;
+        var value = component.Data.Values.FirstOrDefault();
+        if (kind == "board" && Guid.TryParse(value, out var boardId) && draft.Targets.FirstOrDefault(t => t.BoardId == boardId) is { } target)
+        {
+            draft.BoardId = target.BoardId;
+            draft.BucketId = target.DefaultBucketId;
+        }
+        else if (kind == "bucket" && Guid.TryParse(value, out var bucketId))
+        {
+            draft.BucketId = bucketId;
+        }
+        await component.UpdateAsync(m =>
+        {
+            m.Content = draft.Text();
+            m.Components = draft.Components(token);
+        });
+    }
+
+    private async Task DraftButtonAsync(SocketMessageComponent component, CancellationToken ct)
+    {
+        if (DraftOf(component.Data.CustomId) is not var (token, kind, draft)) return;
+        if (draft is null)
+        {
+            await component.UpdateAsync(m =>
+            {
+                m.Content = "This took too long; use Save to PrikBoard again.";
+                m.Components = new ComponentBuilder().Build();
+            });
+            return;
+        }
+        switch (kind)
+        {
+            case "title":
+                await component.RespondWithModalAsync(new ModalBuilder()
+                    .WithTitle("Card title")
+                    .WithCustomId($"pb-save:title:{token}")
+                    .AddTextInput("Title", "title", TextInputStyle.Short, value: draft.Title, maxLength: 200, required: true)
+                    .Build());
+                break;
+            case "cancel":
+                _drafts.TryRemove(token, out _);
+                await component.UpdateAsync(m =>
+                {
+                    m.Content = "Not saved.";
+                    m.Components = new ComponentBuilder().Build();
+                });
+                break;
+            case "save":
+                _drafts.TryRemove(token, out _);
+                await component.DeferAsync(ephemeral: true);
+                await SaveDraftAsync(component, draft, ct);
+                break;
+        }
+    }
+
+    private async Task TitleSubmittedAsync(SocketModal modal)
+    {
+        if (DraftOf(modal.Data.CustomId) is not var (token, _, draft) || draft is null) return;
+        if (modal.Data.Components.FirstOrDefault(c => c.CustomId == "title")?.Value is { } title && title.Trim().Length > 0)
+        {
+            draft.Title = title.Trim();
+        }
+        await modal.UpdateAsync(m =>
+        {
+            m.Content = draft.Text();
+            m.Components = draft.Components(token);
+        });
+    }
+
+    private async Task SaveDraftAsync(SocketMessageComponent component, SaveDraft draft, CancellationToken ct)
+    {
+        await using var scope = scopes.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+        var saves = scope.ServiceProvider.GetRequiredService<DiscordSaves>();
+        var (card, problem) = await saves.SaveAsync(db, draft.UserId, draft.BoardId, draft.BucketId, draft.Title, draft.Message, ct);
+        if (card is null || _site is not { } site)
+        {
+            await component.ModifyOriginalResponseAsync(m =>
+            {
+                m.Content = $"Not saved: {problem}";
+                m.Components = new ComponentBuilder().Build();
+            });
+            return;
+        }
+
+        var board = draft.Targets.First(t => t.BoardId == draft.BoardId);
+        var preview = await LinkPreviews.CardAsync(db, (await db.Cards.FindAsync([card.Id], ct))!, (await db.Boards.FindAsync([board.BoardId], ct))!, ct);
+        await component.ModifyOriginalResponseAsync(m =>
+        {
+            m.Content = $"Saved as **{card.ReadableId}** on {Format.Sanitize(board.Name)}.";
+            m.Embeds = new[] { site.Embeds.For(preview, card.Path) };
+            m.Components = new ComponentBuilder().WithButton("Open in PrikBoard", style: ButtonStyle.Link, url: site.Url + card.Path).Build();
+        });
+        // A pin on the message tells the channel it is on a board now.
+        try
+        {
+            await draft.Source.AddReactionAsync(new Emoji("📌"));
+        }
+        catch (HttpException)
+        {
+            // Without Add Reactions the save still stands.
+        }
+    }
+
+    /// <summary>/prikboard board: the board connected to this channel, only for whoever asked.</summary>
+    private async Task SlashCommandAsync(SocketSlashCommand command, CancellationToken ct)
+    {
+        if (command.CommandName != "prikboard") return;
+        if (_site is not { } site || command.Channel is not IGuildChannel channel || command.GuildId is not { } guild)
+        {
+            await command.RespondAsync("Use this in a server channel.", ephemeral: true);
+            return;
+        }
+        await command.DeferAsync(ephemeral: true);
+        await using var scope = scopes.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+        var boards = await DiscordPreviews.BoardsInChannelAsync(db, guild.ToString(), ChannelOf(channel), ct);
+        if (boards.Count == 0)
+        {
+            await command.FollowupAsync("No PrikBoard board is connected to this channel. A board owner connects one under Integrations.", ephemeral: true);
+            return;
+        }
+        var snapshot = await DiscordPreviews.SnapshotAsync(db, boards[0], DateTimeOffset.UtcNow, ct);
+        var others = boards.Count > 1 ? $"Also here: {string.Join(", ", boards.Skip(1).Select(b => Format.Sanitize(b.Name)))}" : null;
+        await command.FollowupAsync(others, embed: site.Embeds.Snapshot(snapshot), ephemeral: true);
+    }
+
+    /// <summary>The draft a component's custom id ("pb-save:{kind}:{token}") names; its draft is null once gone.</summary>
+    private (string Token, string Kind, SaveDraft? Draft)? DraftOf(string customId)
+    {
+        var parts = customId.Split(':');
+        if (parts is not ["pb-save", var kind, var token]) return null;
+        return (token, kind, _drafts.TryGetValue(token, out var draft) && draft.ExpiresAt > DateTimeOffset.UtcNow ? draft : null);
     }
 
     /// <summary>Gateway handlers must return quickly, so the work runs on its own.</summary>
@@ -328,8 +580,47 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
     /// <summary>The public URL links are matched against, with what is built from it.</summary>
     private sealed class Site(string url)
     {
-        public string Url { get; } = url;
+        public string Url { get; } = url.TrimEnd('/');
         public LinkFinder Links { get; } = new(url);
         public Embeds Embeds { get; } = new(url);
+    }
+
+    /// <summary>A message being saved: who saves it, what it is, and the board, bucket and title picked so far.</summary>
+    private sealed class SaveDraft(ulong discordUserId, Guid userId, SavedMessage message, IMessage source, List<SaveTarget> targets, DateTimeOffset expiresAt)
+    {
+        public ulong DiscordUserId { get; } = discordUserId;
+        public Guid UserId { get; } = userId;
+        public SavedMessage Message { get; } = message;
+        public IMessage Source { get; } = source;
+        public List<SaveTarget> Targets { get; } = targets;
+        public DateTimeOffset ExpiresAt { get; } = expiresAt;
+        public Guid BoardId { get; set; }
+        public Guid? BucketId { get; set; }
+        public required string Title { get; set; }
+
+        public string Text() => $"Save **{Format.Sanitize(Title)}** to PrikBoard:";
+
+        public MessageComponent Components(string token)
+        {
+            var target = Targets.First(t => t.BoardId == BoardId);
+            var components = new ComponentBuilder();
+            if (Targets.Count > 1)
+            {
+                components.WithSelectMenu(new SelectMenuBuilder().WithCustomId($"pb-save:board:{token}").WithPlaceholder("Board")
+                    .WithOptions(Targets.Take(25).Select(t => new SelectMenuOptionBuilder(Cut(t.Name), t.BoardId.ToString(), isDefault: t.BoardId == BoardId)).ToList()));
+            }
+            if (target.Buckets.Count > 0)
+            {
+                components.WithSelectMenu(new SelectMenuBuilder().WithCustomId($"pb-save:bucket:{token}").WithPlaceholder("Bucket")
+                    .WithOptions(target.Buckets.Take(25).Select(b => new SelectMenuOptionBuilder(Cut(b.Name), b.Id.ToString(), isDefault: b.Id == BucketId)).ToList()));
+            }
+            return components
+                .WithButton("Save", $"pb-save:save:{token}", ButtonStyle.Success)
+                .WithButton("Edit title", $"pb-save:title:{token}", ButtonStyle.Secondary)
+                .WithButton("Cancel", $"pb-save:cancel:{token}", ButtonStyle.Secondary)
+                .Build();
+        }
+
+        private static string Cut(string text) => text.Length <= 100 ? text : text[..99] + "…";
     }
 }

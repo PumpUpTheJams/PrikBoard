@@ -6,18 +6,18 @@ using PrikBoard.Api.Domain;
 namespace PrikBoard.Api.Data;
 
 /// <summary>
-/// Stores the channels a Discord server may preview a board in as a jsonb array, <c>[{"id":"123…","name":"general"}]</c>.
-/// A null list (the whole server) is a SQL null.
+/// Stores the channels a board is connected to in a Discord server as a jsonb array,
+/// <c>[{"id":"123…","name":"general","updates":3,"saveBucketId":null}]</c>. Older rows have only id and name.
 /// </summary>
 public static class DiscordChannelsJson
 {
-    public static readonly ValueConverter<List<DiscordChannel>?, string?> Converter = new(
-        v => v == null ? null : JsonSerializer.Serialize(v, JsonSerializerOptions.Web),
-        v => v == null ? null : JsonSerializer.Deserialize<List<DiscordChannel>>(v, JsonSerializerOptions.Web));
+    public static readonly ValueConverter<List<DiscordChannel>, string> Converter = new(
+        v => JsonSerializer.Serialize(v, JsonSerializerOptions.Web),
+        v => JsonSerializer.Deserialize<List<DiscordChannel>>(v, JsonSerializerOptions.Web) ?? new List<DiscordChannel>());
 
     /// <summary>Compares the channels (records, so by value) and snapshots a copy, so changes made in place are saved too.</summary>
-    public static readonly ValueComparer<List<DiscordChannel>?> Comparer = new(
-        (a, b) => a == null ? b == null : b != null && a.SequenceEqual(b),
-        v => v == null ? 0 : v.Count,
-        v => v == null ? null : v.ToList());
+    public static readonly ValueComparer<List<DiscordChannel>> Comparer = new(
+        (a, b) => a!.SequenceEqual(b!),
+        v => v.Count,
+        v => v.ToList());
 }

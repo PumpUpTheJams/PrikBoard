@@ -563,11 +563,32 @@ namespace PrikBoard.Api.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("At");
+
                     b.HasIndex("ById");
 
                     b.HasIndex("CardId", "At");
 
                     b.ToTable("CardChanges");
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.DiscordAccount", b =>
+                {
+                    b.Property<byte[]>("DiscordUserHash")
+                        .HasMaxLength(32)
+                        .HasColumnType("bytea");
+
+                    b.Property<DateTimeOffset>("LinkedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("DiscordUserHash");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("DiscordAccounts");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.DiscordBoardChannels", b =>
@@ -580,7 +601,11 @@ namespace PrikBoard.Api.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<string>("Channels")
+                        .IsRequired()
                         .HasColumnType("jsonb");
+
+                    b.Property<bool>("WholeServer")
+                        .HasColumnType("boolean");
 
                     b.HasKey("GuildId", "BoardId");
 
@@ -645,6 +670,44 @@ namespace PrikBoard.Api.Data.Migrations
                     b.HasIndex("ConnectedById");
 
                     b.ToTable("DiscordGuilds");
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.DiscordPreviewMessage", b =>
+                {
+                    b.Property<string>("MessageId")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.PrimitiveCollection<List<Guid>>("BoardIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]");
+
+                    b.PrimitiveCollection<List<Guid>>("CardIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]");
+
+                    b.Property<string>("ChannelId")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset>("PostedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.PrimitiveCollection<List<string>>("Sources")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.HasKey("MessageId");
+
+                    b.HasIndex("PostedAt");
+
+                    b.ToTable("DiscordPreviewMessages");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.DrawingContent", b =>
@@ -1130,6 +1193,17 @@ namespace PrikBoard.Api.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("By");
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.DiscordAccount", b =>
+                {
+                    b.HasOne("PrikBoard.Api.Domain.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.DiscordBoardChannels", b =>

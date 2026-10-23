@@ -3834,6 +3834,59 @@ a.button.primary:hover {
   height: 20px;
 }
 
+.discord-channel.open {
+  outline: 1px solid var(--accent);
+}
+
+/* A connected channel's name opens its settings. */
+.discord-channel-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.discord-channel-name:hover {
+  color: var(--text);
+}
+
+.discord-channel-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.discord-channel-settings h4 {
+  margin: 0;
+  color: var(--text);
+  font: 600 13px var(--mono);
+}
+
+.discord-channel-settings .dialog-hint {
+  margin: 0;
+}
+
+.discord-save-bucket {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.discord-how {
+  margin-top: 12px;
+}
+
 /* Integrations: pick a server, then one of its channels or the whole server. */
 .discord-add {
   display: flex;

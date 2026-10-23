@@ -5,9 +5,12 @@ import type {
   AdminUser,
   AppSignInCode,
   CreatedAccessToken,
+  DiscordAccountLinkPreview,
+  DiscordAccountStatus,
   DiscordBotDetail,
   DiscordConnection,
   DiscordServers,
+  DiscordUpdate,
   AuthProvider,
   BoardClip,
   CopyItemsRequest,
@@ -202,6 +205,14 @@ export const api = {
   removeDiscordConnection: (boardId: string, guildId: string) => request<void>('DELETE', `/boards/${boardId}/discord/${guildId}`),
   removeDiscordChannel: (boardId: string, guildId: string, channelId: string) =>
     request<void>('DELETE', `/boards/${boardId}/discord/${guildId}/channels/${channelId}`),
+  removeDiscordWholeServer: (boardId: string, guildId: string) => request<void>('DELETE', `/boards/${boardId}/discord/${guildId}/whole-server`),
+  /** Replaces what a connected channel does for the board; returns the board's connections. */
+  updateDiscordChannel: (boardId: string, guildId: string, channelId: string, settings: { updates: DiscordUpdate[]; saveBucketId: string | null }) =>
+    request<DiscordConnection[]>('PUT', `/boards/${boardId}/discord/${guildId}/channels/${channelId}`, settings),
+  getDiscordAccount: () => request<DiscordAccountStatus>('GET', '/me/discord-account'),
+  previewDiscordAccountLink: (code: string) => request<DiscordAccountLinkPreview>('GET', `/me/discord-account/links/${encodeURIComponent(code)}`),
+  linkDiscordAccount: (code: string) => request<DiscordAccountStatus>('POST', '/me/discord-account', { code }),
+  unlinkDiscordAccount: () => request<void>('DELETE', '/me/discord-account'),
 
   listBoards: () => request<BoardSummary[]>('GET', '/boards'),
   createBoard: (name: string, description?: string) =>

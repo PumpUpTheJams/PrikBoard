@@ -264,11 +264,17 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | revokeBoardInvite | `DELETE /api/boards/{boardId}/invites/{inviteId}` | Revoke an invite link (Owner) |
 | previewInvite | `POST /api/invites/preview` | Board name and role behind an invite token (sessions only) |
 | acceptInvite | `POST /api/invites/accept` | Spend an invite token and join the board (sessions only) |
-| listDiscordConnections | `GET /api/boards/{boardId}/discord` | Discord servers that preview the board's links, with their channels or `null` for the whole server (Owner) |
+| listDiscordConnections | `GET /api/boards/{boardId}/discord` | Discord servers connected to the board: `wholeServer` and the `channels` picked, each with the `updates` it posts and its `saveBucketId` (Owner) |
 | listDiscordServers | `GET /api/boards/{boardId}/discord/servers` | The bot's `state` (`Off` until an admin sets it up) and the servers it is in, with the channels it may read and post in (Owner) |
-| connectDiscordChannel | `POST /api/boards/{boardId}/discord` | Preview the board in a server's `channelId`, adding to its channels, or in the whole server without one; returns the board's connections. The server becomes a Viewer. 409 past 50 channels (Owner, sessions only) |
-| removeDiscordConnection | `DELETE /api/boards/{boardId}/discord/{guildId}` | Take a Discord server off the board (Owner) |
-| removeDiscordChannel | `DELETE /api/boards/{boardId}/discord/{guildId}/channels/{channelId}` | Stop previewing the board in one channel; the last one disconnects the server (Owner) |
+| connectDiscordChannel | `POST /api/boards/{boardId}/discord` | Connect the board to a server's `channelId`, adding to its channels, or to the whole server without one (both may be set); returns the board's connections. The server becomes a Viewer. 409 past 50 channels (Owner, sessions only) |
+| updateDiscordChannel | `PUT /api/boards/{boardId}/discord/{guildId}/channels/{channelId}` | What a connected channel does: the `updates` it posts (`NewCards`, `Moves`, `Assignments`, `AgentWork`) and the `saveBucketId` for Save to PrikBoard (null: the first bucket); returns the board's connections (Owner) |
+| removeDiscordConnection | `DELETE /api/boards/{boardId}/discord/{guildId}` | Take a Discord server off the board; its previews say "no longer available" (Owner) |
+| removeDiscordWholeServer | `DELETE /api/boards/{boardId}/discord/{guildId}/whole-server` | Stop previewing in every channel; with no channels left, the server is disconnected (Owner) |
+| removeDiscordChannel | `DELETE /api/boards/{boardId}/discord/{guildId}/channels/{channelId}` | Disconnect one channel, with its settings; with nothing left, the server is disconnected (Owner) |
+| getDiscordAccount | `GET /api/me/discord-account` | Whether the Discord bot knows who you are (`linked`, `source`: `SignIn` or `Link`) for Save to PrikBoard (sessions only) |
+| previewDiscordAccountLink | `GET /api/me/discord-account/links/{code}` | The Discord name behind a code from the bot's "Connect your PrikBoard account" button (sessions only) |
+| linkDiscordAccount | `POST /api/me/discord-account` | Link the Discord account behind `code` to you; once, for 10 minutes (sessions from PrikBoard's own pages only) |
+| unlinkDiscordAccount | `DELETE /api/me/discord-account` | Remove the link you made (sessions only) |
 | adminListBoards | `GET /api/admin/boards` | Every board with its members and their roles, newest first (admins, sessions only) |
 | adminDeleteBoard | `DELETE /api/admin/boards/{boardId}` | Delete any board with everything on it (admins, sessions only) |
 | adminListUsers | `GET /api/admin/users` | Every user, with admin flag, board count and the boards they own alone (admins, sessions only) |
