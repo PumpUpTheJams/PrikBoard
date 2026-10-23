@@ -1,15 +1,16 @@
-import { memo, type MouseEvent, type PointerEvent } from 'react'
+import { memo, type CSSProperties, type MouseEvent, type PointerEvent } from 'react'
 import type { BucketDetail, CardDetail, DrawingDetail, ImageDetail, Point, Rect, ResizeHandle } from '../api/types'
 import type { ItemGesture } from './boardGesture'
 import { BoardImageView } from './BoardImageView'
 import { BucketView, CollapsedBucketView, type BucketCount } from './BucketView'
 import { Card } from './Card'
+import { titleLines } from './cardFace'
 import { CARD_HEIGHT, CARD_WIDTH } from './layout'
 import { cardLabel } from './links'
 import type { Reshape } from './drawings'
 import { DrawingView } from './DrawingView'
 import type { SearchTerm } from './search'
-import type { TagColors } from './tagColors'
+import { tagColorClass, type TagColors } from './tagColors'
 
 // The board's items, each memoized: the board renders on every pointer move of a drag, every zoom step and every
 // reload, and with these only the items whose props changed render again. Their props are data and flags, plus one
@@ -75,8 +76,8 @@ type FarCardProps = Pick<BoardCardProps, 'card' | 'point' | 'tagColors' | 'selec
 }
 
 /**
- * A card when the board is zoomed far out: its fill, title and a mark in each tag's color, without buttons, avatars or
- * shadows, so a whole board of them stays light. It is pressed, dragged and opened like any card; its title can't be
+ * A card when the board is zoomed far out: its fill, title and its tags as chips of their size and color without their
+ * words (too small to read there), without buttons, avatars or shadows, so a whole board of them stays light. It is pressed, dragged and opened like any card; its title can't be
  * edited in place, as it is too small there to aim at.
  */
 function FarCard({ card, point, tagColors, selected, lifted, front, dimmed, current, dropTarget, onPointerDown, onExpand }: FarCardProps) {
@@ -92,7 +93,7 @@ function FarCard({ card, point, tagColors, selected, lifted, front, dimmed, curr
   return (
     <div
       className={classes.join(' ')}
-      style={{ left: point.x, top: point.y, width: CARD_WIDTH, height: CARD_HEIGHT }}
+      style={{ left: point.x, top: point.y, width: CARD_WIDTH, height: CARD_HEIGHT, '--title-lines': titleLines(card, false) } as CSSProperties}
       role="group"
       data-card={card.id}
       aria-label={card.agentWorking ? `${name} (agent working)` : name}
@@ -103,12 +104,15 @@ function FarCard({ card, point, tagColors, selected, lifted, front, dimmed, curr
     >
       <span className="card-far-title">{name}</span>
       {card.tags.length > 0 && (
-        <span className="card-far-tags" aria-hidden="true">
-          {card.tags.map((tag) => {
-            const color = tagColors.get(tag)
-            return <span key={tag} className={`card-far-tag${color && color !== 'Default' ? ` tag-color-${color.toLowerCase()}` : ''}`} />
-          })}
-        </span>
+        <div className="card-foot" aria-hidden="true">
+          <span className="card-tags">
+            {card.tags.map((tag) => (
+              <span key={tag} className={`tag${tagColorClass(tagColors, tag)}`}>
+                {tag}
+              </span>
+            ))}
+          </span>
+        </div>
       )}
     </div>
   )
