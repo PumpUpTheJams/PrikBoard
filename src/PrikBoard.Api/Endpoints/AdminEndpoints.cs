@@ -80,27 +80,31 @@ public static class AdminEndpoints
     }
 
     /// <summary>Lets only signed-in admins through: 403 for everyone else, and for every token.</summary>
-    private static RouteHandlerBuilder RequireAdmin(this RouteHandlerBuilder builder) =>
+    internal static RouteHandlerBuilder RequireAdmin(this RouteHandlerBuilder builder) =>
         builder
             .AddEndpointFilter(async (context, next) =>
             {
                 var http = context.HttpContext;
-                if (http.User.IsToken())
-                {
-                    return TypedResults.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Sessions only",
-                        detail: "Running PrikBoard is done in the browser; access tokens cannot use the admin endpoints.");
-                }
-
-                var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
-                var userId = http.User.UserId();
-                if (!await db.Users.AnyAsync(u => u.Id == userId && u.IsAdmin, http.RequestAborted))
-                {
-                    return TypedResults.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Admins only",
-                        detail: "Only admins of this PrikBoard can do this.");
-                }
+                if (http.User.IsToken()) return SessionsOnly();
+                if (!await IsAdminAsync(http)) return AdminsOnly();
                 return await next(context);
             })
             .ProducesProblem(StatusCodes.Status403Forbidden);
+
+    /// <summary>Whether the request comes from a signed-in admin's session.</summary>
+    internal static async Task<bool> IsAdminAsync(HttpContext http)
+    {
+        if (http.User.Identity?.IsAuthenticated != true || http.User.IsToken()) return false;
+        var db = http.RequestServices.GetRequiredService<PrikBoardDbContext>();
+        var userId = http.User.UserId();
+        return await db.Users.AnyAsync(u => u.Id == userId && u.IsAdmin, http.RequestAborted);
+    }
+
+    internal static ProblemHttpResult SessionsOnly() => TypedResults.Problem(statusCode: StatusCodes.Status403Forbidden,
+        title: "Sessions only", detail: "Running PrikBoard is done in the browser; access tokens cannot use the admin endpoints.");
+
+    internal static ProblemHttpResult AdminsOnly() => TypedResults.Problem(statusCode: StatusCodes.Status403Forbidden,
+        title: "Admins only", detail: "Only admins of this PrikBoard can do this.");
 
     private static async Task<Ok<List<AdminBoard>>> ListBoards(PrikBoardDbContext db, CancellationToken ct)
     {

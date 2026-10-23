@@ -3,7 +3,6 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Options;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
 
@@ -19,6 +18,7 @@ public static partial class UserSignIn
     public const string InviteRequiredError = "invite_required";
     public const string LinkFailedError = "link_failed";
     public const string IdentityInUseError = "identity_in_use";
+    public const string SetupRequiredError = "setup_required";
 
     /// <summary>
     /// Set on the challenge of a link flow (see <c>AuthEndpoints.Link</c>): the id of the user the new sign-in should join.
@@ -26,14 +26,23 @@ public static partial class UserSignIn
     /// </summary>
     public const string LinkUserItem = "prikboard_link_user";
 
+    /// <summary>
+    /// Set on the challenge of a test sign-in from the setup (testSignInProvider): the round trip only shows whether the
+    /// provider works, and nobody is signed in or stored.
+    /// </summary>
+    public const string TestItem = "prikboard_test";
+
     /// <summary>Key of the PostgreSQL advisory lock that lets one sign-up through at a time.</summary>
     private const long SignUpLock = 0x7072_696b_7369_676e; // "priksign"
 
-    /// <summary>Who may get a new account at sign-in. People who already have one always get in.</summary>
-    public readonly record struct SignUp(bool Anyone, string? InviteToken)
+    /// <summary>
+    /// Who may get a new account at sign-in. People who already have one always get in. <see cref="Setup"/>: the browser
+    /// holds a setup cookie (<see cref="SetupKey"/>), which only the very first user needs.
+    /// </summary>
+    public readonly record struct SignUp(bool Anyone, string? InviteToken, bool Setup = false)
     {
-        /// <summary>Real sign-ins: a newcomer needs an open invite link (or to be the very first user).</summary>
-        public static SignUp Invite(string? token) => new(false, token);
+        /// <summary>Real sign-ins: a newcomer needs an open invite link, or the setup key to be the very first user.</summary>
+        public static SignUp Invite(string? token, bool setup = false) => new(false, token, setup);
 
         /// <summary>Test sign-ins, which stand in for people who were let in some other way.</summary>
         public static readonly SignUp Always = new(true, null);
@@ -49,9 +58,9 @@ public static partial class UserSignIn
 
     /// <summary>
     /// Finds the user for a provider identity, or creates one when <paramref name="signUp"/> allows it, and returns the
-    /// principal for the session cookie; null when a newcomer may not join. The very first user may always join and
-    /// becomes the admin. After that a newcomer needs an open invite link (<see cref="InviteIsOpenAsync"/>), which they
-    /// then accept as usual. <paramref name="verifiedEmail"/> (only when the provider vouches for it) is hashed for
+    /// principal for the session cookie; null when a newcomer may not join. The very first user becomes the admin, so they
+    /// need the setup key (<see cref="SignUp.Setup"/>). After that a newcomer needs an open invite link
+    /// (<see cref="InviteIsOpenAsync"/>), which they then accept as usual. <paramref name="verifiedEmail"/> (only when the provider vouches for it) is hashed for
     /// exact-email search. Never links identities by email: that would let a provider with weak email checks take over accounts.
     /// <paramref name="picture"/> is the provider's picture URL: a copy becomes the avatar unless the person opted out.
     /// </summary>
@@ -71,10 +80,13 @@ public static partial class UserSignIn
             await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock({SignUpLock})", ct);
             identity = await FindIdentityAsync(db, provider, subjectHash, ct);
         }
+        var first = false;
         if (identity is null)
         {
-            var first = !await db.Users.AnyAsync(ct);
-            if (!first && !signUp.Anyone && !await InviteIsOpenAsync(db, signUp.InviteToken, ct)) return null;
+            first = !await db.Users.AnyAsync(ct);
+            // The first user becomes the admin: only someone who has the setup key from the server's log, so a stranger
+            // can't take a new server by signing in before its owner does.
+            if (!signUp.Anyone && !(first ? signUp.Setup : await InviteIsOpenAsync(db, signUp.InviteToken, ct))) return null;
 
             identity = new UserIdentity { User = new User { IsAdmin = first }, Provider = provider, SubjectHash = subjectHash };
             db.UserIdentities.Add(identity);
@@ -85,6 +97,8 @@ public static partial class UserSignIn
         identity.User!.LastSeenAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
+        // There is an admin now, who carries on as themselves.
+        if (first) context.RequestServices.GetRequiredService<SetupKey>().CloseUnlessRecovery();
 
         // Refreshed on every sign-in, so a new picture at the provider shows up. A failed download keeps the old one.
         if (ProviderAvatars.IsTrusted(picture) && !identity.User.AvatarOptedOut)
@@ -174,14 +188,20 @@ public static partial class UserSignIn
             Reject(context, FailedError);
             return;
         }
+        if (context.Properties?.Items.ContainsKey(TestItem) == true)
+        {
+            context.Response.Redirect(TestResultUrl(context.ReturnUri, context.Scheme.Name, null));
+            context.HandleResponse();
+            return;
+        }
 
         var email = external.FindFirstValue("email");
         var emailVerified = external.FindFirstValue("email_verified");
         // Only an email the provider vouches for may make someone findable; an explicit false always wins.
-        var options = context.HttpContext.RequestServices.GetRequiredService<IOptions<AuthOptions>>().Value;
+        var providers = context.HttpContext.RequestServices.GetRequiredService<SignInProviders>();
         var trusted = string.Equals(emailVerified, "true", StringComparison.OrdinalIgnoreCase)
                       || (!string.Equals(emailVerified, "false", StringComparison.OrdinalIgnoreCase)
-                          && options.Providers.TryGetValue(provider, out var settings) && settings.EmailsAreVerified);
+                          && providers.Find(provider)?.Options.EmailsAreVerified == true);
         var verifiedEmail = trusted ? email : null;
 
         if (context.Properties?.Items.TryGetValue(LinkUserItem, out var linkUser) == true && linkUser is not null)
@@ -191,15 +211,19 @@ public static partial class UserSignIn
         }
 
         var name = external.FindFirstValue("name") ?? external.FindFirstValue("preferred_username");
+        var setupKey = context.HttpContext.RequestServices.GetRequiredService<SetupKey>();
+        var setup = await setupKey.GrantedAsync(context.HttpContext);
         var principal = await SignInAsync(context.HttpContext, provider, subject, name, verifiedEmail,
-            SignUp.Invite(InviteTokenIn(context.ReturnUri)), external.FindFirstValue("picture"));
+            SignUp.Invite(InviteTokenIn(context.ReturnUri), setup), external.FindFirstValue("picture"));
         if (principal is null)
         {
-            // A newcomer without an open invite link: nothing was stored about them.
-            Reject(context, InviteRequiredError);
+            // A newcomer without an open invite link, or a first user without the setup key: nothing was stored about them.
+            var db = context.HttpContext.RequestServices.GetRequiredService<PrikBoardDbContext>();
+            Reject(context, await db.Users.AnyAsync(context.HttpContext.RequestAborted) ? InviteRequiredError : SetupRequiredError);
             return;
         }
         context.Principal = principal;
+        if (setup && !setupKey.IsOpen) await context.HttpContext.SignOutAsync(SetupKey.Scheme);
     }
 
     /// <summary>
@@ -235,9 +259,23 @@ public static partial class UserSignIn
     {
         context.HttpContext.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(UserSignIn))
             .LogWarning(context.Failure, "Sign-in through {Scheme} failed", context.Scheme.Name);
-        context.Response.Redirect($"/?authError={FailedError}");
+        context.Response.Redirect(context.Properties?.Items.ContainsKey(TestItem) == true
+            ? TestResultUrl(context.Properties.RedirectUri, context.Scheme.Name, context.Failure?.Message ?? "The sign-in failed.")
+            : $"/?authError={FailedError}");
         context.HandleResponse();
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Where a test sign-in ends: the page that started it (a local path with a hash, such as /#/setup), with the result
+    /// in the query: setupTest=ok or failed, the provider, and on failure the provider's reason.
+    /// </summary>
+    private static string TestResultUrl(string? returnUrl, string provider, string? failure)
+    {
+        var hash = returnUrl?.IndexOf('#') is >= 0 and var at ? returnUrl[at..] : "";
+        var query = $"?setupTest={(failure is null ? "ok" : "failed")}&setupProvider={Uri.EscapeDataString(provider)}";
+        if (failure is not null) query += $"&setupReason={Uri.EscapeDataString(failure.Length > 200 ? failure[..200] : failure)}";
+        return $"/{query}{hash}";
     }
 
     private static Task<UserIdentity?> FindIdentityAsync(PrikBoardDbContext db, string provider, byte[] subjectHash, CancellationToken ct) =>

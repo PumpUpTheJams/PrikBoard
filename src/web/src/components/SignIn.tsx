@@ -32,8 +32,8 @@ export function SignIn({ authError }: { authError: string | null }) {
           <p className="status-inline">Loading…</p>
         ) : providers.length === 0 ? (
           <p className="status-inline">
-            No sign-in providers are configured. Set up GitHub sign-in as described in{' '}
-            <code>docs/authentication.md</code>.
+            No sign-in providers are set up, so nobody can sign in. An admin can add one by restarting PrikBoard with{' '}
+            <code>Setup__Recovery=true</code> and opening <a href="#/setup">the setup</a>.
           </p>
         ) : (
           <div className="sign-in-providers">

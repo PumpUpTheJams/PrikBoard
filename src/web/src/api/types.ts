@@ -578,6 +578,81 @@ export interface AuthProvider {
   displayName: string
 }
 
+/** Whether this PrikBoard still needs setting up (getSetupStatus). */
+export interface SetupStatus {
+  /** Nobody has an account yet: the setup makes the first admin. */
+  needed: boolean
+  /** The server runs with Setup__Recovery: the setup key opens the sign-in providers again. */
+  recovery: boolean
+  /** This browser entered the current setup key. */
+  unlocked: boolean
+}
+
+export type ProviderType = 'OpenIdConnect' | 'GitHub' | 'Discord' | 'Steam'
+
+/** A sign-in provider as the setup shows it; the client secret never comes back. */
+export interface SignInProviderDetail {
+  /** In the login and callback URLs (/api/auth/callback/{id}); never changes. */
+  id: string
+  type: ProviderType
+  displayName: string
+  authority: string | null
+  clientId: string
+  hasSecret: boolean
+  scopes: string[]
+  emailsAreVerified: boolean
+  /** Offered first on the sign-in page. */
+  isDefault: boolean
+  /** Configuration providers are read-only here. */
+  source: 'Configuration' | 'Setup'
+  /** The GitHub App the setup created for it. */
+  gitHubAppUrl: string | null
+  /** How many people's sign-ins use it. */
+  signIns: number
+}
+
+export interface CreateSignInProvider {
+  id: string
+  type: ProviderType
+  displayName?: string
+  authority?: string
+  /** Not for Steam. */
+  clientId?: string
+  /** For Steam: an optional Steam Web API key. */
+  clientSecret?: string
+  emailsAreVerified?: boolean
+  isDefault?: boolean
+}
+
+/** Fields left out stay as they are; an empty displayName or clientSecret clears it. */
+export interface SignInProviderChanges {
+  displayName?: string
+  authority?: string
+  clientId?: string
+  clientSecret?: string
+  emailsAreVerified?: boolean
+  isDefault?: boolean
+}
+
+/** A form to post to postUrl with one field, manifest. */
+export interface GitHubAppManifest {
+  postUrl: string
+  manifest: string
+}
+
+export interface OpenIdAuthority {
+  issuer: string
+}
+
+export type CheckStatus = 'Ok' | 'Warning' | 'Failed'
+
+export interface SystemCheck {
+  id: string
+  title: string
+  status: CheckStatus
+  message: string
+}
+
 export type PrincipalKind = 'User' | 'Agent'
 
 export interface LinkedIdentity {

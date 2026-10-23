@@ -10,10 +10,20 @@ The web UI and AI agents use the same REST API, which is described by an OpenAPI
 | [`src/PrikBoard.Api`](src/PrikBoard.Api) | ASP.NET Core (.NET 10) minimal API, EF Core + PostgreSQL |
 | [`src/PrikBoard.Api.Tests`](src/PrikBoard.Api.Tests) | xUnit integration tests running the API in memory |
 | [`src/web`](src/web) | React 19 + TypeScript + Vite frontend |
-| [`infra`](infra) | Hosting and deployment (not set up yet) |
+| [`infra`](infra) | Hosting: the compose file for running PrikBoard on a server |
 | [`docs`](docs) | Architecture and API documentation |
 
-## Getting started
+## Running PrikBoard
+
+PrikBoard runs as one container next to PostgreSQL. With Docker on the machine:
+
+```bash
+cd infra/compose && docker compose up -d
+```
+
+Open http://localhost:8080 and follow the setup. It asks for the setup key that PrikBoard prints in its log (`docker compose logs app`), then lets you add sign-in providers (GitHub in one click, Google, Discord, Steam or any OpenID Connect provider), sign in as the admin and download the recovery kit. For HTTPS on your own domain, see [`infra/README.md`](infra/README.md).
+
+## Developing
 
 Prerequisites: [.NET 10 SDK](https://dotnet.microsoft.com/download), [Node.js 22+](https://nodejs.org) and Docker.
 
@@ -35,7 +45,7 @@ In a second terminal, start the frontend on http://localhost:5173. Vite proxies 
 cd src/web && npm install && npm run dev
 ```
 
-Signing in needs a GitHub OAuth App (the default provider) with its client id and secret in user secrets. [`docs/authentication.md`](docs/authentication.md) walks through it, and covers Google, Microsoft, Auth0 and other OpenID Connect providers.
+Signing in needs a GitHub OAuth App (the default provider) with its client id and secret in user secrets, or a provider added in the setup. [`docs/authentication.md`](docs/authentication.md) walks through it, and covers Google, Microsoft, Auth0 and other OpenID Connect providers.
 
 Run the tests. They need the compose database running, and each test class creates and drops its own database on it:
 

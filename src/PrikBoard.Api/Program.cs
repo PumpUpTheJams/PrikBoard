@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
@@ -37,11 +38,25 @@ builder.Services.AddHostedService<TombstonePurger>();
 // Resolved (and so validated) at startup below; see FileStore.FromConfiguration.
 builder.Services.AddSingleton(services => FileStore.FromConfiguration(
     services.GetRequiredService<IConfiguration>(), services.GetRequiredService<IHostEnvironment>(), services.GetRequiredService<ILogger<FileStore>>()));
+// Session cookies, sign-ins in progress and stored provider secrets are encrypted with these keys, so they live in the
+// data folder: a restart keeps everyone signed in.
+builder.Services.AddDataProtection()
+    .SetApplicationName("PrikBoard")
+    .PersistKeysToFileSystem(new DirectoryInfo(builder.Configuration["DataProtection:KeysPath"] is { Length: > 0 } keys
+        ? keys
+        : Path.Combine(FileStore.RootFrom(builder.Configuration, builder.Environment), "keys")));
 builder.Services.AddHttpClient<ProviderAvatars>(http =>
 {
     http.Timeout = TimeSpan.FromSeconds(10);
     http.DefaultRequestHeaders.UserAgent.ParseAdd($"PrikBoard/{AppVersion.Number}");
+}).ConfigurePrimaryHttpMessageHandler(ProviderAvatars.PublicOnlyHandler);
+// The setup's outgoing calls: GitHub App manifests and OpenID Connect discovery documents.
+builder.Services.AddHttpClient<GitHubApps>(http =>
+{
+    http.Timeout = TimeSpan.FromSeconds(10);
+    http.DefaultRequestHeaders.UserAgent.ParseAdd($"PrikBoard/{AppVersion.Number}");
 });
+builder.Services.AddHttpClient(SetupEndpoints.DiscoveryClient, http => http.Timeout = TimeSpan.FromSeconds(10));
 
 // MCP (Streamable HTTP, stateless): curated tools over the same handlers as the REST API; see Mcp/BoardTools.cs.
 builder.Services.AddHttpContextAccessor();
@@ -75,7 +90,7 @@ builder.Services.AddMcpServer(options =>
     .WithRequestFilters(filters => filters.AddCallToolFilter(McpCall.RulesReminder));
 
 // Per-caller limits (by user, else by IP address) on endpoints that take guessable input (email lookup, invite tokens,
-// app sign-in and Discord connect codes).
+// app sign-in and Discord connect codes, the setup key).
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -91,6 +106,7 @@ builder.Services.AddRateLimiter(options =>
     Policy(InviteEndpoints.InviteLimit, "InvitesPerMinute", 20);
     Policy(AppSignInEndpoints.ExchangeLimit, "AppSignInsPerMinute", 10);
     Policy(DiscordEndpoints.ExchangeLimit, "DiscordConnectsPerMinute", 10);
+    Policy(SetupEndpoints.UnlockLimit, "SetupUnlocksPerMinute", 10);
     // Per connected Discord server (its agent), not per bot: one busy server can't use up the others' previews.
     options.AddPolicy(DiscordEndpoints.PreviewLimit, context => RateLimitPartition.GetFixedWindowLimiter(
         context.User.FindFirstValue(UserPrincipal.PrincipalClaim) ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
@@ -146,19 +162,48 @@ builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document,
 
 var app = builder.Build();
 
-// Fail fast when Auth:HashKey is missing outside Development, rather than on the first sign-in, and when Storage:Path is
-// missing or not writable, before the migrations move files there.
-app.Services.GetRequiredService<KeyedHasher>();
+// Fail fast when Storage:Path is missing or not writable, before the migrations move files there, and when Auth:HashKey
+// is invalid, rather than on the first sign-in. Without one the hash key is generated into the data folder now.
 var files = app.Services.GetRequiredService<FileStore>();
+app.Services.GetRequiredService<KeyedHasher>();
 
 await using (var scope = app.Services.CreateAsyncScope())
 {
-    await StartupMigration.RunAsync(scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>(), files,
+    var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+    await StartupMigration.RunAsync(db, files,
         app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(StartupMigration)), CancellationToken.None);
+    // The sign-in providers' schemes, from configuration and from the setup.
+    await app.Services.GetRequiredService<SignInProviders>().LoadAsync(db, CancellationToken.None);
+    // Without users (or in recovery mode) the setup key goes to the log.
+    await app.Services.GetRequiredService<SetupKey>().OpenIfNeededAsync(db,
+        app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(SetupKey)), CancellationToken.None);
 }
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+// The container image serves the built web app from wwwroot; in development Vite serves it. Routing is in the URL hash,
+// so only / needs index.html and unknown paths stay 404.
+if (app.Environment.WebRootFileProvider.GetFileInfo("index.html").Exists)
+{
+    app.UseDefaultFiles();
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        OnPrepareResponse = context =>
+        {
+            var headers = context.Context.Response.Headers;
+            // Vite puts a content hash in every asset's name, so those never change.
+            if (context.Context.Request.Path.StartsWithSegments("/assets"))
+            {
+                headers.CacheControl = "public, max-age=31536000, immutable";
+                return;
+            }
+            headers.CacheControl = "no-cache";
+            // Not framed anywhere, so the app sign-in's Allow button can't be clickjacked (like the Vite dev server).
+            headers.XFrameOptions = "DENY";
+            headers.ContentSecurityPolicy = "frame-ancestors 'none'";
+        },
+    });
+}
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
@@ -202,6 +247,7 @@ api.MapAccessTokenEndpoints();
 api.MapAppSignInEndpoints();
 api.MapDiscordEndpoints();
 api.MapAdminEndpoints();
+api.MapSetupEndpoints();
 // MCP at /mcp, outside /api where MCP clients expect it; each tool checks board access itself.
 app.MapMcp("/mcp").RequireAuthorization(AuthSetup.McpPolicy).ExcludeFromDescription();
 

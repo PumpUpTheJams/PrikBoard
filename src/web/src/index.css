@@ -2654,6 +2654,245 @@ a.button.primary:hover {
   font-size: 12px;
 }
 
+/* First-run setup (#/setup): the sign-in card, wider, with the steps across the top. */
+
+.setup-card {
+  width: min(100%, 680px);
+  align-items: stretch;
+  text-align: left;
+}
+
+.setup-card > .board-tile {
+  align-self: center;
+}
+
+.setup-card h1 {
+  text-align: center;
+}
+
+.setup-card code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.setup-steps {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--subtle);
+  font-size: 12px;
+  counter-reset: step;
+}
+
+.setup-steps li {
+  counter-increment: step;
+}
+
+.setup-steps li::before {
+  content: counter(step) '. ';
+}
+
+.setup-steps li.done {
+  color: var(--muted);
+}
+
+.setup-steps li.current {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.setup-unlock {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.setup-unlock input {
+  flex: 1;
+  min-width: 0;
+  font: 14px var(--mono);
+  letter-spacing: 0.04em;
+}
+
+.setup-unlock .sign-in-error {
+  flex-basis: 100%;
+}
+
+.setup-result {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fill-mint) 14%, var(--panel));
+  color: var(--fill-mint);
+}
+
+.sign-in-card .setup-result {
+  color: var(--fill-mint);
+}
+
+.setup-ok {
+  color: var(--fill-mint);
+  font-size: 12px;
+}
+
+.setup-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.setup-provider {
+  flex-wrap: wrap;
+}
+
+.setup-provider-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.setup-provider-main .row-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.setup-provider-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.setup-provider-actions a.ghost,
+.setup-provider-actions a.icon-button {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-2);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.setup-provider-editing {
+  display: block;
+}
+
+.row-list li.setup-provider-editing:hover {
+  background: none;
+}
+
+.badge.setup-default {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.setup-templates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.setup-template {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.setup-template:hover {
+  border-color: var(--line-strong);
+  background: var(--hover);
+}
+
+.setup-form .dialog-text a {
+  color: var(--accent);
+}
+
+.setup-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.setup-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.setup-field > input {
+  width: 100%;
+}
+
+.setup-check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.setup-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.setup-check p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.setup-check-status {
+  flex: none;
+  width: 64px;
+  padding: 1px 0;
+  border-radius: 999px;
+  font: 600 11px var(--mono);
+  text-align: center;
+}
+
+.setup-check.ok .setup-check-status {
+  background: color-mix(in srgb, var(--fill-mint) 16%, var(--panel));
+  color: var(--fill-mint);
+}
+
+.setup-check.warning .setup-check-status {
+  background: color-mix(in srgb, var(--fill-butter) 16%, var(--panel));
+  color: var(--fill-butter);
+}
+
+.setup-check.failed .setup-check-status {
+  background: color-mix(in srgb, var(--danger) 16%, var(--panel));
+  color: var(--danger);
+}
+
+.setup-download {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 8px;
+}
+
 /* Pen strokes: an SVG at the drawing's place that overflows its 1 px box; only the line (and a wider band around it) takes presses. */
 
 .stroke {
@@ -4742,6 +4981,39 @@ button.picker-color:hover,
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel);
+}
+
+.admin-tabs {
+  margin-top: 10px;
+}
+
+/* Admin → Instance: the sign-in providers, and beside them the checks and the recovery kit. */
+.admin-instance {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr);
+  align-items: start;
+  gap: 20px;
+  width: 100%;
+  max-width: 1200px;
+  min-height: 0;
+  margin: 0 auto;
+  overflow: auto;
+}
+
+.admin-instance-side {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.admin-instance .admin-panel {
+  gap: 10px;
+}
+
+@media (max-width: 760px) {
+  .admin-instance {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .admin-panel h3 {

@@ -96,15 +96,8 @@ public static class AuthEndpoints
         return api;
     }
 
-    private static Ok<List<AuthProvider>> ListAuthProviders(IOptions<AuthOptions> options)
-    {
-        // Configuration binding sorts the providers by id, so the default is put first explicitly.
-        var providers = options.Value.Providers
-            .OrderByDescending(p => string.Equals(p.Key, options.Value.DefaultProvider, StringComparison.OrdinalIgnoreCase))
-            .Select(p => new AuthProvider(p.Key, p.Value.DisplayName ?? p.Key))
-            .ToList();
-        return TypedResults.Ok(providers);
-    }
+    private static Ok<List<AuthProvider>> ListAuthProviders(SignInProviders providers) =>
+        TypedResults.Ok(providers.All.Select(p => new AuthProvider(p.Id, p.Name)).ToList());
 
     private static Ok<ServerVersion> GetVersion() => TypedResults.Ok(new ServerVersion(AppVersion.Current));
 
@@ -116,9 +109,9 @@ public static class AuthEndpoints
             .ToList());
 
     /// <summary>Starts sign-in with a provider, which redirects back to the local returnUrl afterwards.</summary>
-    private static Results<ChallengeHttpResult, NotFound> Login(string provider, string? returnUrl, IOptions<AuthOptions> options)
+    private static Results<ChallengeHttpResult, NotFound> Login(string provider, string? returnUrl, SignInProviders providers)
     {
-        if (!options.Value.Providers.ContainsKey(provider)) return TypedResults.NotFound();
+        if (providers.Find(provider) is null) return TypedResults.NotFound();
 
         var target = IsLocalUrl(returnUrl) ? returnUrl! : "/";
         return TypedResults.Challenge(new AuthenticationProperties { RedirectUri = target }, [provider]);
@@ -131,10 +124,10 @@ public static class AuthEndpoints
     /// travels in the encrypted OAuth state and must match the session again on the way back.
     /// </summary>
     private static async Task<Results<ChallengeHttpResult, NotFound, ForbidHttpResult>> Link(
-        string provider, HttpContext http, ClaimsPrincipal principal, IOptions<AuthOptions> options)
+        string provider, HttpContext http, ClaimsPrincipal principal, SignInProviders providers)
     {
         if (principal.IsToken() || !SameOrigin.Check(http.Request)) return TypedResults.Forbid();
-        if (!options.Value.Providers.ContainsKey(provider)) return TypedResults.NotFound();
+        if (providers.Find(provider) is null) return TypedResults.NotFound();
 
         // Read by hand rather than bound with [FromForm], which would require antiforgery tokens the SPA does not use.
         var form = http.Request.HasFormContentType ? await http.Request.ReadFormAsync(http.RequestAborted) : null;
@@ -147,15 +140,15 @@ public static class AuthEndpoints
     private static SignOutHttpResult Logout() => TypedResults.SignOut(authenticationSchemes: [AuthSetup.CookieScheme]);
 
     private static async Task<Results<Ok<Caller>, UnauthorizedHttpResult>> WhoAmI(
-        ClaimsPrincipal principal, PrikBoardDbContext db, IOptions<AuthOptions> options, CancellationToken ct)
+        ClaimsPrincipal principal, PrikBoardDbContext db, SignInProviders providers, CancellationToken ct)
     {
-        var caller = await CallerOf(principal, db, options.Value, ct);
+        var caller = await CallerOf(principal, db, providers, ct);
         return caller is null ? TypedResults.Unauthorized() : TypedResults.Ok(caller);
     }
 
     private static async Task<Results<Ok<Caller>, UnauthorizedHttpResult>> UpdateMe(
         UpdateMeRequest request, ClaimsPrincipal principal, HttpContext http, PrikBoardDbContext db,
-        IOptions<AuthOptions> options, BoardEvents events, CancellationToken ct)
+        SignInProviders providers, BoardEvents events, CancellationToken ct)
     {
         var self = await db.Principals.FindAsync([principal.PrincipalId()], ct);
         if (self is null) return TypedResults.Unauthorized();
@@ -177,19 +170,19 @@ public static class AuthEndpoints
             await http.SignInAsync(AuthSetup.CookieScheme, principal);
         }
 
-        return TypedResults.Ok((await CallerOf(principal, db, options.Value, ct))!);
+        return TypedResults.Ok((await CallerOf(principal, db, providers, ct))!);
     }
 
     private static async Task<Results<Ok<Caller>, UnauthorizedHttpResult, ForbidHttpResult, ProblemHttpResult>> UseSignInAvatar(
         ClaimsPrincipal principal, HttpContext http, PrikBoardDbContext db, ProviderAvatars pictures,
-        IOptions<AuthOptions> options, BoardEvents events, CancellationToken ct)
+        SignInProviders providers, BoardEvents events, CancellationToken ct)
     {
         if (principal.IsToken()) return TypedResults.Forbid();
         var picture = principal.FindFirstValue(UserPrincipal.SuggestedAvatarClaim);
         if (picture is null)
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "No picture",
-                detail: "The provider you signed in with offered no picture. Sign in with GitHub to take yours.");
+                detail: "The provider you signed in with offered no picture.");
         }
 
         var user = await db.Users.FindAsync([principal.UserId()], ct);
@@ -201,11 +194,11 @@ public static class AuthEndpoints
         }
 
         await AvatarChangedAsync(user, db, http, events, ct);
-        return TypedResults.Ok((await CallerOf(principal, db, options.Value, ct))!);
+        return TypedResults.Ok((await CallerOf(principal, db, providers, ct))!);
     }
 
     private static async Task<Results<Ok<Caller>, UnauthorizedHttpResult, ForbidHttpResult>> RemoveAvatar(
-        ClaimsPrincipal principal, HttpContext http, PrikBoardDbContext db, IOptions<AuthOptions> options, BoardEvents events,
+        ClaimsPrincipal principal, HttpContext http, PrikBoardDbContext db, SignInProviders providers, BoardEvents events,
         CancellationToken ct)
     {
         if (principal.IsToken()) return TypedResults.Forbid();
@@ -219,7 +212,7 @@ public static class AuthEndpoints
         user.AvatarOptedOut = true;
         await db.SaveChangesAsync(ct);
         if (had) await AvatarChangedAsync(user, db, http, events, ct);
-        return TypedResults.Ok((await CallerOf(principal, db, options.Value, ct))!);
+        return TypedResults.Ok((await CallerOf(principal, db, providers, ct))!);
     }
 
     /// <summary>Presence and every board the person can reach show the new picture.</summary>
@@ -259,7 +252,7 @@ public static class AuthEndpoints
     }
 
     /// <summary>The caller as the API describes it; null when a session points at a user that no longer exists.</summary>
-    internal static async Task<Caller?> CallerOf(ClaimsPrincipal principal, PrikBoardDbContext db, AuthOptions options, CancellationToken ct)
+    internal static async Task<Caller?> CallerOf(ClaimsPrincipal principal, PrikBoardDbContext db, SignInProviders providers, CancellationToken ct)
     {
         var scopes = ApiScopes.Of(principal).Where(s => s is ApiScopes.Read or ApiScopes.Write).Order().ToList();
 
@@ -287,7 +280,7 @@ public static class AuthEndpoints
         var identities = user.Identities
             .OrderBy(i => i.LinkedAt)
             .Select(i => new LinkedIdentity(i.Id, i.Provider,
-                options.Providers.TryGetValue(i.Provider, out var p) ? p.DisplayName ?? i.Provider : i.Provider, i.LinkedAt))
+                providers.Find(i.Provider)?.Name ?? i.Provider, i.LinkedAt))
             .ToList();
         var suggested = user.DisplayName is null ? principal.FindFirstValue(UserPrincipal.SuggestedNameClaim) : null;
         return new Caller(CallerKind.Session, PrincipalKind.User, user.Id, user.ShownName, user.DisplayName, suggested,
@@ -296,6 +289,6 @@ public static class AuthEndpoints
     }
 
     /// <summary>Only same-site paths, so a crafted login link cannot bounce people to another site.</summary>
-    private static bool IsLocalUrl(string? url) =>
+    internal static bool IsLocalUrl(string? url) =>
         url is ['/', ..] && !url.StartsWith("//") && !url.StartsWith("/\\") && !url.Any(char.IsControl);
 }

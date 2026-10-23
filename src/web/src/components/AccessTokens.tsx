@@ -215,6 +215,8 @@ function NewToken({ created, onDone }: { created: CreatedAccessToken; onDone: ()
   const origin = window.location.origin
   const mcp = `claude mcp add --transport http prikboard ${origin}/mcp --header "Authorization: Bearer ${created.token}"`
   const curl = `curl -H "Authorization: Bearer ${created.token}" ${origin}/api/boards`
+  // For other MCP clients (Cursor, VS Code, Claude Desktop through a bridge): the usual mcpServers entry.
+  const json = JSON.stringify({ mcpServers: { prikboard: { type: 'http', url: `${origin}/mcp`, headers: { Authorization: `Bearer ${created.token}` } } } })
 
   return (
     <div className="token-created" role="status">
@@ -224,6 +226,8 @@ function NewToken({ created, onDone }: { created: CreatedAccessToken; onDone: ()
       <CopyField label="Access token" value={created.token} copier={copier} />
       <p className="dialog-hint">Claude Code (MCP):</p>
       <CopyField label="Claude Code command" value={mcp} copier={copier} />
+      <p className="dialog-hint">Other MCP clients (.mcp.json):</p>
+      <CopyField label="MCP client settings" value={json} copier={copier} />
       <p className="dialog-hint">REST API:</p>
       <CopyField label="curl example" value={curl} copier={copier} />
       <div className="dialog-actions">

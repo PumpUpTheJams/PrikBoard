@@ -11,6 +11,13 @@ internal static class TestApi
 {
     public static async Task<Caller> MeAsync(this HttpClient client) => (await client.GetFromJsonAsync<Caller>("/api/me"))!;
 
+    /// <summary>Enters the setup key, which gives the client the setup cookie.</summary>
+    public static async Task UnlockSetupAsync(this HttpClient client, string key)
+    {
+        var response = await client.PostAsJsonAsync("/api/setup/unlock", new { key });
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
     public static async Task<BoardDetail> CreateBoardAsync(this HttpClient client, string name = "Shared")
     {
         var response = await client.PostAsJsonAsync("/api/boards", new { name });

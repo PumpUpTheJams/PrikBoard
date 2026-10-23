@@ -1,0 +1,13 @@
+# The image (Dockerfile) only needs the API and the web app's sources.
+*
+!src/PrikBoard.Api/
+!src/web/
+src/PrikBoard.Api/bin/
+src/PrikBoard.Api/obj/
+src/PrikBoard.Api/files/
+src/PrikBoard.Api/appsettings.Development.json
+src/PrikBoard.Api/*.user
+src/PrikBoard.Api/prikboard.db*
+src/web/node_modules/
+src/web/dist/
+src/web/*.local

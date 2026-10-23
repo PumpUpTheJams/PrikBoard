@@ -571,6 +571,8 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
                 "adminUpdateUser", "adminDeleteUser",
                 "approveDiscordConnect", "exchangeDiscordConnect", "getDiscordStatus", "getLinkPreview", "revokeDiscordToken",
                 "listDiscordConnections", "removeDiscordConnection", "removeDiscordChannel",
+                "getSetupStatus", "unlockSetup", "listSignInProviders", "createSignInProvider", "updateSignInProvider",
+                "deleteSignInProvider", "checkOpenIdAuthority", "beginGitHubApp", "getSystemChecks", "getRecoveryKit",
             },
             operationIds);
     }

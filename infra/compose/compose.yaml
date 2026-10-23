@@ -1,0 +1,74 @@
+# PrikBoard on one machine: the app and PostgreSQL.
+#
+#   docker compose up -d
+#
+# Then open http://localhost:8080 and follow the setup. It asks for the setup key that the app prints in its log:
+#
+#   docker compose logs app
+#
+# The app is published on localhost only. To serve it on your own domain with HTTPS, set DOMAIN in .env (see
+# .env.example) and start the Caddy profile too: docker compose --profile https up -d
+#
+# Back up both volumes: postgres-data (the database) and data (images, sign-in keys and the hash key).
+# Not "prikboard": that is the development database's project (the root compose.yaml), whose volume this would share.
+name: prikboard-server
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: prikboard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prikboard}
+      POSTGRES_DB: prikboard
+    # No ports: only the app reaches the database, over the compose network.
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prikboard -d prikboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    image: ghcr.io/pumpupthejams/prikboard:${PRIKBOARD_VERSION:-latest}
+    # Builds from this checkout when the image can't be pulled (or with docker compose build).
+    build:
+      context: ../..
+    environment:
+      ConnectionStrings__PrikBoard: Host=postgres;Database=prikboard;Username=prikboard;Password=${POSTGRES_PASSWORD:-prikboard};GSS Encryption Mode=Disable
+    volumes:
+      - data:/data
+    # Localhost only: the app trusts X-Forwarded-* headers, so anything that reaches it directly could pretend to be
+    # someone else. Reach it from elsewhere through Caddy (below) or a tunnel that points at app:8080.
+    ports:
+      - "127.0.0.1:${PRIKBOARD_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # HTTPS on your own domain, with a certificate from Let's Encrypt: point DOMAIN's DNS at this machine, open ports 80
+  # and 443, then docker compose --profile https up -d.
+  caddy:
+    profiles: [https]
+    image: caddy:2
+    environment:
+      DOMAIN: ${DOMAIN:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  data:
+  caddy-data:
+  caddy-config:

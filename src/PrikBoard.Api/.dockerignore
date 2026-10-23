@@ -1,6 +1,0 @@
-bin/
-obj/
-*.user
-appsettings.Development.json
-files/
-prikboard.db*
