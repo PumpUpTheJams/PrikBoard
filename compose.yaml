@@ -21,11 +21,13 @@ services:
   # The Discord bot (docs/discord.md), only with `docker compose --profile discord up -d`. It needs a bot token
   # (DISCORD_BOT_TOKEN) and the API running on the host (dotnet run --project src/PrikBoard.Api). Discord can only
   # show previews whose links people can open, so PRIKBOARD_PUBLIC_URL must match the API's Discord:PublicUrl.
+  # Compose reads every service's variables, profile or not, so the token isn't required here (that would stop a plain
+  # `docker compose up -d`): without it the bot stops at startup and says so in `docker compose logs discord`.
   discord:
     profiles: [discord]
     build: src/PrikBoard.Discord
     environment:
-      Discord__BotToken: ${DISCORD_BOT_TOKEN:?Set DISCORD_BOT_TOKEN to the bot's token}
+      Discord__BotToken: ${DISCORD_BOT_TOKEN:-}
       PrikBoard__ApiUrl: http://host.docker.internal:5080
       PrikBoard__PublicUrl: ${PRIKBOARD_PUBLIC_URL:-http://localhost:5173}
     extra_hosts:
