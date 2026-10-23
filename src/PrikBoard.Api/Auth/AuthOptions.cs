@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace PrikBoard.Api.Auth;
 
 /// <summary>The <c>Auth</c> configuration section: sign-in providers and accepted access tokens.</summary>
@@ -18,6 +20,7 @@ public class AuthOptions
     public TokenOptions Tokens { get; set; } = new();
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<ProviderType>))]
 public enum ProviderType
 {
     /// <summary>Any OpenID Connect provider: Google, Microsoft, Auth0, Okta, Keycloak and so on.</summary>

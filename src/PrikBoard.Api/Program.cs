@@ -50,6 +50,13 @@ builder.Services.AddHttpClient<ProviderAvatars>(http =>
     http.Timeout = TimeSpan.FromSeconds(10);
     http.DefaultRequestHeaders.UserAgent.ParseAdd($"PrikBoard/{AppVersion.Number}");
 });
+// The setup's outgoing calls: GitHub App manifests and OpenID Connect discovery documents.
+builder.Services.AddHttpClient<GitHubApps>(http =>
+{
+    http.Timeout = TimeSpan.FromSeconds(10);
+    http.DefaultRequestHeaders.UserAgent.ParseAdd($"PrikBoard/{AppVersion.Number}");
+});
+builder.Services.AddHttpClient(SetupEndpoints.DiscoveryClient, http => http.Timeout = TimeSpan.FromSeconds(10));
 
 // MCP (Streamable HTTP, stateless): curated tools over the same handlers as the REST API; see Mcp/BoardTools.cs.
 builder.Services.AddHttpContextAccessor();
@@ -83,7 +90,7 @@ builder.Services.AddMcpServer(options =>
     .WithRequestFilters(filters => filters.AddCallToolFilter(McpCall.RulesReminder));
 
 // Per-caller limits (by user, else by IP address) on endpoints that take guessable input (email lookup, invite tokens,
-// app sign-in and Discord connect codes).
+// app sign-in and Discord connect codes, the setup key).
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -99,6 +106,7 @@ builder.Services.AddRateLimiter(options =>
     Policy(InviteEndpoints.InviteLimit, "InvitesPerMinute", 20);
     Policy(AppSignInEndpoints.ExchangeLimit, "AppSignInsPerMinute", 10);
     Policy(DiscordEndpoints.ExchangeLimit, "DiscordConnectsPerMinute", 10);
+    Policy(SetupEndpoints.UnlockLimit, "SetupUnlocksPerMinute", 10);
     // Per connected Discord server (its agent), not per bot: one busy server can't use up the others' previews.
     options.AddPolicy(DiscordEndpoints.PreviewLimit, context => RateLimitPartition.GetFixedWindowLimiter(
         context.User.FindFirstValue(UserPrincipal.PrincipalClaim) ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
@@ -166,6 +174,9 @@ await using (var scope = app.Services.CreateAsyncScope())
         app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(StartupMigration)), CancellationToken.None);
     // The sign-in providers' schemes, from configuration and from the setup.
     await app.Services.GetRequiredService<SignInProviders>().LoadAsync(db, CancellationToken.None);
+    // Without users (or in recovery mode) the setup key goes to the log.
+    await app.Services.GetRequiredService<SetupKey>().OpenIfNeededAsync(db,
+        app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(SetupKey)), CancellationToken.None);
 }
 
 app.UseExceptionHandler();
@@ -236,6 +247,7 @@ api.MapAccessTokenEndpoints();
 api.MapAppSignInEndpoints();
 api.MapDiscordEndpoints();
 api.MapAdminEndpoints();
+api.MapSetupEndpoints();
 // MCP at /mcp, outside /api where MCP clients expect it; each tool checks board access itself.
 app.MapMcp("/mcp").RequireAuthorization(AuthSetup.McpPolicy).ExcludeFromDescription();
 

@@ -243,6 +243,8 @@ public class AdminApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     {
         await using var empty = new PrikBoardApiFactory();
         var clients = Enumerable.Range(0, 5).Select(_ => empty.CreateAnonymousClient()).ToList();
+        var key = empty.OpenSetupKey();
+        foreach (var client in clients) await client.UnlockSetupAsync(key);
 
         var responses = await Task.WhenAll(clients.Select((client, i) =>
             PrikBoardApiFactory.TestSignInAsync(client, $"racer{i}@example.com", returnUrl: "/")));

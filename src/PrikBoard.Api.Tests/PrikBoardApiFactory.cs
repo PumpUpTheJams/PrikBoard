@@ -38,9 +38,9 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
 
     /// <summary>
     /// Where this API keeps its files (<c>Storage:Path</c>). Each factory has its own, so one's sweep never sees another's
-    /// files as strays.
+    /// files as strays, unless a test gives two factories the same one.
     /// </summary>
-    public string FilesPath { get; } = Path.Combine(Path.GetTempPath(), $"prikboard_tests_{Guid.NewGuid():N}");
+    public string FilesPath { get; init; } = Path.Combine(Path.GetTempPath(), $"prikboard_tests_{Guid.NewGuid():N}");
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -58,8 +58,31 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
             // Tests never reach GitHub: the fake avatar host answers OtherGitHubAvatar with OtherAvatar, any other /u/...
             // with TestAvatar, and anything else with 404.
             services.AddHttpClient<ProviderAvatars>().ConfigurePrimaryHttpMessageHandler(() => new FakeAvatarHost());
+            services.AddHttpClient<GitHubApps>().ConfigurePrimaryHttpMessageHandler(() => new FakeGitHubApi());
         });
     }
+
+    /// <summary>The manifest code the fake GitHub API turns into <see cref="GitHubAppClientId"/>; any other code gets 404.</summary>
+    public const string GitHubAppCode = "manifest-code";
+
+    public const string GitHubAppClientId = "Iv23-test-app";
+
+    private class FakeGitHubApi : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath == $"/app-manifests/{GitHubAppCode}/conversions"
+                ? new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent($$"""
+                        {"id": 1, "slug": "prikboard-test", "client_id": "{{GitHubAppClientId}}", "client_secret": "app-secret",
+                         "html_url": "https://github.com/apps/prikboard-test", "pem": "-----BEGIN RSA PRIVATE KEY-----", "webhook_secret": null}
+                        """, System.Text.Encoding.UTF8, "application/json"),
+                }
+                : new HttpResponseMessage(HttpStatusCode.NotFound));
+    }
+
+    /// <summary>Opens a new setup key, as a start without users does, and returns it.</summary>
+    public string OpenSetupKey() => Services.GetRequiredService<SetupKey>().Open();
 
     /// <summary>The picture the fake GitHub avatar host serves: a 1×1 PNG.</summary>
     public static readonly byte[] TestAvatar = Convert.FromBase64String(
@@ -187,9 +210,11 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
 
                 var email = query["email"].ToString();
                 var verified = query["verified"].ToString() != "False";
-                // Without returnUrl the newcomer counts as let in already; with one, the real invite-only rule applies.
+                // Without returnUrl the newcomer counts as let in already; with one, the real rules apply: an invite link,
+                // or the setup cookie for the first user.
                 var signUp = query.ContainsKey("returnUrl")
-                    ? UserSignIn.SignUp.Invite(UserSignIn.InviteTokenIn(query["returnUrl"]))
+                    ? UserSignIn.SignUp.Invite(UserSignIn.InviteTokenIn(query["returnUrl"]),
+                        await context.RequestServices.GetRequiredService<SetupKey>().GrantedAsync(context))
                     : UserSignIn.SignUp.Always;
                 var principal = await UserSignIn.SignInAsync(context, query["provider"].ToString() is { Length: > 0 } p ? p : TestProvider,
                     query["subject"].ToString() is { Length: > 0 } s ? s : email, email.Split('@')[0], verified ? email : null, signUp,
@@ -197,7 +222,8 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
                 if (principal is null)
                 {
                     context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                    await context.Response.WriteAsync(UserSignIn.InviteRequiredError);
+                    var anyone = await context.RequestServices.GetRequiredService<PrikBoardDbContext>().Users.AnyAsync();
+                    await context.Response.WriteAsync(anyone ? UserSignIn.InviteRequiredError : UserSignIn.SetupRequiredError);
                     return;
                 }
 

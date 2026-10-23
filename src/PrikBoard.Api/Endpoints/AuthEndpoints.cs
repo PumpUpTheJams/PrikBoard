@@ -289,6 +289,6 @@ public static class AuthEndpoints
     }
 
     /// <summary>Only same-site paths, so a crafted login link cannot bounce people to another site.</summary>
-    private static bool IsLocalUrl(string? url) =>
+    internal static bool IsLocalUrl(string? url) =>
         url is ['/', ..] && !url.StartsWith("//") && !url.StartsWith("/\\") && !url.Any(char.IsControl);
 }

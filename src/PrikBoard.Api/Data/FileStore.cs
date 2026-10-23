@@ -54,16 +54,26 @@ public sealed class FileStore : IDisposable
         _logger = logger;
         _maxCachedFileBytes = maxCachedFileBytes;
         _cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = memoryCacheBytes });
+        if (WriteProblem() is { } problem)
+        {
+            throw new InvalidOperationException($"{PathKey} ({Root}) is not a folder the API can write to: {problem}");
+        }
+    }
+
+    /// <summary>Creates the folder when needed and writes a test file there; why that failed, or null when it worked.</summary>
+    public string? WriteProblem()
+    {
         try
         {
             Directory.CreateDirectory(Root);
             var probe = Path.Combine(Root, $".write-test-{Guid.NewGuid():N}");
             File.WriteAllBytes(probe, []);
             File.Delete(probe);
+            return null;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
-            throw new InvalidOperationException($"{PathKey} ({Root}) is not a folder the API can write to: {error.Message}", error);
+            return error.Message;
         }
     }
 

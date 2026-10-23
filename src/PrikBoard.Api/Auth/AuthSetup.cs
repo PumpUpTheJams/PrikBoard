@@ -119,7 +119,18 @@ public static partial class AuthSetup
                     await context.HttpContext.SignOutAsync(CookieScheme);
                 };
             })
-            .AddScheme<AuthenticationSchemeOptions, AccessTokenHandler>(AccessTokenScheme, null);
+            .AddScheme<AuthenticationSchemeOptions, AccessTokenHandler>(AccessTokenScheme, null)
+            // Only read explicitly (SetupKey.GrantedAsync); never a request's default scheme.
+            .AddCookie(SetupKey.Scheme, options =>
+            {
+                options.Cookie.Name = "prikboard-setup";
+                options.Cookie.SameSite = SameSiteMode.Lax;
+                options.ExpireTimeSpan = TimeSpan.FromHours(1);
+                options.SlidingExpiration = false;
+                options.Events.OnRedirectToLogin = context => SetStatus(context, StatusCodes.Status401Unauthorized);
+                options.Events.OnRedirectToAccessDenied = context => SetStatus(context, StatusCodes.Status403Forbidden);
+            });
+        builder.Services.AddSingleton<SetupKey>();
 
         // Sign-in provider schemes come and go while the app runs (SignInProviders), so they are not registered here. These
         // are the services AddOpenIdConnect and AddOAuth would add for them.
