@@ -10,7 +10,7 @@ namespace PrikBoard.Api.Contracts;
 /// meaningful inside it.
 /// </summary>
 /// <param name="Format">Always "prikboard-clip".</param>
-/// <param name="Version">Version of this format, currently 3 (1 and 2 still paste). A clip with a newer version, or with fields the server doesn't know, is refused.</param>
+/// <param name="Version">Version of this format, currently 4 (1 to 3 still paste; their bucket colors are ignored). A clip with a newer version, or with fields the server doesn't know, is refused.</param>
 /// <param name="CopiedAt">When it was copied (UTC).</param>
 /// <param name="Source">Where the items were copied from.</param>
 /// <param name="Cards">The cards (also those in the copied buckets), the most recently edited last (they are drawn on top).</param>
@@ -35,7 +35,7 @@ public record BoardClip(
 {
     public const string FormatName = "prikboard-clip";
     /// <summary>Raise it with every change to the clip's fields, so an older server refuses a clip it can't fully read.</summary>
-    public const int CurrentVersion = 3;
+    public const int CurrentVersion = 4;
     public const int MaxCards = 200;
     public const int MaxImages = 100;
     public const int MaxDrawings = 1000;
@@ -56,7 +56,6 @@ public record ClipSource(
 /// <summary>A bucket in a clip.</summary>
 /// <param name="Id">The bucket's id on its board: the items in it name it by bucketId.</param>
 /// <param name="Name">Bucket name.</param>
-/// <param name="Color">Outline color.</param>
 /// <param name="X">Left edge on its board. Pasted items keep their places relative to each other.</param>
 /// <param name="Y">Top edge on its board.</param>
 /// <param name="Width">Width in pixels.</param>
@@ -65,7 +64,6 @@ public record ClipSource(
 public record ClippedBucket(
     Guid Id,
     [property: Required, StringLength(100, MinimumLength = 1)] string Name,
-    BucketColor Color,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int X,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int Y,
     [property: Range(Layout.MinBucketWidth, Layout.MaxBucketSize)] int Width,

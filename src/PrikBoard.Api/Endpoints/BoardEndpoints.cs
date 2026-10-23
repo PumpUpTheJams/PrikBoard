@@ -109,13 +109,12 @@ public static class BoardEndpoints
             Key = Board.KeyFrom(request.Name),
             Description = PatchText.Apply(null, request.Description),
         };
-        foreach (var (name, color) in Board.DefaultBuckets)
+        foreach (var name in Board.DefaultBuckets)
         {
             var (x, y) = Layout.NextBucketSpot(board.Buckets);
             board.Buckets.Add(new Bucket
             {
                 Name = name,
-                Color = color,
                 X = x,
                 Y = y,
                 Width = Layout.DefaultBucketWidth,

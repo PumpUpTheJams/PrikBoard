@@ -4,7 +4,6 @@ import type {
   Assignee,
   BoardDetail,
   BoardSummary,
-  BucketColor,
   BucketDetail,
   Caller,
   CardComponent,
@@ -36,14 +35,6 @@ const cardColors: Record<CardColor, string> = {
   Sky: 'charts.blue',
   Coral: 'charts.red',
   Lilac: 'charts.purple',
-}
-
-const bucketColors: Record<BucketColor, string> = {
-  Blue: 'charts.blue',
-  Amber: 'charts.orange',
-  Violet: 'charts.purple',
-  Teal: 'charts.green',
-  Rose: 'charts.red',
 }
 
 /** A card's content is components; the tree shows the items of all its checklists and all its links. */
@@ -143,7 +134,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
       case 'bucket': {
         const item = new vscode.TreeItem(node.bucket?.name ?? 'No bucket', vscode.TreeItemCollapsibleState.Expanded)
         item.contextValue = contextOf('bucket', node.canEdit)
-        item.iconPath = icon('circle-filled', node.bucket ? bucketColors[node.bucket.color] : undefined)
+        item.iconPath = icon('circle-filled')
         item.description = String(node.cards.length)
         return item
       }

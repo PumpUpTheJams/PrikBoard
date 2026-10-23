@@ -10,43 +10,39 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Id">Bucket identifier.</param>
 /// <param name="BoardId">Board the bucket belongs to.</param>
 /// <param name="Name">Bucket name, e.g. "To do", "Doing" or "Done".</param>
-/// <param name="Color">Outline color.</param>
 /// <param name="X">Left edge in canvas pixels, a multiple of the 20 px grid.</param>
 /// <param name="Y">Top edge in canvas pixels, a multiple of the 20 px grid.</param>
 /// <param name="Width">Width in pixels, a multiple of 20 and at least 240.</param>
 /// <param name="Height">Height in pixels, a multiple of 20 and at least 160.</param>
 /// <param name="Collapsed">Folded up into a 120 px square in its top-right corner: its cards, images and drawings are hidden on the board (they keep their places and still belong to it) until it is opened again.</param>
-/// <param name="StackedAt">Its place in the stack, the same for everyone: the later, the higher. Where buckets overlap, the topmost is drawn above the others and an item put there joins it. Drawing, moving, resizing, opening or filling a bucket puts it on top, and so does bringBucketToFront.</param>
+/// <param name="StackedAt">Its place in the stack, the same for everyone: the later, the higher. Where buckets overlap, the topmost is drawn above the others and an item put there joins it. Creating, moving, resizing, opening or filling a bucket puts it on top, and so does bringBucketToFront.</param>
 public record BucketDetail(
-    Guid Id, Guid BoardId, string Name, BucketColor Color, int X, int Y, int Width, int Height, bool Collapsed, DateTimeOffset StackedAt)
+    Guid Id, Guid BoardId, string Name, int X, int Y, int Width, int Height, bool Collapsed, DateTimeOffset StackedAt)
 {
     public static BucketDetail From(Bucket bucket) =>
-        new(bucket.Id, bucket.BoardId, bucket.Name, bucket.Color, bucket.X, bucket.Y, bucket.Width, bucket.Height, bucket.Collapsed, bucket.StackedAt);
+        new(bucket.Id, bucket.BoardId, bucket.Name, bucket.X, bucket.Y, bucket.Width, bucket.Height, bucket.Collapsed, bucket.StackedAt);
 }
 
-/// <summary>Draws a bucket on a board, on top of the others. The cards, images and drawings whose center it covers join it. Coordinates snap to the 20 px grid.</summary>
+/// <summary>Creates a bucket on a board, on top of the others. The cards, images and drawings whose center it covers join it. Coordinates snap to the 20 px grid.</summary>
 /// <param name="Name">Bucket name.</param>
-/// <param name="Color">Outline color; defaults to Blue.</param>
 /// <param name="X">Left edge; omit X and Y to place the bucket to the right of the existing ones.</param>
 /// <param name="Y">Top edge; give it together with X.</param>
 /// <param name="Width">Width in pixels; defaults to 240.</param>
 /// <param name="Height">Height in pixels; defaults to 600.</param>
 public record CreateBucketRequest(
     [property: Required, StringLength(100)] string Name,
-    BucketColor? Color = null,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X = null,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null,
     [property: Range(Layout.MinBucketWidth, Layout.MaxBucketSize)] int? Width = null,
     [property: Range(Layout.MinBucketHeight, Layout.MaxBucketSize)] int? Height = null);
 
 /// <summary>
-/// Renames, recolors, moves and/or resizes a bucket. Omitted (null) fields stay unchanged.
+/// Renames, moves, resizes or folds a bucket. Omitted (null) fields stay unchanged.
 /// Moving a bucket carries its own cards, images and drawings along and changes no item's bucket, even where it ends up
 /// over another bucket. Giving a new X or Y together with a new Width or Height resizes it from a top or left corner or edge
 /// instead: its items stay where they are, those now outside it leave it, and loose ones it now covers join it.
 /// </summary>
 /// <param name="Name">New name.</param>
-/// <param name="Color">New outline color.</param>
 /// <param name="X">New left edge.</param>
 /// <param name="Y">New top edge.</param>
 /// <param name="Width">New width.</param>
@@ -64,7 +60,6 @@ public record CreateBucketRequest(
 /// </param>
 public record UpdateBucketRequest(
     [property: StringLength(100, MinimumLength = 1)] string? Name = null,
-    BucketColor? Color = null,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X = null,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null,
     [property: Range(Layout.MinBucketWidth, Layout.MaxBucketSize)] int? Width = null,

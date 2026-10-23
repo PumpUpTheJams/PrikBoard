@@ -80,7 +80,7 @@ public static class BoardTransferEndpoints
             BoardExport.FormatName, BoardExport.CurrentVersion, DateTimeOffset.UtcNow,
             board.Name, board.Description, board.Rules,
             Layout.InListOrder(board.Buckets)
-                .Select(b => new ExportedBucket(b.Name, b.Color, b.X, b.Y, b.Width, b.Height, b.Collapsed, stack[b.Id])).ToList(),
+                .Select(b => new ExportedBucket(b.Name, b.X, b.Y, b.Width, b.Height, b.Collapsed, stack[b.Id])).ToList(),
             board.Tags.OrderBy(t => t.CreatedAt).ThenBy(t => t.Id).Select(t => t.Name).ToList(),
             // Oldest edit first: the importer gives them rising timestamps, so the most recently edited card stays on top.
             board.Cards.OrderBy(n => n.UpdatedAt).ThenBy(n => n.Id)
@@ -147,7 +147,6 @@ public static class BoardTransferEndpoints
             board.Buckets.Add(new Bucket
             {
                 Name = bucket.Name,
-                Color = bucket.Color,
                 X = Layout.Snap(bucket.X),
                 Y = Layout.Snap(bucket.Y),
                 Width = Math.Min(Layout.MaxBucketSize, Layout.SnapSize(bucket.Width, Layout.MinBucketWidth)),
@@ -328,6 +327,16 @@ public static class BoardTransferEndpoints
     private static Task<List<string>> UnknownFieldsAsync(HttpRequest request, JsonSerializerOptions options, CancellationToken ct) =>
         UnknownFieldsAsync(request, options, typeof(BoardExport), ct);
 
+    /// <summary>
+    /// Fields that older files and clips still have but this version dropped: they are known, and binding skips them. A
+    /// bucket's color went with export version 7 and clip version 4.
+    /// </summary>
+    private static readonly HashSet<(Type Type, string Field)> DroppedFields =
+    [
+        (typeof(ExportedBucket), "color"),
+        (typeof(ClippedBucket), "color"),
+    ];
+
     /// <summary>The fields in the request body that <paramref name="type"/> doesn't have, as paths, like the export file's check above.</summary>
     internal static async Task<List<string>> UnknownFieldsAsync(HttpRequest request, JsonSerializerOptions options, Type type, CancellationToken ct)
     {
@@ -346,7 +355,10 @@ public static class BoardTransferEndpoints
                 {
                     var property = info.Properties.FirstOrDefault(p => string.Equals(p.Name, field.Name, StringComparison.OrdinalIgnoreCase));
                     var at = path.Length == 0 ? field.Name : $"{path}.{field.Name}";
-                    if (property is null) unknown.Add(at);
+                    if (property is null)
+                    {
+                        if (!DroppedFields.Contains((info.Type, field.Name.ToLowerInvariant()))) unknown.Add(at);
+                    }
                     else Collect(field.Value, options.GetTypeInfo(property.PropertyType), at);
                 }
             }

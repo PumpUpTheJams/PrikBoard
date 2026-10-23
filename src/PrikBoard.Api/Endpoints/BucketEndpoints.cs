@@ -24,8 +24,8 @@ public static class BucketEndpoints
         buckets.MapPatch("/buckets/{bucketId:guid}", UpdateBucket)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Bucket)
             .WithName("updateBucket")
-            .WithSummary("Rename, recolor, move or resize a bucket")
-            .WithDescription("Changes any of name, color, collapsed, position and size. Omitted fields stay unchanged. " +
+            .WithSummary("Rename, move, resize or fold a bucket")
+            .WithDescription("Changes any of name, collapsed, position and size. Omitted fields stay unchanged. " +
                              "An x or y sent with a size is a resize from a top or left corner or edge. " +
                              "Moving a bucket carries its cards, images and drawings along (or exactly carryCardIds, carryImageIds " +
                              "and carryDrawingIds, which only a move takes) and changes no item's bucket, even where it overlaps " +
@@ -82,7 +82,6 @@ public static class BucketEndpoints
         {
             BoardId = boardId,
             Name = request.Name,
-            Color = request.Color ?? BucketColor.Blue,
             X = Layout.Snap(x),
             Y = Layout.Snap(y),
             Width = Layout.SnapSize(request.Width ?? Layout.DefaultBucketWidth, Layout.MinBucketWidth),
@@ -157,7 +156,6 @@ public static class BucketEndpoints
         // What someone moves, resizes or opens comes to the top, for everyone (before the stack below decides what it lets go).
         if (resizing || moving || (bucket.Collapsed && request.Collapsed == false)) bucket.ToFront();
         bucket.Name = request.Name ?? bucket.Name;
-        bucket.Color = request.Color ?? bucket.Color;
         bucket.Collapsed = request.Collapsed ?? bucket.Collapsed;
         bucket.X += dx;
         bucket.Y += dy;

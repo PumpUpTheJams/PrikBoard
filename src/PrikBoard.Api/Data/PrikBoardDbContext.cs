@@ -70,7 +70,6 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
         modelBuilder.Entity<Bucket>(bucket =>
         {
             bucket.Property(b => b.Name).HasMaxLength(100);
-            bucket.Property(b => b.Color).HasConversion<string>().HasMaxLength(20);
             bucket.HasIndex(b => b.BoardId);
             bucket.HasQueryFilter(SoftDelete, b => b.DeletedAt == null);
         });

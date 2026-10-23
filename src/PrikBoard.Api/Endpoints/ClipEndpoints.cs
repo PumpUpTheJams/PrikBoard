@@ -170,7 +170,7 @@ public static class ClipEndpoints
                 BucketId: InCopiedBucket(d.BucketId) ? d.BucketId : null, Id: d.Id))],
             tagColors,
             AppVersion.Number,
-            [.. Layout.BackToFront(buckets).Select(b => new ClippedBucket(b.Id, b.Name, b.Color, b.X, b.Y, b.Width, b.Height, b.Collapsed))],
+            [.. Layout.BackToFront(buckets).Select(b => new ClippedBucket(b.Id, b.Name, b.X, b.Y, b.Width, b.Height, b.Collapsed))],
             what.Cut));
     }
 
@@ -357,7 +357,6 @@ public static class ClipEndpoints
                 {
                     BoardId = boardId,
                     Name = source.Name.Trim(),
-                    Color = source.Color,
                     X = Shift(source.X, dx),
                     Y = Shift(source.Y, dy),
                     Width = Math.Min(Layout.MaxBucketSize, Layout.SnapSize(source.Width, Layout.MinBucketWidth)),

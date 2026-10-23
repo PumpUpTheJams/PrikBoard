@@ -3,9 +3,6 @@
 export const cardColors = ['Butter', 'Mint', 'Sky', 'Coral', 'Lilac'] as const
 export type CardColor = (typeof cardColors)[number]
 
-export const bucketColors = ['Blue', 'Amber', 'Violet', 'Teal', 'Rose'] as const
-export type BucketColor = (typeof bucketColors)[number]
-
 /** Default is a shade of the card's own fill; the others are solid chips of their own, in palette order. */
 export const tagColors = ['Default', 'Brick', 'Rust', 'Ochre', 'Moss', 'Pine', 'Teal', 'Ocean', 'Indigo', 'Violet', 'Berry', 'Ink'] as const
 export type TagColor = (typeof tagColors)[number]
@@ -247,7 +244,6 @@ export interface BucketDetail {
   id: string
   boardId: string
   name: string
-  color: BucketColor
   x: number
   y: number
   width: number
@@ -546,7 +542,6 @@ export interface Rect extends Point {
 
 export interface BucketChanges extends Partial<Rect> {
   name?: string
-  color?: BucketColor
   /** With a move only: exactly these cards move along instead of the bucket's cards (undoing a move). */
   carryCardIds?: string[]
   /** Likewise for images on the board, instead of the images in the bucket. */

@@ -195,7 +195,7 @@ public class ClipApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var from = await owner.CreateBoardAsync("Bucket source");
         var to = await owner.CreateBoardAsync("Bucket target");
 
-        var sprint = await CreateBucketAsync(owner, from.Id, new { name = "Sprint", color = "Teal", x = 2000, y = 0, width = 600, height = 400 });
+        var sprint = await CreateBucketAsync(owner, from.Id, new { name = "Sprint", x = 2000, y = 0, width = 600, height = 400 });
         var folded = await CreateBucketAsync(owner, from.Id, new { name = "Later", x = 2800, y = 0, width = 400, height = 400 });
         var inSprint = await CreateRichCardAsync(owner, from.Id, new { title = "In the sprint", bucketId = sprint.Id });
         await CreateRichCardAsync(owner, from.Id, new { title = "For later", bucketId = folded.Id });
@@ -219,7 +219,7 @@ public class ClipApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         Assert.Equal(["Sprint", "Later"], pasted.Buckets.Select(b => b.Name));
         var newSprint = pasted.Buckets[0];
         var newFolded = pasted.Buckets[1];
-        Assert.Equal((BucketColor.Teal, 0, 3000, 600, 400, false), (newSprint.Color, newSprint.X, newSprint.Y, newSprint.Width, newSprint.Height, newSprint.Collapsed));
+        Assert.Equal((0, 3000, 600, 400, false), (newSprint.X, newSprint.Y, newSprint.Width, newSprint.Height, newSprint.Collapsed));
         Assert.Equal((800, 3000, true), (newFolded.X, newFolded.Y, newFolded.Collapsed));
         Assert.Equal(newSprint.Id, pasted.Cards.Single(n => n.Title == "In the sprint").BucketId);
         Assert.Equal(newFolded.Id, pasted.Cards.Single(n => n.Title == "For later").BucketId);
@@ -240,6 +240,11 @@ public class ClipApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         // Pasted buckets are on top of the board's own.
         Assert.True(board.Buckets.Where(b => b.Id != newSprint.Id && b.Id != newFolded.Id).All(b => b.StackedAt < newSprint.StackedAt));
         Assert.True(newSprint.StackedAt < newFolded.StackedAt);
+
+        // As version 3 wrote them, with a color on each bucket: the color is ignored.
+        clip["version"] = 3;
+        foreach (var bucket in clip["buckets"]!.AsArray()) bucket!["color"] = "Teal";
+        Assert.Equal(2, (await PasteAsync(owner, to.Id, new { clip, x = 4000, y = 3000 })).Buckets.Count);
     }
 
     [Fact]

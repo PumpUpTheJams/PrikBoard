@@ -16,7 +16,6 @@ import type {
   BoardSummary,
   BoardTag,
   BucketChanges,
-  BucketColor,
   BucketDetail,
   AcceptedInvite,
   BoardInvite,
@@ -194,7 +193,7 @@ export const api = {
   importBoard: async (file: Blob) =>
     request<BoardDetail>('POST', '/boards/import', new Blob([await file.text()], { type: 'application/json' })),
 
-  createBucket: (boardId: string, bucket: { name: string; color?: BucketColor } & Partial<Rect>) =>
+  createBucket: (boardId: string, bucket: { name: string } & Partial<Rect>) =>
     request<BucketDetail>('POST', `/boards/${boardId}/buckets`, bucket),
   updateBucket: (bucketId: string, changes: BucketChanges) =>
     request<BucketDetail>('PATCH', `/buckets/${bucketId}`, changes),

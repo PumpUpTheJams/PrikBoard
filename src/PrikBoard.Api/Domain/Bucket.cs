@@ -10,7 +10,6 @@ public class Bucket
     public Guid BoardId { get; set; }
     public Board? Board { get; set; }
     public required string Name { get; set; }
-    public BucketColor Color { get; set; } = BucketColor.Blue;
     public int X { get; set; }
     public int Y { get; set; }
     public int Width { get; set; }

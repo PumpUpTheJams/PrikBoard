@@ -50,8 +50,7 @@ public partial class Board
     /// <summary>The longest agent rules a board can have, in characters.</summary>
     public const int RulesMaxLength = 20000;
 
-    public static readonly (string Name, BucketColor Color)[] DefaultBuckets =
-        [("To do", BucketColor.Blue), ("Doing", BucketColor.Amber), ("Done", BucketColor.Teal)];
+    public static readonly string[] DefaultBuckets = ["To do", "Doing", "Done"];
 
     /// <summary>The characters of a short id: digits and lower-case letters without i, l, o and u (Crockford's base32).</summary>
     public const string ShortIdAlphabet = "0123456789abcdefghjkmnpqrstvwxyz";
