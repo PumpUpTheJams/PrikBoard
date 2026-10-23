@@ -870,6 +870,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               assignee: board.people.map((p) => p.name),
               creator: board.cards.flatMap((n) => (n.createdBy ? [n.createdBy] : [])),
             }}
+            tagColors={tagColors}
           />
         )}
         {readOnly && <div className="read-only-badge">View only</div>}

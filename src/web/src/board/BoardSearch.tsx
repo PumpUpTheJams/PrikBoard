@@ -3,6 +3,7 @@ import type { CardDetail } from '../api/types'
 import { Highlight } from './Highlight'
 import { cardLabel } from './links'
 import { ChevronDownIcon, ChevronUpIcon, CloseIcon, SearchIcon } from './icons'
+import type { TagColors } from './tagColors'
 import { excerpt, searchSuggestions, wordsFor, type SearchField, type SearchSuggestion, type SearchTerm, type SearchValues } from './search'
 
 export interface SearchResult {
@@ -34,6 +35,8 @@ interface BoardSearchProps {
   bucketName: (card: CardDetail) => string
   /** What the prefixes can take on this board, for suggestions. */
   values: SearchValues
+  /** The board's tag colors, shown on suggested tags. */
+  tagColors: TagColors
 }
 
 /**
@@ -43,7 +46,7 @@ interface BoardSearchProps {
  */
 export function BoardSearch(props: BoardSearchProps) {
   const { inputRef, query, onQueryChange, terms, results, current, listOpen, onListOpenChange, onMove, onOpen, onClose } = props
-  const { faded, folded, onClearFilter, bucketName, values } = props
+  const { faded, folded, onClearFilter, bucketName, values, tagColors } = props
   const listRef = useRef<HTMLUListElement>(null)
   /** Where the text cursor is in the field; null while it isn't in the field. */
   const [caret, setCaret] = useState<number | null>(null)
@@ -177,6 +180,8 @@ export function BoardSearch(props: BoardSearchProps) {
               className={`search-suggestion${i === 0 ? ' first' : ''}`}
               onClick={() => take(s)}
             >
+              {s.fill && <span className={`link-swatch fill-${s.fill.toLowerCase()}`} aria-hidden="true" />}
+              {s.field === 'tag' && <span className={`tag-dot tag-color-${(tagColors.get(s.label) ?? 'Default').toLowerCase()}`} aria-hidden="true" />}
               <span className="search-suggestion-label">{s.label}</span>
               {s.hint && <span className="search-suggestion-hint">{s.hint}</span>}
             </button>

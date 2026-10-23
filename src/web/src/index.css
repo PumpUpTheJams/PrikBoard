@@ -6423,7 +6423,7 @@ button.picker-color:hover,
 
 .search-suggestion {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   max-width: 100%;
   height: 28px;
@@ -6444,6 +6444,18 @@ button.picker-color:hover,
 .search-suggestion.first {
   border-color: var(--accent);
   background: var(--accent-bg);
+}
+
+/* A suggested color's fill, or a suggested tag's color (as in the tag filter). */
+.search-suggestion .link-swatch {
+  width: 12px;
+  height: 10px;
+}
+
+.search-suggestion .tag-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
 }
 
 .search-suggestion-label {

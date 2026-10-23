@@ -90,6 +90,10 @@ export interface SearchSuggestion {
   hint?: string
   /** What it adds to the word typed so far, when it starts with that word: shown greyed out after it in the field. */
   rest?: string
+  /** For a value: the prefix it is for, so a tag can show its color. */
+  field?: SearchPrefix
+  /** For a color: the fill it finds, to show it. */
+  fill?: CardColor
 }
 
 /** The prefixes suggested, in this order, by their main names. */
@@ -123,13 +127,13 @@ export function searchSuggestions(query: string, caret: number, values: SearchVa
     const fills = Object.keys(colorWords) as CardColor[]
     const options =
       field !== 'color'
-        ? [...new Set(values[field])].map((v) => ({ value: v, words: [fold(v)], hint: undefined as string | undefined }))
+        ? [...new Set(values[field])].map((v) => ({ value: v, words: [fold(v)], hint: undefined as string | undefined, fill: undefined as CardColor | undefined }))
         : !typed
           ? // The fills by name, with their plain color words.
-            fills.map((c) => ({ value: c.toLowerCase(), words: colorWords[c], hint: colorWords[c].slice(1).join(', ') }))
+            fills.map((c) => ({ value: c.toLowerCase(), words: colorWords[c], hint: colorWords[c].slice(1).join(', '), fill: c }))
           : // Any color word (`red`), naming its fill, so the one being typed can be finished.
             fills.flatMap((c) =>
-              colorWords[c].map((w, i) => ({ value: w, words: [w], hint: i === 0 ? colorWords[c].slice(1).join(', ') : c })),
+              colorWords[c].map((w, i) => ({ value: w, words: [w], hint: i === 0 ? colorWords[c].slice(1).join(', ') : c, fill: c })),
             )
     const starts = (o: (typeof options)[number]) => o.words.some((w) => w.startsWith(typed))
     // A color is found by the start of its words only (`found`); other values anywhere in them.
@@ -143,6 +147,8 @@ export function searchSuggestions(query: string, caret: number, values: SearchVa
         label: o.value,
         hint: o.hint || undefined,
         rest: fold(o.value).startsWith(typed) ? o.value.slice(raw.length) : undefined,
+        field,
+        fill: o.fill,
       }))
   }
 
