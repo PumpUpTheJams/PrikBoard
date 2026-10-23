@@ -192,6 +192,54 @@ public class PlaceItemsApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
         Assert.Contains("cardIds", await response.Content.ReadAsStringAsync());
     }
 
+    [Fact]
+    public async Task A_loose_card_the_grown_bucket_covers_joins_it_and_its_history_says_so()
+    {
+        var board = await _client.CreateBoardAsync("Covered");
+        var todo = board.Buckets[0];
+        for (var i = 0; i < 4; i++) await CreateCard(board.Id, new { title = $"Full {i}", bucketId = todo.Id });
+        // Loose, just below the full bucket.
+        var below = await CreateCard(board.Id, new { title = "Below", x = todo.X + 20, y = todo.Y + todo.Height });
+        var extra = await CreateCard(board.Id, new { title = "Extra", x = 1000, y = 1000 });
+        Assert.Null(below.BucketId);
+
+        var placed = await Place(todo.Id, new { cardIds = new[] { extra.Id } });
+
+        // The bucket grows down past the loose card, which stays put and joins it.
+        Assert.True(placed.Bucket.Y + placed.Bucket.Height > below.Y + Layout.CardHeight);
+        var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
+        var now = snapshot!.Cards.Single(n => n.Id == below.Id);
+        Assert.Equal((todo.Id, below.X, below.Y), (now.BucketId, now.X, now.Y));
+        var history = await _client.GetFromJsonAsync<List<CardChangeDetail>>($"/api/cards/{below.Id}/history");
+        Assert.Equal(CardChangeKind.Bucket, Assert.Single(history![0].Entries).Kind);
+    }
+
+    [Fact]
+    public async Task A_bucket_as_tall_as_it_can_be_grows_sideways_so_no_card_lands_on_another()
+    {
+        var board = await _client.CreateBoardAsync("Five hundred");
+        var todo = board.Buckets[0];
+        var cards = new List<CardDetail>();
+        for (var batch = 0; batch < 10; batch++)
+        {
+            var requests = Enumerable.Range(0, 50).Select(i => new { title = $"Card {batch * 50 + i}", x = 5000 + i * 220, y = 5000 + batch * 140 });
+            var response = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/cards/batch", new { cards = requests });
+            cards.AddRange((await response.Content.ReadFromJsonAsync<List<CardDetail>>())!);
+        }
+
+        var placed = await Place(todo.Id, new { cardIds = cards.Select(n => n.Id) });
+
+        // One column holds 71 cards at the most height, so it takes eight columns.
+        Assert.Equal((Layout.MaxBucketSize - 20) / 140 * 140 + 20, placed.Bucket.Height);
+        Assert.Equal(20 + 8 * 220, placed.Bucket.Width);
+        Assert.Equal(500, placed.Cards.Select(n => (n.X, n.Y)).Distinct().Count());
+        Assert.All(placed.Cards, n =>
+        {
+            Assert.InRange(n.X, placed.Bucket.X, placed.Bucket.X + placed.Bucket.Width - Layout.CardWidth);
+            Assert.InRange(n.Y, placed.Bucket.Y, placed.Bucket.Y + placed.Bucket.Height - Layout.CardHeight);
+        });
+    }
+
     private async Task<CardDetail> CreateCard(Guid boardId, object request)
     {
         var response = await _client.PostAsJsonAsync($"/api/boards/{boardId}/cards", request);
