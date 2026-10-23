@@ -4737,7 +4737,8 @@ button.picker-color:hover,
   gap: 4px;
 }
 
-.search-results-foot kbd {
+.search-results-foot kbd,
+.search-suggestions-key kbd {
   display: inline-grid;
   place-items: center;
   min-width: 18px;
@@ -6379,4 +6380,62 @@ button.picker-color:hover,
   white-space: pre-line;
   overflow-wrap: anywhere;
   pointer-events: none;
+}
+
+/* Suggestions for the word being typed in the board search: prefixes, then the values a prefix can take. */
+.search-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--float-shadow);
+  pointer-events: auto;
+}
+
+.search-suggestion {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 26px;
+}
+
+.search-suggestion:hover {
+  background: var(--hover);
+}
+
+/* The one Tab takes. */
+.search-suggestion.first {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.search-suggestion-label {
+  overflow: hidden;
+  font-family: var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-suggestion-hint {
+  color: var(--subtle);
+  white-space: nowrap;
+}
+
+.search-suggestions-key {
+  margin-left: auto;
+  color: var(--subtle);
+  font-size: 11px;
 }

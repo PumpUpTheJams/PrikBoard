@@ -76,6 +76,73 @@ export function searchTerms(query: string): SearchTerm[] {
   return terms
 }
 
+/** The values a prefix can take on this board, for suggestions: tag names, people's names, creators' names. */
+export type SearchValues = Record<Exclude<SearchPrefix, 'color'>, string[]>
+
+/** A way to finish the word being typed: `insert` replaces the query's text from `start` to `end`. */
+export interface SearchSuggestion {
+  start: number
+  end: number
+  insert: string
+  /** What the list shows. */
+  label: string
+  /** What it is: the prefix's field, or a fill's plain color word. */
+  hint?: string
+}
+
+/** The prefixes suggested, in this order, by their main names. */
+const prefixHints: Record<SearchPrefix, string> = {
+  tag: 'Tag',
+  assignee: 'Assigned to',
+  creator: 'Created by',
+  color: 'Fill color',
+}
+
+/** At most this many values are suggested; typing narrows them. */
+const MAX_SUGGESTIONS = 8
+
+/**
+ * Suggestions for the word at `caret` (BoardSearch shows them; Tab takes the first): with an empty query, or while a
+ * word could still become a prefix, the prefixes (`ta` → `tag:`); after a prefix, the values it can take on this
+ * board, those starting with what was typed first. A value with a space is quoted, and taking one adds a space after
+ * it for the next word.
+ */
+export function searchSuggestions(query: string, caret: number, values: SearchValues): SearchSuggestion[] {
+  const before = query.slice(0, caret)
+  // The rest of the word the caret is in is replaced too.
+  const end = caret + (/^[^\s"]*/.exec(query.slice(caret))?.[0].length ?? 0)
+
+  const prefixed = /(\p{L}+):("[^"]*|[^\s"]*)$/u.exec(before)
+  const field = prefixed && prefixes[fold(prefixed[1])]
+  if (prefixed && field) {
+    const typed = fold(prefixed[2].replace(/^"/, ''))
+    const start = before.length - prefixed[0].length
+    const options =
+      field === 'color'
+        ? (Object.keys(colorWords) as CardColor[]).map((c) => ({ value: c.toLowerCase(), words: colorWords[c], hint: colorWords[c].slice(1).join(', ') }))
+        : [...new Set(values[field])].map((v) => ({ value: v, words: [fold(v)], hint: undefined }))
+    const starts = (o: (typeof options)[number]) => o.words.some((w) => w.startsWith(typed))
+    // A color is found by the start of its words only (`found`); other values anywhere in them.
+    const within = field === 'color' ? [] : options.filter((o) => !starts(o) && o.words.some((w) => w.includes(typed)))
+    return [...options.filter(starts), ...within]
+      .slice(0, MAX_SUGGESTIONS)
+      .map((o) => ({
+        start,
+        end,
+        insert: `${prefixed[1]}:${/\s/.test(o.value) ? `"${o.value}"` : o.value} `,
+        label: o.value,
+        hint: o.hint || undefined,
+      }))
+  }
+
+  const word = /[^\s"]*$/.exec(before)![0]
+  if (word.includes(':') || (!word && query.trim())) return []
+  const typed = fold(word)
+  return (Object.keys(prefixHints) as SearchPrefix[])
+    .filter((p) => p.startsWith(typed))
+    .map((p) => ({ start: caret - word.length, end, insert: `${p}:`, label: `${p}:`, hint: prefixHints[p] }))
+}
+
 /** Whether a term searches a kind of field: a prefixed term only its own kind, others every kind but the color. */
 const looksIn = (term: SearchTerm, kind: SearchField['kind']) => (term.field ? term.field === kind : kind !== 'color')
 

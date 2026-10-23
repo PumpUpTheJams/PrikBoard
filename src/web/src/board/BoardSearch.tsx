@@ -1,9 +1,9 @@
-import { Fragment, useLayoutEffect, useRef, type RefObject } from 'react'
+import { Fragment, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { CardDetail } from '../api/types'
 import { Highlight } from './Highlight'
 import { cardLabel } from './links'
 import { ChevronDownIcon, ChevronUpIcon, CloseIcon, SearchIcon } from './icons'
-import { excerpt, wordsFor, type SearchField, type SearchTerm } from './search'
+import { excerpt, searchSuggestions, wordsFor, type SearchField, type SearchSuggestion, type SearchTerm, type SearchValues } from './search'
 
 export interface SearchResult {
   card: CardDetail
@@ -32,19 +32,35 @@ interface BoardSearchProps {
   folded: number
   onClearFilter: () => void
   bucketName: (card: CardDetail) => string
+  /** What the prefixes can take on this board, for suggestions. */
+  values: SearchValues
 }
 
 /**
  * The search at the top of the board, opened with / or Ctrl/Cmd+F: a field with the number of matches, and the matching
- * cards listed under it. ↑ and ↓ move through them, Enter opens one, Escape closes the search.
+ * cards listed under it. ↑ and ↓ move through them, Enter opens one, Escape closes the search. Under the field,
+ * suggestions for the word being typed (prefixes, then the values a prefix can take); Tab takes the first.
  */
 export function BoardSearch(props: BoardSearchProps) {
   const { inputRef, query, onQueryChange, terms, results, current, listOpen, onListOpenChange, onMove, onOpen, onClose } = props
-  const { faded, folded, onClearFilter, bucketName } = props
+  const { faded, folded, onClearFilter, bucketName, values } = props
   const listRef = useRef<HTMLUListElement>(null)
+  /** Where the text cursor is in the field; null while it isn't in the field. */
+  const [caret, setCaret] = useState<number | null>(null)
   const searching = terms.length > 0
   const showList = listOpen && searching
   const index = results.findIndex((r) => r.card.id === current)
+  const suggestions = listOpen && caret !== null ? searchSuggestions(query, Math.min(caret, query.length), values) : []
+
+  /** Puts a suggestion in the query, with the text cursor after it. */
+  function take({ start, end, insert }: SearchSuggestion) {
+    const next = query.slice(0, start) + insert + query.slice(end).replace(/^ (?=\S|$)/, '')
+    const at = start + insert.length
+    onQueryChange(next)
+    setCaret(at)
+    requestAnimationFrame(() => inputRef.current?.setSelectionRange(at, at))
+  }
+  const trackCaret = (input: HTMLInputElement) => setCaret(input.selectionStart === input.selectionEnd ? input.selectionStart : null)
 
   // Keeps the active result in view in the list.
   useLayoutEffect(() => {
@@ -79,13 +95,23 @@ export function BoardSearch(props: BoardSearchProps) {
           autoComplete="off"
           spellCheck={false}
           value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          onFocus={() => onListOpenChange(true)}
+          onChange={(e) => {
+            onQueryChange(e.target.value)
+            trackCaret(e.target)
+          }}
+          onSelect={(e) => trackCaret(e.currentTarget)}
+          onFocus={(e) => {
+            onListOpenChange(true)
+            trackCaret(e.currentTarget)
+          }}
           onBlur={(e) => {
             if (!(e.relatedTarget instanceof Node && e.currentTarget.closest('.board-top')?.contains(e.relatedTarget))) onListOpenChange(false)
           }}
           onKeyDown={(e) => {
-            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            if (e.key === 'Tab' && !e.shiftKey && suggestions.length > 0) {
+              e.preventDefault()
+              take(suggestions[0])
+            } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
               e.preventDefault()
               onMove(e.key === 'ArrowDown' ? 1 : -1)
             } else if (e.key === 'Enter') {
@@ -126,6 +152,28 @@ export function BoardSearch(props: BoardSearchProps) {
           <CloseIcon />
         </button>
       </div>
+
+      {suggestions.length > 0 && (
+        // A press keeps the text cursor in the field.
+        <div className="search-suggestions" role="listbox" aria-label="Suggestions" onMouseDown={(e) => e.preventDefault()}>
+          {suggestions.map((s, i) => (
+            <button
+              key={s.label}
+              type="button"
+              role="option"
+              aria-selected={i === 0}
+              className={`search-suggestion${i === 0 ? ' first' : ''}`}
+              onClick={() => take(s)}
+            >
+              <span className="search-suggestion-label">{s.label}</span>
+              {s.hint && <span className="search-suggestion-hint">{s.hint}</span>}
+            </button>
+          ))}
+          <span className="search-suggestions-key">
+            <kbd>Tab</kbd>
+          </span>
+        </div>
+      )}
 
       {showList && (
         <div className="search-results" onMouseDown={(e) => e.preventDefault()}>

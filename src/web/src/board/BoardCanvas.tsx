@@ -865,6 +865,11 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               search.revealSoon()
             }}
             bucketName={(card) => board.buckets.find((b) => b.id === card.bucketId)?.name ?? 'Loose'}
+            values={{
+              tag: board.tags.map((t) => t.name),
+              assignee: board.people.map((p) => p.name),
+              creator: board.cards.flatMap((n) => (n.createdBy ? [n.createdBy] : [])),
+            }}
           />
         )}
         {readOnly && <div className="read-only-badge">View only</div>}
