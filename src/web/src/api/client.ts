@@ -228,6 +228,8 @@ export const api = {
     request<BucketDetail>('PATCH', `/buckets/${bucketId}`, changes),
   /** Puts a bucket on top of the others, for everyone (no item changes bucket). */
   bringBucketToFront: (bucketId: string) => request<BucketDetail>('POST', `/buckets/${bucketId}/front`),
+  /** Puts a loose drawing on top of the stack it shares with the buckets, for everyone. */
+  bringDrawingToFront: (drawingId: string) => request<DrawingDetail>('POST', `/drawings/${drawingId}/front`),
   /** Puts cards, images and drawings into a bucket's free room, each at its own size, growing it towards `grow` when they don't fit. */
   placeItemsInBucket: (bucketId: string, placement: PlaceItemsRequest) =>
     request<PlacedItems>('POST', `/buckets/${bucketId}/items`, placement),

@@ -1,6 +1,6 @@
 // Client copy of the server's geometry rules (src/PrikBoard.Api/Domain/Layout.cs), used for live feedback while dragging.
 // The server snaps and assigns buckets again on every change, so it stays the source of truth.
-import type { BucketDetail, ImageDetail, CardComponentKind, GrowSide, Point, Rect, ResizeHandle } from '../api/types'
+import type { BucketDetail, DrawingDetail, ImageDetail, CardComponentKind, GrowSide, Point, Rect, ResizeHandle } from '../api/types'
 
 export const GRID = 20
 export const CARD_WIDTH = 200
@@ -44,6 +44,24 @@ export const snapPoint = ({ x, y }: Point): Point => ({ x: onBoard(snap(x)), y: 
  * API lists them. Buckets are drawn in this order, and an item dropped where buckets overlap joins the topmost.
  */
 export const backToFront = (buckets: BucketDetail[]) => buckets.toSorted((a, b) => Date.parse(a.stackedAt) - Date.parse(b.stackedAt))
+
+/** A bucket or a loose drawing, as they stack on the board. */
+export type Layer = { kind: 'bucket'; id: string; bucket: BucketDetail } | { kind: 'drawing'; id: string; drawing: DrawingDetail }
+
+/** Whether a drawing is loose on the board: in no bucket and on no card, so it stacks with the buckets. */
+export const isLooseDrawing = (drawing: DrawingDetail) => drawing.cardId === null && drawing.bucketId === null
+
+/**
+ * Buckets and loose drawings in one stack, back to front by `stackedAt` (ties: buckets first, as `backToFront`). They
+ * are drawn in this order, each bucket with what is in it (drawings in a bucket too).
+ */
+export const layersBackToFront = (buckets: BucketDetail[], drawings: DrawingDetail[]): Layer[] =>
+  [
+    ...buckets.map((bucket): Layer => ({ kind: 'bucket', id: bucket.id, bucket })),
+    ...drawings.filter(isLooseDrawing).map((drawing): Layer => ({ kind: 'drawing', id: drawing.id, drawing })),
+  ].toSorted((a, b) => Date.parse(stackedAtOf(a)) - Date.parse(stackedAtOf(b)))
+
+const stackedAtOf = (layer: Layer) => (layer.kind === 'bucket' ? layer.bucket.stackedAt : layer.drawing.stackedAt)
 
 /**
  * The bucket a card, image or drawing dropped at `item` joins: the topmost one containing its center (Layout.Place on

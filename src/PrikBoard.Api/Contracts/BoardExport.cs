@@ -40,7 +40,7 @@ public record BoardExport(
 {
     public const string FormatName = "prikboard-board";
     /// <summary>Raise it with every change to the file's fields, so an older server refuses a file it can't fully read.</summary>
-    public const int CurrentVersion = 7;
+    public const int CurrentVersion = 8;
     public const int OldestVersion = 3;
     public const string TooOldMessage =
         "This file is from before notes were renamed cards (version 1 or 2), and this server reads version 3 and later. " +
@@ -111,6 +111,7 @@ public record ExportedImage(
 /// <param name="Color">Files before version 6, where a drawing was one stroke: its ink. Null from version 6.</param>
 /// <param name="StrokeWidth">Files before version 6: the stroke's base line width. Null from version 6.</param>
 /// <param name="Points">Files before version 6: the stroke's points. Null from version 6.</param>
+/// <param name="BucketsBelow">For a loose drawing on the canvas (in no bucket): how many of the file's buckets it is stacked above, so it is drawn above those and below the rest (from version 8). Optional; without it a loose drawing goes above every bucket. Null for drawings in a bucket or on a card.</param>
 public record ExportedDrawing(
     Guid? CardId,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int X,
@@ -118,7 +119,8 @@ public record ExportedDrawing(
     [property: MaxLength(BoardDrawing.MaxStrokes)] List<ExportedStroke>? Strokes = null,
     InkColor? Color = null,
     int? StrokeWidth = null,
-    [property: MaxLength(BoardDrawing.MaxPoints)] List<double[]>? Points = null)
+    [property: MaxLength(BoardDrawing.MaxPoints)] List<double[]>? Points = null,
+    [property: Range(0, BoardExport.MaxBuckets)] int? BucketsBelow = null)
 {
     /// <summary>The strokes, from either form.</summary>
     public IReadOnlyList<(InkColor Color, int Width, IReadOnlyList<double[]> Points)> AllStrokes() =>

@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.AspNetCore.DataProtection.XmlEncryption;
 using PrikBoard.Discord;
 using Serilog;
 using Serilog.Sinks.OpenTelemetry;
@@ -39,6 +41,8 @@ var storage = builder.Configuration["Storage:Path"] is { Length: > 0 } path
 Directory.CreateDirectory(storage);
 var keys = builder.Configuration["DataProtection:KeysPath"] is { Length: > 0 } keysPath ? keysPath : Path.Combine(storage, "keys");
 builder.Services.AddDataProtection().SetApplicationName("PrikBoard.Discord").PersistKeysToFileSystem(new DirectoryInfo(keys));
+// Unencrypted on purpose, beside the tokens they protect (see the API's Program.cs); saying so stops the warning.
+builder.Services.Configure<KeyManagementOptions>(options => options.XmlEncryptor = new NullXmlEncryptor());
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(services => new GuildTokens(services.GetRequiredService<IDataProtectionProvider>(), storage));

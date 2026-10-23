@@ -46,10 +46,19 @@ public class BoardDrawing : ICanvasItem
     public Principal? AddedBy { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    /// <summary>
+    /// Loose on the board: its place in the stack with the buckets, the same for everyone (the later, the higher; see
+    /// <see cref="Bucket.StackedAt"/>). In a bucket or on a card it is drawn with its bucket or card instead. Drawing,
+    /// moving or reshaping it puts it on top (<see cref="ToFront"/>), and so does bringDrawingToFront.
+    /// </summary>
+    public DateTimeOffset StackedAt { get; set; } = DateTimeOffset.UtcNow;
     /// <summary>When it was deleted; it can be restored until <see cref="Data.Tombstones.Retention"/> has passed. Deleted with its card, it shares the card's stamp. Hidden by the query filter while set.</summary>
     public DateTimeOffset? DeletedAt { get; set; }
 
     public DrawingContent? Content { get; set; }
+
+    /// <summary>Puts it on top of the stack.</summary>
+    public void ToFront() => StackedAt = DateTimeOffset.UtcNow;
 
     /// <summary>
     /// Checks <paramref name="points"/> (each <c>[x, y, pressure]</c>, x and y from 0 to <see cref="MaxSize"/>, pressure

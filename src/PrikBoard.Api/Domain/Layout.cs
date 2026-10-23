@@ -47,6 +47,28 @@ public static class Layout
     public static List<Bucket> BackToFront(IEnumerable<Bucket> buckets) =>
         buckets.OrderBy(b => b.StackedAt).ThenBy(b => b.CreatedAt).ThenBy(b => b.Id).ToList();
 
+    /// <summary>How many of <paramref name="buckets"/> a loose drawing is stacked above (they stack by the same rule).</summary>
+    public static int BucketsBelow(BoardDrawing drawing, IEnumerable<Bucket> buckets) =>
+        buckets.Count(b => (b.StackedAt, b.CreatedAt).CompareTo((drawing.StackedAt, drawing.CreatedAt)) < 0);
+
+    /// <summary>
+    /// Stacks new buckets (back to front) and loose drawings as one, from <paramref name="clock"/> a millisecond apart: each
+    /// drawing above the number of buckets it names (all of them when null), in its own order among drawings that name
+    /// the same number.
+    /// </summary>
+    public static void Restack(IReadOnlyList<Bucket> buckets, IReadOnlyList<(BoardDrawing Drawing, int? BucketsBelow)> drawings, DateTimeOffset clock)
+    {
+        var step = 0;
+        for (var below = 0; below <= buckets.Count; below++)
+        {
+            foreach (var (drawing, _) in drawings.Where(d => Math.Min(d.BucketsBelow ?? buckets.Count, buckets.Count) == below))
+            {
+                drawing.StackedAt = clock.AddMilliseconds(step++);
+            }
+            if (below < buckets.Count) buckets[below].StackedAt = clock.AddMilliseconds(step++);
+        }
+    }
+
     /// <summary>Buckets in the order lists show them, oldest first (To do, Doing, Done), however they are stacked.</summary>
     public static List<Bucket> InListOrder(IEnumerable<Bucket> buckets) =>
         buckets.OrderBy(b => b.CreatedAt).ThenBy(b => b.Id).ToList();

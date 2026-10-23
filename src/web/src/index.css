@@ -2968,6 +2968,15 @@ a.button.primary:hover {
   pointer-events: none;
 }
 
+/* The strokes being drawn: above buckets, cards and the front bucket until they are saved and take their place. */
+.pen-strokes {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
 .stroke-hit {
   stroke: transparent;
   pointer-events: stroke;
@@ -5426,7 +5435,7 @@ button.picker-color:hover,
   color: var(--accent);
 }
 
-/* The topmost open bucket and what is in it are drawn above the rest. Lifted items stay above them. */
+/* The topmost open bucket and what is in it are drawn above the rest, and so are loose drawings stacked above it. Lifted items stay above them. */
 .bucket.in-front,
 .card.in-front:not(.lifted, .link-copied),
 .board-image.in-front:not(.lifted),

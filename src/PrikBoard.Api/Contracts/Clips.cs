@@ -35,7 +35,7 @@ public record BoardClip(
 {
     public const string FormatName = "prikboard-clip";
     /// <summary>Raise it with every change to the clip's fields, so an older server refuses a clip it can't fully read.</summary>
-    public const int CurrentVersion = 4;
+    public const int CurrentVersion = 5;
     public const int MaxCards = 200;
     public const int MaxImages = 100;
     public const int MaxDrawings = 1000;
@@ -117,10 +117,11 @@ public record ClippedImage(
 /// <param name="Points">Unused (the export file's older one-stroke form); null.</param>
 /// <param name="BucketId">For a drawing on the board: the copied bucket it is in (Buckets), or null (from version 2).</param>
 /// <param name="Id">The drawing's id on its board, so a cut can remove it (from version 3).</param>
+/// <param name="BucketsBelow">For a drawing on the board in none of the copied buckets: how many of them (Buckets) it is stacked above (from version 5). Optional; without it, it goes above them all.</param>
 public record ClippedDrawing(
     Guid? CardId, int X, int Y, List<ExportedStroke>? Strokes = null, InkColor? Color = null, int? StrokeWidth = null,
-    List<double[]>? Points = null, Guid? BucketId = null, Guid? Id = null)
-    : ExportedDrawing(CardId, X, Y, Strokes, Color, StrokeWidth, Points);
+    List<double[]>? Points = null, Guid? BucketId = null, Guid? Id = null, int? BucketsBelow = null)
+    : ExportedDrawing(CardId, X, Y, Strokes, Color, StrokeWidth, Points, BucketsBelow);
 
 /// <summary>What to copy, all on the board in the path. A bucket comes with the cards, images and drawings in it.</summary>
 /// <param name="CardIds">Cards.</param>

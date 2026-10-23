@@ -89,7 +89,8 @@ public static class BoardTransferEndpoints
             images,
             board.Tags.Where(t => t.Color != TagColor.Default).ToDictionary(t => t.Name, t => t.Color),
             board.Drawings.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id)
-                .Select(d => new ExportedDrawing(d.CardId, d.X, d.Y, ExportedStrokes(d))).ToList(),
+                .Select(d => new ExportedDrawing(d.CardId, d.X, d.Y, ExportedStrokes(d),
+                    BucketsBelow: d.CardId is null && d.BucketId is null ? Layout.BucketsBelow(d, board.Buckets) : null)).ToList(),
             board.Key,
             AppVersion.Number);
 
@@ -239,6 +240,10 @@ public static class BoardTransferEndpoints
         }
 
         Layout.PlaceAll(board.Cards, [.. board.Images, .. board.Drawings], board.Buckets);
+        // Loose drawings take their places between the buckets.
+        Layout.Restack(Layout.BackToFront(board.Buckets),
+            [.. board.Drawings.Zip(file.Drawings ?? []).Where(p => p.First.CardId is null && p.First.BucketId is null).Select(p => (p.First, p.Second.BucketsBelow))],
+            clock);
         // Folded up only now, so their cards, images and drawings joined them first.
         foreach (var (i, bucket) in board.Buckets.Index()) bucket.Collapsed = file.Buckets[i].Collapsed;
         // Like createBoard: a personal access token imports for its owner, who owns the board; the token keeps its capped role.

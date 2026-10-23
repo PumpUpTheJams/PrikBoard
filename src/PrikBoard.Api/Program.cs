@@ -3,6 +3,8 @@ using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.AspNetCore.DataProtection.XmlEncryption;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
@@ -40,12 +42,14 @@ builder.Services.AddHostedService<TombstonePurger>();
 builder.Services.AddSingleton(services => FileStore.FromConfiguration(
     services.GetRequiredService<IConfiguration>(), services.GetRequiredService<IHostEnvironment>(), services.GetRequiredService<ILogger<FileStore>>()));
 // Session cookies, sign-ins in progress and stored provider secrets are encrypted with these keys, so they live in the
-// data folder: a restart keeps everyone signed in.
+// data folder: a restart keeps everyone signed in. They are stored unencrypted on purpose, like the hash key beside them:
+// the data folder's permissions protect both. The null encryptor says so, which stops the warning on every new key.
 builder.Services.AddDataProtection()
     .SetApplicationName("PrikBoard")
     .PersistKeysToFileSystem(new DirectoryInfo(builder.Configuration["DataProtection:KeysPath"] is { Length: > 0 } keys
         ? keys
         : Path.Combine(FileStore.RootFrom(builder.Configuration, builder.Environment), "keys")));
+builder.Services.Configure<KeyManagementOptions>(options => options.XmlEncryptor = new NullXmlEncryptor());
 builder.Services.AddHttpClient<ProviderAvatars>(http =>
 {
     http.Timeout = TimeSpan.FromSeconds(10);

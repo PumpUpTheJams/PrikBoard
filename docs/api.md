@@ -234,9 +234,10 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | getDrawingContent | `GET /api/drawings/{drawingId}/content?v=` | The drawing's `strokes`, each with its `strokeWidth` and `points` (`x`/`y` to 0.1 px, pressure to 0.01). Fetch the drawing's `contentUrl`, which names the revision and changes with the strokes, so it is cacheable for good |
 | addDrawingStroke | `POST /api/drawings/{drawingId}/strokes` | Add a stroke to a drawing (`x`/`y` of the stroke on the drawing's canvas, `points`, `color`, `strokeWidth`, as in createDrawing); the drawing grows to hold it. The web app's pen adds every stroke after the first to the same drawing until it is put down. `409` past 1000 strokes, 50000 points or 10000 px |
 | deleteDrawingStroke | `DELETE /api/drawings/{drawingId}/strokes/{index}` | Take a stroke off (0 is the first drawn) and shrink the drawing to the rest; `409` for its only stroke (delete the drawing) |
-| transformDrawing | `POST /api/drawings/{drawingId}/transform` | Scale (`scaleX`, `scaleY`, 0.05 to 20) and then turn clockwise (`rotation`, degrees) about a pivot (`pivotX`/`pivotY` on its canvas, both or neither; default the middle of its box). The points change and the box follows them (corner on the grid, half the thickest line clear); line widths stay. The web app's corner handles scale (Shift stretches) and the round handle above turns it (Shift: 15° steps). `409` past 10000 px or off the board |
+| transformDrawing | `POST /api/drawings/{drawingId}/transform` | Scale (`scaleX`, `scaleY`, 0.05 to 20) and then turn clockwise (`rotation`, degrees) about a pivot (`pivotX`/`pivotY` on its canvas, both or neither; default the middle of its box). The points change and the box follows them (corner on the grid, half the thickest line clear); line widths stay. The web app's corner handles scale (Shift stretches) and the round handle above turns it (Shift: 15° steps). It goes on top of the stack. `409` past 10000 px or off the board |
 | setDrawingStrokes | `PUT /api/drawings/{drawingId}/strokes` | New `x`/`y` and the points of every stroke (`strokes`, as many as it has, each `strokeWidth` and `points`; inks stay). Undo uses it to put a transformed drawing back exactly |
-| updateDrawing | `PATCH /api/drawings/{drawingId}` | Move (`x`, `y`) or recolor a drawing (`color` for every stroke, or `colors` with one ink per stroke); put it on a card (`cardId`) or back on the board (`detach: true`), with both `x` and `y` there |
+| updateDrawing | `PATCH /api/drawings/{drawingId}` | Move (`x`, `y`) or recolor a drawing (`color` for every stroke, or `colors` with one ink per stroke); put it on a card (`cardId`) or back on the board (`detach: true`), with both `x` and `y` there. A move puts it on top of the stack |
+| bringDrawingToFront | `POST /api/drawings/{drawingId}/front` | Put a loose drawing (in no bucket, on no card) on top of the stack it shares with the buckets, for everyone (`stackedAt`). Drawing, moving and reshaping it do this too; a drawing in a bucket is drawn with its bucket |
 | deleteDrawing | `DELETE /api/drawings/{drawingId}` | Delete a drawing |
 | restoreDrawing | `POST /api/drawings/{drawingId}/restore` | Bring back a deleted drawing (`409` while its card is deleted: restore the card) |
 | listAuthProviders | `GET /api/auth/providers` | Sign-in providers for the browser, the default first (public) |
@@ -303,7 +304,7 @@ Instead of polling getBoard, a client can follow a board live over **SignalR** a
 
 | Hub method | Who | What |
 | --- | --- | --- |
-| `Join(boardId)` | Members | Follow one board (and stop following the previous one). Returns `{boardId, role, key, viewers}`; fails for boards you are not a member of |
+| `Join(boardId)` | Members | Follow one board (and stop following the previous one). Returns `{boardId, role, key, viewers}`; answers null for boards you can't join (and keeps following the previous one) |
 | `Leave()` | Anyone | Stop following the board |
 | `Drag({kind, id, dx, dy, handle, items})` | Editors (tokens need `boards:write`) | Show others a drag in progress: `kind` is `Card`, `Bucket`, `Resize`, `Image`, `ImageResize` or `Group`, `dx`/`dy` the pointer travel in canvas pixels, and for resizes `handle` the corner or edge dragged (`BottomRight`, the default, `BottomLeft`, `TopRight`, `TopLeft`, `Top`, `Right`, `Bottom` or `Left`; an edge resizes in its direction only). `Group` moves several selected items together: `items` lists them all (1 to 1000 cards, buckets, images and drawings, `id` the one held, not what a listed bucket carries); other kinds send no `items`. Send at most every 50 ms |
 | `DragEnd()` | Editors | The drag is over |
@@ -315,7 +316,7 @@ Instead of polling getBoard, a client can follow a board live over **SignalR** a
 | `Dragging({key, principalId, displayName, kind, id, dx, dy, handle, items})` | Someone else's drag in progress |
 | `DragEnded(key)` | They let go. Keep the item where it was until the next getBoard shows where it landed |
 | `BoardsChanged()` | Your list of boards changed (renamed, deleted, you were added or removed); call listBoards |
-| `AccessChanged(boardId)` | Your role on that board changed or you lost access: call `Join` again (it fails when access is gone) |
+| `AccessChanged(boardId)` | Your role on that board changed or you lost access: call `Join` again (it answers null when access is gone) |
 
 - Changes you make yourself are announced to you too, unless you send your connection id in an `X-PrikBoard-Live` header with the change (the web app does, since it reloads after its own changes anyway).
 - Being removed from a board stops its messages at once.

@@ -26,7 +26,7 @@ public interface IBoardClient
     /// <summary>Your list of boards changed (a board was renamed or deleted, or you were added or removed); re-read listBoards.</summary>
     Task BoardsChanged();
 
-    /// <summary>Your role on a board changed or you lost access; re-join it (or leave it when Join fails).</summary>
+    /// <summary>Your role on a board changed or you lost access; re-join it (or leave it when Join answers null).</summary>
     Task AccessChanged(Guid boardId);
 }
 
@@ -91,23 +91,33 @@ public sealed class BoardHub(LiveViewers viewers, PrikBoardDbContext db) : Hub<I
 
     /// <summary>
     /// Starts following a board (and stops following the previous one). Members join as such; anyone else (but tokens) can
-    /// join a public board as a visitor. Fails for other boards.
+    /// join a public board as a visitor. Answers null for other boards (and keeps following the previous one): a tab can
+    /// still have a board open that is gone, so that is no error worth logging.
     /// </summary>
-    public async Task<JoinedBoard> Join(Guid boardId)
+    public async Task<JoinedBoard?> Join(Guid boardId)
     {
         var entry = Current();
         var user = Context.User!;
-        var role = await BoardAccess.RoleOnBoardAsync(db, boardId, user, Context.ConnectionAborted);
-        var visitor = role is null;
+        BoardRole? role;
         var showsPeople = false;
-        if (visitor)
+        try
         {
-            var board = user.IsToken()
-                ? null
-                : await db.Boards.Where(b => b.Id == boardId && b.IsPublic).Select(b => new { b.PublicShowsPeople }).FirstOrDefaultAsync(Context.ConnectionAborted);
-            if (board is null) throw new HubException("Board not found, or you are not a member.");
-            showsPeople = board.PublicShowsPeople;
+            role = await BoardAccess.RoleOnBoardAsync(db, boardId, user, Context.ConnectionAborted);
+            if (role is null)
+            {
+                var board = user.IsToken()
+                    ? null
+                    : await db.Boards.Where(b => b.Id == boardId && b.IsPublic).Select(b => new { b.PublicShowsPeople }).FirstOrDefaultAsync(Context.ConnectionAborted);
+                if (board is null) return null;
+                showsPeople = board.PublicShowsPeople;
+            }
         }
+        catch (OperationCanceledException) when (Context.ConnectionAborted.IsCancellationRequested)
+        {
+            // The tab closed mid-join; nobody is waiting for the answer.
+            return null;
+        }
+        var visitor = role is null;
 
         // Also when only the way in changed (a visitor who became a member, or the other way round).
         if (entry.BoardId is { } previous && (previous != boardId || entry.Visitor != visitor)) await LeaveBoard(entry, previous);

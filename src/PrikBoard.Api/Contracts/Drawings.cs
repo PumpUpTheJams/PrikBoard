@@ -23,6 +23,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="ContentUrl">Where to fetch the strokes (getDrawingContent). It changes whenever the strokes do. Needs the same authentication as the API.</param>
 /// <param name="CreatedAt">When it was drawn (UTC).</param>
 /// <param name="UpdatedAt">When its strokes, place or inks last changed (UTC).</param>
+/// <param name="StackedAt">For a loose drawing (no bucketId or cardId): its place in the stack with the buckets, the same for everyone. The later, the higher; buckets and loose drawings are drawn in stackedAt order, each bucket with what is in it. Drawing, moving or reshaping it puts it on top, and so does bringDrawingToFront.</param>
 public record DrawingDetail(
     Guid Id,
     Guid BoardId,
@@ -38,12 +39,13 @@ public record DrawingDetail(
     Guid? AddedById,
     string ContentUrl,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt)
+    DateTimeOffset UpdatedAt,
+    DateTimeOffset StackedAt)
 {
     public static DrawingDetail From(BoardDrawing drawing) =>
         new(drawing.Id, drawing.BoardId, drawing.CardId, drawing.BucketId, drawing.X, drawing.Y, drawing.Width, drawing.Height, drawing.Colors,
             drawing.PointCount, drawing.AddedBy?.ShownName ?? "Unknown", drawing.AddedById,
-            $"/api/drawings/{drawing.Id}/content?v={drawing.Revision}", drawing.CreatedAt, drawing.UpdatedAt);
+            $"/api/drawings/{drawing.Id}/content?v={drawing.Revision}", drawing.CreatedAt, drawing.UpdatedAt, drawing.StackedAt);
 }
 
 /// <summary>One stroke of a drawing.</summary>
