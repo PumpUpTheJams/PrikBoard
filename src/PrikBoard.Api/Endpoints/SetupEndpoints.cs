@@ -427,7 +427,7 @@ public static partial class SetupEndpoints
             : new("storage", "Data folder", CheckStatus.Ok, files.Root));
 
         checks.Add(keyManagement.Value.XmlRepository is FileSystemXmlRepository keys
-            ? new("keys", "Data Protection keys", CheckStatus.Ok, keys.Directory.FullName)
+            ? new("keys", "Data Protection keys", CheckStatus.Ok, $"{keys.Directory.FullName} (unencrypted; back it up with the data folder)")
             : new("keys", "Data Protection keys", CheckStatus.Warning, "Not stored on disk; lost on restart"));
 
         checks.Add(hasher.Source switch

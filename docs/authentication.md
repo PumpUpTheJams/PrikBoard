@@ -307,7 +307,7 @@ The integration tests:
 
 The compose file in `infra/compose` covers most of this; see [`infra/README.md`](../infra/README.md).
 
-- Keep the data folder (`Storage:Path`, `/data` in the image) on a volume and back it up with the database. It holds the images, the Data Protection keys (`keys/`, or `DataProtection:KeysPath`: sessions, sign-ins in progress and stored provider secrets) and the generated hash key. Run one instance only: live presence and the sign-in provider schemes are kept in memory.
+- Keep the data folder (`Storage:Path`, `/data` in the image) on a volume and back it up with the database. It holds the images, the Data Protection keys (`keys/`, or `DataProtection:KeysPath`: sessions, sign-ins in progress and stored provider secrets) and the generated hash key. The keys are stored unencrypted on purpose, like the hash key next to them: the data folder's permissions protect both, so keep it readable by PrikBoard only, and anyone who has a copy of it can read sessions and provider secrets. To encrypt them anyway, configure Data Protection with a certificate of your own (a code change), and back the certificate up too. Run one instance only: live presence and the sign-in provider schemes are kept in memory.
 - Download the recovery kit and keep it offline. If you lose the hash key, every account is orphaned.
 - Serve over HTTPS. The OAuth correlation cookies need it, and so do most providers' callback URL rules for non-localhost hosts. The API trusts `X-Forwarded-*` headers, so it must sit behind the proxy that sets them, or listen on localhost only, as the compose file does.
 - Register callback URLs for the server's own address (a new GitHub App from the setup does this) and the token issuers.
