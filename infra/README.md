@@ -36,7 +36,7 @@ Everything has a default; these override it, as environment variables on the app
 
 ## Logs
 
-The app logs to the console (`docker compose logs app`) through [Serilog](https://serilog.net), and only what matters: its own messages (the setup key, generated hash key, moved and purged files, sign-in provider problems), warnings and errors from the framework, startup and migrations, and one line per request that fails with a 5xx or takes longer than a second. Database queries and other framework chatter are left out. The levels are in the `Serilog` section of [`appsettings.json`](../src/PrikBoard.Api/appsettings.json); to see the SQL, for example, set `Serilog__MinimumLevel__Override__Microsoft.EntityFrameworkCore.Database.Command=Information`. The Discord bot works the same way.
+The app logs to the console (`docker compose logs app`) through [Serilog](https://serilog.net), and only what matters: its own messages (the setup key, generated hash key, moved and purged files, sign-in provider problems), warnings and errors from the framework, startup and migrations, and one line per request that fails with a 5xx or takes longer than a second. Database queries and other framework chatter are left out. The levels are in the `Serilog` section of [`appsettings.json`](../src/PrikBoard.Api/appsettings.json); to see the SQL, for example, set `Serilog__MinimumLevel__Override__Microsoft.EntityFrameworkCore.Database.Command=Information`. The Discord bot runs inside the app and logs there too; an admin sets it up under Admin → *Instance* ([discord.md](../docs/discord.md)), with nothing to add here.
 
 ## Open decisions
 

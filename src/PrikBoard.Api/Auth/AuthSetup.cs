@@ -56,11 +56,6 @@ public static partial class AuthSetup
     /// </summary>
     public const string LivePolicy = "Live";
 
-    /// <summary>
-    /// The endpoints for the PrikBoard Discord bot: a connected server's <see cref="Domain.AccessTokenKind.Discord"/>
-    /// token, which is read-only, also for the POST and DELETE among them. See docs/discord.md.
-    /// </summary>
-    public const string DiscordPolicy = "Discord";
 
     /// <summary>
     /// The reads visitors of a public board may make (<see cref="BoardAccess.AllowVisitors"/>): anyone without credentials,
@@ -185,7 +180,6 @@ public static partial class AuthSetup
                 context.User.Identity?.IsAuthenticated == true
                     ? ApiScopes.CanRead(context.User)
                     : context.Resource is not HttpContext http || !HasCredentials(http.Request, context.User)))
-            .AddPolicy(DiscordPolicy, policy => policy.RequireAuthenticatedUser().RequireAssertion(context => context.User.IsDiscordToken()))
             // Every endpoint without its own authorization metadata gets the API policy.
             .SetFallbackPolicy(apiPolicy);
 

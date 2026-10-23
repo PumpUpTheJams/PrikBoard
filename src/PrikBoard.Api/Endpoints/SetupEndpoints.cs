@@ -14,6 +14,7 @@ using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
+using PrikBoard.Api.Integrations;
 
 namespace PrikBoard.Api.Endpoints;
 
@@ -129,7 +130,7 @@ public static partial class SetupEndpoints
             .WithName("getSystemChecks")
             .WithSummary("Check how PrikBoard runs")
             .WithDescription("Setup or admins. The database and its migrations, the data folder, the sign-in keys and the hash key, " +
-                             "HTTPS, the sign-in providers and the version, each Ok, Warning or Failed.");
+                             "HTTPS, the sign-in providers, the Discord bot (once set up) and the version, each Ok, Warning or Failed.");
 
         setup.MapGet("/recovery-kit", GetRecoveryKit)
             .RequireAdmin()
@@ -403,7 +404,7 @@ public static partial class SetupEndpoints
 
     private static async Task<Ok<List<SystemCheck>>> GetSystemChecks(
         HttpRequest http, PrikBoardDbContext db, FileStore files, KeyedHasher hasher, SignInProviders providers,
-        IOptions<KeyManagementOptions> keyManagement, CancellationToken ct)
+        IDiscordGateway discord, IOptions<KeyManagementOptions> keyManagement, CancellationToken ct)
     {
         var checks = new List<SystemCheck>();
 
@@ -444,6 +445,17 @@ public static partial class SetupEndpoints
         checks.Add(providers.All.Count > 0
             ? new("providers", "Sign-in providers", CheckStatus.Ok, string.Join(", ", providers.All.Select(p => p.Name)))
             : new("providers", "Sign-in providers", CheckStatus.Failed, "None"));
+
+        // Only once someone set a bot up: it is optional.
+        if (discord.State != DiscordBotState.Off)
+        {
+            checks.Add(discord.State switch
+            {
+                DiscordBotState.Online => new("discord", "Discord bot", CheckStatus.Ok, $"{discord.Application?.BotName ?? "Online"} in {discord.Servers.Count} server(s)"),
+                DiscordBotState.Connecting => new("discord", "Discord bot", CheckStatus.Warning, "Connecting to Discord"),
+                _ => new("discord", "Discord bot", CheckStatus.Failed, discord.Problem ?? "Discord refused the bot"),
+            });
+        }
 
         var commit = AppVersion.Current.IndexOf('+') is >= 0 and var plus ? AppVersion.Current[(plus + 1)..] : null;
         checks.Add(new("version", "Version", CheckStatus.Ok,

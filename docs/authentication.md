@@ -7,7 +7,6 @@ PrikBoard accepts three kinds of callers:
 | People in the browser | Sign in with an identity provider (GitHub by default), then hold an HttpOnly session cookie (`prikboard`, 14 days, sliding) | Cookie |
 | Agents acting for a person | A **personal access token** the person created in PrikBoard, sent as `Authorization: Bearer pb_pat_...` | `pat` (`Auth/AccessTokenHandler.cs`) |
 | The VS Code extension | A personal access token of kind `App`, from [App sign-in](#app-sign-in-vs-code-extension), acting as the person | `pat` |
-| The Discord bot | A personal access token of kind `Discord` per connected server, from [Discord connect](#discord-connect-the-discord-bot), acting as that server's agent, read-only | `pat` |
 | Machines and other OAuth clients | An access token from a trusted issuer, sent as `Authorization: Bearer <token>`. Usually obtained with the **Client Credentials** grant | JWT bearer, one scheme per issuer |
 
 Apart from personal access tokens (including the extension's app tokens), PrikBoard does not issue tokens. An external identity provider (Auth0, Entra ID, Okta, Keycloak and so on) does, and PrikBoard validates them: signature, issuer, audience and expiry.
@@ -182,16 +181,11 @@ The code alone is useless, so one leaked through browser history or picked up by
 
 An App token is still a token: like any other it cannot manage tokens, approve app sign-ins, accept invites, look people up or link sign-ins. The web app refuses to be framed (`X-Frame-Options: DENY`, `frame-ancestors 'none'` on the API's static files and in the Vite dev server), so the Allow button cannot be clickjacked.
 
-### Discord connect (the Discord bot)
+### The Discord bot
 
-The PrikBoard Discord bot (`src/PrikBoard.Discord`, design in [discord.md](discord.md)) previews links pasted in Discord. It has no credential of its own: each Discord server (guild) it is in gets a token when an admin there and a board owner connect it, with the same paste flow as App sign-in (`Endpoints/DiscordEndpoints.cs`):
+The Discord bot that previews pasted links ([discord.md](discord.md)) runs inside the API and calls no endpoint, so it is no caller here. Its token is a Discord bot token that an admin saves under Admin → *Instance*. It is stored encrypted with Data Protection, like sign-in provider secrets, or set as `Discord:BotToken` in the configuration.
 
-1. A Discord admin (*Manage Server*, which Discord puts in the interaction) runs `/prikboard connect`. The bot keeps a PKCE verifier and the channel for that server, in memory for 10 minutes, and privately replies with `{PublicUrl}/#/connect/discord?code_challenge=…`.
-2. A board owner opens it (`components/DiscordConnectPage.tsx`), picks boards they own and for each the channel or the whole server, and approveDiscordConnect (session, `SameOrigin`, Owner on each) stores a hashed code for 5 minutes. The page names no server: anything in the link could be forged.
-3. The admin runs `/prikboard finish code:…` in the same server. The bot sends code, verifier and the server and channel from the interaction to exchangeDiscordConnect (anonymous, 10 a minute per IP). A code started in another server fails the verifier.
-4. The server becomes an `Agent` (issuer `discord`, client id the guild id, named after the server) and a **Viewer** member of the boards the approver still owns, with its channel limits in `DiscordBoardChannels`. It gets a token of kind `Discord` for 365 days, replacing its previous one; its owner is the approver.
-
-`AccessTokenHandler` gives a Discord token the server's agent as principal, scope `boards:read` only, and no owner cap: `BoardCaller` uses the agent's own memberships, so the approver leaving a board doesn't break it, and removing the server from the board's members does. The bot's own endpoints (getDiscordStatus, getLinkPreview, revokeDiscordToken) need `AuthSetup.DiscordPolicy`, which takes nothing but a Discord token, for the POST and DELETE among them too. Discord servers are members but never assignees. The bot keeps the tokens encrypted with Data Protection (`Storage:Path`, keys under `DataProtection:KeysPath`).
+Each connected Discord server is an `Agent` (issuer `discord`, client id the guild id) and a **Viewer** member of its boards. The bot looks links up as that agent. Board owners connect servers in the board's *Integrations*, from a browser session.
 
 ## Machine-to-machine: Client Credentials
 

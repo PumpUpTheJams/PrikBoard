@@ -852,11 +852,8 @@ export interface RemoteDrag extends DragUpdate {
   displayName: string
 }
 
-/**
- * Agent: its own agent with capped access. App: a PrikBoard app (the VS Code extension) signed in as you. Discord: a
- * connected Discord server's read-only agent.
- */
-export type AccessTokenKind = 'Agent' | 'App' | 'Discord'
+/** Agent: its own agent with capped access. App: a PrikBoard app (the VS Code extension) signed in as you. */
+export type AccessTokenKind = 'Agent' | 'App'
 
 /** A personal access token, without the token itself (only shown when created). */
 export interface AccessToken {
@@ -888,24 +885,28 @@ export interface AppSignInCode {
   expiresAt: string
 }
 
-/** A board to connect to a Discord server: previews in the channel where /prikboard connect was run, or in the whole server. */
-export interface DiscordBoardChoice {
-  boardId: string
-  wholeServer: boolean
-}
-
-/** The one-time code to paste into Discord with /prikboard finish (5 minutes, once). */
-export interface DiscordConnectCode {
-  code: string
-  expiresAt: string
-}
-
 export interface DiscordChannel {
   id: string
   name: string
 }
 
-/** A Discord server whose PrikBoard bot previews a board's links. */
+/** Off: no admin set up a Discord bot. Failed: Discord refused it (problem says why). */
+export type DiscordBotState = 'Off' | 'Connecting' | 'Online' | 'Failed'
+
+/** A Discord server the bot is in, with the text channels where it may read and post. */
+export interface DiscordServerChoice {
+  guildId: string
+  name: string
+  channels: DiscordChannel[]
+}
+
+/** Where the instance's Discord bot can preview a board's links. */
+export interface DiscordServers {
+  state: DiscordBotState
+  servers: DiscordServerChoice[]
+}
+
+/** A Discord server where the bot previews a board's links. */
 export interface DiscordConnection {
   guildId: string
   guildName: string
@@ -915,4 +916,40 @@ export interface DiscordConnection {
   channels: DiscordChannel[] | null
   connectedAt: string
   connectedBy: string | null
+}
+
+/** A board a Discord server previews, with where; channels null for the whole server. */
+export interface DiscordBoardConnection {
+  boardId: string
+  shortId: string
+  boardName: string
+  channels: DiscordChannel[] | null
+}
+
+/** A server the Discord bot is in, for admins. */
+export interface DiscordBotServer {
+  guildId: string
+  name: string
+  /** Channels where the bot may read and post. */
+  channelCount: number
+  boards: DiscordBoardConnection[]
+}
+
+/** The instance's Discord bot, for admins; never its token. */
+export interface DiscordBotDetail {
+  state: DiscordBotState
+  problem: string | null
+  /** Where the token comes from: Configuration (Discord:BotToken, read-only here) or Setup; null without one. */
+  source: 'Configuration' | 'Setup' | null
+  botName: string | null
+  applicationId: string | null
+  inviteUrl: string | null
+  /** Whether anyone may add the bot to their server; known once it is online. */
+  isPublic: boolean | null
+  /** The PrikBoard address pasted links are matched against. */
+  publicUrl: string | null
+  /** Whether that comes from Discord:PublicUrl in the server's configuration (read-only here). */
+  publicUrlIsConfigured: boolean
+  updatedAt: string | null
+  servers: DiscordBotServer[]
 }

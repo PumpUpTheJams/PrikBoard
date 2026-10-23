@@ -78,8 +78,6 @@ curl -H "Authorization: Bearer pb_pat_..." http://localhost:5080/api/boards
 
 The VS Code extension gets its own kind of token, `App`, by signing in through PrikBoard (approveAppSignIn, exchangeAppSignIn); it acts as you rather than as an agent. See *App sign-in* in [authentication.md](authentication.md).
 
-A Discord server connected for link previews has a token of kind `Discord`: read-only, acting as the server's own agent, which is a Viewer member of the connected boards. It counts toward the tokens of the owner who connected it and shows in their list. See [discord.md](discord.md).
-
 Tokens are managed with listAccessTokens, createAccessToken and revokeAccessToken, from a browser session only: a token can never create another token. Each token is limited to 600 requests a minute (`RateLimits:AccessTokenRequestsPerMinute`). One address may present at most 30 unknown tokens a minute (`RateLimits:UnknownAccessTokensPerMinute`); after that it gets 429 with `Retry-After` for every token not looked up before.
 
 ## MCP
@@ -266,12 +264,9 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | revokeBoardInvite | `DELETE /api/boards/{boardId}/invites/{inviteId}` | Revoke an invite link (Owner) |
 | previewInvite | `POST /api/invites/preview` | Board name and role behind an invite token (sessions only) |
 | acceptInvite | `POST /api/invites/accept` | Spend an invite token and join the board (sessions only) |
-| approveDiscordConnect | `POST /api/me/discord-connects` | Connect a Discord server to boards you own: `codeChallenge` (PKCE S256, from the bot's link) and `boards` (`boardId`, `wholeServer`). Returns a one-time `code` (5 minutes) for `/prikboard finish`. Sessions from PrikBoard's own pages only; Owner on every board; at most 5 waiting |
-| exchangeDiscordConnect | `POST /api/discord/connect/token` | The Discord bot trades `code` and `codeVerifier`, with `guildId`, `guildName`, `channelId` and `channelName` from Discord's interaction, for the server's read-only token of kind `Discord` (365 days, replacing its old one). The server becomes a Viewer on the boards. Anonymous, rate-limited; each code works once |
-| getDiscordStatus | `GET /api/discord/status` | The connected server's boards and channel limits, and when its token ends (Discord tokens only) |
-| getLinkPreview | `POST /api/link-previews` | What a pasted `url` points to, for the bot: a `Card`, `Board` or open `Invite` (never spent). Anything else, including a `channelId` the board isn't previewed in, is the same `404` (Discord tokens only, rate-limited per server) |
-| revokeDiscordToken | `DELETE /api/discord/token` | The bot revokes its own server token, for `/prikboard disconnect` (Discord tokens only) |
 | listDiscordConnections | `GET /api/boards/{boardId}/discord` | Discord servers that preview the board's links, with their channels or `null` for the whole server (Owner) |
+| listDiscordServers | `GET /api/boards/{boardId}/discord/servers` | The bot's `state` (`Off` until an admin sets it up) and the servers it is in, with the channels it may read and post in (Owner) |
+| connectDiscordChannel | `POST /api/boards/{boardId}/discord` | Preview the board in a server's `channelId`, adding to its channels, or in the whole server without one; returns the board's connections. The server becomes a Viewer. 409 past 50 channels (Owner, sessions only) |
 | removeDiscordConnection | `DELETE /api/boards/{boardId}/discord/{guildId}` | Take a Discord server off the board (Owner) |
 | removeDiscordChannel | `DELETE /api/boards/{boardId}/discord/{guildId}/channels/{channelId}` | Stop previewing the board in one channel; the last one disconnects the server (Owner) |
 | adminListBoards | `GET /api/admin/boards` | Every board with its members and their roles, newest first (admins, sessions only) |
@@ -281,6 +276,10 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | adminRemoveBoardMember | `DELETE /api/admin/boards/{boardId}/members/{principalId}` | Take anyone off any board; the last owner stays (admins, sessions only) |
 | adminUpdateUser | `PATCH /api/admin/users/{userId}` | Make a user an admin or take it away; one admin always stays (admins, sessions only) |
 | adminDeleteUser | `DELETE /api/admin/users/{userId}` | Delete a user who owns no board alone; not yourself (admins, sessions only) |
+| getDiscordBot | `GET /api/admin/discord` | The Discord bot's state, name, invite link, public address and servers with their boards; never the token (admins, sessions only) |
+| setDiscordBot | `PUT /api/admin/discord` | Save the bot's `botToken` (checked with Discord: valid, with the Message Content intent; stored encrypted) and `publicUrl` (defaults to the request's address); the bot reconnects at once. 400 for values set in configuration (admins, sessions only) |
+| deleteDiscordBot | `DELETE /api/admin/discord` | Forget the saved token and address and log the bot out; boards stay connected (admins, sessions only) |
+| leaveDiscordServer | `DELETE /api/admin/discord/servers/{guildId}` | The bot leaves the server and its boards are disconnected (admins, sessions only) |
 | getSetupStatus | `GET /api/setup` | Whether nobody has an account yet (`needed`), recovery mode, and whether this browser entered the setup key (public) |
 | unlockSetup | `POST /api/setup/unlock` | The setup key from the server's log: sets the setup cookie for an hour. 403 for a wrong key, 409 once set up (public, 10 a minute) |
 | listSignInProviders | `GET /api/setup/providers` | Every sign-in provider with its settings and number of sign-ins, the default first; secrets never come back (setup or admins) |

@@ -13,6 +13,7 @@ using PrikBoard.Api.Auth;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
 using PrikBoard.Api.Endpoints;
+using PrikBoard.Api.Integrations;
 using PrikBoard.Api.Live;
 using PrikBoard.Api.Mcp;
 using ModelContextProtocol.Protocol;
@@ -62,6 +63,16 @@ builder.Services.AddHttpClient<GitHubApps>(http =>
     http.DefaultRequestHeaders.UserAgent.ParseAdd($"PrikBoard/{AppVersion.Number}");
 });
 builder.Services.AddHttpClient(SetupEndpoints.DiscoveryClient, http => http.Timeout = TimeSpan.FromSeconds(10));
+// The Discord bot runs in here, with the token an admin saves (Integrations/DiscordBot.cs); its check of a new token.
+builder.Services.AddHttpClient<DiscordApplications>(http =>
+{
+    http.Timeout = TimeSpan.FromSeconds(10);
+    http.DefaultRequestHeaders.UserAgent.ParseAdd($"DiscordBot (https://github.com/PumpUpTheJams/PrikBoard, {AppVersion.Number})");
+});
+builder.Services.AddSingleton<DiscordGateway>();
+builder.Services.AddSingleton<IDiscordGateway>(services => services.GetRequiredService<DiscordGateway>());
+builder.Services.AddHostedService(services => services.GetRequiredService<DiscordGateway>());
+builder.Services.AddSingleton<DiscordBot>();
 
 // MCP (Streamable HTTP, stateless): curated tools over the same handlers as the REST API; see Mcp/BoardTools.cs.
 builder.Services.AddHttpContextAccessor();
@@ -95,7 +106,7 @@ builder.Services.AddMcpServer(options =>
     .WithRequestFilters(filters => filters.AddCallToolFilter(McpCall.RulesReminder));
 
 // Per-caller limits (by user, else by IP address) on endpoints that take guessable input (email lookup, invite tokens,
-// app sign-in and Discord connect codes, the setup key).
+// app sign-in codes, the setup key).
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -110,16 +121,7 @@ builder.Services.AddRateLimiter(options =>
     Policy(MemberEndpoints.LookupLimit, "LookupsPerMinute", 10);
     Policy(InviteEndpoints.InviteLimit, "InvitesPerMinute", 20);
     Policy(AppSignInEndpoints.ExchangeLimit, "AppSignInsPerMinute", 10);
-    Policy(DiscordEndpoints.ExchangeLimit, "DiscordConnectsPerMinute", 10);
     Policy(SetupEndpoints.UnlockLimit, "SetupUnlocksPerMinute", 10);
-    // Per connected Discord server (its agent), not per bot: one busy server can't use up the others' previews.
-    options.AddPolicy(DiscordEndpoints.PreviewLimit, context => RateLimitPartition.GetFixedWindowLimiter(
-        context.User.FindFirstValue(UserPrincipal.PrincipalClaim) ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
-        _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = builder.Configuration.GetValue("RateLimits:LinkPreviewsPerMinute", 60),
-            Window = TimeSpan.FromMinutes(1),
-        }));
 
     // Every request with a PrikBoard access token counts against its principal (the token's agent, or its owner for app
     // tokens), so a leaked token in a loop cannot hammer the API.
@@ -179,6 +181,8 @@ await using (var scope = app.Services.CreateAsyncScope())
         app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(StartupMigration)), CancellationToken.None);
     // The sign-in providers' schemes, from configuration and from the setup.
     await app.Services.GetRequiredService<SignInProviders>().LoadAsync(db, CancellationToken.None);
+    // The Discord bot, when configured or set up; it connects in the background.
+    await app.Services.GetRequiredService<DiscordBot>().LoadAsync(db, CancellationToken.None);
     // Without users (or in recovery mode) the setup key goes to the log.
     await app.Services.GetRequiredService<SetupKey>().OpenIfNeededAsync(db,
         app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(SetupKey)), CancellationToken.None);
@@ -253,6 +257,7 @@ api.MapInviteEndpoints();
 api.MapAccessTokenEndpoints();
 api.MapAppSignInEndpoints();
 api.MapDiscordEndpoints();
+api.MapDiscordBotEndpoints();
 api.MapAdminEndpoints();
 api.MapSetupEndpoints();
 // MCP at /mcp, outside /api where MCP clients expect it; each tool checks board access itself.

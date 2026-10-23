@@ -13,7 +13,7 @@ namespace PrikBoard.Api.Auth;
 /// <summary>
 /// Authenticates <c>Authorization: Bearer pb_pat_...</c>. The principal carries the same claims as an issuer token (so
 /// scopes and <c>PrincipalId()</c> work unchanged). An agent token adds the owner, maximum role and boards that
-/// <see cref="BoardCaller"/> applies; an app token is the owner themselves; a Discord token is its server's agent, read-only.
+/// <see cref="BoardCaller"/> applies; an app token is the owner themselves.
 /// Tokens found are cached for a minute; revoking evicts at once on this instance. Unknown tokens are not cached (anyone can
 /// make up well-formed ones): <see cref="AccessTokenLookups"/> limits how many one address may try instead.
 /// </summary>
@@ -76,14 +76,6 @@ public sealed class AccessTokenHandler(
             // The owner themselves, like a token from an issuer's UserClients: no cap, so BoardCaller uses their own roles.
             claims.Add(new Claim(UserPrincipal.PrincipalClaim, found.OwnerId.ToString()));
             claims.Add(new Claim("scope", $"{ApiScopes.Read} {ApiScopes.Write}"));
-        }
-        else if (found.Kind == AccessTokenKind.Discord)
-        {
-            // A Discord server's agent: read-only, with its own memberships (no owner cap), so the owner who connected it
-            // leaving a board doesn't break it; removing the server's membership does.
-            claims.Add(new Claim(UserPrincipal.PrincipalClaim, found.AgentId!.Value.ToString()));
-            claims.Add(new Claim("scope", ApiScopes.Read));
-            claims.Add(new Claim(AccessTokens.KindClaim, nameof(AccessTokenKind.Discord)));
         }
         else
         {

@@ -18,9 +18,7 @@ import { ConfirmDialog } from './components/ConfirmDialog'
 import { NoticeDialog } from './components/NoticeDialog'
 import { ConnectPage } from './components/ConnectPage'
 import { connectFromHash } from './components/connect'
-import { DiscordConnectPage } from './components/DiscordConnectPage'
-import { DiscordDialog } from './components/DiscordDialog'
-import { discordConnectFromHash } from './components/discord'
+import { IntegrationsDialog } from './components/IntegrationsDialog'
 import { InvitePage } from './components/InvitePage'
 import { NoAccess } from './components/NoAccess'
 import { Presence } from './components/Presence'
@@ -58,7 +56,6 @@ export default function App() {
   const [user, setUser] = useState<Caller | null | undefined>(undefined)
   const [invite, setInvite] = useState(inviteFromHash)
   const [connect, setConnect] = useState(connectFromHash)
-  const [discordConnect, setDiscordConnect] = useState(discordConnectFromHash)
   // Signed out, a board link may be to a public board: shown to visitors unless it isn't public or they sign in.
   const [boardRef, setBoardRef] = useState(boardRefFromHash)
   const [notVisible, setNotVisible] = useState<string | null>(null)
@@ -77,7 +74,6 @@ export default function App() {
     const onHashChange = () => {
       setInvite(inviteFromHash())
       setConnect(connectFromHash())
-      setDiscordConnect(discordConnectFromHash())
       setBoardRef(boardRefFromHash())
       setSetupHash(setupFromHash())
     }
@@ -139,16 +135,6 @@ export default function App() {
       />
     )
   }
-  if (discordConnect) {
-    return (
-      <DiscordConnectPage
-        request={discordConnect}
-        onDone={() => {
-          window.location.hash = ''
-        }}
-      />
-    )
-  }
   if (invite) {
     return (
       <InvitePage
@@ -196,7 +182,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   }, [])
   const [boardToDelete, setBoardToDelete] = useState<BoardSummary | null>(null)
   const [boardToLeave, setBoardToLeave] = useState<BoardSummary | null>(null)
-  const [dialog, setDialog] = useState<'share' | 'account' | 'rules' | 'discord' | null>(null)
+  const [dialog, setDialog] = useState<'share' | 'account' | 'rules' | 'integrations' | null>(null)
   /** Phones get the mobile layout (lists, a screen at a time); touch devices can switch in the settings menu. */
   const layout = useLayoutMode()
   const mobile = layout.mode === 'mobile' && !adminView
@@ -385,8 +371,8 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
           />
         </Suspense>
       )}
-      {dialog === 'discord' && activeBoard && isOwner && (
-        <DiscordDialog key={activeBoard.id} board={activeBoard} onClose={() => setDialog(null)} />
+      {dialog === 'integrations' && activeBoard && isOwner && (
+        <IntegrationsDialog key={activeBoard.id} board={activeBoard} isAdmin={user.isAdmin} onClose={() => setDialog(null)} />
       )}
       {dialog === 'account' && <AccountDialog user={user} boards={boards ?? []} onChange={onUserChange} onClose={() => setDialog(null)} />}
 

@@ -5,9 +5,9 @@ import type {
   AdminUser,
   AppSignInCode,
   CreatedAccessToken,
-  DiscordBoardChoice,
-  DiscordConnectCode,
+  DiscordBotDetail,
   DiscordConnection,
+  DiscordServers,
   AuthProvider,
   BoardClip,
   CopyItemsRequest,
@@ -194,9 +194,11 @@ export const api = {
   exchangeAppSignIn: (code: string, codeVerifier: string) =>
     request<CreatedAccessToken>('POST', '/auth/app-sign-ins/token', { code, codeVerifier }),
 
-  approveDiscordConnect: (codeChallenge: string, boards: DiscordBoardChoice[]) =>
-    request<DiscordConnectCode>('POST', '/me/discord-connects', { codeChallenge, boards }),
   listDiscordConnections: (boardId: string) => request<DiscordConnection[]>('GET', `/boards/${boardId}/discord`),
+  listDiscordServers: (boardId: string) => request<DiscordServers>('GET', `/boards/${boardId}/discord/servers`),
+  /** Previews the board in a channel of the server, or in all of it when channelId is null; returns the board's connections. */
+  connectDiscordChannel: (boardId: string, guildId: string, channelId: string | null) =>
+    request<DiscordConnection[]>('POST', `/boards/${boardId}/discord`, { guildId, channelId }),
   removeDiscordConnection: (boardId: string, guildId: string) => request<void>('DELETE', `/boards/${boardId}/discord/${guildId}`),
   removeDiscordChannel: (boardId: string, guildId: string, channelId: string) =>
     request<void>('DELETE', `/boards/${boardId}/discord/${guildId}/channels/${channelId}`),
@@ -363,6 +365,11 @@ export const api = {
     request<void>('DELETE', `/admin/boards/${boardId}/members/${principalId}`),
   adminUpdateUser: (userId: string, changes: { isAdmin?: boolean }) => request<void>('PATCH', `/admin/users/${userId}`, changes),
   adminDeleteUser: (userId: string) => request<void>('DELETE', `/admin/users/${userId}`),
+  getDiscordBot: () => request<DiscordBotDetail>('GET', '/admin/discord'),
+  /** Fields left out stay as they are; the bot (re)connects at once. */
+  setDiscordBot: (settings: { botToken?: string; publicUrl?: string }) => request<DiscordBotDetail>('PUT', '/admin/discord', settings),
+  deleteDiscordBot: () => request<void>('DELETE', '/admin/discord'),
+  leaveDiscordServer: (guildId: string) => request<void>('DELETE', `/admin/discord/servers/${guildId}`),
 
   getSetupStatus: () => request<SetupStatus>('GET', '/setup'),
   unlockSetup: (key: string) => request<void>('POST', '/setup/unlock', { key }),
