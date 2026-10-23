@@ -38,4 +38,11 @@ public class Card
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     /// <summary>When it was deleted; it can be restored until <see cref="Data.Tombstones.Retention"/> has passed. Hidden by the query filter while set.</summary>
     public DateTimeOffset? DeletedAt { get; set; }
+
+    /// <summary>
+    /// Whether there is nothing on the card worth keeping: no title, tags, assignees or text in its components. Its
+    /// images and drawings are rows of their own, so a caller checks those too (deleteCard deletes such a card for good).
+    /// </summary>
+    public bool IsBlank() =>
+        string.IsNullOrWhiteSpace(Title) && Tags.Count == 0 && AssigneeIds.Count == 0 && Components.All(c => c.IsBlank());
 }

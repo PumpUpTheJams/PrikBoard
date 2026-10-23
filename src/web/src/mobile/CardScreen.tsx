@@ -100,7 +100,7 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
   }
 
   async function remove() {
-    if (await run(...ops.deleteCard(card))) back(up)
+    if (await run(...ops.deleteCard(card, board))) back(up)
   }
 
   async function moveTo(bucketId: string) {

@@ -88,7 +88,9 @@ public static class CardEndpoints
             .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
             .WithName("deleteCard")
             .WithSummary("Delete a card")
-            .WithDescription($"Deletes the card with its images and drawings. restoreCard brings them back within {Tombstones.RetentionText}.");
+            .WithDescription($"Deletes the card with its images and drawings. restoreCard brings them back within {Tombstones.RetentionText}. " +
+                             "A card with nothing on it (no title, tags, assignees, component text, images or drawings) is deleted " +
+                             "for good instead, without going to the trash.");
 
         cards.MapPost("/cards/{cardId:guid}/restore", RestoreCard)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
@@ -389,9 +391,20 @@ public static class CardEndpoints
     {
         var now = DateTimeOffset.UtcNow;
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var boardId = await db.Cards.Where(n => n.Id == cardId).Select(n => (Guid?)n.BoardId).FirstOrDefaultAsync(ct);
-        if (await Tombstones.DeleteCardsAsync(db, [cardId], now, ct) == 0 || boardId is null) return TypedResults.NotFound();
-        CardHistory.Record(db, principal, cardId, boardId.Value, new(CardChangeKind.Deleted));
+        var card = await db.Cards.AsNoTracking().FirstOrDefaultAsync(n => n.Id == cardId, ct);
+        if (card is null) return TypedResults.NotFound();
+        // Nothing on it to bring back (a new card left as it was): gone for good, history and all, not into the trash.
+        // Images and drawings deleted from it earlier still count: they could be restored onto it.
+        if (card.IsBlank()
+            && !await db.Images.WithDeleted().AnyAsync(i => i.CardId == cardId, ct)
+            && !await db.Drawings.WithDeleted().AnyAsync(d => d.CardId == cardId, ct))
+        {
+            await db.Cards.Where(n => n.Id == cardId).ExecuteDeleteAsync(ct);
+            await transaction.CommitAsync(ct);
+            return TypedResults.NoContent();
+        }
+        if (await Tombstones.DeleteCardsAsync(db, [cardId], now, ct) == 0) return TypedResults.NotFound();
+        CardHistory.Record(db, principal, cardId, card.BoardId, new(CardChangeKind.Deleted));
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         return TypedResults.NoContent();

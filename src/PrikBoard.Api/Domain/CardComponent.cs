@@ -42,6 +42,9 @@ public class CardComponent
     /// <summary>The links of a Links component.</summary>
     public List<LinkEntry> Links { get; set; } = [];
 
+    /// <summary>Whether it holds no text at all: no title, text, items or links.</summary>
+    public bool IsBlank() => SearchText().All(string.IsNullOrWhiteSpace);
+
     /// <summary>Every piece of text in the component, for search.</summary>
     public IEnumerable<string> SearchText()
     {

@@ -499,13 +499,16 @@ public sealed partial class BoardTools
 
     [McpServerTool(Name = "delete_card", Title = "Delete a card", Destructive = true, OpenWorld = false)]
     [Description("Deletes a card with its images and drawings; restore_card brings them back within " + Tombstones.RetentionText + ". " +
+                 "A card with nothing on it (no title, tags, assignees, content, images or drawings) is deleted for good instead. " +
                  "Prefer moving finished work to \"Done\". Needs the Editor role.")]
     public static async Task<string> DeleteCard(IHttpContextAccessor accessor, [Description(CardHelp)] string card, CancellationToken ct)
     {
         var (http, db, boardId, cardId) = await CardCallAsync(accessor, card, BoardRole.Editor, ct);
         McpCall.Succeeded(await CardEndpoints.DeleteCard(cardId, http.User, db, ct));
         await McpCall.AnnounceAsync(http, boardId);
-        return $"Deleted. restore_card brings it back within {Tombstones.RetentionText}.";
+        return await db.Cards.WithDeleted().AnyAsync(n => n.Id == cardId, ct)
+            ? $"Deleted. restore_card brings it back within {Tombstones.RetentionText}."
+            : "Deleted for good: there was nothing on it.";
     }
 
     [McpServerTool(Name = "restore_card", Title = "Restore a deleted card", OpenWorld = false)]

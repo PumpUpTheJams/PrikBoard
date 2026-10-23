@@ -57,6 +57,40 @@ public class RestoreApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     }
 
     [Fact]
+    public async Task A_card_with_nothing_on_it_is_deleted_for_good_and_others_go_to_the_trash()
+    {
+        var board = await _client.CreateBoardAsync("Blank cards");
+        var blank = await _client.CreateCardAsync(board.Id, title: "  ");
+        // A component without text doesn't count, as in the web app.
+        var emptyComponent = await CreateCard(board.Id, new { title = "", components = new[] { new { kind = "Checklist" } } });
+        var titled = await _client.CreateCardAsync(board.Id, title: "Keep me");
+        var tagged = await CreateCard(board.Id, new { title = "", tags = new[] { "later" } });
+        var withImage = await _client.CreateCardAsync(board.Id, title: "");
+        var image = await Upload(board.Id, $"?cardId={withImage.Id}");
+        // An image removed from it on its own could still come back onto it.
+        var imageGone = await _client.CreateCardAsync(board.Id, title: "");
+        var removed = await Upload(board.Id, $"?cardId={imageGone.Id}");
+        (await _client.DeleteAsync($"/api/images/{removed.Id}")).EnsureSuccessStatusCode();
+
+        foreach (var card in new[] { blank, emptyComponent, titled, tagged, withImage, imageGone })
+        {
+            Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/cards/{card.Id}")).StatusCode);
+        }
+
+        var trash = (await _client.GetFromJsonAsync<TrashContents>($"/api/boards/{board.Id}/trash"))!;
+        Assert.Equal(
+            new[] { titled.Id, tagged.Id, withImage.Id, imageGone.Id }.Order(),
+            trash.Cards.Select(n => n.Id).Order());
+        Assert.Equal(image.Id, Assert.Single(trash.Images).Id);
+        foreach (var card in new[] { blank, emptyComponent })
+        {
+            Assert.Equal(HttpStatusCode.NotFound, (await _client.PostAsync($"/api/cards/{card.Id}/restore", null)).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"/api/cards/{card.Id}/history")).StatusCode);
+        }
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsync($"/api/cards/{titled.Id}/restore", null)).StatusCode);
+    }
+
+    [Fact]
     public async Task A_restored_card_joins_the_bucket_at_its_place_now()
     {
         var board = await _client.CreateBoardAsync("Restore into a bucket");
