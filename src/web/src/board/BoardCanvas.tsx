@@ -19,7 +19,7 @@ import { DrawingToolbar, DrawingView, PenRing, StrokeSvg } from './DrawingView'
 import { dropTargetsFor, NO_DROPS, released, useDropProbe, type DropTargets } from './dropTargets'
 import { ExpandedCard, type ExpandedCardHandle } from './ExpandedCard'
 import { isDrag } from './gesture'
-import { MIN_BUCKET_HEIGHT, MIN_BUCKET_WIDTH, backToFront, bucketUnder, bucketUnderCard, collapsedRect, snapPoint, spanRect } from './layout'
+import { MIN_BUCKET_HEIGHT, MIN_BUCKET_WIDTH, backToFront, bucketUnder, bucketUnderCard, collapsedRect, isLooseDrawing, layersBackToFront, snapPoint, spanRect } from './layout'
 import { activeDrags, draggingOf, gridFor, isLifted, itemKindOf, liveGeometry, sentDrag } from './liveGeometry'
 import { ops, recordingRun, settling } from './ops'
 import { resizeCursor } from './resizeCursor'
@@ -177,26 +177,35 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   })
   const { expanded, setExpanded, expand, close: closeExpanded } = address
 
-  /** Buckets as they stack, the same for everyone (`stackedAt`): drawn in this order, the last one on top. */
+  /** Buckets as they stack, the same for everyone (`stackedAt`): the last one on top. */
   const stacked = backToFront(board.buckets)
   /**
-   * A bucket just opened, pressed or moved here, shown in front at once (for viewers, who can't change the stack, only
-   * here). `over`: the bucket on top when it was picked; once that changes, the server's order decides again.
+   * A bucket or loose drawing just opened, pressed or moved here, shown in front at once (for viewers, who can't change
+   * the stack, only here). `over`: what was on top when it was picked; once that changes, the server's order decides again.
    */
   const [picked, setPicked] = useState<{ id: string; over: string | undefined } | null>(null)
-  const top = stacked.at(-1)?.id
+  const serverLayers = layersBackToFront(board.buckets, board.drawings)
+  const top = serverLayers.at(-1)?.id
+  const pick = picked?.over === top ? picked?.id : undefined
+  /** Buckets and loose drawings as they are drawn, back to front: as they stack, with the one picked here on top. */
+  const layers = pick ? [...serverLayers.filter((l) => l.id !== pick), ...serverLayers.filter((l) => l.id === pick)] : serverLayers
   /**
    * The bucket drawn above the others with what is in it, so a bucket over others isn't a tangle of cards: the topmost
    * open one, or one picked here. While selected cards are dragged into a bucket, that one, so you see it grow.
    */
-  const wanted = arrangeDrop?.bucket.id ?? (picked?.over === top ? picked?.id : undefined)
+  const wanted = arrangeDrop?.bucket.id ?? pick
   const front = board.buckets.find((b) => b.id === wanted && !b.collapsed)?.id ?? stacked.findLast((b) => !b.collapsed)?.id ?? null
-  /** Brings a bucket to the front: here at once, and for everyone unless `server` says the server does that itself. */
+  /**
+   * Brings a bucket or loose drawing to the front: here at once, and for everyone unless `server` says the server does
+   * that itself.
+   */
   function toFront(id: string, server = true) {
     // A press and the click after it both call this; ask the server only once.
     const asked = picked?.id === id && picked.over === top
     setPicked({ id, over: top })
-    if (server && !readOnly && top !== id && !asked) void run(() => api.bringBucketToFront(id))
+    if (!server || readOnly || top === id || asked) return
+    const drawing = board.drawings.some((d) => d.id === id)
+    void run(() => (drawing ? api.bringDrawingToFront(id) : api.bringBucketToFront(id)))
   }
   /** Whether an item is drawn in front, with its bucket. */
   const inFront = (item: { bucketId: string | null }) => front !== null && item.bucketId === front
@@ -348,6 +357,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     // preventDefault keeps focus where it is, so let a title being edited go (it saves on blur).
     if (titleEdit && document.activeElement instanceof HTMLElement) document.activeElement.blur()
     if (kind === 'card') search.lookAt(id)
+    // Buckets and loose drawings come to the front when pressed, for viewers here only.
+    const pressed = itemKindOf[kind]
+    if (pressed === 'bucket' || (pressed === 'drawing' && board.drawings.some((d) => d.id === id && isLooseDrawing(d)))) toFront(id)
     if (readOnly) {
       // Cards can still be selected (and opened with Enter); nothing moves and no panels open.
       if (kind === 'card') {
@@ -361,8 +373,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     if (kind === 'drawing' && document.activeElement instanceof HTMLElement) document.activeElement.blur()
     const onTitle = e.target instanceof Element && e.target.closest('.card-title') !== null
     titlePress.current = kind === 'card' && onTitle ? id : null
-    const item: Selection = { kind: itemKindOf[kind], id }
-    if (item.kind === 'bucket') toFront(id)
+    const item: Selection = { kind: pressed, id }
     const resize = kind === 'resize' || kind === 'image-resize'
     if (!resize && adds(e)) {
       titlePress.current = null
@@ -521,6 +532,27 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     item.cardId !== null || (!!item.bucketId && collapsedIds.has(item.bucketId)) || binned.includes(item.id)
   const images = board.images.filter((i) => !hidden(i)).map((image) => ({ image, rect: imageRect(image) }))
   const drawings = board.drawings.filter((d) => !hidden(d)).map((drawing) => ({ drawing, rect: drawingRect(drawing) }))
+  const bucketsById = new Map(buckets.map((b) => [b.bucket.id, b]))
+  const drawingsById = new Map(drawings.map((d) => [d.drawing.id, d]))
+  /**
+   * Where the front bucket is in the stack: loose drawings below it are drawn among the buckets, those above it over it
+   * and what is in it (all of them when no bucket is open).
+   */
+  const frontLayer = layers.findIndex((l) => l.id === front)
+  const looseAbove = layers.slice(frontLayer + 1).flatMap((l) => (l.kind === 'drawing' ? (drawingsById.get(l.id) ?? []) : []))
+  const drawingView = ({ drawing, rect }: (typeof drawings)[number], front: boolean) => (
+    <DrawingView
+      key={drawing.id}
+      drawing={drawing}
+      rect={rect}
+      selected={isSelected('drawing', drawing.id)}
+      lifted={lifting(drawing.id)}
+      front={front}
+      onPointerDown={(e) => onItemPointerDown(e as PointerEvent<HTMLElement>, 'drawing', drawing.id)}
+      zoom={zoom}
+      onReshape={readOnly || selection?.id !== drawing.id ? undefined : (reshape) => settle(...ops.reshapeDrawing(drawing, reshape))}
+    />
+  )
   /** How each tag shows: its saved color, or one being saved or previewed. */
   const tagColors = tagColorsOf(board.tags, edits.tagSaving, tagPreview)
   /** How many images are attached to each card. */
@@ -681,8 +713,15 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               setDrops(released)
             }}
           >
-            {buckets.map(({ bucket, rect }) =>
-              bucket.collapsed ? (
+            {layers.map((layer, i) => {
+              if (layer.kind === 'drawing') {
+                const below = i < frontLayer ? drawingsById.get(layer.id) : undefined
+                return below && drawingView(below, false)
+              }
+              const shown = bucketsById.get(layer.id)
+              if (!shown) return null
+              const { bucket, rect } = shown
+              return bucket.collapsed ? (
                 <CollapsedBucketView
                   key={bucket.id}
                   bucket={bucket}
@@ -717,8 +756,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                   onToggle={() => edits.toggleCollapsed(bucket)}
                   onResize={(e, handle) => onItemPointerDown(e, 'resize', bucket.id, { handle })}
                 />
-              ),
-            )}
+              )
+            })}
 
             {draft && (
               <div
@@ -777,23 +816,15 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               />
             ))}
 
-            {drawings.map(({ drawing, rect }) => (
-              <DrawingView
-                key={drawing.id}
-                drawing={drawing}
-                rect={rect}
-                selected={isSelected('drawing', drawing.id)}
-                lifted={lifting(drawing.id)}
-                front={inFront(drawing)}
-                onPointerDown={(e) => onItemPointerDown(e as PointerEvent<HTMLElement>, 'drawing', drawing.id)}
-                zoom={zoom}
-                onReshape={readOnly || selection?.id !== drawing.id ? undefined : (reshape) => settle(...ops.reshapeDrawing(drawing, reshape))}
-              />
-            ))}
+            {drawings.filter(({ drawing }) => !isLooseDrawing(drawing)).map((shown) => drawingView(shown, inFront(shown.drawing)))}
+            {looseAbove.map((shown) => drawingView(shown, true))}
 
-            {pen.strokes.map((s, i) => (
-              <StrokeSvg key={i} points={s.points} color={inkHex[s.color]} strokeWidth={s.width} at={{ x: 0, y: 0 }} />
-            ))}
+            {/* Above everything while it is drawn; once saved, the drawing takes its place in the stack. */}
+            <div className="pen-strokes">
+              {pen.strokes.map((s, i) => (
+                <StrokeSvg key={i} points={s.points} color={inkHex[s.color]} strokeWidth={s.width} at={{ x: 0, y: 0 }} />
+              ))}
+            </div>
 
             {tool === 'pen' && !readOnly && <PenRing ringRef={penRing} width={strokeWidth} zoom={zoom} />}
 

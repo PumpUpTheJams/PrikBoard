@@ -215,6 +215,9 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Property<int>("Revision")
                         .HasColumnType("integer");
 
+                    b.Property<DateTimeOffset>("StackedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 

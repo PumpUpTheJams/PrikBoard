@@ -54,7 +54,7 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         Assert.Equal("Release 2.0.prikboard.json", exported.Content.Headers.ContentDisposition?.FileNameStar);
         var file = await exported.Content.ReadAsStringAsync();
         Assert.Contains("\"format\":\"prikboard-board\"", file);
-        Assert.Contains("\"version\":7", file);
+        Assert.Contains("\"version\":8", file);
         Assert.DoesNotContain("\"color\":\"Blue\"", file);
         Assert.DoesNotContain("export-owner@example.com", file);
 
@@ -205,7 +205,7 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         var file = JsonNode.Parse(await (await client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync())!;
 
         Assert.Equal(BoardExport.CurrentVersion, file["version"]!.GetValue<int>());
-        Assert.Equal(7, BoardExport.CurrentVersion);
+        Assert.Equal(8, BoardExport.CurrentVersion);
         Assert.False(string.IsNullOrEmpty(file["appVersion"]!.GetValue<string>()));
         Assert.DoesNotContain("+", file["appVersion"]!.GetValue<string>());
 

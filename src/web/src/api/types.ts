@@ -179,6 +179,11 @@ export interface DrawingDetail {
   contentUrl: string
   createdAt: string
   updatedAt: string
+  /**
+   * Loose (no bucket, no card): its place in the stack it shares with the buckets, the same for everyone (ISO time, the
+   * later the higher). Drawing, moving or reshaping it puts it on top.
+   */
+  stackedAt: string
 }
 
 /** One stroke of a drawing: its base width and its points, measured from the drawing's x/y. */

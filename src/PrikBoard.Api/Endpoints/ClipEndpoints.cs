@@ -162,7 +162,7 @@ public static class ClipEndpoints
             // Oldest edit first: pasted, they get rising timestamps, so the most recently edited card stays on top.
             [.. cards.OrderBy(n => n.UpdatedAt).ThenBy(n => n.Id).Select(n => ClipCard(n, CopiedBucket(n.BucketId)))],
             clippedImages,
-            [.. drawings.Select(d => ClipDrawing(d, CopiedBucket(d.BucketId)))],
+            [.. drawings.Select(d => ClipDrawing(d, CopiedBucket(d.BucketId), buckets))],
             tagColors,
             AppVersion.Number,
             [.. Layout.BackToFront(buckets).Select(ClipBucket)],
@@ -179,9 +179,13 @@ public static class ClipEndpoints
         image.CardId, image.File!.FileName, image.Caption, image.X, image.Y, image.Width, await files.ReadAllBytesAsync(image.File, ct),
         bucketId, image.Id);
 
-    /// <summary>A drawing as a clip holds it; <paramref name="bucketId"/> is its copied bucket, if any.</summary>
-    private static ClippedDrawing ClipDrawing(BoardDrawing drawing, Guid? bucketId) =>
-        new(drawing.CardId, drawing.X, drawing.Y, BoardTransferEndpoints.ExportedStrokes(drawing), BucketId: bucketId, Id: drawing.Id);
+    /// <summary>
+    /// A drawing as a clip holds it; <paramref name="bucketId"/> is its copied bucket, if any. A loose one says where it
+    /// stacks among the copied <paramref name="buckets"/>.
+    /// </summary>
+    private static ClippedDrawing ClipDrawing(BoardDrawing drawing, Guid? bucketId, IEnumerable<Bucket> buckets) =>
+        new(drawing.CardId, drawing.X, drawing.Y, BoardTransferEndpoints.ExportedStrokes(drawing), BucketId: bucketId, Id: drawing.Id,
+            BucketsBelow: drawing.CardId is null && drawing.BucketId is null ? Layout.BucketsBelow(drawing, buckets) : null);
 
     private static ClippedBucket ClipBucket(Bucket bucket) =>
         new(bucket.Id, bucket.Name, bucket.X, bucket.Y, bucket.Width, bucket.Height, bucket.Collapsed);
@@ -478,6 +482,9 @@ public static class ClipEndpoints
             if (source.BucketId is { } b) drawing.BucketId = pasted[b].Id;
             else Layout.Place(drawing, stacked);
         }
+        // On top of the board, the pasted buckets and loose drawings in the order they had.
+        Layout.Restack(newBuckets,
+            [.. drawings.Where(d => d.Drawing.CardId is null && d.Source.BucketId is null).Select(d => (d.Drawing, d.Source.BucketsBelow))], now);
 
         // What was in them has joined them by id, so they can fold up now. An open one then takes the board's loose items
         // it covers, like a bucket drawn there (not those in other buckets); a folded one takes none, as they would vanish.

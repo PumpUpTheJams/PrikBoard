@@ -555,6 +555,65 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         Assert.Equal((drawing.Width, drawing.ContentUrl), (same.Width, same.ContentUrl));
     }
 
+    [Fact]
+    public async Task A_loose_drawing_stacks_with_the_buckets_and_goes_on_top_when_drawn_moved_reshaped_or_raised()
+    {
+        var board = await _client.CreateBoardAsync("Drawing stack");
+        var todo = board.Buckets[0];
+        var drawing = await Create(board.Id, new { x = 3000, y = 100, points = Line });
+        Assert.Equal(["To do", "Doing", "Done", "drawing"], await StackAsync(board.Id));
+
+        await RaiseAsync($"/api/buckets/{todo.Id}/front");
+        Assert.Equal(["Doing", "Done", "drawing", "To do"], await StackAsync(board.Id));
+        await RaiseAsync($"/api/drawings/{drawing.Id}/front");
+        Assert.Equal(["Doing", "Done", "To do", "drawing"], await StackAsync(board.Id));
+
+        // A new ink keeps its place; moving or reshaping it puts it back on top.
+        await RaiseAsync($"/api/buckets/{todo.Id}/front");
+        await Patch(drawing.Id, new { color = "Coral" });
+        Assert.Equal("To do", (await StackAsync(board.Id))[^1]);
+        await Patch(drawing.Id, new { x = 3100 });
+        Assert.Equal("drawing", (await StackAsync(board.Id))[^1]);
+        await RaiseAsync($"/api/buckets/{todo.Id}/front");
+        await Transform(drawing.Id, new { rotation = 90 });
+        Assert.Equal("drawing", (await StackAsync(board.Id))[^1]);
+    }
+
+    [Fact]
+    public async Task Loose_drawings_keep_their_place_among_the_buckets_when_exported_or_copied()
+    {
+        var board = await _client.CreateBoardAsync("Stacked sketches");
+        var (doing, done) = (board.Buckets[1], board.Buckets[2]);
+        var drawing = await Create(board.Id, new { x = 3000, y = 100, points = Line });
+        await RaiseAsync($"/api/buckets/{done.Id}/front");
+        Assert.Equal(["To do", "Doing", "drawing", "Done"], await StackAsync(board.Id));
+
+        var file = await _client.GetStringAsync($"/api/boards/{board.Id}/export");
+        var imported = (await (await _client.PostAsync("/api/boards/import", Json(file))).Content.ReadFromJsonAsync<BoardDetail>())!;
+        Assert.Equal(["To do", "Doing", "drawing", "Done"], await StackAsync(imported.Id));
+
+        // Pasted, they go on top of the board as they were stacked among themselves.
+        var copied = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/copy",
+            new { bucketIds = new[] { doing.Id, done.Id }, drawingIds = new[] { drawing.Id } });
+        var clip = await copied.Content.ReadFromJsonAsync<System.Text.Json.Nodes.JsonObject>();
+        (await _client.PostAsJsonAsync($"/api/boards/{board.Id}/paste", new { clip, x = 6000, y = 0 })).EnsureSuccessStatusCode();
+        Assert.Equal(["To do", "Doing", "drawing", "Done", "Doing", "drawing", "Done"], await StackAsync(board.Id));
+    }
+
+    private async Task RaiseAsync(string url) => (await _client.PostAsync(url, null)).EnsureSuccessStatusCode();
+
+    /// <summary>The board's buckets (by name) and loose drawings ("drawing"), back to front.</summary>
+    private async Task<List<string>> StackAsync(Guid boardId)
+    {
+        var board = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{boardId}"))!;
+        return
+        [
+            .. board.Buckets.Select(b => (b.StackedAt, Name: b.Name))
+                .Concat(board.Drawings.Where(d => d.CardId is null && d.BucketId is null).Select(d => (d.StackedAt, Name: "drawing")))
+                .OrderBy(l => l.StackedAt).Select(l => l.Name),
+        ];
+    }
+
     private async Task<DrawingDetail> Transform(Guid drawingId, object request)
     {
         var response = await _client.PostAsJsonAsync($"/api/drawings/{drawingId}/transform", request);

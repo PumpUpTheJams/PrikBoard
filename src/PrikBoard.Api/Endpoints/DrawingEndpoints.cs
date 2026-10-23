@@ -61,7 +61,7 @@ public static class DrawingEndpoints
             .WithSummary("Scale or rotate a drawing")
             .WithDescription("Scales a drawing (scaleX, scaleY) and then turns it clockwise (rotation, in degrees), both about a pivot " +
                              "on its canvas (pivotX, pivotY; by default the middle of its box). Its points change and its box follows " +
-                             "them; line widths stay. On the board it joins the bucket containing its new center. " +
+                             "them; line widths stay. On the board it joins the bucket containing its new center, and it goes on top of the stack. " +
                              $"409 when it would reach more than {BoardDrawing.MaxSize} px from its corner or leave the board.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
@@ -80,8 +80,18 @@ public static class DrawingEndpoints
             .WithName("updateDrawing")
             .WithSummary("Move or recolor a drawing")
             .WithDescription("Changes its position or ink (color for all its strokes, or colors for each), puts it on a card's canvas (cardId, with x and y on that canvas), or " +
-                             "puts a drawing on a card back on the board (detach, with x and y on the board). Omitted fields stay unchanged.")
+                             "puts a drawing on a card back on the board (detach, with x and y on the board). Omitted fields stay unchanged. " +
+                             "A drawing that moves goes on top of the stack (see stackedAt).")
             .ProducesValidationProblem();
+
+        drawings.MapPost("/drawings/{drawingId:guid}/front", BringDrawingToFront)
+            .RequireBoardRole(BoardRole.Editor, BoardScope.Drawing)
+            .WithName("bringDrawingToFront")
+            .WithSummary("Bring a drawing to the front")
+            .WithDescription("Puts a loose drawing on top of the stack it shares with the buckets, for everyone: it is drawn above " +
+                             "them until one of them comes to the front again (see stackedAt). Drawing, moving and reshaping it do " +
+                             "this too. A drawing in a bucket or on a card is drawn with its bucket or card, so this changes nothing " +
+                             "you see for it until it is loose.");
 
         drawings.MapDelete("/drawings/{drawingId:guid}", DeleteDrawing)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Drawing)
@@ -226,10 +236,11 @@ public static class DrawingEndpoints
         }
 
         Place(drawing, request.X ?? drawing.X, request.Y ?? drawing.Y);
-        // A drawing that moved joins the bucket it now sits in; only a new color leaves it where it is.
+        // A drawing that moved joins the bucket it now sits in, on top; only a new color leaves it where it is.
         if (moving || request.X is not null || request.Y is not null)
         {
             Layout.Place(drawing, await BucketEndpoints.StackAsync(db, drawing.BoardId, ct));
+            drawing.ToFront();
         }
         if (request.Color is { } color) drawing.Colors = [.. drawing.Colors.Select(_ => color)];
         if (request.Colors is { } inks) drawing.Colors = [.. inks];
@@ -318,14 +329,26 @@ public static class DrawingEndpoints
         return TypedResults.Ok(DrawingDetail.From(drawing));
     }
 
+    internal static async Task<Results<Ok<DrawingDetail>, NotFound>> BringDrawingToFront(
+        Guid drawingId, PrikBoardDbContext db, CancellationToken ct)
+    {
+        var drawing = await db.Drawings.Include(d => d.AddedBy).FirstOrDefaultAsync(d => d.Id == drawingId, ct);
+        if (drawing is null) return TypedResults.NotFound();
+
+        drawing.ToFront();
+        await db.SaveChangesAsync(ct);
+        return TypedResults.Ok(DrawingDetail.From(drawing));
+    }
+
     /// <summary>
-    /// After its strokes changed: keeps the drawing on its card's canvas, lets it join the bucket it now sits in (like a
-    /// drawing that moved) and saves.
+    /// After its strokes changed: keeps the drawing on its card's canvas, lets it join the bucket it now sits in and puts
+    /// it on top (like a drawing that moved), and saves.
     /// </summary>
     private static async Task SettleAsync(PrikBoardDbContext db, BoardDrawing drawing, CancellationToken ct)
     {
         Place(drawing, drawing.X, drawing.Y);
         Layout.Place(drawing, await BucketEndpoints.StackAsync(db, drawing.BoardId, ct));
+        drawing.ToFront();
         drawing.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
     }
