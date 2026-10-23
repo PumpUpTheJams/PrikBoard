@@ -190,14 +190,6 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
             ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Group, card.Id, 20, 20, Items: [])));
         Assert.Contains("Group", empty.Message);
 
-        // Where the pointer holds the item goes along, as a fraction of it.
-        await Task.Delay(60);
-        await ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Card, card.Id, 50, 0, Grab: new DragGrab(0.25, 1)));
-        Assert.Equal(new DragGrab(0.25, 1), (await viewerDrags.NextAsync()).Grab);
-        var outside = await Assert.ThrowsAsync<HubException>(() =>
-            ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Card, card.Id, 50, 0, Grab: new DragGrab(1.5, 0))));
-        Assert.Contains("grab", outside.Message);
-
         await ownerLive.Connection.InvokeAsync("DragEnd");
         Assert.Equal(joined.Key, await ended.NextAsync());
         Assert.False(await ownerDrags.AnyWithinAsync(TimeSpan.FromMilliseconds(200)));
@@ -248,6 +240,47 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
     }
 
     [Fact]
+    public async Task Members_see_what_the_others_have_selected()
+    {
+        var owner = await SessionAsync("live-select-owner@example.com");
+        var viewer = await SessionAsync("live-select-viewer@example.com");
+        var board = await owner.Http.CreateBoardAsync();
+        var card = await owner.Http.CreateCardAsync(board.Id);
+        await owner.Http.ShareAsync(board.Id, viewer.Http, BoardRole.Viewer);
+
+        var ownerLive = await ConnectAsync(owner);
+        var viewerLive = await ConnectAsync(viewer);
+        var selections = ownerLive.Inbox<RemoteSelection>("Selected");
+        var ownSelections = viewerLive.Inbox<RemoteSelection>("Selected");
+        await ownerLive.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+        var joined = await viewerLive.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+
+        // Viewers select too (selecting changes nothing); the same item twice counts once.
+        var bucketId = board.Buckets[0].Id;
+        await viewerLive.Connection.InvokeAsync("Select", new SelectionUpdate([card.Id, bucketId, card.Id]));
+        var selected = await selections.NextAsync();
+        Assert.Equal((joined.Key, (await viewer.Http.MeAsync()).Id), (selected.Key, selected.PrincipalId));
+        Assert.Equal([card.Id, bucketId], selected.Items);
+        Assert.False(await ownSelections.AnyWithinAsync(TimeSpan.FromMilliseconds(200)));
+
+        // Someone joining later sees it at once.
+        var lateLive = await ConnectAsync(owner);
+        var lateSelections = lateLive.Inbox<RemoteSelection>("Selected");
+        await lateLive.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+        Assert.Equal([card.Id, bucketId], (await lateSelections.NextAsync()).Items);
+
+        await viewerLive.Connection.InvokeAsync("Select", new SelectionUpdate([]));
+        Assert.Empty((await selections.NextAsync()).Items);
+
+        // Leaving takes the pins along.
+        await viewerLive.Connection.InvokeAsync("Select", new SelectionUpdate([card.Id]));
+        await selections.NextAsync();
+        await viewerLive.Connection.InvokeAsync("Leave");
+        var gone = await selections.NextAsync();
+        Assert.Equal((joined.Key, 0), (gone.Key, gone.Items.Count));
+    }
+
+    [Fact]
     public async Task Cursors_follow_the_board_setting_on_open_connections()
     {
         var owner = await SessionAsync("live-cursor-setting-owner@example.com");
@@ -276,6 +309,9 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         (await owner.Http.PatchAsJsonAsync($"/api/boards/{board.Id}", new { showCursors = true })).EnsureSuccessStatusCode();
         await editorLive.Connection.InvokeAsync("MoveCursor", new CursorUpdate(10, 10));
         Assert.Equal(10d, (await cursors.NextAsync()).X);
+
+        (await owner.Http.PatchAsJsonAsync($"/api/boards/{board.Id}", new { showCursors = false })).EnsureSuccessStatusCode();
+        await Assert.ThrowsAsync<HubException>(() => editorLive.Connection.InvokeAsync("Select", new SelectionUpdate([board.Buckets[0].Id])));
     }
 
     [Fact]
@@ -304,7 +340,12 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         Assert.False(await guestCursors.AnyWithinAsync(TimeSpan.FromMilliseconds(300)));
         Assert.False(await guestHidden.AnyWithinAsync(TimeSpan.FromMilliseconds(100)));
 
+        var guestSelections = guest.Inbox<RemoteSelection>("Selected");
+        await ownerLive.Connection.InvokeAsync("Select", new SelectionUpdate([board.Buckets[0].Id]));
+        Assert.False(await guestSelections.AnyWithinAsync(TimeSpan.FromMilliseconds(300)));
+
         await Assert.ThrowsAsync<HubException>(() => guest.Connection.InvokeAsync("MoveCursor", new CursorUpdate(5, 5)));
+        await Assert.ThrowsAsync<HubException>(() => guest.Connection.InvokeAsync("Select", new SelectionUpdate([])));
     }
 
     [Fact]

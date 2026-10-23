@@ -254,7 +254,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   // Someone's finished drag stays where they dropped it until the reload shows where it landed.
   useEffect(() => boardLoaded(), [board, boardLoaded])
   const othersHere = live.viewers.filter((v) => v.principalId !== user.id)
-  /** Who points at the board or drags on it now, if it shows cursors: their avatar in the top bar goes to their thumbtack. */
+  /** Who points at the board, or has something selected or dragged on it, if it shows cursors: their avatar in the top bar goes there. */
   const pointers = useSyncExternalStore(live.cursors.subscribe, live.cursors.principals)
   const pickable = activeBoard?.showCursors
     ? new Set([...pointers.split(' ').filter(Boolean), ...live.drags.filter((d) => !d.endedAt).map((d) => d.principalId)])
@@ -552,7 +552,7 @@ interface WorkspaceMainProps {
   live: LiveState
   /** The others on the open board. */
   othersHere: LiveViewer[]
-  /** Someone picked in the top bar, whose thumbtack the board goes to. */
+  /** Someone picked in the top bar, whose pointer (or pins) the board goes to. */
   focus: { principalId: string; n: number } | null
   onCreateBoard: (name: string) => Promise<boolean>
   /** Leaves a board you can't open, for none. */
@@ -597,6 +597,7 @@ function WorkspaceMain(props: WorkspaceMainProps) {
       cursors={live.cursors}
       viewers={othersHere}
       onCursor={activeBoard.showCursors ? live.sendCursor : undefined}
+      onSelect={activeBoard.showCursors ? live.sendSelection : undefined}
       focus={focus}
     />
   )

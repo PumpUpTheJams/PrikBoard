@@ -7,7 +7,7 @@ import { BoardFilters } from './BoardFilters'
 import { CardGhost, NewCardGhost, RemoteDragOutlines, Slot } from './BoardGhosts'
 import { BoardImageView } from './BoardImageView'
 import { BoardPanels, type QuickEdit } from './BoardPanels'
-import { bucketOf, cardBox, type Selection } from './boardItems'
+import { bucketOf, cardBox, kindOf, type Selection } from './boardItems'
 import type { Gesture, GestureTarget, GroupGesture, ItemDrag, ItemGesture } from './boardGesture'
 import { BoardSearch } from './BoardSearch'
 import { BoardTrash } from './BoardTrash'
@@ -26,7 +26,7 @@ import { RemoteCursors } from './RemoteCursors'
 import { resizeCursor } from './resizeCursor'
 import { adds, bounds, contains, mergePicked, togglePicked, touches, useSelection, useSpaceHeld } from './selection'
 import { SelectionToolbar } from './SelectionToolbar'
-import { tackOf, tacksOf } from './tacks'
+import { headsOf, pinsOf, whereIs } from './peers'
 import { shakeDetector } from './shake'
 import { tagColorsOf, type TagColorPreview } from './tagColors'
 import { ToolRail } from './ToolRail'
@@ -60,33 +60,27 @@ const FOCUS_MS = 2400
 
 /**
  * Tells the others where your pointer is on the board (`onCursor`): as it moves, and as the view scrolls or zooms under
- * a pointer that stays put. Not while a drag is sent (`dragged`; the drag pins the thumbtack), and gone when the pointer
- * leaves the board, the tab goes to the background, or the board stops showing cursors.
+ * a pointer that stays put. Gone when the pointer leaves the board, the tab goes to the background, or the board stops
+ * showing cursors.
  */
-function usePointing({ scrollRef, toCanvas, onCursor, dragged }: {
+function usePointing({ scrollRef, toCanvas, onCursor }: {
   scrollRef: RefObject<HTMLDivElement | null>
   toCanvas: (e: { clientX: number; clientY: number }) => Point
   onCursor?: (point: CursorUpdate | null) => void
-  dragged: boolean
 }) {
   /** Where the pointer is over the board, in screen pixels; null when it isn't. */
   const client = useRef<Point | null>(null)
-  const latest = useRef({ toCanvas, onCursor, dragged })
+  const latest = useRef({ toCanvas, onCursor })
   useEffect(() => {
-    latest.current = { toCanvas, onCursor, dragged }
+    latest.current = { toCanvas, onCursor }
   })
   const send = useCallback(() => {
-    const { toCanvas, onCursor, dragged } = latest.current
-    if (!onCursor || dragged || !client.current) return
+    const { toCanvas, onCursor } = latest.current
+    if (!onCursor || !client.current) return
     const at = toCanvas({ clientX: client.current.x, clientY: client.current.y })
     const clamp = (v: number) => Math.round(Math.min(MAX_COORDINATE, Math.max(MIN_COORDINATE, v)))
     onCursor({ x: clamp(at.x), y: clamp(at.y) })
   }, [])
-
-  // After a drag, the thumbtack comes off the item and follows the pointer again.
-  useEffect(() => {
-    if (!dragged) send()
-  }, [dragged, send])
 
   useEffect(() => {
     if (!onCursor) return
@@ -139,18 +133,20 @@ interface BoardCanvasProps {
   remoteDrags?: LiveDrag[]
   /** Your drag in progress, for the others to see; null when it ends. */
   onDrag?: (update: DragUpdate | null) => void
-  /** Other people's pointers (live updates); shown as thumbtacks for those in `viewers`. */
+  /** Other people's pointers and selections (live updates); shown for those in `viewers`. */
   cursors?: CursorStore
-  /** The others on the board, whose pointers and drags show as their thumbtacks; none when the board shows no cursors. */
+  /** The others on the board, whose pointers and pins show; none when the board shows no cursors. */
   viewers?: LiveViewer[]
   /** Where your pointer is on the board, for the others to see; null when it left. Omitted when the board shows no cursors. */
   onCursor?: (point: CursorUpdate | null) => void
-  /** Someone picked in the top bar: the view goes to their thumbtack. `n` counts the picks, so picking them again goes again. */
+  /** What you have selected on the board, for the others to see. Omitted when the board shows no cursors. */
+  onSelect?: (items: string[]) => void
+  /** Someone picked in the top bar: the view goes to their pointer (or pins). `n` counts the picks, so picking them again goes again. */
   focus?: { principalId: string; n: number } | null
 }
 
 /** The board: its buckets, cards, images and drawings on a freeform canvas, with the tool rail and floating windows around it. */
-export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = [], onDrag, cursors, viewers = [], onCursor, focus }: BoardCanvasProps) {
+export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = [], onDrag, cursors, viewers = [], onCursor, onSelect, focus }: BoardCanvasProps) {
   /** Viewers can look around and open cards, but not change anything. */
   const readOnly = board.yourRole === 'Viewer'
   const [tool, setTool] = useState<Tool>('select')
@@ -305,10 +301,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   // Live geometry: the server's layout, with the drags in progress applied on top (yours wins over someone else's).
   const dragging = draggingOf(gesture)
   const drags = activeDrags(board, dragging, arrangeDrop?.spots, remoteDrags)
-  const { bucketRect, cardPoint, imageRect, drawingRect, liveRect, remoteRects, heldRect } = liveGeometry(board, drags, dragging ? arrangeDrop : null)
+  const { bucketRect, cardPoint, imageRect, drawingRect, liveRect, remoteRects } = liveGeometry(board, drags, dragging ? arrangeDrop : null)
   const lifting = (id: string) => isLifted(dragging, id)
   // Tell the others about your drag while it is in progress (as a string, so an unchanged drag sends nothing).
-  const sent = sentDrag(board, dragging)
+  const sent = sentDrag(dragging)
   useEffect(() => onDrag?.(sent ? (JSON.parse(sent) as DragUpdate) : null), [sent, onDrag])
 
   /**
@@ -640,17 +636,30 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   ])
   const { origin, extent } = canvas
   useReveal(search, { scrollRef, boardTop, board, zoom, origin, cardPoint })
-  const pointing = usePointing({ scrollRef, toCanvas, onCursor, dragged: sent !== null })
+  const pointing = usePointing({ scrollRef, toCanvas, onCursor })
+
+  // The others see your pins in what you select, until you select something else.
+  const selectedIds = selected.map((s) => s.id).join(' ')
+  useEffect(() => onSelect?.(selectedIds ? selectedIds.split(' ') : []), [selectedIds, onSelect])
+  useEffect(() => () => onSelect?.([]), [onSelect])
+  /** Where an item someone else has selected is shown now (moving with drags); null when it is gone or folded away. */
+  const pinRect = (id: string) => {
+    const kind = kindOf(board, id)
+    const bucketId = kind && bucketOf(board, { kind, id })
+    if (!kind || board.buckets.some((b) => b.id === bucketId && b.collapsed)) return null
+    return liveRect(kind, id)
+  }
 
   // Someone picked in the top bar: glide to their thumbtack, which pulses and shows their name for a moment.
   const [focusedTack, setFocusedTack] = useState<string | null>(null)
   const goTo = useRef<(principalId: string) => void>(() => {})
   useEffect(() => {
     goTo.current = (principalId) => {
-      const tack = cursors && tackOf(tacksOf(cursors.list(), remoteDrags, viewers, heldRect), principalId)
-      if (!tack) return
-      canvas.navigate(tack.at, { smooth: true })
-      setFocusedTack(tack.key)
+      const peers = cursors?.snapshot()
+      const found = peers && whereIs(headsOf(peers.cursors, viewers), pinsOf(peers, viewers, pinRect), principalId)
+      if (!found) return
+      canvas.navigate(found.at, { smooth: true })
+      setFocusedTack(found.key)
     }
   })
   useEffect(() => {
@@ -938,7 +947,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
             <RemoteDragOutlines drags={remoteDrags.filter((r) => !r.endedAt && r.id !== dragging?.id)} rectsOf={remoteRects} unnamed={!!onCursor} />
             {cursors && onCursor && (
-              <RemoteCursors cursors={cursors} drags={remoteDrags} viewers={viewers} heldRect={heldRect} zoom={zoom} focused={focusedTack} />
+              <RemoteCursors cursors={cursors} viewers={viewers} rectOf={pinRect} zoom={zoom} focused={focusedTack} />
             )}
 
             {marquee && (

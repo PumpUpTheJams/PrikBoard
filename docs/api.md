@@ -311,10 +311,11 @@ Instead of polling getBoard, a client can follow a board live over **SignalR** a
 | --- | --- | --- |
 | `Join(boardId)` | Members | Follow one board (and stop following the previous one). Returns `{boardId, role, key, viewers}`; answers null for boards you can't join (and keeps following the previous one) |
 | `Leave()` | Anyone | Stop following the board |
-| `Drag({kind, id, dx, dy, handle, items})` | Editors (tokens need `boards:write`) | Show others a drag in progress: `kind` is `Card`, `Bucket`, `Resize`, `Image`, `ImageResize` or `Group`, `dx`/`dy` the pointer travel in canvas pixels, and for resizes `handle` the corner or edge dragged (`BottomRight`, the default, `BottomLeft`, `TopRight`, `TopLeft`, `Top`, `Right`, `Bottom` or `Left`; an edge resizes in its direction only). `Group` moves several selected items together: `items` lists them all (1 to 1000 cards, buckets, images and drawings, `id` the one held, not what a listed bucket carries); other kinds send no `items`. `grab` (optional, `{x, y}` from 0 to 1) is where the pointer holds the item `id`, as fractions of its size when the drag began, so others can pin your pointer into it. Send at most every 50 ms, and again every few seconds while the item is held still: others drop a drag they haven't heard about for 5 seconds |
+| `Drag({kind, id, dx, dy, handle, items})` | Editors (tokens need `boards:write`) | Show others a drag in progress: `kind` is `Card`, `Bucket`, `Resize`, `Image`, `ImageResize` or `Group`, `dx`/`dy` the pointer travel in canvas pixels, and for resizes `handle` the corner or edge dragged (`BottomRight`, the default, `BottomLeft`, `TopRight`, `TopLeft`, `Top`, `Right`, `Bottom` or `Left`; an edge resizes in its direction only). `Group` moves several selected items together: `items` lists them all (1 to 1000 cards, buckets, images and drawings, `id` the one held, not what a listed bucket carries); other kinds send no `items`. Send at most every 50 ms, and again every few seconds while the item is held still: others drop a drag they haven't heard about for 5 seconds |
 | `DragEnd()` | Editors | The drag is over |
 | `MoveCursor({x, y})` | Members, while the board's `showCursors` is on | Show the other members where your pointer is, in canvas pixels. Send at most every 50 ms, and not while you drag (the drag shows it). Members joining later get the pointers that are on the board as `CursorMoved` |
 | `HideCursor()` | Members | Your pointer left the board |
+| `Select({items})` | Members, while the board's `showCursors` is on | Show the other members what you have selected: every selected card, bucket, image and drawing (at most 1000), or none. Send the whole selection each time it changes. Members joining later get it as `Selected` |
 
 | Server message | Meaning |
 | --- | --- |
@@ -324,6 +325,7 @@ Instead of polling getBoard, a client can follow a board live over **SignalR** a
 | `DragEnded(key)` | They let go. Keep the item where it was until the next getBoard shows where it landed |
 | `CursorMoved({key, principalId, x, y})` | Another member's pointer (members only: visitors never get these). Their name and picture are in `Presence` |
 | `CursorHidden(key)` | Their pointer left the board, or they did |
+| `Selected({key, principalId, items})` | Another member's selection (members only). No `items`: they selected nothing, or left the board |
 | `BoardsChanged()` | Your list of boards changed (renamed, deleted, you were added or removed); call listBoards |
 | `AccessChanged(boardId)` | Your role on that board changed or you lost access: call `Join` again (it answers null when access is gone) |
 

@@ -152,7 +152,7 @@ function PublicLink({
   )
 }
 
-/** For owners: whether the members looking at the board see each other's pointers as thumbtacks. */
+/** For owners: whether the members looking at the board see each other's pointers, and pins in what they select. */
 function LiveCursors({ board, attempt, onChanged }: { board: BoardSummary; attempt: Attempt; onChanged: (board: BoardSummary) => void }) {
   return (
     <section className="dialog-section">
@@ -166,9 +166,9 @@ function LiveCursors({ board, attempt, onChanged }: { board: BoardSummary; attem
             void attempt(async () => onChanged(await api.updateBoard(board.id, { showCursors })))
           }}
         />
-        Show everyone's pointer as a thumbtack
+        Show everyone's pointer and selection
       </label>
-      <p className="dialog-hint">Members see where the others point and what they drag. Visitors of a public board never see them.</p>
+      <p className="dialog-hint">Members see each other's pointer as their picture, and a pin in whatever they select. Visitors of a public board never see them.</p>
     </section>
   )
 }

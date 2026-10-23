@@ -1,7 +1,7 @@
 import { HubConnectionBuilder, HubConnectionState, LogLevel, type HubConnection } from '@microsoft/signalr'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { setLiveConnectionId } from '../api/client'
-import type { BoardChange, BoardPresence, CursorUpdate, DragUpdate, JoinedBoard, LiveViewer, RemoteCursor, RemoteDrag } from '../api/types'
+import type { BoardChange, BoardPresence, CursorUpdate, DragUpdate, JoinedBoard, LiveViewer, RemoteCursor, RemoteDrag, RemoteSelection } from '../api/types'
 
 /** How often a drag in progress or the pointer is sent; the server drops updates closer together than 25 ms. */
 const SEND_MS = 50
@@ -16,12 +16,20 @@ export type LiveDrag = RemoteDrag & { updatedAt: number; endedAt?: number }
 /** Someone else's pointer on the open board, and when it last moved. */
 export type LiveCursor = RemoteCursor & { updatedAt: number }
 
+/** Others' pointers and selections on the open board, as `CursorStore.snapshot` gives them. */
+export interface Peers {
+  cursors: LiveCursor[]
+  /** Only those with something selected. */
+  selections: RemoteSelection[]
+}
+
 /**
- * Others' pointers on the open board. They move many times a second, so they are kept outside React state: only what
- * subscribes (the thumbtacks) draws again. `principals`: who has one, as a string that only changes when that does.
+ * Others' pointers and selections on the open board. Pointers move many times a second, so they are kept outside React
+ * state: only what subscribes (the heads and pins) draws again. `principals`: who has a pointer or a selection, as a
+ * string that only changes when that does.
  */
 export interface CursorStore {
-  list: () => LiveCursor[]
+  snapshot: () => Peers
   principals: () => string
   subscribe: (listener: () => void) => () => void
 }
@@ -43,10 +51,12 @@ export interface LiveState {
   drags: LiveDrag[]
   /** Sends your drag in progress (throttled), or null when it ends. */
   sendDrag: (update: DragUpdate | null) => void
-  /** Others' pointers on the open board (members only, and only while the board shows cursors). */
+  /** Others' pointers and selections on the open board (members only, and only while the board shows cursors). */
   cursors: CursorStore
   /** Sends where your pointer is on the board (throttled), or null when it left the board. */
   sendCursor: (point: CursorUpdate | null) => void
+  /** Sends what you have selected on the board (throttled); none when nothing is. */
+  sendSelection: (items: string[]) => void
   /** Call after the board reloaded: drags that ended are now shown where they landed. */
   boardLoaded: () => void
 }
@@ -101,12 +111,9 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
         list: current.list.map((d) => (d.key === key && !d.endedAt ? { ...d, endedAt: Date.now() } : d)),
       })),
     )
-    hub.on('CursorMoved', (cursor: RemoteCursor) =>
-      cursors.set([...cursors.list().filter((c) => c.key !== cursor.key), { ...cursor, updatedAt: Date.now() }]),
-    )
-    hub.on('CursorHidden', (key: string) => {
-      if (cursors.list().some((c) => c.key === key)) cursors.set(cursors.list().filter((c) => c.key !== key))
-    })
+    hub.on('CursorMoved', (cursor: RemoteCursor) => cursors.move(cursor))
+    hub.on('CursorHidden', (key: string) => cursors.hide(key))
+    hub.on('Selected', (selection: RemoteSelection) => cursors.select(selection))
 
     const opened = () => {
       setLiveConnectionId(hub.connectionId)
@@ -116,8 +123,8 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
     hub.onreconnecting(() => {
       setLiveConnectionId(null)
       setConnected(false)
-      // Nobody tells a dropped connection that pointers went away.
-      cursors.set([])
+      // Nobody tells a dropped connection that pointers and selections went away.
+      cursors.clear()
     })
     hub.onreconnected(() => {
       opened()
@@ -151,6 +158,8 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
       // Null when the board is gone or not yours (any more): the board itself will say so.
       const joined = await hub.invoke<JoinedBoard | null>('Join', id)
       if (joined && boardRef.current === id) setPresence({ boardId: id, viewers: joined.viewers, guests: joined.guests })
+      // After reconnecting, the others see your selection again.
+      if (joined && selection.current.length > 0) void hub.send('Select', { items: selection.current }).catch(() => {})
     } catch {
       // The connection dropped; it joins again once it reconnects.
     }
@@ -159,7 +168,7 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
   // Follow the open board. (Connecting and reconnecting join the board that is open then.)
   useEffect(() => {
     boardRef.current = boardId
-    cursors.set([])
+    cursors.clear()
     const hub = connection.current
     if (!hub || hub.state !== HubConnectionState.Connected) return
     if (boardId) void join(hub, boardId)
@@ -187,6 +196,9 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
   }, [])
   const drag = useThrottled<DragUpdate>((update) => send('Drag', update))
   const cursor = useThrottled<CursorUpdate>((point) => send('MoveCursor', point))
+  const selecting = useThrottled<string[]>((items) => send('Select', { items }))
+  /** What you have selected, as last sent. */
+  const selection = useRef<string[]>([])
   /** The drag in progress, sent again now and then while it is held still; null when there is none. */
   const dragging = useRef<{ update: DragUpdate; heartbeat: number } | null>(null)
   const pointing = useRef(false)
@@ -226,6 +238,15 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
     [cursor, send],
   )
 
+  const sendSelection = useCallback(
+    (items: string[]) => {
+      if (items.length === 0 && selection.current.length === 0) return
+      selection.current = items
+      selecting.push(items)
+    },
+    [selecting],
+  )
+
   const boardLoaded = useCallback(() => {
     setDrags((current) => (current.list.some((d) => d.endedAt) ? { ...current, list: current.list.filter((d) => !d.endedAt) } : current))
   }, [])
@@ -238,26 +259,41 @@ export function useLive(boardId: string | null, handlers: LiveHandlers): LiveSta
     sendDrag,
     cursors,
     sendCursor,
+    sendSelection,
     boardLoaded,
   }
 }
 
 function cursorStore() {
-  let list: LiveCursor[] = []
+  let peers: Peers = { cursors: [], selections: [] }
   let principals = ''
   const listeners = new Set<() => void>()
+  const set = (next: Peers) => {
+    peers = next
+    principals = [...new Set([...next.cursors, ...next.selections].map((p) => p.principalId))].toSorted().join(' ')
+    for (const listener of listeners) listener()
+  }
   return {
-    list: () => list,
+    snapshot: () => peers,
     principals: () => principals,
     subscribe(listener: () => void) {
       listeners.add(listener)
       return () => void listeners.delete(listener)
     },
-    set(next: LiveCursor[]) {
-      if (next.length === 0 && list.length === 0) return
-      list = next
-      principals = [...new Set(next.map((c) => c.principalId))].toSorted().join(' ')
-      for (const listener of listeners) listener()
+    move(cursor: RemoteCursor) {
+      set({ ...peers, cursors: [...peers.cursors.filter((c) => c.key !== cursor.key), { ...cursor, updatedAt: Date.now() }] })
+    },
+    hide(key: string) {
+      if (peers.cursors.some((c) => c.key === key)) set({ ...peers, cursors: peers.cursors.filter((c) => c.key !== key) })
+    },
+    select(selection: RemoteSelection) {
+      const others = peers.selections.filter((s) => s.key !== selection.key)
+      if (selection.items.length > 0 || others.length < peers.selections.length) {
+        set({ ...peers, selections: selection.items.length > 0 ? [...others, selection] : others })
+      }
+    },
+    clear() {
+      if (peers.cursors.length > 0 || peers.selections.length > 0) set({ cursors: [], selections: [] })
     },
   }
 }

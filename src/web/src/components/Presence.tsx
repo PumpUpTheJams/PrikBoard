@@ -8,10 +8,10 @@ import { plural } from './plural'
 const MAX_SHOWN = 4
 
 /**
- * Who else is looking at the board right now, each ringed in the color their drags and thumbtack show in, and how many
+ * Who else is looking at the board right now, each ringed in the color their drags, pointer and pins show in, and how many
  * guests (visitors of a public board who aren't members) are looking too. `anonymous`: a visitor of a board that hides
  * its people, for whom `guests` is everyone else looking. `pickable`: those whose pointer is on the board; picking one
- * (`onPick`) goes to their thumbtack.
+ * (`onPick`) goes to their pointer (or pins).
  */
 export function Presence({ viewers, guests = 0, anonymous = false, pickable, onPick }: {
   viewers: LiveViewer[]

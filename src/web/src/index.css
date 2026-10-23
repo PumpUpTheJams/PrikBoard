@@ -4062,7 +4062,7 @@ a.button.primary:hover {
   white-space: nowrap;
 }
 
-/* An avatar in the top bar whose pointer is on the board: a click goes to their thumbtack. */
+/* An avatar in the top bar whose pointer or pins are on the board: a click goes there. */
 .presence-avatar.pickable {
   padding: 0;
   border: 0;
@@ -4078,13 +4078,13 @@ a.button.primary:hover {
 }
 
 /*
- * Others' pointers: a thumbtack whose needle tip sits on the point, with their picture on the head. Inside the zoomed
- * canvas, so it is scaled back (--unzoom) to keep its size on screen. Free, it hovers tilted above the board with its
- * shadow far off; pricked into what they drag, it stands up, its needle sinks in and its shadow tightens.
+ * The others on the board, inside the zoomed canvas and scaled back (--unzoom) to keep their size on screen. Each one's
+ * pointer is their picture in a ring of their color (.peer-pointer, centered on the point); each item they have selected
+ * has a pin pricked into its top-left corner (.peer-pin, at the needle's tip), which drops in and pushes through a hole
+ * when they select it, and pulls out when they don't any more.
  */
-.tack {
-  /* How big the pin is drawn, from its 36 × 70 drawing. */
-  --pin: 0.55;
+.peer-pointer,
+.peer-pin {
   position: absolute;
   z-index: 30;
   width: 0;
@@ -4092,129 +4092,89 @@ a.button.primary:hover {
   transform: scale(var(--unzoom));
   transform-origin: 0 0;
   pointer-events: none;
+}
+
+.peer-pointer {
+  z-index: 31;
   transition:
     left 0.08s linear,
     top 0.08s linear,
     opacity 0.6s;
 }
 
-.tack.pricked {
-  transition: opacity 0.6s;
-}
-
-.tack.idle {
+.peer-pointer.idle {
   opacity: 0.35;
 }
 
-.tack-body {
+.peer-face {
   position: absolute;
-  bottom: 0;
-  left: -18px;
-  width: 36px;
-  height: 70px;
-  transform: rotate(24deg) scale(var(--pin));
-  transform-origin: 50% 100%;
-  transition: transform 0.16s ease-out;
-}
-
-/* Pricked, the pin stands up and its needle sinks in: the pin moves down by as much as is cut off its bottom. */
-.tack.pricked .tack-body {
-  transform: rotate(6deg) scale(var(--pin));
-  animation: tack-prick 0.3s ease-out;
-}
-
-.tack-pin {
-  position: absolute;
-  inset: 0;
-  clip-path: inset(0);
-  transition:
-    transform 0.16s ease-out,
-    clip-path 0.16s ease-out;
-}
-
-.tack.pricked .tack-pin {
-  clip-path: inset(0 0 13px 0);
-  transform: translateY(13px);
-}
-
-.tack-svg {
-  position: absolute;
-  inset: 0;
-  overflow: visible;
-}
-
-.tack-plastic {
-  fill: var(--who);
-}
-
-/* The picture beside the pin's cap, upright whichever way the pin leans; it follows the cap as the pin stands up. */
-.tack-head {
-  position: absolute;
-  top: -46px;
-  left: 20px;
-  width: 20px;
-  height: 20px;
+  top: -8.5px;
+  left: -8.5px;
+  width: 17px;
+  height: 17px;
   overflow: hidden;
-  box-shadow:
-    0 0 0 1.5px var(--bar),
-    0 0 0 3px var(--who);
-  font-size: 8px;
-  transition:
-    left 0.16s ease-out,
-    top 0.16s ease-out;
+  box-shadow: 0 0 0 2.5px var(--who);
+  font-size: 7px;
 }
 
-.tack.pricked .tack-head {
-  top: -38px;
-  left: 12px;
-}
-
-.tack-shadow {
+/* The needle's tip is at (40px, 60px) in here; what is below it is in the item. */
+.peer-pin-clip {
   position: absolute;
-  top: -3px;
-  left: 2px;
-  width: 15px;
-  height: 6px;
+  top: -60px;
+  left: -40px;
+  width: 80px;
+  height: 60px;
+  overflow: hidden;
+}
+
+.peer-pin-move {
+  position: absolute;
+  inset: 0;
+  animation: peer-pin-in 0.23s cubic-bezier(0.3, 0.7, 0.4, 1) both;
+}
+
+.peer-pin-needle {
+  position: absolute;
+  top: 47px;
+  left: 37.2px;
+  fill: #b9bec7;
+}
+
+.peer-pin .peer-face {
+  top: 29.5px;
+  left: 31.5px;
+  animation: peer-squash 0.23s ease-out both;
+}
+
+.peer-pin-hole {
+  position: absolute;
+  top: -2px;
+  left: -3.5px;
+  width: 7px;
+  height: 4px;
   border-radius: 50%;
-  background: rgb(0 0 0 / 0.35);
-  filter: blur(3px);
-  transition:
-    transform 0.16s ease-out,
-    opacity 0.16s ease-out;
+  background: rgb(28 22 8 / 0.75);
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.6);
+  animation: peer-hole-in 0.23s ease-out both;
 }
 
-.tack.pricked .tack-shadow {
-  opacity: 0.7;
-  transform: translate(-4px, 1px) scale(0.6);
+.peer-pin.out .peer-pin-move {
+  animation: peer-pin-out 0.14s ease-in both;
 }
 
-.tack-dent {
+.peer-pin.out .peer-pin-hole {
+  animation: peer-hole-out 0.14s ease-in both;
+}
+
+.peer-pointer.focused .peer-face,
+.peer-pin.focused .peer-face {
+  animation: peer-pulse 0.8s ease-out 3;
+}
+
+.peer-name {
   position: absolute;
-  top: -3px;
-  left: -3px;
-  width: 6px;
-  height: 6px;
-  border: 1px solid rgb(0 0 0 / 0.45);
-  border-radius: 50%;
-  opacity: 0;
-  transition: opacity 0.16s;
-}
-
-.tack.pricked .tack-dent {
-  opacity: 1;
-}
-
-.tack.focused .tack-head {
-  animation: tack-pulse 0.8s ease-out 3;
-}
-
-.tack-name {
-  position: absolute;
-  bottom: 30px;
-  left: 46px;
-  transition:
-    left 0.16s ease-out,
-    bottom 0.16s ease-out;
+  top: -9px;
+  left: 14px;
   max-width: 180px;
   overflow: hidden;
   padding: 2px 8px;
@@ -4225,39 +4185,82 @@ a.button.primary:hover {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-  animation: tack-name 0.2s ease-out;
+  animation: peer-name 0.2s ease-out;
 }
 
-.tack.pricked .tack-name {
-  bottom: 22px;
-  left: 38px;
-}
-
-@keyframes tack-prick {
+@keyframes peer-pin-in {
   0% {
-    transform: rotate(24deg) scale(var(--pin));
+    opacity: 0;
+    transform: translateY(-30px);
   }
-  60% {
-    transform: rotate(1deg) scale(var(--pin));
+  35% {
+    opacity: 1;
+    transform: translateY(-12px);
+  }
+  62% {
+    transform: translateY(2px);
+  }
+  80% {
+    transform: translateY(-1px);
   }
 }
 
-@keyframes tack-pulse {
+@keyframes peer-squash {
+  0%,
+  58% {
+    transform: scale(1);
+  }
+  68% {
+    transform: scale(1.1, 0.86);
+  }
+  84% {
+    transform: scale(0.97, 1.04);
+  }
+}
+
+@keyframes peer-hole-in {
+  0%,
+  55% {
+    opacity: 0;
+    transform: scale(0);
+  }
+  72% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
+}
+
+@keyframes peer-pin-out {
+  30% {
+    transform: translateY(-4px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-30px);
+  }
+}
+
+@keyframes peer-hole-out {
+  to {
+    opacity: 0;
+    transform: scale(0);
+  }
+}
+
+@keyframes peer-pulse {
   0% {
     box-shadow:
-      0 0 0 1.5px var(--bar),
-      0 0 0 3px var(--who),
-      0 0 0 3px color-mix(in srgb, var(--who) 70%, transparent);
+      0 0 0 2.5px var(--who),
+      0 0 0 2.5px color-mix(in srgb, var(--who) 70%, transparent);
   }
   100% {
     box-shadow:
-      0 0 0 1.5px var(--bar),
-      0 0 0 3px var(--who),
+      0 0 0 2.5px var(--who),
       0 0 0 14px transparent;
   }
 }
 
-@keyframes tack-name {
+@keyframes peer-name {
   from {
     opacity: 0;
     transform: translateY(4px);
@@ -4265,19 +4268,24 @@ a.button.primary:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tack,
-  .tack-body,
-  .tack-pin,
-  .tack-head,
-  .tack-shadow,
+  .peer-pointer,
   .presence-avatar.pickable {
     transition: none;
   }
 
-  .tack.pricked .tack-body,
-  .tack.focused .tack-head,
-  .tack-name {
+  .peer-pin-move,
+  .peer-pin .peer-face,
+  .peer-pin-hole,
+  .peer-pin.out .peer-pin-move,
+  .peer-pin.out .peer-pin-hole,
+  .peer-pointer.focused .peer-face,
+  .peer-pin.focused .peer-face,
+  .peer-name {
     animation: none;
+  }
+
+  .peer-pin.out {
+    display: none;
   }
 }
 

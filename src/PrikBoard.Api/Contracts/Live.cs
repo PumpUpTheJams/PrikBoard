@@ -80,15 +80,8 @@ public sealed record BoardChange(Guid BoardId, Guid By);
 /// For Group: every item moving by this distance, the one held among them (at most <see cref="MaxItems"/>). Items in a
 /// bucket that moves aren't listed: the bucket carries them.
 /// </param>
-/// <param name="Grab">Where the pointer holds the item Id, so others can show the pointer pinned into it.</param>
 public sealed record DragUpdate(
-    DragKind Kind,
-    Guid Id,
-    double Dx,
-    double Dy,
-    ResizeHandle Handle = ResizeHandle.BottomRight,
-    List<Guid>? Items = null,
-    DragGrab? Grab = null)
+    DragKind Kind, Guid Id, double Dx, double Dy, ResizeHandle Handle = ResizeHandle.BottomRight, List<Guid>? Items = null)
 {
     /// <summary>The most items one Group drag lists.</summary>
     public const int MaxItems = 1000;
@@ -104,7 +97,6 @@ public sealed record DragUpdate(
 /// <param name="Dy">Pointer travel since the drag started, in canvas pixels.</param>
 /// <param name="Handle">For Resize and ImageResize: the corner or edge being dragged.</param>
 /// <param name="Items">For Group: every item moving by this distance (see <see cref="DragUpdate"/>).</param>
-/// <param name="Grab">Where the pointer holds the item Id, when the dragging client says.</param>
 public sealed record RemoteDrag(
     Guid Key,
     Guid PrincipalId,
@@ -114,20 +106,7 @@ public sealed record RemoteDrag(
     double Dx,
     double Dy,
     ResizeHandle Handle = ResizeHandle.BottomRight,
-    List<Guid>? Items = null,
-    DragGrab? Grab = null);
-
-/// <summary>
-/// Where on the dragged item the pointer took hold of it, as fractions of the item's width and height when the drag
-/// started (0,0 its top-left corner, 1,1 its bottom-right). It stays at the same fraction of the item as it moves or resizes.
-/// </summary>
-/// <param name="X">From 0 (the left edge) to 1 (the right edge).</param>
-/// <param name="Y">From 0 (the top edge) to 1 (the bottom edge).</param>
-public sealed record DragGrab(double X, double Y)
-{
-    [JsonIgnore]
-    public bool IsValid => X is >= 0 and <= 1 && Y is >= 0 and <= 1;
-}
+    List<Guid>? Items = null);
 
 /// <summary>Where this connection's pointer is on the joined board (MoveCursor), at most every few dozen milliseconds.</summary>
 /// <param name="X">Canvas pixels, like the x of a card.</param>
@@ -140,3 +119,13 @@ public sealed record CursorUpdate(double X, double Y);
 /// <param name="X">Canvas pixels.</param>
 /// <param name="Y">Canvas pixels.</param>
 public sealed record RemoteCursor(Guid Key, Guid PrincipalId, double X, double Y);
+
+/// <summary>What this connection has selected on the joined board (Select): the whole selection, every time it changes.</summary>
+/// <param name="Items">The selected cards, buckets, images and drawings (at most <see cref="DragUpdate.MaxItems"/>); none when nothing is.</param>
+public sealed record SelectionUpdate(List<Guid> Items);
+
+/// <summary>What another member has selected on the joined board, shown as their pins in it.</summary>
+/// <param name="Key">The connection; CursorMoved and CursorHidden name the same key.</param>
+/// <param name="PrincipalId">Whose selection it is.</param>
+/// <param name="Items">The selected items; none when they selected nothing (or left).</param>
+public sealed record RemoteSelection(Guid Key, Guid PrincipalId, List<Guid> Items);
