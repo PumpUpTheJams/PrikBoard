@@ -911,9 +911,23 @@ export interface AppSignInCode {
   expiresAt: string
 }
 
+/** A text channel the Discord bot may read and post in. */
+export interface DiscordChannelChoice {
+  id: string
+  name: string
+}
+
+/** Board activity a Discord channel can follow. */
+export type DiscordUpdate = 'NewCards' | 'Moves' | 'Assignments' | 'AgentWork'
+
+/** A Discord channel connected to a board, with what it does there. */
 export interface DiscordChannel {
   id: string
   name: string
+  /** What the bot posts there as it happens on the board. */
+  updates: DiscordUpdate[]
+  /** Where Save to PrikBoard in this channel puts cards; null for the board's first bucket. */
+  saveBucketId: string | null
 }
 
 /** Off: no admin set up a Discord bot. Failed: Discord refused it (problem says why). */
@@ -923,7 +937,7 @@ export type DiscordBotState = 'Off' | 'Connecting' | 'Online' | 'Failed'
 export interface DiscordServerChoice {
   guildId: string
   name: string
-  channels: DiscordChannel[]
+  channels: DiscordChannelChoice[]
 }
 
 /** Where the instance's Discord bot can preview a board's links. */
@@ -938,18 +952,34 @@ export interface DiscordConnection {
   guildName: string
   /** The server's member on the board (a Viewer agent). */
   agentId: string
-  /** The channels links are previewed in, or null for the whole server. */
-  channels: DiscordChannel[] | null
+  /** Whether links preview in every channel of the server. */
+  wholeServer: boolean
+  /** The channels picked for the board: links preview there, and each can post updates and take Save to PrikBoard. */
+  channels: DiscordChannel[]
   connectedAt: string
   connectedBy: string | null
 }
 
-/** A board a Discord server previews, with where; channels null for the whole server. */
+/** A board a Discord server previews, with where. */
 export interface DiscordBoardConnection {
   boardId: string
   shortId: string
   boardName: string
-  channels: DiscordChannel[] | null
+  wholeServer: boolean
+  channels: DiscordChannel[]
+}
+
+/** Whether the Discord bot knows who you are, for Save to PrikBoard: through a Discord sign-in, or a link you made. */
+export interface DiscordAccountStatus {
+  linked: boolean
+  source: 'SignIn' | 'Link' | null
+  linkedAt: string | null
+}
+
+/** The Discord user behind a link code from the bot, so you can check it is you. */
+export interface DiscordAccountLinkPreview {
+  discordName: string
+  expiresAt: string
 }
 
 /** A server the Discord bot is in, for admins. */

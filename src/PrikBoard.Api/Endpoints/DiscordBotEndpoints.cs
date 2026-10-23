@@ -62,7 +62,7 @@ public static class DiscordBotEndpoints
         SetDiscordBotRequest request, ClaimsPrincipal principal, HttpRequest http, DiscordBot bot, DiscordApplications applications,
         IDiscordGateway gateway, PrikBoardDbContext db, CancellationToken ct)
     {
-        var row = await db.DiscordBotSettings.FirstOrDefaultAsync(ct);
+        var row = await db.DiscordBotSettings.FirstOrDefaultAsync(s => s.Id == DiscordBotSettings.SingleId, ct);
         var token = request.BotToken?.Trim();
         if (token is not null && bot.TokenIsConfigured)
         {
@@ -118,7 +118,7 @@ public static class DiscordBotEndpoints
     }
 
     private static async Task<Results<NoContent, NotFound>> LeaveDiscordServer(
-        string guildId, IDiscordGateway gateway, PrikBoardDbContext db, BoardEvents events, CancellationToken ct)
+        string guildId, IDiscordGateway gateway, PrikBoardDbContext db, BoardEvents events, DiscordActivity activity, CancellationToken ct)
     {
         var left = await gateway.LeaveAsync(guildId);
         var agentId = await db.DiscordGuilds.Where(g => g.GuildId == guildId).Select(g => (Guid?)g.AgentId).FirstOrDefaultAsync(ct);
@@ -129,6 +129,7 @@ public static class DiscordBotEndpoints
         await db.Agents.Where(a => a.Id == agentId).ExecuteDeleteAsync(ct);
         foreach (var boardId in boards)
         {
+            activity.RefreshBoard(boardId);
             await events.AccessChangedAsync(boardId, agentId.Value, null);
             await events.ChangedAsync(boardId, Guid.Empty);
         }
@@ -164,8 +165,9 @@ public static class DiscordBotEndpoints
             servers.Select(s => new DiscordBotServer(s.Id, s.Name, s.Channels.Count, boards
                     .Where(b => b.GuildId == s.Id)
                     .OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase)
-                    .Select(b => new DiscordBoardConnection(b.Id, b.ShortId, b.Name,
-                        limits.TryGetValue((s.Id, b.Id), out var limit) ? DiscordChannelDetail.From(limit.Channels) : []))
+                    .Select(b => limits.TryGetValue((s.Id, b.Id), out var limit)
+                        ? new DiscordBoardConnection(b.Id, b.ShortId, b.Name, limit.WholeServer, DiscordChannelDetail.From(limit.Channels))
+                        : new DiscordBoardConnection(b.Id, b.ShortId, b.Name, false, []))
                     .ToList()))
                 .ToList());
     }

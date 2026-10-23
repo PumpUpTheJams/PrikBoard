@@ -32,6 +32,8 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
     public DbSet<DiscordGuild> DiscordGuilds => Set<DiscordGuild>();
     public DbSet<DiscordBoardChannels> DiscordBoardChannels => Set<DiscordBoardChannels>();
     public DbSet<DiscordBotSettings> DiscordBotSettings => Set<DiscordBotSettings>();
+    public DbSet<DiscordAccount> DiscordAccounts => Set<DiscordAccount>();
+    public DbSet<DiscordPreviewMessage> DiscordPreviewMessages => Set<DiscordPreviewMessage>();
     public DbSet<SignInProvider> SignInProviders => Set<SignInProvider>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -102,6 +104,8 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             change.HasOne<Card>().WithMany().HasForeignKey(c => c.CardId).OnDelete(DeleteBehavior.Cascade);
             change.HasOne(c => c.By).WithMany().HasForeignKey(c => c.ById).OnDelete(DeleteBehavior.SetNull);
             change.HasIndex(c => new { c.CardId, c.At });
+            // The Discord bot follows the latest changes (Integrations/DiscordActivity).
+            change.HasIndex(c => c.At);
         });
 
         modelBuilder.Entity<BoardImage>(image =>
@@ -217,6 +221,28 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             channels.HasOne<DiscordGuild>().WithMany().HasForeignKey(c => c.GuildId).OnDelete(DeleteBehavior.Cascade);
             channels.HasOne<Board>().WithMany().HasForeignKey(c => c.BoardId).OnDelete(DeleteBehavior.Cascade);
             channels.HasIndex(c => c.BoardId);
+        });
+
+        // Only the hash of the Discord user id, like a sign-in's subject; gone with the user.
+        modelBuilder.Entity<DiscordAccount>(account =>
+        {
+            account.HasKey(a => a.DiscordUserHash);
+            account.Property(a => a.DiscordUserHash).HasMaxLength(32);
+            account.HasOne(a => a.User).WithMany().HasForeignKey(a => a.UserId).OnDelete(DeleteBehavior.Cascade);
+            account.HasIndex(a => a.UserId);
+        });
+
+        // Discord's ids, not personal data; dropped after DiscordPreviewMessage.KeptFor (DiscordActivity).
+        modelBuilder.Entity<DiscordPreviewMessage>(message =>
+        {
+            message.HasKey(m => m.MessageId);
+            message.Property(m => m.MessageId).HasMaxLength(DiscordGuild.IdMaxLength);
+            message.Property(m => m.GuildId).HasMaxLength(DiscordGuild.IdMaxLength);
+            message.Property(m => m.ChannelId).HasMaxLength(DiscordGuild.IdMaxLength);
+            message.PrimitiveCollection(m => m.Sources).IsRequired();
+            message.PrimitiveCollection(m => m.CardIds).IsRequired();
+            message.PrimitiveCollection(m => m.BoardIds).IsRequired();
+            message.HasIndex(m => m.PostedAt);
         });
 
         modelBuilder.Entity<DiscordBotSettings>(bot =>

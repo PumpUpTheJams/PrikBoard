@@ -18,6 +18,8 @@ import { ConfirmDialog } from './components/ConfirmDialog'
 import { NoticeDialog } from './components/NoticeDialog'
 import { ConnectPage } from './components/ConnectPage'
 import { connectFromHash } from './components/connect'
+import { DiscordAccountPage } from './components/DiscordAccountPage'
+import { discordAccountCodeFromHash } from './components/discord'
 import { IntegrationsDialog } from './components/IntegrationsDialog'
 import { InvitePage } from './components/InvitePage'
 import { NoAccess } from './components/NoAccess'
@@ -56,6 +58,7 @@ export default function App() {
   const [user, setUser] = useState<Caller | null | undefined>(undefined)
   const [invite, setInvite] = useState(inviteFromHash)
   const [connect, setConnect] = useState(connectFromHash)
+  const [discordCode, setDiscordCode] = useState(discordAccountCodeFromHash)
   // Signed out, a board link may be to a public board: shown to visitors unless it isn't public or they sign in.
   const [boardRef, setBoardRef] = useState(boardRefFromHash)
   const [notVisible, setNotVisible] = useState<string | null>(null)
@@ -74,6 +77,7 @@ export default function App() {
     const onHashChange = () => {
       setInvite(inviteFromHash())
       setConnect(connectFromHash())
+      setDiscordCode(discordAccountCodeFromHash())
       setBoardRef(boardRefFromHash())
       setSetupHash(setupFromHash())
     }
@@ -118,6 +122,17 @@ export default function App() {
         user={user}
         status={null}
         onUnlocked={() => {}}
+        onDone={() => {
+          window.location.hash = ''
+        }}
+      />
+    )
+  }
+  if (discordCode !== null) {
+    return (
+      <DiscordAccountPage
+        code={discordCode}
+        user={user}
         onDone={() => {
           window.location.hash = ''
         }}
@@ -378,7 +393,13 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
         </Suspense>
       )}
       {dialog === 'integrations' && activeBoard && isOwner && (
-        <IntegrationsDialog key={activeBoard.id} board={activeBoard} isAdmin={user.isAdmin} onClose={() => setDialog(null)} />
+        <IntegrationsDialog
+          key={activeBoard.id}
+          board={activeBoard}
+          buckets={board?.buckets ?? []}
+          isAdmin={user.isAdmin}
+          onClose={() => setDialog(null)}
+        />
       )}
       {dialog === 'account' && <AccountDialog user={user} boards={boards ?? []} onChange={onUserChange} onClose={() => setDialog(null)} />}
 

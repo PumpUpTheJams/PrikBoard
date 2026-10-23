@@ -163,7 +163,7 @@ export function DiscordBotSettings() {
                 <span className="row-meta">
                   {s.boards.length === 0
                     ? 'No boards'
-                    : s.boards.map((b) => `${b.boardName} (${b.channels === null ? 'whole server' : plural(b.channels.length, 'channel', 'channels')})`).join(', ')}
+                    : s.boards.map((b) => `${b.boardName} (${b.wholeServer ? 'whole server' : plural(b.channels.length, 'channel', 'channels')})`).join(', ')}
                 </span>
               </span>
               <button type="button" className="ghost small" onClick={() => setLeaving(s)}>
