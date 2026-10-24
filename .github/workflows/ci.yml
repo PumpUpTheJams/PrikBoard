@@ -3,8 +3,7 @@ name: CI
 on:
   pull_request:
 
-# Pull requests can come from forks, so CI runs on GitHub's disposable runners and only reads the repository. The
-# self-hosted runner only builds tags (containers.yml, extension.yml), which maintainers push.
+# Pull requests can come from forks, so CI only reads the repository.
 permissions:
   contents: read
 
