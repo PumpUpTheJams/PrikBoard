@@ -3,6 +3,18 @@ using PrikBoard.Api.Domain;
 namespace PrikBoard.Api.Tests;
 
 /// <summary>
+/// A stress test rather than a quick check: thousands of random layouts, which take half a minute, so it only runs with
+/// <c>PRIKBOARD_STRESS=1</c> (CI skips it). Run it when changing <see cref="Layout.PackIn"/> or <see cref="Layout.MakeRoomIn"/>.
+/// </summary>
+public sealed class StressFactAttribute : FactAttribute
+{
+    public StressFactAttribute()
+    {
+        if (Environment.GetEnvironmentVariable("PRIKBOARD_STRESS") != "1") Skip = "A stress test: set PRIKBOARD_STRESS=1 to run it.";
+    }
+}
+
+/// <summary>
 /// The fast search in <see cref="Layout.PackIn"/> and <see cref="Layout.MakeRoomIn"/> finds the same places, and grows
 /// the bucket the same way, as trying every grid step against everything in the way (<see cref="LayoutReference"/>).
 /// </summary>
@@ -10,7 +22,7 @@ public class LayoutSearchTests
 {
     private static readonly GrowSide[] Sides = Enum.GetValues<GrowSide>();
 
-    [Fact]
+    [StressFact]
     public void PackIn_finds_the_same_places_as_trying_every_step()
     {
         var random = new Random(1234);
@@ -30,7 +42,7 @@ public class LayoutSearchTests
         }
     }
 
-    [Fact]
+    [StressFact]
     public void MakeRoomIn_finds_the_same_slot_as_trying_every_step()
     {
         var random = new Random(5678);
