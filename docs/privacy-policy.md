@@ -6,9 +6,9 @@ title: PrikBoard Privacy Policy
 
 Last updated: 24 October 2026
 
-This policy explains what the PrikBoard instance at **[PUBLIC URL]** (the "Service") and the PrikBoard Discord bot (the "Bot") collect, why, and what you can do about it. It goes with the [Terms of Service](terms-of-service.md).
+This policy explains what the PrikBoard instance at [prikboard.com](https://prikboard.com) (the "Service") and the PrikBoard Discord bot (the "Bot") collect, why, and what you can do about it. It goes with the [Terms of Service](terms-of-service.md).
 
-The Service is run by the PrikBoard maintainers, reachable at **[CONTACT EMAIL]**, who are the data controller.
+The Service is run by the PrikBoard maintainers, reachable at prikboardinfo@gmail.com, who are the data controller.
 
 ## 1. What we keep about you
 
@@ -36,7 +36,7 @@ There are no advertising or analytics cookies, and no third-party trackers.
 
 ## 3. Logs
 
-The server logs errors and slow requests to keep the Service running. These logs may include the request path and technical details, and are kept for no longer than **[LOG RETENTION, e.g. 30 days]**. Rate limiting may use your IP address briefly, in memory.
+The server logs errors and slow requests to keep the Service running. These logs may include the request path and technical details, and are kept for no longer than 7 days. Rate limiting may use your IP address briefly, in memory.
 
 ## 4. The Discord bot
 
@@ -60,7 +60,7 @@ We don't sell your data or share it for advertising. Others only see what you sh
 - **AI agents** using your access tokens see what those tokens allow.
 - Your **sign-in provider** (GitHub, Discord, Google, Steam or another) knows that you signed in to PrikBoard.
 
-The Service is hosted on **[HOSTING PROVIDER / LOCATION]**.
+The Service is hosted on [prikboard.com](https://prikboard.com).
 
 ## 6. How long we keep it
 
@@ -71,7 +71,7 @@ The Service is hosted on **[HOSTING PROVIDER / LOCATION]**.
 
 ## 7. Your rights
 
-Depending on where you live (for example under the EU's GDPR), you can ask to see, correct, export or delete your data, or object to how we use it. You can do much of this yourself: change your display name, remove your avatar, revoke tokens, export boards and leave boards. For anything else, including deleting your account, write to **[CONTACT EMAIL]**.
+Depending on where you live (for example under the EU's GDPR), you can ask to see, correct, export or delete your data, or object to how we use it. You can do much of this yourself: change your display name, remove your avatar, revoke tokens, export boards and leave boards. For anything else, including deleting your account, write to prikboardinfo@gmail.com.
 
 We process your data to provide the Service you asked for (performance of a contract) and to keep it secure and running (legitimate interest). You can also complain to your local data protection authority.
 
