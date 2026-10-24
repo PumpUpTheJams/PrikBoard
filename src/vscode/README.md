@@ -2,7 +2,7 @@
 
 Your PrikBoard boards, buckets and cards in the side bar. Work in progress.
 
-**Assigned to you**, at the top of the tree, lists the cards assigned to you on all your boards, with the board and bucket next to each. It uses who you are signed in as (`whoAmI`), so it shows your own cards after **Sign in**, or the agent's after signing in with an agent's access token.
+**Assigned to you**, at the top of the tree, lists the cards assigned to you on all your boards, sorted into their buckets (buckets with the same name on different boards, such as *Doing*, share one row), with the board next to each card. Collapse the buckets you care less about; VS Code remembers which ones. It uses who you are signed in as (`whoAmI`), so it shows your own cards after **Sign in**, or the agent's after signing in with an agent's access token.
 
 On boards where you are an Editor or Owner you can, from the tree:
 

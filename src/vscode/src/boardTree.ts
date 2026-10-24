@@ -23,7 +23,12 @@ export type Node =
   | { kind: 'board'; board: BoardSummary }
   /** `bucket` is null for cards that sit in no bucket. */
   | { kind: 'bucket'; boardId: string; bucket: BucketDetail | null; cards: CardDetail[]; canEdit: boolean }
-  /** `where` (board and bucket) is set where a card is shown outside its board, under "Assigned to you". */
+  /**
+   * A bucket under "Assigned to you": the caller's cards in every bucket of that name, on all boards (so "Doing" is one
+   * row), collapsible on its own. `name` is null for cards that sit in no bucket.
+   */
+  | { kind: 'mineBucket'; name: string | null; cards: CardNode[] }
+  /** `where` (the board) is set where a card is shown outside its board, under "Assigned to you". */
   | { kind: 'card'; card: CardDetail; canEdit: boolean; where?: string }
   /** One item of one of the card's checklist components. */
   | { kind: 'checklist'; card: CardDetail; component: CardComponent; index: number; canEdit: boolean }
@@ -63,9 +68,11 @@ const webOrigin = () => {
 /** The card a link points at, when it is a card's path or a full link to it on this server. */
 export const cardRouteOf = (link: CardLink) => cardRoute(link.url, webOrigin())
 
-/** How a card under "Assigned to you" says where it is. */
-const whereOf = (board: BoardDetail, bucketId: string | null) =>
-  `${board.name} · ${board.buckets.find((bucket) => bucket.id === bucketId)?.name ?? 'no bucket'}`
+/** Buckets of the same name on different boards share one row under "Assigned to you". */
+const bucketKey = (name: string | null) => (name === null ? '' : `:${name.trim().toLowerCase()}`)
+
+/** How a card under "Assigned to you" says where it is: its bucket is the row above, so only the board. */
+const whereOf = (board: BoardDetail) => board.name
 
 /** Menus in package.json match these, for example `viewItem == card.edit`. */
 const contextOf = (kind: string, canEdit = false) => (canEdit ? `${kind}.edit` : kind)
@@ -111,7 +118,10 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
       }
       switch (node.kind) {
         case 'mine':
+          await Promise.all((await this.loadBoards()).map((summary) => this.loadBoard(summary.id)))
           return this.assignedTo(node.me)
+        case 'mineBucket':
+          return node.cards
         case 'board':
           return this.bucketNodes(await this.loadBoard(node.board.id))
         case 'bucket':
@@ -160,6 +170,15 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
         const item = new vscode.TreeItem(node.bucket?.name ?? 'No bucket', vscode.TreeItemCollapsibleState.Expanded)
         item.id = `bucket:${node.boardId}:${node.bucket?.id ?? 'loose'}`
         item.contextValue = contextOf('bucket', node.canEdit)
+        item.iconPath = icon('circle-filled')
+        item.description = String(node.cards.length)
+        return item
+      }
+      case 'mineBucket': {
+        const item = new vscode.TreeItem(node.name ?? 'No bucket', vscode.TreeItemCollapsibleState.Expanded)
+        // Stable per name, so VS Code remembers which ones were collapsed.
+        item.id = `mine:bucket${bucketKey(node.name)}`
+        item.contextValue = contextOf('mineBucket')
         item.iconPath = icon('circle-filled')
         item.description = String(node.cards.length)
         return item
@@ -216,17 +235,21 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
     }
   }
 
-  /** The row above a row, so the view can reveal cards. Only boards, buckets, cards and links need one. */
+  /** The row above a row, so the view can reveal cards. Only buckets, cards and links need one. */
   getParent(node: Node): Node | undefined {
     switch (node.kind) {
       case 'bucket': {
         const board = this.boards?.find((summary) => summary.id === node.boardId)
         return board && { kind: 'board', board }
       }
+      case 'mineBucket': {
+        const me = this.me()
+        return me && { kind: 'mine', me }
+      }
       case 'card': {
         if (node.where !== undefined) {
           const me = this.me()
-          return me && { kind: 'mine', me }
+          return me && this.assignedTo(me).find((group) => group.cards.some((card) => card.card.id === node.card.id))
         }
         const board = this.details.get(node.card.boardId)
         return board && this.bucketNodes(board).find((bucket) => bucket.kind === 'bucket' && (bucket.bucket?.id ?? null) === node.card.bucketId)
@@ -253,7 +276,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
       const canEdit = board.yourRole !== 'Viewer'
       const me = this.me()
       return assignedRow && me && card.assignees.some((assignee) => assignee.principalId === me.id)
-        ? { kind: 'card', card, canEdit, where: whereOf(board, card.bucketId) }
+        ? { kind: 'card', card, canEdit, where: whereOf(board) }
         : { kind: 'card', card, canEdit }
     }
     const found = await find()
@@ -285,23 +308,36 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
     return item
   }
 
-  /** Cards assigned to the caller on every board, board by board in the board's own order. */
-  private async assignedTo(me: Caller): Promise<Node[]> {
-    const boards = await Promise.all((await this.loadBoards()).map((summary) => this.loadBoard(summary.id)))
-    return boards.flatMap((board) =>
-      this.bucketNodes(board).flatMap((node) =>
-        node.kind !== 'bucket'
-          ? []
-          : node.cards
-              .filter((card) => card.assignees.some((assignee) => assignee.principalId === me.id))
-              .map((card): Node => ({
-                kind: 'card',
-                card,
-                canEdit: node.canEdit,
-                where: whereOf(board, node.bucket?.id ?? null),
-              })),
-      ),
-    )
+  /**
+   * Cards assigned to the caller on every loaded board, grouped by bucket name. Buckets come in the order they first
+   * appear (boards in list order, each board's buckets in its own order), cards without a bucket last; buckets without
+   * the caller's cards are left out. Synchronous so getParent can use it: getChildren loads every board first.
+   */
+  private assignedTo(me: Caller): Extract<Node, { kind: 'mineBucket' }>[] {
+    const groups = new Map<string, Extract<Node, { kind: 'mineBucket' }>>()
+    let loose: Extract<Node, { kind: 'mineBucket' }> | undefined
+    for (const summary of this.boards ?? []) {
+      const board = this.details.get(summary.id)
+      if (!board) continue
+      for (const node of this.bucketNodes(board)) {
+        if (node.kind !== 'bucket') continue
+        const cards = node.cards
+          .filter((card) => card.assignees.some((assignee) => assignee.principalId === me.id))
+          .map((card): CardNode => ({ kind: 'card', card, canEdit: node.canEdit, where: whereOf(board) }))
+        if (cards.length === 0) continue
+        const name = node.bucket?.name ?? null
+        if (name === null) {
+          loose ??= { kind: 'mineBucket', name: null, cards: [] }
+          loose.cards.push(...cards)
+          continue
+        }
+        const key = bucketKey(name)
+        const group = groups.get(key) ?? { kind: 'mineBucket', name, cards: [] }
+        group.cards.push(...cards)
+        groups.set(key, group)
+      }
+    }
+    return loose ? [...groups.values(), loose] : [...groups.values()]
   }
 
   private bucketNodes(board: BoardDetail): Node[] {
