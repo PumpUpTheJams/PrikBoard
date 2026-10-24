@@ -180,6 +180,13 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var resize = await viewerDrags.NextAsync();
         Assert.Equal((DragKind.Resize, bucketId, ResizeHandle.TopLeft), (resize.Kind, resize.Id, resize.Handle));
 
+        // Drawings move on their own too.
+        await Task.Delay(60);
+        var drawingId = Guid.NewGuid();
+        await ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Drawing, drawingId, 60, 0));
+        var drawing = await viewerDrags.NextAsync();
+        Assert.Equal((DragKind.Drawing, drawingId, 60d), (drawing.Kind, drawing.Id, drawing.Dx));
+
         // Several selected items moving together list them all; a group of none is no drag.
         await Task.Delay(60);
         await ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Group, card.Id, 20, 20, Items: [card.Id, bucketId]));

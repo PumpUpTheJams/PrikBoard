@@ -24,6 +24,9 @@ public enum DragKind
 
     /// <summary>Moving several selected items together: cards, buckets, images and drawings, listed in <c>Items</c>.</summary>
     Group,
+
+    /// <summary>Moving a drawing.</summary>
+    Drawing,
 }
 
 /// <summary>

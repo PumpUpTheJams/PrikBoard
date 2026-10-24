@@ -795,7 +795,7 @@ export interface AcceptedInvite {
 // Live updates over SignalR (/api/live); mirrors Contracts/Live.cs.
 
 /** Group: several selected items moving together (`items`). */
-export type DragKind = 'Card' | 'Bucket' | 'Resize' | 'Image' | 'ImageResize' | 'Group'
+export type DragKind = 'Card' | 'Bucket' | 'Resize' | 'Image' | 'ImageResize' | 'Group' | 'Drawing'
 
 /** The corner or edge a resize drags; the opposite one stays where it is, and an edge resizes in its direction only. */
 export type ResizeHandle = 'BottomRight' | 'BottomLeft' | 'TopRight' | 'TopLeft' | 'Top' | 'Right' | 'Bottom' | 'Left'
