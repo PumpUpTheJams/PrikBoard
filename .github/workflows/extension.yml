@@ -1,15 +1,19 @@
 name: VS Code extension
 
-# Pushing a semver tag (1.2.3) packages the VS Code extension with that version and attaches the .vsix to the run as an
-# artifact (Actions -> the run -> Artifacts). Pull requests are covered by the vscode job in ci.yml.
+# The extension is released on its own, apart from the app: pushing a tag vscode-1.2.3 packages it with version 1.2.3 and
+# publishes the .vsix as its own GitHub release, "PrikBoard for VS Code 1.2.3", which never becomes the repository's
+# latest release (that stays the app's). A release drafted on GitHub for such a tag gets the .vsix attached instead.
+# App tags (1.2.3) only build the container image (containers.yml). Pull requests are covered by the vscode job in ci.yml.
 on:
   push:
-    tags: ['[0-9]+.[0-9]+.[0-9]+']
+    tags: ['vscode-[0-9]+.[0-9]+.[0-9]+']
 
 jobs:
   vsix:
-    name: Package .vsix
+    name: Package and release .vsix
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: src/vscode
@@ -20,17 +24,27 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: src/vscode/package-lock.json
+      - run: echo "VERSION=${GITHUB_REF_NAME#vscode-}" >> "$GITHUB_ENV"
       - run: npm ci
       - run: npm run lint
       - run: npm run build -- --production
       # The tag is the version. --no-update-package-json keeps the checked-out package.json as it is.
       - run: >-
-          npx vsce package "${{ github.ref_name }}"
+          npx vsce package "$VERSION"
           --no-dependencies --skip-license --allow-missing-repository
           --no-git-tag-version --no-update-package-json
-          --out "prikboard-vscode-${{ github.ref_name }}.vsix"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: prikboard-vscode-${{ github.ref_name }}
-          path: src/vscode/prikboard-vscode-${{ github.ref_name }}.vsix
-          if-no-files-found: error
+          --out "prikboard-vscode-$VERSION.vsix"
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          file="prikboard-vscode-$VERSION.vsix"
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$file" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$file" \
+              --title "PrikBoard for VS Code $VERSION" \
+              --latest=false \
+              --notes "The PrikBoard extension for VS Code, version $VERSION. To install it, download $file and run **Extensions: Install from VSIX...** from the command palette, or \`code --install-extension $file\`."
+          fi

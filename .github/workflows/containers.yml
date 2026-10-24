@@ -2,7 +2,8 @@ name: Containers
 
 # Pushing a semver tag (1.2.3) builds the PrikBoard image (the API serving the web app, see the root Dockerfile) and
 # publishes it to the GitHub Container Registry as ghcr.io/<owner>/prikboard:1.2.3 and :latest, for linux/amd64 and
-# linux/arm64 (Raspberry Pi). Pull requests don't build images.
+# linux/arm64 (Raspberry Pi). Pull requests don't build images. The package must give this repository Write access
+# (its Package settings -> Manage Actions access), or the push is refused with 403.
 on:
   push:
     tags: ['[0-9]+.[0-9]+.[0-9]+']
