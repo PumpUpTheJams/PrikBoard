@@ -3,10 +3,15 @@ name: CI
 on:
   pull_request:
 
+# Pull requests can come from forks, so CI runs on GitHub's disposable runners and only reads the repository. The
+# self-hosted runner only builds tags (containers.yml, extension.yml), which maintainers push.
+permissions:
+  contents: read
+
 jobs:
   api:
     name: API build and tests
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     services:
       # Same credentials as compose.yaml, which the test factory uses by default.
       postgres:
@@ -25,16 +30,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
-        # The self-hosted runner can't write to the default /usr/share/dotnet.
-        env:
-          DOTNET_INSTALL_DIR: ${{ runner.tool_cache }}/dotnet
         with:
           dotnet-version: 10.0.x
       - run: dotnet test PrikBoard.slnx
 
   web:
     name: Web lint and build
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: src/web
@@ -51,7 +53,7 @@ jobs:
 
   vscode:
     name: VS Code extension lint, build and package
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: src/vscode
@@ -66,3 +68,23 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: npm run package
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      # From gitleaks_8.30.1_checksums.txt on the release.
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The whole history, so a secret added and removed again within the pull request is still found.
+          fetch-depth: 0
+      # The gitleaks binary rather than gitleaks-action, which needs a paid license on organization repositories.
+      - run: |
+          curl -sSfL -o gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          rm gitleaks.tar.gz
+      - run: ./gitleaks git --config .gitleaks.toml --redact --no-banner --verbose

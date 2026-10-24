@@ -1,0 +1,12 @@
+# Secret scan for CI (the secrets job in .github/workflows/ci.yml): gitleaks' default rules plus PrikBoard's own tokens.
+title = "PrikBoard"
+
+[extend]
+useDefault = true
+
+# Personal access tokens (pb_pat_) and image upload URLs (pb_upl_), see Auth/AccessTokens.cs and Domain/ImageUpload.cs.
+[[rules]]
+id = "prikboard-token"
+description = "PrikBoard access token or image upload capability"
+regex = '''\bpb_(?:pat|upl)_[A-Za-z0-9_-]{32,}\b'''
+keywords = ["pb_pat_", "pb_upl_"]

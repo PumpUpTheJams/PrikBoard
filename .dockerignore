@@ -6,8 +6,11 @@ src/PrikBoard.Api/bin/
 src/PrikBoard.Api/obj/
 src/PrikBoard.Api/files/
 src/PrikBoard.Api/appsettings.Development.json
+src/PrikBoard.Api/appsettings.Production.json
+src/PrikBoard.Api/appsettings.*.local.json
 src/PrikBoard.Api/*.user
 src/PrikBoard.Api/prikboard.db*
 src/web/node_modules/
 src/web/dist/
 src/web/*.local
+src/web/.env*
