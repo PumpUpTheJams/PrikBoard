@@ -48,12 +48,14 @@ export function useBoard(
   /** A refresh was asked for while paused; it runs on unpause. */
   const owed = useRef(false)
   const reload = useRef<() => void>(() => {})
+  /** Reads the open board; in the background (`true`) a failure keeps showing the last good board. */
+  const load = useRef<(background: boolean) => void>(() => {})
 
   useEffect(() => {
     if (!boardId) return
     let ignore = false
-    const load = (background: boolean) =>
-      api.getBoard(boardId).then(
+    load.current = (background: boolean) =>
+      void api.getBoard(boardId).then(
         (board) => !ignore && (!background || !paused.current) && setLoaded(board),
         (error) => {
           if (ignore) return
@@ -68,21 +70,28 @@ export function useBoard(
       window.clearTimeout(debounce)
       debounce = window.setTimeout(() => {
         if (paused.current) owed.current = true
-        else void load(true)
+        else load.current(true)
       }, REFRESH_DEBOUNCE_MS)
     }
 
-    void load(false)
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible' && !paused.current) void load(true)
-    }, live ? LIVE_POLL_MS : POLL_MS)
+    load.current(false)
     return () => {
       ignore = true
-      window.clearInterval(timer)
       window.clearTimeout(debounce)
       reload.current = () => {}
+      load.current = () => {}
     }
-  }, [boardId, onError, onLost, live, setLoaded])
+  }, [boardId, onError, onLost, setLoaded])
+
+  // Polling, apart from loading: live updates connecting or dropping (a laptop waking up does both, before its network
+  // is back) only changes how often, and never shows an error.
+  useEffect(() => {
+    if (!boardId) return
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible' && !paused.current) load.current(true)
+    }, live ? LIVE_POLL_MS : POLL_MS)
+    return () => window.clearInterval(timer)
+  }, [boardId, live])
 
   const run = useCallback(
     async (action: () => Promise<unknown>) => {
