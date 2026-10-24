@@ -1,12 +1,8 @@
----
-title: PrikBoard Terms of Service
----
-
 # PrikBoard Terms of Service
 
 Last updated: 24 October 2026
 
-These terms cover the PrikBoard instance run by the PrikBoard maintainers at **[PUBLIC URL]** (the "Service") and the PrikBoard Discord bot (the "Bot"). By using either, you agree to these terms. If you don't agree, don't use them.
+These terms cover the PrikBoard instance run by the PrikBoard maintainers at [prikboard.com](https://prikboard.com) (the "Service") and the PrikBoard Discord bot (the "Bot"). By using either, you agree to these terms. If you don't agree, don't use them.
 
 People who host their own copy of PrikBoard run their own service; these terms don't cover it.
 
@@ -77,8 +73,8 @@ We may update these terms. The date at the top shows the latest version. If you 
 
 ## 13. Governing law
 
-These terms are governed by the laws of **[COUNTRY]**. Disputes go to the competent courts there, unless mandatory consumer law gives you the right to go to court where you live.
+These terms are governed by the laws of the Netherlands. Disputes go to the competent courts there, unless mandatory consumer law gives you the right to go to court where you live.
 
 ## 14. Contact
 
-Questions about these terms: **[CONTACT EMAIL]**, or open an issue on the project's GitHub repository.
+Questions about these terms: prikboardinfo@gmail.com, or open an issue on the project's GitHub repository.
