@@ -59,3 +59,11 @@ The extension reuses the web app's API client and types (`src/web/src/api`) inst
 npm run build      # type check and bundle to dist/
 npm run package    # build a .vsix
 ```
+
+## Releasing
+
+The extension is released apart from the app. Push a tag `vscode-1.2.3` and the [VS Code extension workflow](https://github.com/PumpUpTheJams/PrikBoard/blob/main/.github/workflows/extension.yml) packages it as version 1.2.3 and publishes the .vsix as its own GitHub release, *PrikBoard for VS Code 1.2.3*, which never becomes the latest release (that stays the app's). App tags (`1.2.3`) build only the container image.
+
+```bash
+git tag vscode-1.2.3 && git push origin vscode-1.2.3
+```
