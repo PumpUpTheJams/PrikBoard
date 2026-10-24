@@ -111,8 +111,14 @@ export default function App() {
         />
       )
     }
+    // A refused sign-in (a newcomer without an invite) comes back to the board it started from, and says why over it.
     if (boardRef && !signingIn && !invite && !connect && notVisible !== boardRef) {
-      return <VisitorPage key={boardRef} boardRef={boardRef} onMissing={() => setNotVisible(boardRef)} onSignIn={() => setSigningIn(true)} />
+      return (
+        <>
+          <VisitorPage key={boardRef} boardRef={boardRef} onMissing={() => setNotVisible(boardRef)} onSignIn={() => setSigningIn(true)} />
+          {authError && <NoticeDialog title="Not signed in" messages={[authError]} onClose={() => setAuthError(null)} />}
+        </>
+      )
     }
     return <SignIn authError={authError} />
   }

@@ -1,10 +1,13 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -33,6 +36,30 @@ public class AuthApiTests(AuthApiTests.Factory factory) : IClassFixture<AuthApiT
             builder.UseSetting("Auth:Providers:google:ClientId", "google-client");
             // A template that was never filled in.
             builder.UseSetting("Auth:Providers:unfinished:Authority", "https://unfinished.idp.test/");
+            // GitHub's side of the sign-in is faked, and the test server speaks http, so the correlation cookie may too.
+            builder.ConfigureTestServices(services => services.PostConfigure<OAuthOptions>("github", options =>
+            {
+                options.Backchannel = new HttpClient(new FakeGitHub());
+                options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+            }));
+        }
+    }
+
+    /// <summary>GitHub's token and user endpoints, for someone PrikBoard doesn't know: GitHub user 4242 without a verified email.</summary>
+    private class FakeGitHub : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var json = request.RequestUri!.AbsolutePath switch
+            {
+                "/login/oauth/access_token" => """{"access_token":"fake-token","token_type":"bearer"}""",
+                "/user" => """{"id":4242,"login":"newcomer"}""",
+                "/user/emails" => "[]",
+                _ => null,
+            };
+            return Task.FromResult(json is null
+                ? new HttpResponseMessage(HttpStatusCode.NotFound)
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") });
         }
     }
 
@@ -188,6 +215,22 @@ public class AuthApiTests(AuthApiTests.Factory factory) : IClassFixture<AuthApiT
 
         (await client.PostAsync("/api/auth/logout", null)).EnsureSuccessStatusCode();
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/me")).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_newcomer_refused_while_visiting_a_board_goes_back_to_it()
+    {
+        // Someone signed up already, so a newcomer needs an invite.
+        await factory.CreateSignedInClientAsync("refused-owner@example.com");
+        var newcomer = factory.CreateAnonymousClient();
+
+        var challenge = await newcomer.GetAsync("/api/auth/login/github?returnUrl=" + Uri.EscapeDataString("/#/boards/k3x9m2/cards/4"));
+        var state = QueryHelpers.ParseQuery(challenge.Headers.Location!.Query)["state"].ToString();
+        var callback = await newcomer.GetAsync($"/api/auth/callback/github?code=fake-code&state={Uri.EscapeDataString(state)}");
+
+        Assert.Equal(HttpStatusCode.Redirect, callback.StatusCode);
+        Assert.Equal("/?authError=invite_required#/boards/k3x9m2/cards/4", callback.Headers.Location!.OriginalString);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await newcomer.GetAsync("/api/me")).StatusCode);
     }
 
     [Fact]
