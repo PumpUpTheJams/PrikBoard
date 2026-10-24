@@ -9,7 +9,7 @@ on:
 jobs:
   vsix:
     name: Package .vsix
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: src/vscode

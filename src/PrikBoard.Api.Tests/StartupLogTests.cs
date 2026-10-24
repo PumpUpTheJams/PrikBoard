@@ -24,7 +24,7 @@ public class StartupLogTests
     }
 
     /// <summary>
-    /// When the tests themselves run in a container (as on a self-hosted CI runner), Data Protection warns that the keys
+    /// When the tests themselves run in a container (as in a container-based CI job), Data Protection warns that the keys
     /// folder isn't a mounted volume. The tests keep it in a temp folder; a real start keeps it in the data folder, which
     /// the compose setup mounts, so a self-hoster doesn't see this.
     /// </summary>
