@@ -261,7 +261,7 @@ public static partial class UserSignIn
             .LogWarning(context.Failure, "Sign-in through {Scheme} failed", context.Scheme.Name);
         context.Response.Redirect(context.Properties?.Items.ContainsKey(TestItem) == true
             ? TestResultUrl(context.Properties.RedirectUri, context.Scheme.Name, context.Failure?.Message ?? "The sign-in failed.")
-            : $"/?authError={FailedError}");
+            : ErrorUrl(FailedError, context.Properties?.RedirectUri));
         context.HandleResponse();
         return Task.CompletedTask;
     }
@@ -272,11 +272,19 @@ public static partial class UserSignIn
     /// </summary>
     private static string TestResultUrl(string? returnUrl, string provider, string? failure)
     {
-        var hash = returnUrl?.IndexOf('#') is >= 0 and var at ? returnUrl[at..] : "";
         var query = $"?setupTest={(failure is null ? "ok" : "failed")}&setupProvider={Uri.EscapeDataString(provider)}";
         if (failure is not null) query += $"&setupReason={Uri.EscapeDataString(failure.Length > 200 ? failure[..200] : failure)}";
-        return $"/{query}{hash}";
+        return $"/{query}{HashOf(returnUrl)}";
     }
+
+    /// <summary>
+    /// Where a failed sign-in ends: the start page with the reason in ?authError=, keeping the hash of the page that started
+    /// it, so someone refused while visiting a public board (a newcomer without an invite) is back on that board.
+    /// </summary>
+    private static string ErrorUrl(string error, string? returnUrl) => $"/?authError={error}{HashOf(returnUrl)}";
+
+    /// <summary>The hash of a local return URL (such as <c>#/boards/k3x9m2</c>), or an empty string.</summary>
+    private static string HashOf(string? returnUrl) => returnUrl?.IndexOf('#') is >= 0 and var at ? returnUrl[at..] : "";
 
     private static Task<UserIdentity?> FindIdentityAsync(PrikBoardDbContext db, string provider, byte[] subjectHash, CancellationToken ct) =>
         db.UserIdentities.Include(i => i.User)
@@ -284,7 +292,7 @@ public static partial class UserSignIn
 
     private static void Reject(TicketReceivedContext context, string error)
     {
-        context.Response.Redirect($"/?authError={error}");
+        context.Response.Redirect(ErrorUrl(error, context.ReturnUri));
         context.HandleResponse();
     }
 
