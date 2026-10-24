@@ -177,16 +177,15 @@ builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document,
 
 var app = builder.Build();
 
-// Fail fast when Storage:Path is missing or not writable, before the migrations move files there, and when Auth:HashKey
+// Fail fast when Storage:Path is missing or not writable, and when Auth:HashKey
 // is invalid, rather than on the first sign-in. Without one the hash key is generated into the data folder now.
-var files = app.Services.GetRequiredService<FileStore>();
+app.Services.GetRequiredService<FileStore>();
 app.Services.GetRequiredService<KeyedHasher>();
 
 await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
-    await StartupMigration.RunAsync(db, files,
-        app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(StartupMigration)), CancellationToken.None);
+    await StartupMigration.RunAsync(db, CancellationToken.None);
     // The sign-in providers' schemes, from configuration and from the setup.
     await app.Services.GetRequiredService<SignInProviders>().LoadAsync(db, CancellationToken.None);
     // The Discord bot, when configured or set up; it connects in the background.

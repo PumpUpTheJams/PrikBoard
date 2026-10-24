@@ -8,7 +8,6 @@ namespace PrikBoard.Api.Data;
 /// <summary>
 /// Stores a card's components as one jsonb array with camelCase names, e.g.
 /// <c>[{"id":…,"kind":"Checklist","x":20,"y":20,"width":340,"height":260,"title":null,"text":null,"items":[{"text":…,"done":false}],"links":[]}]</c>.
-/// The migration NoteBlocks wrote the same shape (as Blocks on Notes, renamed by CardsAndComponents).
 /// </summary>
 public static class CardComponentsJson
 {

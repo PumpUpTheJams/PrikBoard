@@ -36,7 +36,7 @@ Every action of the bot uses the same rules:
 
 It has not been tried against Discord yet, because that needs a public host (open question 10).
 
-Part 2 started as a separate bot process that each server connected with a code pasted back into Discord. That was hard to set up: an env var on the API, a second container, and four steps per server. It was replaced by a bot inside the API that an admin sets up at runtime, plus a channel picker for board owners. The `DiscordBotInApi` migration deleted the old per-server tokens. Servers that were already connected keep their boards and channels, and their previews come back once an admin enters the same bot's token.
+Part 2 started as a separate bot process that each server connected with a code pasted back into Discord. That was hard to set up: an env var on the API, a second container, and four steps per server. It was replaced by a bot inside the API that an admin sets up at runtime, plus a channel picker for board owners.
 
 ## Goal
 
@@ -147,8 +147,6 @@ There is also a `DiscordBoardChannels` row per connected board, saying where the
 | `GuildId`, `BoardId` | The connection. The membership is the grant; this row only narrows it. |
 | `WholeServer` | Links preview in every channel of the server |
 | `Channels` | The channels picked for the board (jsonb). Each has its id and name, the `Updates` it follows (flags, stored as a number) and its `SaveBucketId`. |
-
-The `DiscordActivity` migration turned the old "whole server" (a null list of channels) into `WholeServer`.
 
 Discord's own server, channel and message ids are not personal data about PrikBoard users, so storing them in plain text is fine. Discord *user* ids are only stored as keyed hashes (see Who is who).
 
