@@ -81,13 +81,13 @@ export function ToolRail(props: ToolRailProps) {
           <div className="rail-anchor">
             {trash
               ? button(
-                  { tool: 'card', label: 'Trash', shortcut: 'N', Icon: TrashIcon, title: 'Drop a card here to delete it' },
+                  { tool: 'card', label: 'Trash', shortcut: 'C', Icon: TrashIcon, title: 'Drop a card here to delete it' },
                   `trash${trash === 'over' ? ' over' : ''}`,
                   onCardPointerDown,
                   trashRef,
                 )
               : button(
-                  { tool: 'card', label: 'Card', shortcut: 'N', Icon: CardIcon, title: 'Card (N): drag it onto the board, or click here and then on the board' },
+                  { tool: 'card', label: 'Card', shortcut: 'C', Icon: CardIcon, title: 'Card (C): drag it onto the board, or click here and then on the board' },
                   `tone-${fill.toLowerCase()}`,
                   onCardPointerDown,
                   trashRef,
