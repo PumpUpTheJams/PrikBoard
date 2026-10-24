@@ -7,8 +7,7 @@ namespace PrikBoard.Api.Data;
 
 /// <summary>
 /// Stores a drawing's strokes as one jsonb array with camelCase names, each with its points as <c>[x, y, pressure]</c>
-/// triples, e.g. <c>[{"strokeWidth":4,"points":[[0,0,0.5],[12.5,3,0.62]]}]</c>. The migration DrawingStrokes wrote the
-/// same shape from the single stroke drawings had before.
+/// triples, e.g. <c>[{"strokeWidth":4,"points":[[0,0,0.5],[12.5,3,0.62]]}]</c>.
 /// </summary>
 public static class DrawingStrokesJson
 {
