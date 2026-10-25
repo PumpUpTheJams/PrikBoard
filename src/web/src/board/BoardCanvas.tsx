@@ -6,7 +6,7 @@ import { Toast } from '../components/Toast'
 import { BoardFilters } from './BoardFilters'
 import { CardGhost, NewCardGhost, RemoteDragOutlines, Slot } from './BoardGhosts'
 import { BoardPanels, type QuickEdit } from './BoardPanels'
-import { bucketCounts, bucketOf, cardBox, drawOrder, kindOf, NOTHING_IN, type Selection } from './boardItems'
+import { bucketCounts, bucketOf, cardBox, drawOrder, itemsById, NOTHING_IN, type Selection } from './boardItems'
 import type { Gesture, GestureTarget, GroupGesture, ItemDrag, ItemGesture } from './boardGesture'
 import { BoardSearch } from './BoardSearch'
 import { BoardTrash } from './BoardTrash'
@@ -301,6 +301,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     const collapsedIds = new Set(board.buckets.filter((b) => b.collapsed).map((b) => b.id))
     return { collapsedIds, visibleCards: board.cards.filter((n) => !n.bucketId || !collapsedIds.has(n.bucketId)) }
   }, [board.buckets, board.cards])
+  const byId = useMemo(() => itemsById(board), [board])
   const search = useBoardSearch({ board, visibleCards, collapsedIds, filterFaded: filters.faded, expand })
   const { terms, matches, results, current } = search
   const boardView = useBoardView({
@@ -727,11 +728,19 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   useEffect(() => () => onSelect?.([]), [onSelect])
   /** Where an item someone else has selected is shown now (moving with drags); null when it is gone or folded away. */
   const pinPlace = (id: string): PinPlace | null => {
-    const kind = kindOf(board, id)
-    const bucketId = kind && bucketOf(board, { kind, id })
-    if (!kind || board.buckets.some((b) => b.id === bucketId && b.collapsed)) return null
-    const rect = liveRect(kind, id)
-    return rect && { rect, card: kind === 'card' }
+    // By id, not liveRect: someone may have selected the whole board, and this runs for each of their pins.
+    const found = byId.get(id)
+    if (!found) return null
+    switch (found.kind) {
+      case 'bucket':
+        return { rect: found.item.collapsed ? collapsedRect(bucketRect(found.item)) : bucketRect(found.item), card: false }
+      case 'card':
+        return found.item.bucketId && collapsedIds.has(found.item.bucketId) ? null : { rect: cardBox(cardPoint(found.item)), card: true }
+      case 'image':
+        return hidden(found.item) ? null : { rect: imageRect(found.item), card: false }
+      case 'drawing':
+        return hidden(found.item) ? null : { rect: drawingRect(found.item), card: false }
+    }
   }
 
   // Someone picked in the top bar: glide to their thumbtack, which pulses and shows their name for a moment.
@@ -1028,7 +1037,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
             <RemoteDragOutlines drags={remoteDrags.filter((r) => !r.endedAt && r.id !== dragging?.id)} rectsOf={remoteRects} unnamed={!!onCursor} />
             {cursors && onCursor && (
-              <RemoteCursors cursors={cursors} viewers={viewers} drags={remoteDrags} placeOf={pinPlace} zoom={zoom} focused={focusedTack} />
+              <RemoteCursors cursors={cursors} viewers={viewers} drags={remoteDrags} placeOf={pinPlace} near={near} zoom={zoom} focused={focusedTack} />
             )}
 
             {marquee && (

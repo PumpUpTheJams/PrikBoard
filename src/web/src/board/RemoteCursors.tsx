@@ -1,8 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
-import type { LiveViewer } from '../api/types'
+import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
+import type { LiveViewer, Point, Rect } from '../api/types'
 import { Face } from '../components/Avatar'
 import { presenceColor } from '../live/presence'
-import type { CursorStore, LiveDrag } from '../live/useLive'
+import type { CursorStore, LiveDrag, LiveSelection } from '../live/useLive'
 import { SparkleIcon } from './icons'
 import { headsOf, pinsOf, type Pin, type PinPlace } from './peers'
 
@@ -16,50 +16,39 @@ const PIN_OUT_MS = 140
  * while they drag, as the dragged item shows where they are), and a pin pricked into the top of everything they have
  * selected, which drops in when they select it and pulls out when they don't any more. Both keep their size on screen
  * whatever the zoom. `focused`: the connection picked in the top bar, whose head (or else pins) pulses and shows the
- * name. It follows the store by itself, so the board doesn't draw again as pointers move.
+ * name. It follows the store by itself, so the board doesn't draw again as pointers move. `near`: the part of the board
+ * on the page (useVisibleWindow); only the pins in it are drawn, since someone may have selected a thousand items.
  */
-export function RemoteCursors({ cursors, viewers, drags, placeOf, zoom, focused }: {
+export function RemoteCursors({ cursors, viewers, drags, placeOf, near, zoom, focused }: {
   cursors: CursorStore
   viewers: LiveViewer[]
   drags: LiveDrag[]
   placeOf: (id: string) => PinPlace | null
+  near: Rect
   zoom: number
   focused: string | null
 }) {
   const peers = useSyncExternalStore(cursors.subscribe, cursors.snapshot)
   const dragging = new Set(drags.filter((d) => !d.endedAt).map((d) => d.key))
   const heads = headsOf(peers.cursors, viewers).filter((h) => !dragging.has(h.key))
-  const pins = useLeaving(pinsOf(peers, viewers, placeOf, zoom), PIN_OUT_MS)
   const now = useNow(heads.length > 0)
   const headFocused = heads.some((h) => h.key === focused)
-  const styleOf = (viewer: LiveViewer, at: { x: number; y: number }) =>
-    ({ left: at.x, top: at.y, '--who': presenceColor(viewer.principalId), '--unzoom': 1 / zoom }) as CSSProperties
   return (
     <>
-      {pins.map(({ id, key, viewer, at, out }) => (
-        <div
-          key={id}
-          className={`peer-pin${out ? ' out' : ''}${!headFocused && focused === key ? ' focused' : ''}`}
-          aria-hidden="true"
-          style={styleOf(viewer, at)}
-        >
-          <span className="peer-pin-hole" />
-          <span className="peer-pin-clip">
-            <span className="peer-pin-move">
-              <svg className="peer-pin-needle" viewBox="0 0 5.6 20" width="5.6" height="20">
-                <path d="M0 0h5.6L3.05 18.75 2.8 20l-.25-1.25z" />
-              </svg>
-              <PeerFace viewer={viewer} />
-            </span>
-          </span>
-        </div>
-      ))}
+      <Pins
+        selections={peers.selections}
+        viewers={viewers}
+        placeOf={placeOf}
+        near={near}
+        zoom={zoom}
+        focused={headFocused ? null : focused}
+      />
       {heads.map(({ key, viewer, at, updatedAt }) => (
         <div
           key={key}
           className={`peer-pointer${now - updatedAt > IDLE_MS ? ' idle' : ''}${focused === key ? ' focused' : ''}`}
           aria-hidden="true"
-          style={styleOf(viewer, at)}
+          style={styleOf(viewer, at, zoom)}
         >
           <PeerFace viewer={viewer} />
           {focused === key && <span className="peer-name">{viewer.displayName}</span>}
@@ -68,6 +57,53 @@ export function RemoteCursors({ cursors, viewers, drags, placeOf, zoom, focused 
     </>
   )
 }
+
+const styleOf = (viewer: LiveViewer, at: Point, zoom: number) =>
+  ({ left: at.x, top: at.y, '--who': presenceColor(viewer.principalId), '--unzoom': 1 / zoom }) as CSSProperties
+
+/**
+ * The pins of the others' selections. Memoized apart from the heads, as the selections stay the same object while
+ * pointers move; each pin is memoized too, so a drag or a zoom step only draws again the pins it moves.
+ */
+const Pins = memo(function Pins({ selections, viewers, placeOf, near, zoom, focused }: {
+  selections: LiveSelection[]
+  viewers: LiveViewer[]
+  placeOf: (id: string) => PinPlace | null
+  near: Rect
+  zoom: number
+  focused: string | null
+}) {
+  const pins = useLeaving(pinsOf({ cursors: [], selections }, viewers, placeOf, zoom), PIN_OUT_MS)
+  return pins
+    .filter(({ at }) => at.x >= near.x && at.x <= near.x + near.width && at.y >= near.y && at.y <= near.y + near.height)
+    .map(({ id, key, viewer, at, out }) => (
+      <PinView key={id} viewer={viewer} x={at.x} y={at.y} zoom={zoom} out={!!out} focused={focused === key} />
+    ))
+})
+
+/** One pin, pricked in at (x, y). */
+const PinView = memo(function PinView({ viewer, x, y, zoom, out, focused }: {
+  viewer: LiveViewer
+  x: number
+  y: number
+  zoom: number
+  out: boolean
+  focused: boolean
+}) {
+  return (
+    <div className={`peer-pin${out ? ' out' : ''}${focused ? ' focused' : ''}`} aria-hidden="true" style={styleOf(viewer, { x, y }, zoom)}>
+      <span className="peer-pin-hole" />
+      <span className="peer-pin-clip">
+        <span className="peer-pin-move">
+          <svg className="peer-pin-needle" viewBox="0 0 5.6 20" width="5.6" height="20">
+            <path d="M0 0h5.6L3.05 18.75 2.8 20l-.25-1.25z" />
+          </svg>
+          <PeerFace viewer={viewer} />
+        </span>
+      </span>
+    </div>
+  )
+})
 
 /** Someone's picture in a ring of their color: the head of their pointer and of their pins. */
 function PeerFace({ viewer }: { viewer: LiveViewer }) {
@@ -89,8 +125,10 @@ function useLeaving(pins: Pin[], ms: number): (Pin & { out?: boolean })[] {
     const here = new Set(ids.split(' '))
     const left = last.current.filter((p) => !here.has(p.id))
     if (left.length === 0) return
-    setGone((current) => [...current.filter((p) => !here.has(p.id) && !left.some((l) => l.id === p.id)), ...left])
-    window.setTimeout(() => setGone((current) => current.filter((p) => !left.includes(p))), ms)
+    const leftIds = new Set(left.map((p) => p.id))
+    const leaving = new Set(left)
+    setGone((current) => [...current.filter((p) => !here.has(p.id) && !leftIds.has(p.id)), ...left])
+    window.setTimeout(() => setGone((current) => current.filter((p) => !leaving.has(p))), ms)
   }, [ids, ms])
   useLayoutEffect(() => {
     last.current = pins

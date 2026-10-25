@@ -272,6 +272,26 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
     }
 
     [Fact]
+    public async Task The_biggest_selection_and_group_drag_get_through()
+    {
+        var owner = await SessionAsync("live-big-owner@example.com");
+        var board = await owner.Http.CreateBoardAsync();
+        var watcherLive = await ConnectAsync(owner);
+        var ownerLive = await ConnectAsync(owner);
+        var selections = watcherLive.Inbox<RemoteSelection>("Selected");
+        var drags = watcherLive.Inbox<RemoteDrag>("Dragging");
+        await watcherLive.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+        await ownerLive.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+
+        // As many ids as a message may list: bigger than SignalR's default 32 KB, which would drop the connection.
+        var items = Enumerable.Range(0, DragUpdate.MaxItems).Select(_ => Guid.NewGuid()).ToList();
+        await ownerLive.Connection.InvokeAsync("Select", new SelectionUpdate(items));
+        Assert.Equal(DragUpdate.MaxItems, (await selections.NextAsync()).Items.Count);
+        await ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Group, items[0], 20, 20, Items: items));
+        Assert.Equal(DragUpdate.MaxItems, (await drags.NextAsync()).Items?.Count);
+    }
+
+    [Fact]
     public async Task Cursors_follow_the_board_setting_on_open_connections()
     {
         var owner = await SessionAsync("live-cursor-setting-owner@example.com");
