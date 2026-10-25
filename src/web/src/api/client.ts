@@ -195,39 +195,6 @@ function failure(status: number, statusText: string, problem: ProblemDetails | n
   return new ApiError(status, message ?? `The server answered ${status}.`, problem?.errors)
 }
 
-/**
- * POSTs a file as the request body with XMLHttpRequest, which (unlike fetch) tells how much of it went up:
- * `onProgress` gets the bytes sent so far. Throws as `send` does, and an AbortError when `signal` aborts.
- */
-async function upload<T>(path: string, file: Blob, onProgress?: (sent: number) => void, signal?: AbortSignal): Promise<T> {
-  const headers = await headersFor('POST')
-  signal?.throwIfAborted()
-  return new Promise<T>((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open('POST', `${config.baseUrl ?? ''}/api${path}`)
-    for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value)
-    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
-    xhr.upload.onprogress = (e) => onProgress?.(e.loaded)
-    const abort = () => xhr.abort()
-    signal?.addEventListener('abort', abort, { once: true })
-    xhr.onloadend = () => signal?.removeEventListener('abort', abort)
-    xhr.onabort = () => reject(signal?.reason ?? new DOMException('The upload was cancelled.', 'AbortError'))
-    xhr.onerror = () => reject(new ApiError(0, "The file didn't reach the server. It may be too large."))
-    xhr.onload = () => {
-      if (xhr.status === 401) onUnauthorized()
-      let parsed: unknown
-      try {
-        parsed = xhr.responseText ? JSON.parse(xhr.responseText) : undefined
-      } catch {
-        parsed = undefined
-      }
-      if (xhr.status >= 200 && xhr.status < 300) resolve(parsed as T)
-      else reject(failure(xhr.status, xhr.statusText, (parsed as ProblemDetails | undefined) ?? null))
-    }
-    xhr.send(file)
-  })
-}
-
 // Method names match the operationIds in the OpenAPI document.
 export const api = {
   listAuthProviders: () => request<AuthProvider[]>('GET', '/auth/providers'),
@@ -324,9 +291,9 @@ export const api = {
   /** Answers what pasteItems would (nothing, or its error) without adding anything; images may come without their data. */
   checkPaste: (boardId: string, clip: BoardClip, place: PastePlace = {}, imageFiles?: (string | null)[], signal?: AbortSignal) =>
     request<void>('POST', `/boards/${boardId}/paste/check`, { clip, ...place, imageFiles }, signal),
-  /** Uploads one image file of a clip ahead of its paste; `onProgress` gets the bytes sent so far. */
-  uploadPasteImage: (boardId: string, file: Blob, onProgress?: (sent: number) => void, signal?: AbortSignal) =>
-    upload<PasteImageFile>(`/boards/${boardId}/paste-images`, file, onProgress, signal),
+  /** Uploads one image file of a clip ahead of its paste (sent with the file's own content type). */
+  uploadPasteImage: (boardId: string, file: Blob, signal?: AbortSignal) =>
+    request<PasteImageFile>('POST', `/boards/${boardId}/paste-images`, file, signal),
   /** Deletes cards, buckets, images and drawings of the board at once, as their own deletes do one by one. */
   deleteItems: (boardId: string, items: ItemIds) => request<void>('POST', `/boards/${boardId}/items/delete`, items),
   /** Brings back cards, buckets, images and drawings of the board deleted in the last 7 days, at once. */

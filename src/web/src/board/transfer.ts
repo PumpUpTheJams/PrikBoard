@@ -137,27 +137,18 @@ export async function pasteInSteps(
 
   progress.step = 'uploading'
   onProgress({ ...progress })
-  const sent = clip.images.map(() => 0)
   const tokens: (string | null)[] = clip.images.map(() => null)
+  // Counted image by image as each is done: an image is at most 10 MB, and several go up at once.
   await inParallel(
     clip.images,
     async (image, index) => {
       if (!image.data) return
       const file = fileOf(image)
-      const send = () =>
-        api.uploadPasteImage(
-          boardId,
-          file,
-          (bytes) => {
-            sent[index] = bytes
-            onProgress({ ...progress, bytes: sent.reduce((a, b) => a + b, 0) })
-          },
-          signal,
-        )
-      const uploaded = await withRetries(send, signal)
+      const uploaded = await withRetries(() => api.uploadPasteImage(boardId, file, signal), signal)
       tokens[index] = uploaded.token
       progress.images++
-      onProgress({ ...progress, bytes: sent.reduce((a, b) => a + b, 0) })
+      progress.bytes += file.size
+      onProgress({ ...progress })
     },
     signal,
   )
