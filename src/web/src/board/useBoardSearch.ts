@@ -4,7 +4,7 @@ import type { SearchResult } from './BoardSearch'
 import { keyTargetIgnored, shortcut } from './keys'
 import { CARD_HEIGHT, CARD_WIDTH } from './layout'
 import { reducedMotion } from './motion'
-import { matchCard, searchTerms, type SearchField } from './search'
+import { foundByNumber, matchCard, searchTerms, type SearchField } from './search'
 
 /** A scroll to a card asked for, done after the next render (see useReveal). */
 interface Reveal {
@@ -81,8 +81,13 @@ export function useBoardSearch({ board, visibleCards, collapsedIds, filterFaded,
     }
     return found
   }, [visibleCards, terms])
-  // The results are the matches the filters let through, in board order (bucket by bucket, loose cards last).
-  const results: SearchResult[] = board.cards.filter((n) => matches.has(n.id) && !filterFaded(n)).map((card) => ({ card, fields: matches.get(card.id)! }))
+  // The results are the matches the filters let through, in board order (bucket by bucket, loose cards last), after
+  // the cards found by their number.
+  const shown = board.cards.filter((n) => matches.has(n.id) && !filterFaded(n))
+  const results: SearchResult[] = [...shown.filter((n) => foundByNumber(n, terms)), ...shown.filter((n) => !foundByNumber(n, terms))].map((card) => ({
+    card,
+    fields: matches.get(card.id)!,
+  }))
   /** Cards folded away in collapsed buckets that would be results. */
   const folded = terms.length === 0 ? [] : board.cards.filter((n) => n.bucketId && collapsedIds.has(n.bucketId) && !filterFaded(n) && matchCard(n, terms))
   /** How many matching cards each bucket holds, so the search marks it: the results in it, or the folded ones. */

@@ -6,6 +6,8 @@ import { componentKinds } from './componentKinds'
  * when every word is found somewhere on it: its title, readable id (MPCT-415), tags, people, who created it, or its
  * components. "Quoted words" are looked for together, and a prefix keeps a word to one field: `tag:ui`,
  * `assignee:jimmy`, `creator:jimmy` or `color:red` (the fill's name or a plain color word; only with the prefix).
+ * A card's number finds it: `415` finds MPCT-415 (and the cards that have 415 in their text), never MPCT-1415, and
+ * `#415` finds only that card. Cards found by their number come first.
  */
 
 /** Lower case without accents, so "cafe" finds "café". */
@@ -23,11 +25,20 @@ export interface SearchField {
 /** The fields a word can be kept to with a prefix. */
 export type SearchPrefix = 'tag' | 'assignee' | 'creator' | 'color'
 
-/** A word (or quoted words) to look for, folded; `field` keeps it to that kind of field. */
+/** A word (or quoted words) to look for, folded; `field` keeps it to that kind of field (`id` for `#415`). */
 export interface SearchTerm {
   text: string
-  field?: SearchPrefix
+  field?: SearchPrefix | 'id'
 }
+
+/** A word that is a card's number: digits only, as in `415` or `#415`. */
+const isNumber = (text: string) => /^\d+$/.test(text)
+
+/** The number at the end of a readable id (MPCT-415), or null. */
+const numberOf = (readableId: string) => /\d+$/.exec(readableId)?.[0] ?? null
+
+/** Whether a word is a card's number, leading zeros aside: `0415` is 415 too. */
+const sameNumber = (word: string, number: string) => word.replace(/^0+(?=\d)/, '') === number.replace(/^0+(?=\d)/, '')
 
 const prefixes: Record<string, SearchPrefix> = {
   tag: 'tag',
@@ -61,6 +72,10 @@ export function searchTerms(query: string): SearchTerm[] {
     if (words) terms.push({ text: words })
   }
   for (const [all, name, value, quoted] of fold(query).matchAll(/(\p{L}+):\s*("[^"]*"?|[^\s"]*)|"([^"]*)"?|[^\s"]+/gu)) {
+    if (name === undefined && quoted === undefined && /^#\d+$/.test(all)) {
+      terms.push({ text: all.slice(1), field: 'id' })
+      continue
+    }
     if (name === undefined) {
       plain(quoted ?? all)
       continue
@@ -166,18 +181,34 @@ const looksIn = (term: SearchTerm, kind: SearchField['kind']) => (term.field ? t
 /** The words of the terms that search a kind of field. */
 export const wordsFor = (terms: SearchTerm[], kind: SearchField['kind']) => terms.filter((t) => looksIn(t, kind)).map((t) => t.text)
 
-/** Whether a term is found in a field: a color by the start of one of its words, the rest anywhere in the text. */
+/**
+ * Whether a term is found in a field: a color by the start of one of its words, a number in the readable id as the
+ * whole number, the rest anywhere in the text.
+ */
 function found(term: SearchTerm, kind: SearchField['kind'], text: string) {
   if (!looksIn(term, kind)) return false
   if (kind === 'color') return (colorWords[text as CardColor] ?? [fold(text)]).some((w) => w.startsWith(term.text))
+  if (kind === 'id' && isNumber(term.text)) {
+    const number = numberOf(text)
+    return number !== null && sameNumber(term.text, number)
+  }
   return fold(text).includes(term.text)
 }
 
-/** Where the terms that search a field occur in its text, to mark them; a matching color is marked whole. */
+/** Where the terms that search a field occur in its text, to mark them; a matching color or number is marked whole. */
 export function fieldRanges(text: string, terms: SearchTerm[], kind: SearchField['kind']): [number, number][] {
   if (kind === 'color') return terms.some((t) => found(t, kind, text)) ? [[0, text.length]] : []
+  if (kind === 'id') {
+    const number = numberOf(text)
+    const ranges = matchRanges(text, wordsFor(terms, kind).filter((w) => !isNumber(w)))
+    if (number !== null && terms.some((t) => isNumber(t.text) && found(t, kind, text))) ranges.push([text.length - number.length, text.length])
+    return mergeRanges(ranges)
+  }
   return matchRanges(text, wordsFor(terms, kind))
 }
+
+/** Whether a card is found by its number: a term that is its number (`415`, `#415`). */
+export const foundByNumber = (card: CardDetail, terms: SearchTerm[]) => terms.some((t) => isNumber(t.text) && found(t, 'id', card.readableId))
 
 /** The text in a component: its title, text, checklist items, and its links' titles and web addresses. */
 function componentTexts(component: CardComponent): string[] {
@@ -233,9 +264,14 @@ export function matchRanges(text: string, terms: string[]): [number, number][] {
   for (const term of terms) {
     for (let i = folded.indexOf(term); i !== -1; i = folded.indexOf(term, i + term.length)) found.push([starts[i], ends[i + term.length - 1]])
   }
-  found.sort((a, b) => a[0] - b[0])
+  return mergeRanges(found)
+}
+
+/** Ranges sorted, with overlapping ones merged. */
+function mergeRanges(ranges: [number, number][]): [number, number][] {
+  ranges.sort((a, b) => a[0] - b[0])
   const merged: [number, number][] = []
-  for (const range of found) {
+  for (const range of ranges) {
     const last = merged[merged.length - 1]
     if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1])
     else merged.push(range)
