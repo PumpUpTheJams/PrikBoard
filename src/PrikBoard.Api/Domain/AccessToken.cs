@@ -63,5 +63,5 @@ public enum AccessTokenKind
     /// <summary>The owner themselves, from a PrikBoard app they signed in (the VS Code extension).</summary>
     App = 2,
 
-    // 3 was Discord, for the Discord bot when it ran on its own; the DiscordBotInApi migration deleted those tokens.
+    // 3 was Discord, for the Discord bot when it ran on its own; retired.
 }

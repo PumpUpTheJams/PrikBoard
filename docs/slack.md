@@ -69,10 +69,10 @@ Most of what the Discord code does isn't specific to Discord. Phase 1 separated 
   - `ChatPlatforms` has the per-platform rules: `Issuer` and `IdMaxLength` (32).
   - `Agent.SlackIssuer = "slack"` exists, is reserved as a token issuer id, and is left out of assignees like `discord`.
   - `Domain/Discord.cs` keeps only `DiscordBotSettings` and `DiscordIds`.
-- **Migration `ChatWorkspaces`.**
+- **Migration `ChatWorkspacesAndSlackApp`** (on top of the squashed `InitialCreate`; it also adds `SlackAppSettings`).
   - It creates the four chat tables, copies the Discord rows in with `Platform = 'Discord'`, then drops the old tables. Creating new tables keeps the keys and constraint names in line with the model.
   - Rolling back copies the Discord rows back; Slack rows have nowhere to go and are dropped.
-  - `ChatWorkspacesMigrationTests` tests both directions.
+  - `ChatWorkspacesMigrationTests` tests both directions, on a database leased from `TestDatabases` (`LeaseMissingDatabase`).
 - **Lookups take the platform:**
   - `LinkPreviews.FindAsync` and `AgentIdAsync`;
   - `ChatPreviews` (was `DiscordPreviews`);

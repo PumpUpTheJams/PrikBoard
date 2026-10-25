@@ -143,6 +143,17 @@ export interface ImageChanges {
   cardId?: string
   /** Take an attached image off its card and put it on the board. */
   detach?: boolean
+  bucketId?: string
+  loose?: boolean
+}
+
+/**
+ * Which bucket an item dropped at x and y goes into, by the pointer (the web app's drops): the bucket named, which it
+ * must overlap, or none with `loose`. Without either it joins the topmost bucket containing its center.
+ */
+export interface DropBucket {
+  bucketId?: string
+  loose?: boolean
 }
 
 /**
@@ -248,6 +259,8 @@ export interface DrawingChanges {
   colors?: InkColor[]
   cardId?: string
   detach?: boolean
+  bucketId?: string
+  loose?: boolean
 }
 
 export interface BucketDetail {
@@ -279,6 +292,8 @@ export interface PlaceItemsRequest {
   imageIds?: string[]
   drawingIds?: string[]
   grow?: GrowSide
+  /** Only cards count as in the way: images and drawings already there don't (the web app's drops). */
+  onlyCardsTakeRoom?: boolean
 }
 
 /** The bucket (possibly grown) and the items put into it, in the order given. */
@@ -795,7 +810,7 @@ export interface AcceptedInvite {
 // Live updates over SignalR (/api/live); mirrors Contracts/Live.cs.
 
 /** Group: several selected items moving together (`items`). */
-export type DragKind = 'Card' | 'Bucket' | 'Resize' | 'Image' | 'ImageResize' | 'Group'
+export type DragKind = 'Card' | 'Bucket' | 'Resize' | 'Image' | 'ImageResize' | 'Group' | 'Drawing'
 
 /** The corner or edge a resize drags; the opposite one stays where it is, and an edge resizes in its direction only. */
 export type ResizeHandle = 'BottomRight' | 'BottomLeft' | 'TopRight' | 'TopLeft' | 'Top' | 'Right' | 'Bottom' | 'Left'

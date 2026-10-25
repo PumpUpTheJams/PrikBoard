@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { api } from '../api/client'
-import type { BoardDetail, BoardTag, BucketDetail, CardChanges, CardColor, CardDetail, DrawingDetail, InkColor, Point, Rect, TagColor } from '../api/types'
+import type { BoardDetail, BoardTag, BucketDetail, CardChanges, CardColor, CardDetail, DrawingDetail, DropBucket, InkColor, Point, Rect, TagColor } from '../api/types'
 import { bucketOf, type Selection } from './boardItems'
 import { pickImageFiles } from './files'
-import { snapPoint } from './layout'
+import { CARD_HEIGHT, CARD_WIDTH, snapPoint } from './layout'
 import { ops, runAll } from './ops'
 import type { TagColorPreview } from './tagColors'
 import type { Tool } from './tools'
@@ -27,8 +27,8 @@ interface BoardEditsOptions {
   setExpanded: (card: { id: string; fresh: boolean } | null) => void
   /** Brings a bucket to the front here (`server` false: the server puts it on top itself). */
   toFront: (id: string, server?: boolean) => void
-  /** A card put at a point, naming the front bucket when it holds it there (`cardPlace`). */
-  cardPlace: (at: Point) => Point & { bucketId?: string }
+  /** The bucket a drop with the pointer at a canvas point goes into, or loose (`dropBucket`). */
+  dropBucket: (pointer: Point, item?: Rect) => DropBucket
   /** The fill picked for new cards. */
   fill: CardColor
   setTool: (tool: Tool) => void
@@ -38,7 +38,7 @@ interface BoardEditsOptions {
 
 /** Changes to single items on the board, each one undo step (labels and toasts in ops). */
 export function useBoardEdits(options: BoardEditsOptions) {
-  const { board, runRec, settle, setSelection, setSelected, unselect, expanded, setExpanded, toFront, cardPlace, fill, setTool, viewportCenter } = options
+  const { board, runRec, settle, setSelection, setSelected, unselect, expanded, setExpanded, toFront, dropBucket, fill, setTool, viewportCenter } = options
   /** A tag color being saved: it shows on the tag everywhere until the reloaded board has it. */
   const [tagSaving, setTagSaving] = useState<TagColorPreview | null>(null)
   /** Image uploads in flight. */
@@ -147,11 +147,14 @@ export function useBoardEdits(options: BoardEditsOptions) {
         (bucket) => step('Add bucket', [created(target.bucket(bucket.id), snap.bucket(bucket))]),
       )
     },
-    /** Adds a new card with its top-left corner at a (snapped) canvas point, selects it and opens it with its title ready to type. */
-    stickCard(at: Point) {
+    /**
+     * Adds a new card with its top-left corner at a (snapped) canvas point, in the bucket under the pointer (or loose),
+     * selects it and opens it with its title ready to type.
+     */
+    stickCard(at: Point, pointer: Point) {
       void settle(
         async () => {
-          const card = await api.createCard(board.id, { title: '', color: fill, ...cardPlace(at) })
+          const card = await api.createCard(board.id, { title: '', color: fill, ...at, ...dropBucket(pointer, { ...at, width: CARD_WIDTH, height: CARD_HEIGHT }) })
           setSelection({ kind: 'card', id: card.id })
           setExpanded({ id: card.id, fresh: true })
           setTool('select')

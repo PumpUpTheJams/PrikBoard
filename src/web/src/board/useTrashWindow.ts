@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react'
 import { api } from '../api/client'
-import type { BoardDetail, CardDetail, ImageDetail, Point } from '../api/types'
+import type { BoardDetail, CardDetail, DropBucket, ImageDetail, Point, Rect } from '../api/types'
 import type { ToastMessage } from '../components/Toast'
-import { snapPoint } from './layout'
+import { CARD_HEIGHT, CARD_WIDTH, snapPoint } from './layout'
 import { trashInHash } from './links'
 import type { OutgoingCard, TrashWindowHandle } from './TrashWindow'
 import { created, snap, step, target, type RecordingRun } from './undo'
@@ -18,10 +18,12 @@ interface TrashWindowOptions {
   onPutBack: (card: CardDetail) => void
   /** A screen point in board canvas pixels when it is over the board and not over the open card; else null. */
   boardPoint: (client: Point) => Point | null
+  /** The bucket a drop with the pointer at a canvas point goes into, or loose (`dropBucket`). */
+  dropBucket: (pointer: Point, item?: Rect) => DropBucket
 }
 
 /** The trash window: cards deleted in the last 7 days, opened from the board menu (through the address). */
-export function useTrashWindow({ board, runRec, settle, notify, onPutBack, boardPoint }: TrashWindowOptions) {
+export function useTrashWindow({ board, runRec, settle, notify, onPutBack, boardPoint, dropBucket }: TrashWindowOptions) {
   const [open, setOpen] = useState(() => !board.visiting && trashInHash())
   const ref = useRef<TrashWindowHandle>(null)
   /** A card in the trash shown as it is inside, read only. */
@@ -32,7 +34,7 @@ export function useTrashWindow({ board, runRec, settle, notify, onPutBack, board
   const [busy, setBusy] = useState(false)
 
   /** Puts a card from the trash back on the board: where it was, or at `at` (dragged out of the window). */
-  function putBack(card: CardDetail, at?: Point) {
+  function putBack(card: CardDetail, at?: Point & DropBucket) {
     if (preview?.card.id === card.id) setPreview(null)
     void settle(
       () => api.restoreCard(card.id, at),
@@ -83,10 +85,11 @@ export function useTrashWindow({ board, runRec, settle, notify, onPutBack, board
     purge,
     empty,
     landing,
-    /** Releases a card dragged out of the window; false when it went nowhere. */
+    /** Releases a card dragged out of the window, into the bucket under the pointer; false when it went nowhere. */
     dropOut(drag: OutgoingCard): boolean {
       const at = landing(drag)
-      if (at) putBack(drag.card, at)
+      const pointer = boardPoint(drag.client)
+      if (at && pointer) putBack(drag.card, { ...at, ...dropBucket(pointer, { ...at, width: CARD_WIDTH, height: CARD_HEIGHT }) })
       return at !== null
     },
     close() {

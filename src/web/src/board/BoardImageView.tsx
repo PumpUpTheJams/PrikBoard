@@ -15,7 +15,6 @@ interface BoardImageViewProps {
   selected: boolean
   lifted: boolean
   /** Drawn above the rest, with the topmost open bucket it is in. */
-  front?: boolean
   onPointerDown?: (e: PointerEvent<HTMLElement>) => void
   /** In a list: shows the image on its own. */
   onOpen?: () => void
@@ -26,12 +25,11 @@ interface BoardImageViewProps {
 }
 
 /** An image or GIF on the canvas, with its file name (or caption) and who added it underneath. */
-export function BoardImageView({ image, rect, selected, lifted, front, onPointerDown, onOpen, onResizePointerDown, onDelete }: BoardImageViewProps) {
+export function BoardImageView({ image, rect, selected, lifted, onPointerDown, onOpen, onResizePointerDown, onDelete }: BoardImageViewProps) {
   const classes = ['board-image']
   if (!rect) classes.push('in-list')
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
-  if (front) classes.push('in-front')
   const label = image.caption ?? image.fileName
 
   return (
@@ -48,7 +46,7 @@ export function BoardImageView({ image, rect, selected, lifted, front, onPointer
       onKeyDown={(e) => !rect && e.key === 'Enter' && e.target === e.currentTarget && onOpen?.()}
     >
       <div className="board-image-frame" style={rect ? { height: rect.height } : { aspectRatio: `${image.pixelWidth} / ${image.pixelHeight}` }}>
-        <img src={image.contentUrl} alt={label} draggable={false} />
+        <img src={image.contentUrl} alt={label} draggable={false} loading="lazy" decoding="async" />
         {image.contentType === 'image/gif' && <span className="gif-badge">GIF</span>}
         {onDelete && (
           <button

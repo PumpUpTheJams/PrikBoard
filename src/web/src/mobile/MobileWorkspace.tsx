@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { BoardDetail, BoardSummary, Caller, CardDetail } from '../api/types'
 import { MoreIcon, PeopleIcon, RulesIcon, SignOutIcon, UserIcon, ExpandIcon } from '../board/icons'
-import { bucketInHash, cardInHash, cardLabel, imageInHash } from '../board/links'
+import { bucketInHash, cardInHash, cardLabel, imageInHash, missingCardInHash } from '../board/links'
+import { describeMissingCard } from '../board/missingCard'
 import { tagColorsOf } from '../board/tagColors'
 import { recordingRun } from '../board/ops'
 import type { BoardState } from '../board/useBoard'
 import { useUndo, type UndoHistory } from '../board/useUndo'
 import { Face } from '../components/Avatar'
 import { Menu, MenuItem } from '../components/Menu'
+import { ColorSchemeToggle } from '../components/SettingsMenu'
 import { NoAccess } from '../components/NoAccess'
 import { Toast, type ToastMessage } from '../components/Toast'
 import { BoardList } from './BoardList'
@@ -61,6 +63,7 @@ export function MobileWorkspace(props: MobileWorkspaceProps) {
               Account
             </MenuItem>
           )}
+          <ColorSchemeToggle />
           <MenuItem icon={<ExpandIcon />} onClick={onDesktop}>
             Desktop view
           </MenuItem>
@@ -104,6 +107,15 @@ function MobileBoard({ board, run, undoHistory, moving, onDialog, onDesktop }: M
   const image = board.images.find((i) => i.id === imageInHash())
   const card = board.cards.find((c) => c.id === cardInHash(board))
   const bucketId = bucketInHash()
+
+  // A link to a card this board doesn't have lands on the board, saying why (there is no trash screen to show it in).
+  useEffect(() => {
+    void hash
+    const route = missingCardInHash(board)
+    if (!route) return
+    navigate(`/#/boards/${board.shortId}`, { replace: true })
+    void describeMissingCard(board, route).then(({ text }) => setToast({ id: Date.now(), text, tone: 'warn' }))
+  }, [hash, board])
 
   // The browser tab names what is on screen, as on the desktop.
   const tabTitle = card ? `${card.readableId} ${cardLabel(card)}` : board.name

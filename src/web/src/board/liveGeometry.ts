@@ -23,9 +23,9 @@ const fromDragKind: Record<Exclude<DragKind, 'Group'>, ItemGesture> = {
   Resize: 'resize',
   Image: 'image',
   ImageResize: 'image-resize',
+  Drawing: 'drawing',
 }
-/** Drags others are told about (not drawings, yet). */
-const toDragKind = Object.fromEntries(Object.entries(fromDragKind).map(([k, v]) => [v, k])) as Partial<Record<ItemGesture, DragKind>>
+const toDragKind = Object.fromEntries(Object.entries(fromDragKind).map(([k, v]) => [v, k])) as Record<ItemGesture, DragKind>
 
 /** The kind of item a press drags. */
 export const itemKindOf: Record<ItemGesture, SelectionKind> = {
@@ -87,19 +87,12 @@ export function gridFor(board: BoardDetail, heldId: string, members: Selection[]
   return Object.fromEntries(cards.map((n, i) => [n.id, { x: held.x - own.x + cell(i).x, y: held.y - own.y + cell(i).y }]))
 }
 
-/** Whether an item is lifted by your own drag in progress: by itself, or with the others selected. */
-export function isLifted(dragging: DragGesture | null, id: string): boolean {
-  if (!dragging || dragging.done) return false
-  return dragging.kind === 'group' ? dragging.members.some((m) => m.id === id) : dragging.id === id
-}
-
 /** Your drag in progress as others are told about it, as a string so an unchanged drag sends nothing; null for none. */
 export function sentDrag(dragging: DragGesture | null): string | null {
   if (!dragging || dragging.done) return null
   const { x: dx, y: dy } = delta(dragging)
   if (dragging.kind === 'group') return JSON.stringify({ kind: 'Group', id: dragging.id, dx, dy, items: dragging.members.map((m) => m.id) })
-  const kind = toDragKind[dragging.kind]
-  return kind ? JSON.stringify({ kind, id: dragging.id, dx, dy, handle: dragging.handle }) : null
+  return JSON.stringify({ kind: toDragKind[dragging.kind], id: dragging.id, dx, dy, handle: dragging.handle })
 }
 
 /**

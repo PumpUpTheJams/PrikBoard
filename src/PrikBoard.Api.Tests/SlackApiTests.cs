@@ -35,6 +35,9 @@ public class SlackApiFactory : PrikBoardApiFactory
     /// <summary>A channel of the tests' own, for the one test that needs a board to be the only one there.</summary>
     public const string Snapshot = "C0SNAPSHT1";
 
+    /// <summary>A channel of the tests' own for saving messages, so the boards saved to stay out of <see cref="Snapshot"/>.</summary>
+    public const string Saves = "C0SAVES001";
+
     /// <summary>A person of the tests' own, for the test that signs in with Slack, so no other test's link to Jimmy is in the way.</summary>
     public const string Sam = "U0SAMSIGN1";
 
@@ -46,6 +49,7 @@ public class SlackApiFactory : PrikBoardApiFactory
         FakeSlack = FakeSlackApp.Build(["--urls", "http://127.0.0.1:0"], o =>
         {
             o.Channels.Add(new FakeChannel(Snapshot, "snapshot"));
+            o.Channels.Add(new FakeChannel(Saves, "saves"));
             o.Users.Add(new FakeUser(Sam, "Sam"));
         });
         FakeSlack.StartAsync().GetAwaiter().GetResult();
@@ -131,7 +135,7 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
         // Online over Socket Mode, in the fake workspace, with the channels it was added to.
         var online = await OnlineAsync(admin);
         var workspace = Assert.Single(online.Workspaces);
-        Assert.Equal((Fake.TeamId, Fake.TeamName, 3), (workspace.TeamId, workspace.Name, workspace.ChannelCount));
+        Assert.Equal((Fake.TeamId, Fake.TeamName, 4), (workspace.TeamId, workspace.Name, workspace.ChannelCount));
         Assert.Equal(1, factory.Workspace.Connections);
         var json = await (await admin.GetAsync("/api/admin/slack")).Content.ReadAsStringAsync();
         Assert.DoesNotContain(Fake.BotToken, json);
@@ -188,7 +192,7 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
         var workspaces = (await owner.GetFromJsonAsync<SlackWorkspaces>($"/api/boards/{board.Id}/slack/workspaces"))!;
         Assert.Equal(SlackAppState.Online, workspaces.State);
         var workspace = Assert.Single(workspaces.Workspaces);
-        Assert.Equal([(SlackApiFactory.Dev, "dev"), (SlackApiFactory.General, "general"), (SlackApiFactory.Snapshot, "snapshot")],
+        Assert.Equal([(SlackApiFactory.Dev, "dev"), (SlackApiFactory.General, "general"), (SlackApiFactory.Saves, "saves"), (SlackApiFactory.Snapshot, "snapshot")],
             workspace.Channels.Select(c => (c.Id, c.Name)));
 
         var connection = Assert.Single(await ConnectAsync(owner, board.Id, SlackApiFactory.General));
@@ -393,14 +397,14 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
         var board = await owner.CreateBoardAsync("Inbox");
         await owner.ShareAsync(board.Id, viewer, BoardRole.Viewer);
         var doing = board.Buckets.Single(b => b.Name == "Doing");
-        await ConnectAsync(owner, board.Id, SlackApiFactory.Snapshot);
+        await ConnectAsync(owner, board.Id, SlackApiFactory.Saves);
         // Saved messages from this channel go to Doing first.
-        Assert.Equal(HttpStatusCode.BadRequest, (await owner.PutAsJsonAsync($"/api/boards/{board.Id}/slack/{Fake.TeamId}/channels/{SlackApiFactory.Snapshot}",
+        Assert.Equal(HttpStatusCode.BadRequest, (await owner.PutAsJsonAsync($"/api/boards/{board.Id}/slack/{Fake.TeamId}/channels/{SlackApiFactory.Saves}",
             new { updates = Array.Empty<string>(), saveBucketId = Guid.NewGuid() })).StatusCode);
-        (await owner.PutAsJsonAsync($"/api/boards/{board.Id}/slack/{Fake.TeamId}/channels/{SlackApiFactory.Snapshot}",
+        (await owner.PutAsJsonAsync($"/api/boards/{board.Id}/slack/{Fake.TeamId}/channels/{SlackApiFactory.Saves}",
             new { updates = Array.Empty<string>(), saveBucketId = doing.Id })).EnsureSuccessStatusCode();
         var image = factory.Workspace.Upload("screenshot.png", "image/png", TestImages.Png(3, 2));
-        var message = await factory.Workspace.PostAsync(SlackApiFactory.Snapshot, SlackApiFactory.Jimmy,
+        var message = await factory.Workspace.PostAsync(SlackApiFactory.Saves, SlackApiFactory.Jimmy,
             "Login breaks on *Safari* &amp; Edge, says <@U0ADMIN001>: <https://example.com/log|the log>\nSecond line", [image]);
 
         // Not known yet: a link to connect, which the owner checks and accepts in PrikBoard.
@@ -437,9 +441,9 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
             Assert.Equal(("Login on Safari", doing.Id, ownerId), (card.Title, card.BucketId, card.CreatedById));
             var text = card.Components.Single(c => c.Kind == CardComponentKind.Text).Text!;
             Assert.StartsWith("> Login breaks on *Safari* & Edge, says @Ada (admin): [the log](https://example.com/log)\n> Second line", text);
-            Assert.Contains("From **Jimmy** in #snapshot", text);
+            Assert.Contains("From **Jimmy** in #saves", text);
             var link = Assert.Single(card.Components.Single(c => c.Kind == CardComponentKind.Links).Links);
-            Assert.Equal(("Message in Slack", factory.Workspace.Permalink(SlackApiFactory.Snapshot, message.Ts)), (link.Title, link.Url));
+            Assert.Equal(("Message in Slack", factory.Workspace.Permalink(SlackApiFactory.Saves, message.Ts)), (link.Title, link.Url));
             // The image came from the fake's file host, with the bot token.
             Assert.Equal(1, await db.Images.CountAsync(i => i.CardId == card.Id));
         }
@@ -473,8 +477,8 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
         Assert.Equal((true, SlackAccountSource.SignIn), (status.Linked, status.Source));
 
         var board = await jimmy.CreateBoardAsync("Signed in with Slack");
-        await ConnectAsync(jimmy, board.Id, SlackApiFactory.Snapshot);
-        var message = await factory.Workspace.PostAsync(SlackApiFactory.Snapshot, SlackApiFactory.Sam, "Straight to a card");
+        await ConnectAsync(jimmy, board.Id, SlackApiFactory.Saves);
+        var message = await factory.Workspace.PostAsync(SlackApiFactory.Saves, SlackApiFactory.Sam, "Straight to a card");
 
         // No connect link: the modal to save opens at once.
         var save = await ShortcutAsync(message, SlackApiFactory.Sam);

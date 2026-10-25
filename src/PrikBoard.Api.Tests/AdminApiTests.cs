@@ -15,16 +15,6 @@ public class AdminApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     private Task<HttpClient> Admin() => factory.CreateSignedInClientAsync("first-admin@example.com");
 
     [Fact]
-    public async Task The_first_user_is_the_admin_and_later_ones_are_not()
-    {
-        var admin = await Admin();
-        var other = await factory.CreateSignedInClientAsync("not-admin@example.com");
-
-        Assert.True((await admin.MeAsync()).IsAdmin);
-        Assert.False((await other.MeAsync()).IsAdmin);
-    }
-
-    [Fact]
     public async Task Only_signed_in_admins_reach_the_admin_endpoints()
     {
         var admin = await Admin();
@@ -113,13 +103,14 @@ public class AdminApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
-    public async Task There_is_always_an_admin()
+    public async Task There_is_always_an_admin_and_admins_cannot_delete_themselves()
     {
         var admin = await Admin();
         var helper = await factory.CreateSignedInClientAsync("second-admin@example.com");
         var adminId = (await admin.MeAsync()).Id;
         var helperId = (await helper.MeAsync()).Id;
 
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.DeleteAsync($"/api/admin/users/{adminId}")).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await admin.PatchAsJsonAsync($"/api/admin/users/{adminId}", new { isAdmin = false })).StatusCode);
 
         Assert.Equal(HttpStatusCode.NoContent, (await admin.PatchAsJsonAsync($"/api/admin/users/{helperId}", new { isAdmin = true })).StatusCode);
@@ -188,16 +179,7 @@ public class AdminApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
-    public async Task Admins_cannot_delete_themselves()
-    {
-        var admin = await Admin();
-        var adminId = (await admin.MeAsync()).Id;
-
-        Assert.Equal(HttpStatusCode.BadRequest, (await admin.DeleteAsync($"/api/admin/users/{adminId}")).StatusCode);
-    }
-
-    [Fact]
-    public async Task Newcomers_need_an_open_invite_link_to_get_an_account()
+    public async Task Newcomers_need_an_open_invite_link_to_get_an_account_and_a_spent_or_revoked_one_lets_nobody_in()
     {
         var admin = await Admin();
         var board = await admin.CreateBoardAsync("Invite only");
@@ -223,19 +205,12 @@ public class AdminApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         // Someone with an account signs in without any invite.
         var again = await PrikBoardApiFactory.TestSignInAsync(factory.CreateAnonymousClient(), "invited@example.com", returnUrl: "/");
         Assert.Equal(HttpStatusCode.NoContent, again.StatusCode);
-    }
 
-    [Fact]
-    public async Task A_revoked_invite_link_lets_nobody_in()
-    {
-        var admin = await Admin();
-        var board = await admin.CreateBoardAsync("Revoked");
-        var invite = await Invite(admin, board.Id);
-        (await admin.DeleteAsync($"/api/boards/{board.Id}/invites/{invite.Id}")).EnsureSuccessStatusCode();
-
-        var response = await PrikBoardApiFactory.TestSignInAsync(factory.CreateAnonymousClient(), "too-late@example.com", returnUrl: invite.Path);
-
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        // A revoked link lets nobody in either.
+        var revoked = await Invite(admin, board.Id);
+        (await admin.DeleteAsync($"/api/boards/{board.Id}/invites/{revoked.Id}")).EnsureSuccessStatusCode();
+        var tooLate = await PrikBoardApiFactory.TestSignInAsync(factory.CreateAnonymousClient(), "too-late@example.com", returnUrl: revoked.Path);
+        Assert.Equal(HttpStatusCode.Forbidden, tooLate.StatusCode);
     }
 
     [Fact]

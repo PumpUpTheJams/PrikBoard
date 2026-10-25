@@ -33,40 +33,41 @@ public class SetupApiTests(SetupApiTests.Factory factory) : IClassFixture<SetupA
         client.PostAsJsonAsync("/api/setup/providers", new { id, type = "GitHub", clientId = $"{id}-client", clientSecret = secret });
 
     [Fact]
-    public async Task The_status_is_public_and_says_setup_is_needed_until_someone_has_an_account()
-    {
-        await using var empty = new PrikBoardApiFactory();
-        var anonymous = empty.CreateAnonymousClient();
-
-        var before = (await anonymous.GetFromJsonAsync<SetupStatus>("/api/setup"))!;
-        await empty.CreateSignedInClientAsync("someone@example.com");
-        var after = (await anonymous.GetFromJsonAsync<SetupStatus>("/api/setup"))!;
-
-        Assert.Equal(new SetupStatus(true, false, false), before);
-        Assert.Equal(new SetupStatus(false, false, false), after);
-    }
-
-    [Fact]
-    public async Task The_setup_key_lets_the_first_sign_in_become_the_admin_and_then_closes()
+    public async Task Setup_is_needed_until_the_setup_key_makes_the_first_sign_in_the_admin_and_then_it_closes_and_the_last_provider_stays()
     {
         await using var empty = new PrikBoardApiFactory();
         var key = empty.OpenSetupKey();
+        var anonymous = empty.CreateAnonymousClient();
         var stranger = empty.CreateAnonymousClient();
         var owner = empty.CreateAnonymousClient();
 
+        // The status is public.
+        var before = (await anonymous.GetFromJsonAsync<SetupStatus>("/api/setup"))!;
         var early = await PrikBoardApiFactory.TestSignInAsync(stranger, "stranger@example.com", returnUrl: "/");
         // Lower case and without dashes works too.
         await owner.UnlockSetupAsync(key.Replace("-", "").ToLowerInvariant());
         var unlocked = (await owner.GetFromJsonAsync<SetupStatus>("/api/setup"))!;
         var signIn = await PrikBoardApiFactory.TestSignInAsync(owner, "owner@example.com", returnUrl: "/#/setup");
+        var after = (await anonymous.GetFromJsonAsync<SetupStatus>("/api/setup"))!;
         var again = await empty.CreateAnonymousClient().PostAsJsonAsync("/api/setup/unlock", new { key });
 
+        Assert.Equal(new SetupStatus(true, false, false), before);
         Assert.Equal(HttpStatusCode.Forbidden, early.StatusCode);
         Assert.Equal(UserSignIn.SetupRequiredError, await early.Content.ReadAsStringAsync());
         Assert.True(unlocked.Unlocked);
         Assert.Equal(HttpStatusCode.NoContent, signIn.StatusCode);
         Assert.True((await owner.MeAsync()).IsAdmin);
+        Assert.Equal(new SetupStatus(false, false, false), after);
         Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
+
+        // Now that people have accounts, the last provider stays.
+        await CreateGitHub(owner, "gh-one");
+        var last = await owner.DeleteAsync("/api/setup/providers/gh-one");
+        await CreateGitHub(owner, "gh-two");
+        var notLast = await owner.DeleteAsync("/api/setup/providers/gh-one");
+
+        Assert.Equal(HttpStatusCode.Conflict, last.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, notLast.StatusCode);
     }
 
     [Fact]
@@ -101,7 +102,7 @@ public class SetupApiTests(SetupApiTests.Factory factory) : IClassFixture<SetupA
     }
 
     [Fact]
-    public async Task A_provider_added_in_the_setup_signs_in_without_a_restart_and_goes_again_when_deleted()
+    public async Task A_provider_added_in_the_setup_signs_in_test_signs_in_and_can_be_made_the_default_without_a_restart_and_goes_again_when_deleted()
     {
         var admin = await Admin();
 
@@ -109,6 +110,9 @@ public class SetupApiTests(SetupApiTests.Factory factory) : IClassFixture<SetupA
         var json = await created.Content.ReadAsStringAsync();
         var providers = await factory.CreateAnonymousClient().GetFromJsonAsync<List<AuthProvider>>("/api/auth/providers");
         var login = await factory.CreateAnonymousClient().GetAsync("/api/auth/login/gh-live?returnUrl=/");
+        var test = await admin.GetAsync("/api/setup/providers/gh-live/test?returnUrl=/%23/admin");
+        var updated = await admin.PatchAsJsonAsync("/api/setup/providers/gh-live", new { isDefault = true, displayName = "GitHub here" });
+        var withDefault = (await factory.CreateAnonymousClient().GetFromJsonAsync<List<AuthProvider>>("/api/auth/providers"))!;
         var deleted = await admin.DeleteAsync("/api/setup/providers/gh-live");
         var after = await factory.CreateAnonymousClient().GetAsync("/api/auth/login/gh-live");
 
@@ -120,6 +124,10 @@ public class SetupApiTests(SetupApiTests.Factory factory) : IClassFixture<SetupA
         Assert.Contains(providers!, p => p.Id == "gh-live");
         Assert.Equal(HttpStatusCode.Redirect, login.StatusCode);
         Assert.StartsWith("https://github.com/login/oauth/authorize?client_id=gh-live-client", login.Headers.Location!.ToString());
+        Assert.Equal(HttpStatusCode.Redirect, test.StatusCode);
+        Assert.StartsWith("https://github.com/login/oauth/authorize?client_id=gh-live-client", test.Headers.Location!.ToString());
+        Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
+        Assert.Equal(new AuthProvider("gh-live", "GitHub here"), withDefault[0]);
         Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, after.StatusCode);
     }
@@ -211,47 +219,6 @@ public class SetupApiTests(SetupApiTests.Factory factory) : IClassFixture<SetupA
         var corp = Assert.Single(list, p => p.Id == "corp");
         Assert.Equal(ProviderSource.Configuration, corp.Source);
         Assert.Equal("Corp SSO", corp.DisplayName);
-    }
-
-    [Fact]
-    public async Task A_provider_made_the_default_is_offered_first()
-    {
-        var admin = await Admin();
-        await CreateGitHub(admin, "gh-default");
-
-        var updated = await admin.PatchAsJsonAsync("/api/setup/providers/gh-default", new { isDefault = true, displayName = "GitHub here" });
-        var providers = (await factory.CreateAnonymousClient().GetFromJsonAsync<List<AuthProvider>>("/api/auth/providers"))!;
-        await admin.PatchAsJsonAsync("/api/setup/providers/gh-default", new { isDefault = false });
-
-        Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
-        Assert.Equal(new AuthProvider("gh-default", "GitHub here"), providers[0]);
-    }
-
-    [Fact]
-    public async Task The_last_provider_stays_once_people_have_accounts()
-    {
-        await using var server = new PrikBoardApiFactory();
-        var admin = await server.CreateSignedInClientAsync("only-admin@example.com");
-        await CreateGitHub(admin, "gh-one");
-
-        var last = await admin.DeleteAsync("/api/setup/providers/gh-one");
-        await CreateGitHub(admin, "gh-two");
-        var notLast = await admin.DeleteAsync("/api/setup/providers/gh-one");
-
-        Assert.Equal(HttpStatusCode.Conflict, last.StatusCode);
-        Assert.Equal(HttpStatusCode.NoContent, notLast.StatusCode);
-    }
-
-    [Fact]
-    public async Task A_test_sign_in_goes_to_the_provider()
-    {
-        var admin = await Admin();
-        await CreateGitHub(admin, "gh-test");
-
-        var test = await admin.GetAsync("/api/setup/providers/gh-test/test?returnUrl=/%23/admin");
-
-        Assert.Equal(HttpStatusCode.Redirect, test.StatusCode);
-        Assert.StartsWith("https://github.com/login/oauth/authorize?client_id=gh-test-client", test.Headers.Location!.ToString());
     }
 
     [Fact]

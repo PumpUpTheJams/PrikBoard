@@ -44,7 +44,6 @@ interface BucketViewProps {
   /** How many cards, and images and drawings on the board, are in it. */
   count: BucketCount
   /** Drawn above the others, with what is in it. */
-  front: boolean
   dropTarget: boolean
   searchHit: boolean
   selected: boolean
@@ -63,12 +62,12 @@ interface BucketViewProps {
 
 /** A bucket on the board: an outlined rectangle with its name and counts at the top. */
 export function BucketView(props: BucketViewProps) {
-  const { bucket, rect, front, dropTarget, searchHit, selected, readOnly, resizable, onPress, onGrab, onPick, onToggle, onResize } = props
+  const { bucket, rect, dropTarget, searchHit, selected, readOnly, resizable, onPress, onGrab, onPick, onToggle, onResize } = props
   const contents = contentsOf(props.count)
   return (
     <section
       aria-label={bucket.name}
-      className={classes('bucket', front && 'in-front', dropTarget && 'drop-target', searchHit && 'search-hit', selected && 'selected')}
+      className={classes('bucket', dropTarget && 'drop-target', searchHit && 'search-hit', selected && 'selected')}
       style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
       onPointerDown={onPress}
     >

@@ -3,8 +3,15 @@ using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Data;
 
-public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : DbContext(options)
+public class PrikBoardDbContext : DbContext
 {
+    public PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : base(options)
+    {
+        // Without this, every save inside a transaction is wrapped in a savepoint (two more round trips), which only helps
+        // code that catches a failed save and carries on in the same transaction. None does: a failed save ends the request.
+        Database.AutoSavepointsEnabled = false;
+    }
+
     /// <summary>
     /// The query filter that hides deleted cards, buckets, images, drawings and tags until they are restored or purged
     /// (<see cref="Tombstones"/>). Bypass it with <see cref="Tombstones.WithDeleted"/>; raw SQL never applies it.

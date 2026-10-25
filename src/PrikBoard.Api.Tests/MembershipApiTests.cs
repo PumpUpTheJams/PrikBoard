@@ -26,25 +26,16 @@ public class MembershipApiTests(MembershipApiTests.Factory factory) : IClassFixt
     }
 
     [Fact]
-    public async Task The_creator_owns_a_board_and_others_do_not_see_it()
-    {
-        var owner = await factory.CreateSignedInClientAsync("creator@example.com");
-        var stranger = await factory.CreateSignedInClientAsync("stranger@example.com");
-        var board = await owner.CreateBoardAsync("Mine");
-
-        Assert.Equal(BoardRole.Owner, board.YourRole);
-        Assert.Contains(await owner.GetFromJsonAsync<List<BoardSummary>>("/api/boards") ?? [], b => b.Id == board.Id && b.YourRole == BoardRole.Owner);
-        Assert.DoesNotContain(await stranger.GetFromJsonAsync<List<BoardSummary>>("/api/boards") ?? [], b => b.Id == board.Id);
-    }
-
-    [Fact]
-    public async Task Each_role_can_do_exactly_what_it_should()
+    public async Task The_creator_owns_a_board_others_do_not_see_it_and_each_role_can_do_exactly_what_it_should()
     {
         var owner = await factory.CreateSignedInClientAsync("matrix-owner@example.com");
         var editor = await factory.CreateSignedInClientAsync("matrix-editor@example.com");
         var viewer = await factory.CreateSignedInClientAsync("matrix-viewer@example.com");
         var stranger = await factory.CreateSignedInClientAsync("matrix-stranger@example.com");
         var board = await owner.CreateBoardAsync("Matrix");
+        Assert.Equal(BoardRole.Owner, board.YourRole);
+        Assert.Contains(await owner.GetFromJsonAsync<List<BoardSummary>>("/api/boards") ?? [], b => b.Id == board.Id && b.YourRole == BoardRole.Owner);
+        Assert.DoesNotContain(await stranger.GetFromJsonAsync<List<BoardSummary>>("/api/boards") ?? [], b => b.Id == board.Id);
         await owner.ShareAsync(board.Id, editor, BoardRole.Editor);
         await owner.ShareAsync(board.Id, viewer, BoardRole.Viewer);
         var card = await owner.CreateCardAsync(board.Id);
@@ -183,14 +174,17 @@ public class MembershipApiTests(MembershipApiTests.Factory factory) : IClassFixt
     }
 
     [Fact]
-    public async Task Deleting_a_board_removes_its_members_and_invites()
+    public async Task Deleting_a_board_removes_its_cards_members_and_invites()
     {
         var owner = await factory.CreateSignedInClientAsync("cleaner@example.com");
         var board = await owner.CreateBoardAsync("Gone");
+        var card = await owner.CreateCardAsync(board.Id, "Gone soon");
         (await owner.PostAsJsonAsync($"/api/boards/{board.Id}/invites", new { role = "Viewer" })).EnsureSuccessStatusCode();
 
         (await owner.DeleteAsync($"/api/boards/{board.Id}")).EnsureSuccessStatusCode();
 
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.GetAsync($"/api/boards/{board.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.GetAsync($"/api/cards/{card.Id}")).StatusCode);
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
         Assert.False(await db.BoardMembers.AnyAsync(m => m.BoardId == board.Id));
@@ -214,6 +208,189 @@ public class MembershipApiTests(MembershipApiTests.Factory factory) : IClassFixt
         Assert.Empty(undeclared);
     }
 
+    // Public boards: anyone with the link reads them, signed in or not, but tokens still need membership.
+    [Fact]
+    public async Task A_private_board_is_not_found_by_anyone_but_its_members()
+    {
+        var owner = await factory.CreateSignedInClientAsync("public-private-owner@example.com");
+        var stranger = await factory.CreateSignedInClientAsync("public-private-stranger@example.com");
+        var board = await owner.CreateBoardAsync("Private");
+        var anonymous = factory.CreateAnonymousClient();
+
+        Assert.False(board.IsPublic);
+        foreach (var client in new[] { anonymous, stranger })
+        {
+            Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/boards/{board.Id}")).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/boards/{board.ShortId}")).StatusCode);
+        }
+        Assert.Equal(HttpStatusCode.OK, (await owner.GetAsync($"/api/boards/{board.ShortId}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Anyone_reads_a_public_board_and_sees_its_people_only_when_the_owner_shows_them()
+    {
+        var owner = await factory.CreateSignedInClientAsync("public-read-owner@example.com");
+        var board = await owner.CreateBoardAsync("Docs");
+        var me = await owner.MeAsync();
+        var card = await Created<CardDetail>(await owner.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Download", assigneeIds = new[] { me.Id } }));
+        var image = await Created<ImageDetail>(await owner.PostAsync($"/api/boards/{board.Id}/images",
+            new ByteArrayContent(TestImages.Png(10, 10)) { Headers = { ContentType = new MediaTypeHeaderValue("image/png") } }));
+        var made = await Ok<BoardSummary>(await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { isPublic = true, rules = "Read me." }));
+        Assert.Equal((true, false), (made.IsPublic, made.PublicShowsPeople));
+
+        var anonymous = factory.CreateAnonymousClient();
+        var stranger = await factory.CreateSignedInClientAsync("public-read-stranger@example.com");
+        foreach (var client in new[] { anonymous, stranger })
+        {
+            var seen = (await client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.ShortId}"))!;
+            Assert.Equal((board.Id, true, BoardRole.Viewer, "Read me."), (seen.Id, seen.Visiting, seen.YourRole, seen.Rules));
+            Assert.Empty(seen.People);
+            var shown = seen.Cards.Single(n => n.Id == card.Id);
+            Assert.Equal(new Assignee(Guid.Empty, "", AssigneeKind.Person, null), Assert.Single(shown.Assignees));
+            Assert.Equal((null, null), (shown.CreatedBy, shown.CreatedById));
+            Assert.Equal(("", null), (seen.Images.Single().AddedBy, seen.Images.Single().AddedById));
+            Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(image.ContentUrl)).StatusCode);
+            // Nobody's picture, while the board hides people.
+            Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/boards/{board.Id}/avatars/{me.Id}")).StatusCode);
+        }
+
+        // Members still see everything, and aren't visiting.
+        var mine = (await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
+        Assert.Equal((false, me.Id), (mine.Visiting, Assert.Single(mine.Cards.Single(n => n.Id == card.Id).Assignees).PrincipalId));
+
+        // Shown to visitors, assignees and creators have their names, but the board still lists no people.
+        (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { publicShowsPeople = true })).EnsureSuccessStatusCode();
+        var withPeople = (await anonymous.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
+        var named = Assert.Single(withPeople.Cards);
+        Assert.Equal((me.Id, me.DisplayName), (Assert.Single(named.Assignees).PrincipalId, named.Assignees[0].Name));
+        Assert.Equal(me.DisplayName, named.CreatedBy);
+        Assert.Empty(withPeople.People);
+    }
+
+    [Fact]
+    public async Task Visitors_only_read_the_board_its_images_and_drawings()
+    {
+        var owner = await factory.CreateSignedInClientAsync("public-write-owner@example.com");
+        var board = await owner.CreateBoardAsync("Read only");
+        var card = await owner.CreateCardAsync(board.Id);
+        (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { isPublic = true })).EnsureSuccessStatusCode();
+        var anonymous = factory.CreateAnonymousClient();
+        var stranger = await factory.CreateSignedInClientAsync("public-write-stranger@example.com");
+
+        // Writes need a caller, then membership; other reads (the trash, an export, one card) are for members.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "No" })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await stranger.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "No" })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await stranger.PatchAsJsonAsync($"/api/boards/{board.Id}", new { isPublic = false })).StatusCode);
+        foreach (var url in new[] { $"/api/boards/{board.Id}/trash", $"/api/boards/{board.Id}/export", $"/api/cards/{card.Id}", $"/api/boards/{board.Id}/members" })
+        {
+            Assert.Equal(HttpStatusCode.NotFound, (await stranger.GetAsync(url)).StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(url)).StatusCode);
+        }
+        // The board doesn't join the stranger's list.
+        Assert.DoesNotContain((await stranger.GetFromJsonAsync<List<BoardSummary>>("/api/boards"))!, b => b.Id == board.Id);
+    }
+
+    [Fact]
+    public async Task Tokens_need_membership_and_a_wrong_token_is_refused()
+    {
+        var owner = await factory.CreateSignedInClientAsync("public-token-owner@example.com");
+        var stranger = await factory.CreateSignedInClientAsync("public-token-stranger@example.com");
+        var board = await owner.CreateBoardAsync("Tokens");
+        (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { isPublic = true })).EnsureSuccessStatusCode();
+        var (strangerToken, _) = await factory.TokenAsync(stranger, "stranger's agent");
+        var (ownerToken, _) = await factory.TokenAsync(owner, "owner's agent");
+        var wrong = factory.CreateAnonymousClient();
+        wrong.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "pb_pat_not-a-token");
+
+        Assert.Equal(HttpStatusCode.NotFound, (await strangerToken.GetAsync($"/api/boards/{board.Id}")).StatusCode);
+        Assert.False((await ownerToken.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Visiting);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await wrong.GetAsync($"/api/boards/{board.Id}")).StatusCode);
+    }
+
+    // Invite links.
+    [Fact]
+    public async Task An_invite_link_works_once_and_only_its_hash_is_stored()
+    {
+        var owner = await factory.CreateSignedInClientAsync("inviter@example.com");
+        var guest = await factory.CreateSignedInClientAsync("guest@example.com");
+        var late = await factory.CreateSignedInClientAsync("late@example.com");
+        var board = await owner.CreateBoardAsync("Invites");
+        await owner.PatchAsJsonAsync("/api/me", new { displayName = "Inviter" });
+
+        var invite = await Create(owner, board.Id, "Editor");
+        Assert.Equal($"/#/invite/{invite.Token}", invite.Path);
+        Assert.True(invite.ExpiresAt > DateTimeOffset.UtcNow.AddDays(6.9) && invite.ExpiresAt < DateTimeOffset.UtcNow.AddDays(7.1));
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var stored = await scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>().BoardInvites.SingleAsync(i => i.Id == invite.Id);
+            Assert.Equal(KeyedHasher.InviteToken(invite.Token), stored.TokenHash);
+        }
+
+        var preview = await (await guest.PostAsJsonAsync("/api/invites/preview", new { token = invite.Token })).Content.ReadFromJsonAsync<InvitePreview>();
+        Assert.Equal(("Invites", BoardRole.Editor, "Inviter", (BoardRole?)null), (preview!.BoardName, preview.Role, preview.InvitedBy, preview.YourRole));
+
+        var accepted = await Accept(guest, invite.Token);
+        Assert.Equal((board.Id, BoardRole.Editor), (accepted.BoardId, accepted.Role));
+        Assert.Equal(HttpStatusCode.Created, (await guest.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Joined" })).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NotFound, (await late.PostAsJsonAsync("/api/invites/accept", new { token = invite.Token })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await late.PostAsJsonAsync("/api/invites/preview", new { token = invite.Token })).StatusCode);
+        Assert.Empty((await owner.GetFromJsonAsync<List<BoardInviteDetail>>($"/api/boards/{board.Id}/invites"))!);
+    }
+
+    [Fact]
+    public async Task Expired_and_revoked_links_do_nothing()
+    {
+        var owner = await factory.CreateSignedInClientAsync("expirer@example.com");
+        var guest = await factory.CreateSignedInClientAsync("too-late@example.com");
+        var board = await owner.CreateBoardAsync("Expiry");
+        var expired = await Create(owner, board.Id, "Viewer");
+        var revoked = await Create(owner, board.Id, "Viewer");
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+            await db.BoardInvites.Where(i => i.Id == expired.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(i => i.ExpiresAt, DateTimeOffset.UtcNow.AddMinutes(-1)));
+        }
+        var pending = await owner.GetFromJsonAsync<List<BoardInviteDetail>>($"/api/boards/{board.Id}/invites");
+        Assert.Equal(revoked.Id, Assert.Single(pending!).Id);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await owner.DeleteAsync($"/api/boards/{board.Id}/invites/{revoked.Id}")).StatusCode);
+
+        foreach (var token in new[] { expired.Token, revoked.Token, "made-up-token" })
+        {
+            Assert.Equal(HttpStatusCode.NotFound, (await guest.PostAsJsonAsync("/api/invites/accept", new { token })).StatusCode);
+        }
+        Assert.Equal(HttpStatusCode.NotFound, (await guest.GetAsync($"/api/boards/{board.Id}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Accepting_keeps_the_higher_role()
+    {
+        var owner = await factory.CreateSignedInClientAsync("granter@example.com");
+        var member = await factory.CreateSignedInClientAsync("collector@example.com");
+        var board = await owner.CreateBoardAsync("Roles");
+        await owner.ShareAsync(board.Id, member, BoardRole.Editor);
+
+        Assert.Equal(BoardRole.Editor, (await Accept(member, (await Create(owner, board.Id, "Viewer")).Token)).Role);
+        Assert.Equal(BoardRole.Owner, (await Accept(member, (await Create(owner, board.Id, "Owner")).Token)).Role);
+    }
+
+    [Fact]
+    public async Task Only_owners_manage_invites()
+    {
+        var owner = await factory.CreateSignedInClientAsync("boss@example.com");
+        var editor = await factory.CreateSignedInClientAsync("helper@example.com");
+        var board = await owner.CreateBoardAsync("Owners only");
+        await owner.ShareAsync(board.Id, editor, BoardRole.Editor);
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await editor.PostAsJsonAsync($"/api/boards/{board.Id}/invites", new { role = "Viewer" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await editor.GetAsync($"/api/boards/{board.Id}/invites")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await owner.PostAsJsonAsync($"/api/boards/{board.Id}/invites", new { role = "Viewer", expiresInDays = 31 })).StatusCode);
+    }
+
     private static async Task<List<UserMatch>> Lookup(HttpClient owner, Guid boardId, string email)
     {
         var response = await owner.PostAsJsonAsync($"/api/boards/{boardId}/members/lookup", new { email });
@@ -228,4 +405,30 @@ public class MembershipApiTests(MembershipApiTests.Factory factory) : IClassFixt
 
     private static Task<HttpResponseMessage> Upload(HttpClient client, Guid boardId) =>
         client.PostAsync($"/api/boards/{boardId}/images", Png());
+
+    private static async Task<T> Created<T>(HttpResponseMessage response)
+    {
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<T>())!;
+    }
+
+    private static async Task<T> Ok<T>(HttpResponseMessage response)
+    {
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<T>())!;
+    }
+
+    private static async Task<CreatedInvite> Create(HttpClient owner, Guid boardId, string role)
+    {
+        var response = await owner.PostAsJsonAsync($"/api/boards/{boardId}/invites", new { role });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<CreatedInvite>())!;
+    }
+
+    private static async Task<AcceptedInvite> Accept(HttpClient client, string token)
+    {
+        var response = await client.PostAsJsonAsync("/api/invites/accept", new { token });
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<AcceptedInvite>())!;
+    }
 }

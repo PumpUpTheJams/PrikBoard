@@ -14,9 +14,9 @@ public class RestoreApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
 {
     private HttpClient _client = null!;
 
-    public async Task InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
+    public async ValueTask InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
     public async Task A_deleted_card_is_hidden_everywhere_and_comes_back_whole_with_its_images()
@@ -107,7 +107,7 @@ public class RestoreApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     }
 
     [Fact]
-    public async Task A_restored_bucket_keeps_its_place_in_the_stack_and_takes_its_cards_back()
+    public async Task A_restored_bucket_keeps_its_place_in_the_stack_and_takes_no_cards()
     {
         var board = await _client.CreateBoardAsync("Restore a bucket");
         var toDo = board.Buckets[0];
@@ -120,7 +120,8 @@ public class RestoreApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         Assert.Equal((toDo.Name, toDo.X, toDo.Y, toDo.Width, toDo.Height), (restored.Name, restored.X, restored.Y, restored.Width, restored.Height));
         var back = await Board(board.Id);
         Assert.Equal(board.Buckets.Select(b => b.Id), back.Buckets.Select(b => b.Id));
-        Assert.Equal(toDo.Id, back.Cards.Single(n => n.Id == card.Id).BucketId);
+        // Its card went loose; undo in the web app puts it back by id.
+        Assert.Null(back.Cards.Single(n => n.Id == card.Id).BucketId);
         Assert.Equal(HttpStatusCode.Conflict, (await _client.PostAsync($"/api/buckets/{toDo.Id}/restore", null)).StatusCode);
     }
 

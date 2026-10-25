@@ -116,7 +116,7 @@ public static class ImageEndpoints
         Guid boardId, Stream body, Guid addedById, PrikBoardDbContext db, FileStore files, CancellationToken ct,
         string? fileName = null, Guid? cardId = null, int? x = null, int? y = null, int? width = null, string? caption = null)
     {
-        if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
+        // The board exists: every caller checked the caller's access to it first.
 
         if (InvalidPlacement(x, y, width, caption) is { } invalid) return invalid;
         var card = cardId is null ? null : await db.Cards.AsNoTracking().FirstOrDefaultAsync(n => n.Id == cardId && n.BoardId == boardId, ct);
@@ -283,6 +283,8 @@ public static class ImageEndpoints
         var moving = (request.CardId is { } to && to != image.CardId) || (detach && image.CardId is not null);
         if (request.CardId is not null && detach) return Problems.Invalid("detach", "Give either a cardId or detach, not both.");
         if (moving && request.X is null != request.Y is null) return Problems.Invalid(request.X is null ? "x" : "y", "Give x and y together.");
+        var dropped = request.BucketId is not null || request.Loose == true;
+        if (Problems.Drop(request.BucketId, request.Loose, request.X is not null && request.Y is not null) is { } drop) return drop;
         if (request.Width is { } width) image.Resize(width);
         if (moving)
         {
@@ -302,8 +304,14 @@ public static class ImageEndpoints
         {
             (image.X, image.Y) = Layout.OnCardCanvas(request.X ?? image.X, request.Y ?? image.Y, image.Width, image.Height);
         }
-        // An image that moved (or changed size) joins the bucket it now sits in; only a new caption leaves it where it is.
-        if (moving || request.X is not null || request.Y is not null || request.Width is not null)
+        // An image that moved (or changed size) joins the bucket it now sits in, or the one the pointer was in when it was
+        // dropped in the web app; only a new caption leaves it where it is.
+        if (dropped)
+        {
+            if (image.CardId is not null) return Problems.Invalid(request.BucketId is null ? "loose" : "bucketId", "Only for an image on the board.");
+            if (BucketEndpoints.DropIn(image, request.BucketId, await BucketEndpoints.StackAsync(db, image.BoardId, ct)) is { } outside) return outside;
+        }
+        else if (moving || request.X is not null || request.Y is not null || request.Width is not null)
         {
             Layout.Place(image, await BucketEndpoints.StackAsync(db, image.BoardId, ct));
         }

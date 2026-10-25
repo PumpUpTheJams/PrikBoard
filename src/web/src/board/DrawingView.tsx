@@ -1,7 +1,7 @@
-import { useState, type CSSProperties, type PointerEvent, type Ref } from 'react'
+import { useMemo, useState, type CSSProperties, type PointerEvent, type Ref } from 'react'
 import { inkColors, type DrawingDetail, type DrawingStroke, type InkColor, type Point, type Rect, type StrokePoint } from '../api/types'
 import { keepPress } from './gesture'
-import { inkHex, MAX_SCALE, MIN_SCALE, reshapeStrokes, strokePaths, strokeSizes, useDrawingStrokes, type Reshape } from './drawings'
+import { inkColor, MAX_SCALE, MIN_SCALE, reshapeStrokes, strokePaths, strokeSizes, useDrawingStrokes, type Reshape } from './drawings'
 import { TrashIcon } from './icons'
 
 /** A stroke's line being drawn, at its place. */
@@ -10,7 +10,7 @@ export function StrokeSvg({ points, color, strokeWidth, at }: { points: StrokePo
   return (
     <svg className="stroke" style={{ left: at.x, top: at.y }} width={1} height={1} aria-hidden="true">
       {paths.map((p, i) => (
-        <path key={i} d={p.d} stroke={color} strokeWidth={p.width} />
+        <path key={i} d={p.d} style={{ stroke: color }} strokeWidth={p.width} />
       ))}
     </svg>
   )
@@ -21,16 +21,18 @@ export function StrokeSvg({ points, color, strokeWidth, at }: { points: StrokePo
  * takes presses near it, so pressing any of its lines picks up the whole drawing.
  */
 export function DrawingSvg({ strokes, colors, at, hit }: { strokes: DrawingStroke[]; colors: InkColor[]; at: Point; hit?: boolean }) {
+  // Worked out again only for other strokes (the loaded ones stay the same while the drawing does).
+  const shapes = useMemo(() => strokes.map((stroke) => strokePaths(stroke.points, stroke.strokeWidth)), [strokes])
   return (
     <svg className="stroke" style={{ left: at.x, top: at.y }} width={1} height={1} aria-hidden="true">
       {strokes.map((stroke, i) => {
-        const paths = strokePaths(stroke.points, stroke.strokeWidth)
-        const color = inkHex[colors[i] ?? colors.at(-1) ?? 'Chalk']
+        const paths = shapes[i]
+        const color = inkColor[colors[i] ?? colors.at(-1) ?? 'Chalk']
         return (
           <g key={i}>
             {hit && <path className="stroke-hit" d={paths.map((p) => p.d).join('')} strokeWidth={Math.max(14, stroke.strokeWidth * 2)} />}
             {paths.map((p, j) => (
-              <path key={j} d={p.d} stroke={color} strokeWidth={p.width} />
+              <path key={j} d={p.d} style={{ stroke: color }} strokeWidth={p.width} />
             ))}
           </g>
         )
@@ -45,8 +47,6 @@ interface DrawingViewProps {
   rect: Rect
   selected: boolean
   lifted: boolean
-  /** Drawn above the rest, with the front bucket it sits in. */
-  front?: boolean
   onPointerDown: (e: PointerEvent<Element>) => void
   /** The canvas's zoom, to turn pointer travel into canvas pixels. */
   zoom?: number
@@ -108,7 +108,7 @@ function reshapeOf(g: ReshapeGesture, rect: Rect, zoom: number): Reshape {
 const unchanged = (r: Reshape) => r.scaleX === 1 && r.scaleY === 1 && r.rotation === 0
 
 /** A drawing on a canvas; pressing any of its lines selects and moves all of it. Selected, its handles scale and turn it. */
-export function DrawingView({ drawing, rect, selected, lifted, front, onPointerDown, zoom = 1, onReshape }: DrawingViewProps) {
+export function DrawingView({ drawing, rect, selected, lifted, onPointerDown, zoom = 1, onReshape }: DrawingViewProps) {
   const loaded = useDrawingStrokes(drawing)
   const [held, setGesture] = useState<ReshapeGesture | null>(null)
   // Once the drawing has a new content URL, its saved strokes replace the preview.
@@ -120,7 +120,6 @@ export function DrawingView({ drawing, rect, selected, lifted, front, onPointerD
   const classes = ['drawing']
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
-  if (front) classes.push('in-front')
   if (gesture) classes.push('reshaping')
 
   function begin(e: PointerEvent<HTMLElement>, kind: 'rotate' | Corner) {

@@ -42,6 +42,19 @@
       "runtimeExecutable": "bash",
       "runtimeArgs": ["-c", "docker run --rm --init --network host -u \"$(id -u):$(id -g)\" -e npm_config_cache=/tmp/.npm -v \"$PWD/src/web\":/app -w /app node:22 npm run dev"],
       "port": 5173
+    },
+    {
+      "name": "perf-api",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tools/perf/serve-board.mjs", "--snapshot=tools/perf/out/board.json", "--export=tools/perf/out/perf-board.json", "--port=5099"],
+      "port": 5099
+    },
+    {
+      "name": "perf-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "preview", "--prefix", "src/web", "--", "--port", "5188", "--strictPort"],
+      "env": { "PRIKBOARD_API_URL": "http://localhost:5099" },
+      "port": 5188
     }
   ]
 }

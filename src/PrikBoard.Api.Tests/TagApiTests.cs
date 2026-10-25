@@ -46,7 +46,7 @@ public class TagApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardA
     }
 
     [Fact]
-    public async Task Renaming_a_tag_renames_it_on_every_card()
+    public async Task Renaming_a_tag_renames_it_on_every_card_and_deleting_it_removes_it_from_every_card()
     {
         var client = await factory.CreateSignedInClientAsync("tags-rename@example.com");
         var board = await client.CreateBoardAsync("Tags rename");
@@ -66,6 +66,13 @@ public class TagApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardA
         Assert.Equal(HttpStatusCode.Conflict, clash.StatusCode);
         var tooLong = await client.PatchAsJsonAsync($"/api/boards/{board.Id}/tags/{ui.Id}", new { name = new string('x', 31) });
         Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/boards/{board.Id}/tags/{ui.Id}")).StatusCode);
+
+        Assert.Equal(["backend"], (await CardAsync(client, first.Id)).Tags);
+        Assert.Empty((await CardAsync(client, second.Id)).Tags);
+        Assert.Equal(["backend"], (await TagsAsync(client, board.Id)).Select(t => t.Name));
+        Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync($"/api/boards/{board.Id}/tags/{ui.Id}")).StatusCode);
     }
 
     [Fact]
@@ -97,23 +104,6 @@ public class TagApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardA
         Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
         var snapshot = (await client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
         Assert.Equal([("ui", TagColor.Default), ("urgent", TagColor.Brick)], snapshot.Tags.Select(x => (x.Name, x.Color)));
-    }
-
-    [Fact]
-    public async Task Deleting_a_tag_removes_it_from_every_card()
-    {
-        var client = await factory.CreateSignedInClientAsync("tags-delete@example.com");
-        var board = await client.CreateBoardAsync("Tags delete");
-        var first = await CreateCard(client, board.Id, "First", "ui", "backend");
-        var second = await CreateCard(client, board.Id, "Second", "ui");
-        var ui = (await TagsAsync(client, board.Id)).Single(t => t.Name == "ui");
-
-        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/boards/{board.Id}/tags/{ui.Id}")).StatusCode);
-
-        Assert.Equal(["backend"], (await CardAsync(client, first.Id)).Tags);
-        Assert.Empty((await CardAsync(client, second.Id)).Tags);
-        Assert.Equal(["backend"], (await TagsAsync(client, board.Id)).Select(t => t.Name));
-        Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync($"/api/boards/{board.Id}/tags/{ui.Id}")).StatusCode);
     }
 
     [Fact]

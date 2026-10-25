@@ -16,8 +16,8 @@ interface NewCardDragOptions {
   landing: (client: Point) => Point | null
   /** A drag from the rail began. */
   onCarry: () => void
-  /** Adds the new card with its top-left at a canvas point. */
-  stick: (at: Point) => void
+  /** Adds the new card with its top-left at a canvas point, in the bucket under the pointer (a canvas point too). */
+  stick: (at: Point, pointer: Point) => void
 }
 
 /**
@@ -58,7 +58,7 @@ export function useNewCardDrag({ readOnly, onTrash, setOverTrash, landing, onCar
       window.addEventListener('click', swallow, { capture: true, once: true })
       setTimeout(() => window.removeEventListener('click', swallow, true))
       const spot = landing({ x: ev.clientX, y: ev.clientY })
-      if (spot) stick(cardSpot(spot))
+      if (spot) stick(cardSpot(spot), spot)
     }
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key !== 'Escape') return
@@ -75,6 +75,8 @@ export function useNewCardDrag({ readOnly, onTrash, setOverTrash, landing, onCar
     carried,
     /** Where the carried card would land, on the canvas. */
     spot: at ? cardSpot(at) : null,
+    /** The pointer carrying it, on the canvas: the card goes into the bucket under it. */
+    pointer: at,
     onPointerDown,
   }
 }

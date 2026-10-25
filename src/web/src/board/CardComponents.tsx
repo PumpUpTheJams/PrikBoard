@@ -326,7 +326,7 @@ export function LinksComponent({ links, highlight, card, cards, autoFocus, readO
       <ul className="links">
         {links.map((link, i) => (
           <li key={i}>
-            <LinkRow link={link} cards={cards} highlight={highlight} />
+            <LinkRow link={link} card={card} cards={cards} highlight={highlight} />
             {!readOnly && (
               <button
                 type="button"
@@ -381,19 +381,22 @@ export function LinksComponent({ links, highlight, card, cards, autoFocus, readO
 }
 
 /** One link: a web page opens in a new tab; a card opens here, shown with its current title and fill. */
-function LinkRow({ link, cards, highlight }: { link: CardLink; cards: CardDetail[]; highlight?: SearchTerm[] }) {
+function LinkRow({ link, card, cards, highlight }: { link: CardLink; card: CardDetail; cards: CardDetail[]; highlight?: SearchTerm[] }) {
   const route = cardRoute(link.url)
   if (route) {
     const target = linkedCard(cards, link.url)
+    // A card of this board that isn't on it any more (deleted): following the link says why nothing opens.
+    const missing = !target && (route.board === card.boardId || route.board === cardRoute(card.path)?.board)
+    const meta = target ? target.readableId : missing ? 'Card not found' : `On another board · ${route.board}/${route.card}`
     return (
       // Only the hash changes: the board opens the card, or App switches to its board.
-      <a className="link-row" href={(target?.path ?? cardPath(route)).slice(1)}>
+      <a className={missing ? 'link-row missing' : 'link-row'} href={(target?.path ?? cardPath(route)).slice(1)}>
         {target ? <span className={`link-swatch fill-${target.color.toLowerCase()}`} aria-hidden="true" /> : <CardIcon size={16} />}
         <span className="link-text">
           <span className="link-title">
             <Highlight text={target ? cardLabel(target) : link.title} terms={highlight} field="component" />
           </span>
-          <span className="link-meta">{target ? target.readableId : `On another board · ${route.board}/${route.card}`}</span>
+          <span className="link-meta">{meta}</span>
         </span>
       </a>
     )

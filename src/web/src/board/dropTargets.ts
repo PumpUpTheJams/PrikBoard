@@ -1,12 +1,12 @@
-import type { RefObject } from 'react'
+import { useRef, type RefObject } from 'react'
 import { api } from '../api/client'
 import type { BoardDetail, BucketDetail, CardDetail, GrowSide, Point, Rect } from '../api/types'
-import type { Gesture } from './boardGesture'
-import { bucketItemsOf, cardBox, packed, packedSizes } from './boardItems'
+import type { Gesture, GroupGesture } from './boardGesture'
+import { bucketItemsOf, cardBox } from './boardItems'
 import type { IncomingDrawing, IncomingImage } from './CardCanvas'
 import type { ExpandedCardHandle } from './ExpandedCard'
 import { isDrag } from './gesture'
-import { GRID, collapsedRect, defaultComponentSize, onCardCanvas, packIn } from './layout'
+import { CARD_HEIGHT, CARD_WIDTH, GRID, bucketAtPointer, collapsedRect, defaultComponentSize, onCardCanvas, packIn } from './layout'
 import { cardLabel, linksTo } from './links'
 import { contains } from './selection'
 import type { TrashWindowHandle } from './TrashWindow'
@@ -30,12 +30,15 @@ export interface AttachDrop {
   window: boolean
 }
 
-/** Several selected items dragged over a bucket they aren't all in, which they would go into on release. */
+/**
+ * Several selected items dragged over a bucket their cards aren't all in: on release the cards go into its free spots,
+ * and the images and drawings join it where they are let go.
+ */
 export interface ArrangeDrop {
   bucket: BucketDetail
   /** The edge nearest the pointer: the bucket grows that way when they don't fit. */
   side: GrowSide
-  /** Where each of the group's items goes, by id. */
+  /** Where each of the group's cards goes, by id. */
   spots: Record<string, Point>
   /** The bucket as it would be after growing. */
   grown: Rect
@@ -55,7 +58,7 @@ export interface DropTargets {
   link: LinkDrop | null
   /** The card a group of images and drawings would be attached to, instead of moved. */
   attach: AttachDrop | null
-  /** The bucket a group of cards would go into, and where. */
+  /** The bucket a group's cards would be packed into, and where. */
   arrange: ArrangeDrop | null
   /** A board image over the open card's canvas, to attach it there. */
   incoming: IncomingImage | null
@@ -112,7 +115,7 @@ export function dropTargetsFor(g: Gesture, client: Point, probe: DropProbe): Dro
   if (fold) return { ...NO_DROPS, fold: fold.id }
   const link = probe.linkDropFor(g, client)
   if (g.kind !== 'group') return { ...NO_DROPS, link, incoming: probe.imageOnCard(g, client), incomingDrawing: probe.drawingOnCard(g, client) }
-  // Items over a bucket they aren't all in go into its free spots (over the open card, they stay on the board).
+  // Cards over a bucket they aren't all in go into its free spots (over the open card, they stay on the board).
   const arrange = !link && !probe.overWindow(client) ? probe.arrangeFor(g) : null
   return { ...NO_DROPS, link, arrange, attach: probe.attachDropFor(g, client) }
 }
@@ -150,25 +153,26 @@ interface DropProbeOptions {
   toCanvas: (e: { clientX: number; clientY: number }) => Point
   /** The cards on the board, in the order they are drawn (the last on top). */
   drawn: CardDetail[]
-  /** Buckets back to front. */
-  stacked: BucketDetail[]
-  /** The bucket drawn in front, with what is in it. */
-  front: string | null
+  /** Buckets as they are drawn, back to front, each with what is in it. */
+  drawnBuckets: BucketDetail[]
   bucketRect: (bucket: BucketDetail) => Rect
 }
 
 /** What the board can tell about the places a drag could be dropped on (a DropProbe), and the card under a point. */
 export function useDropProbe(options: DropProbeOptions) {
-  const { board, expanded, cardHandle, trash, railTrash, toCanvas, drawn, stacked, front, bucketRect } = options
+  const { board, expanded, cardHandle, trash, railTrash, toCanvas, drawn, drawnBuckets: stacked, bucketRect } = options
+  /** The last place a group was arranged in a bucket: a drag asks on every move, and the answer seldom changes. */
+  const arranged = useRef<ArrangeMemo | null>(null)
 
   /**
-   * Whether the front bucket covers canvas point `p` for an item outside it (`bucketId`: the item's bucket, or a
-   * collapsed bucket's own id): its fill hides what is under it, so a drop there doesn't reach it.
+   * Whether an open bucket drawn above an item's bucket covers canvas point `p` (`bucketId`: the item's bucket, or a
+   * collapsed bucket's own id): its fill hides what is under it, so a drop there doesn't reach it. Loose cards and
+   * images are drawn above every bucket.
    */
   function coveredAt(p: Point, bucketId: string | null): boolean {
-    const bucket = front !== null && bucketId !== front ? board.buckets.find((b) => b.id === front) : undefined
-    if (!bucket) return false
-    return contains(bucketRect(bucket), p)
+    if (bucketId === null) return false
+    const below = stacked.findIndex((b) => b.id === bucketId)
+    return stacked.slice(below + 1).some((b) => !b.collapsed && contains(bucketRect(b), p))
   }
 
   /** The topmost card on the board under a canvas point, other than `except` (one id, or the ids of a group), and not covered. */
@@ -194,7 +198,7 @@ export function useDropProbe(options: DropProbeOptions) {
     onTrash,
     inDeleted,
     overWindow,
-    // Not a collapsed bucket behind the front bucket.
+    // Not a collapsed bucket covered by a bucket drawn above it.
     foldAt: (p) => stacked.findLast((b) => b.collapsed && !coveredAt(p, b.id) && contains(collapsedRect(bucketRect(b)), p)),
     // A card, or several selected cards, link to the open card (anywhere over its window) or to the card under the
     // pointer that isn't one of them.
@@ -209,7 +213,7 @@ export function useDropProbe(options: DropProbeOptions) {
       const under = cardUnder(client, ids)
       return under ? { card: under, window: false, client } : null
     },
-    arrangeFor: (g) => arrangeFor(g, board, stacked, front),
+    arrangeFor: (g) => arrangeFor(g, board, stacked, arranged),
     // Only a group of images and drawings: to the open card (over its canvas) or to the card under the pointer.
     attachDropFor(g, client) {
       if (g.kind !== 'group' || !g.members.every((m) => m.kind === 'image' || m.kind === 'drawing')) return null
@@ -253,20 +257,15 @@ function draggedCards(g: Gesture): Set<string> | null {
 }
 
 /**
- * Where several selected items being dragged would go into the bucket under the pointer, when they aren't all in it
- * already: its free spots, each at its own size, growing towards the edge nearest the pointer. Null for a group with
- * buckets.
+ * Where the cards of several selected items being dragged would go into the bucket under the pointer, when they aren't
+ * all in it already: its free spots, growing towards the edge nearest the pointer. Null for a group with buckets or
+ * without cards: images and drawings stay where they are let go.
  */
-function arrangeFor(g: Gesture, board: BoardDetail, stacked: BucketDetail[], front: string | null): ArrangeDrop | null {
-  if (g.kind !== 'group' || g.members.some((m) => m.kind === 'bucket')) return null
-  const items = bucketItemsOf(board, g.members)
-  const all = packed(items)
+function arrangeFor(g: Gesture, board: BoardDetail, stacked: BucketDetail[], memo: RefObject<ArrangeMemo | null>): ArrangeDrop | null {
+  if (g.kind !== 'group' || g.members.some((m) => m.kind === 'bucket') || !g.members.some((m) => m.kind === 'card')) return null
   const p = g.current
-  // The front bucket where it covers the pointer, else the topmost one there.
-  const under = stacked.filter((b) => !b.collapsed && contains(b, p))
-  const bucket = under.find((b) => b.id === front) ?? under.at(-1)
-  // Moved around inside the bucket they are all in already, they go where they are dropped.
-  if (all.length === 0 || !bucket || all.every((x) => x.bucketId === bucket.id)) return null
+  const bucket = bucketAtPointer(stacked, p)
+  if (!bucket) return null
   const edges: [GrowSide, number][] = [
     ['Left', p.x - bucket.x],
     ['Right', bucket.x + bucket.width - p.x],
@@ -274,15 +273,33 @@ function arrangeFor(g: Gesture, board: BoardDetail, stacked: BucketDetail[], fro
     ['Down', bucket.y + bucket.height - p.y],
   ]
   const side = edges.reduce((a, b) => (b[1] < a[1] ? b : a))[0]
-  // What is in the way: the bucket's own items and loose ones, not its neighbors' (the items join it by id, so it may
-  // grow over those, only as far as needed).
-  const ids = new Set(all.map((x) => x.id))
-  const inTheWay = (owner: string | null) => owner === null || owner === bucket.id
-  const taken = [
-    ...board.cards.filter((n) => !ids.has(n.id) && inTheWay(n.bucketId)).map(cardBox),
-    ...board.images.filter((i) => i.cardId === null && !ids.has(i.id) && inTheWay(i.bucketId)),
-    ...board.drawings.filter((d) => d.cardId === null && !ids.has(d.id) && inTheWay(d.bucketId)),
-  ]
-  const { bucket: grown, spots } = packIn(bucket, packedSizes(items), taken, side)
-  return { bucket, side, grown, spots: Object.fromEntries(all.map((x, i) => [x.id, spots[i]])) }
+  // The places don't depend on where in the bucket the pointer is, only on the side it is nearest to: while the board,
+  // the items, the bucket and that side stay the same, the last answer stands.
+  const last = memo.current
+  if (last && last.board === board && last.members === g.members && last.bucket === bucket && last.side === side) return last.drop
+  const drop = arrangeInto(board, g.members, bucket, side)
+  memo.current = { board, members: g.members, bucket, side, drop }
+  return drop
+}
+
+/** What `arrangeFor` worked out last, and from what. */
+interface ArrangeMemo {
+  board: BoardDetail
+  members: GroupGesture['members']
+  bucket: BucketDetail
+  side: GrowSide
+  drop: ArrangeDrop | null
+}
+
+/** Where the cards among the selected `members` go in `bucket`, growing towards `side`; null when they are all in it already. */
+function arrangeInto(board: BoardDetail, members: GroupGesture['members'], bucket: BucketDetail, side: GrowSide): ArrangeDrop | null {
+  const cards = bucketItemsOf(board, members).cards
+  // Moved around inside the bucket they are all in already, they go where they are dropped.
+  if (cards.length === 0 || cards.every((n) => n.bucketId === bucket.id)) return null
+  // What is in the way: the bucket's own cards and loose ones, not its neighbors' (the cards join it by id, so it may
+  // grow over those, only as far as needed), and not images or drawings, which cards may go over.
+  const ids = new Set(cards.map((n) => n.id))
+  const taken = board.cards.filter((n) => !ids.has(n.id) && (n.bucketId === null || n.bucketId === bucket.id)).map(cardBox)
+  const { bucket: grown, spots } = packIn(bucket, cards.map(() => ({ width: CARD_WIDTH, height: CARD_HEIGHT })), taken, side)
+  return { bucket, side, grown, spots: Object.fromEntries(cards.map((n, i) => [n.id, spots[i]])) }
 }

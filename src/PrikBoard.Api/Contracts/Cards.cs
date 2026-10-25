@@ -98,13 +98,14 @@ public record CardLink(
 /// </summary>
 /// <param name="Title">Short title shown on the card; trimmed. May be empty: a card without a title shows none.</param>
 /// <param name="Color">Card fill; defaults to Butter.</param>
-/// <param name="BucketId">Bucket to put the card in, in a free spot. With X and Y: the bucket it joins where buckets overlap, which must contain the card's center (without a bucketId it joins the topmost one there).</param>
+/// <param name="BucketId">Bucket to put the card in, in a free spot. With X and Y: the bucket it joins, which it must overlap (without a bucketId it joins the topmost one containing its center).</param>
 /// <param name="X">Left edge in canvas pixels; snapped to the 20 px grid. Give it together with Y.</param>
 /// <param name="Y">Top edge in canvas pixels; snapped to the 20 px grid. Give it together with X.</param>
 /// <param name="Tags">Tag names; trimmed, lower-cased, hyphenated and de-duplicated, each at most 30 characters. Prefer the board's tags (tags in getBoard); new names are added to the board.</param>
 /// <param name="AssigneeIds">Principal ids of people and agents to assign, from people in getBoard (at most 10).</param>
 /// <param name="Components">Initial content: text, checklists and lists of links. Components without X and Y are laid out automatically.</param>
 /// <param name="AgentWorking">Set to true when the calling agent starts working on the card right away.</param>
+/// <param name="Loose">With X and Y: true to join no bucket, even over one (a card dropped outside every bucket in the web app). Do not combine with bucketId.</param>
 public record CreateCardRequest(
     [property: Required(AllowEmptyStrings = true), StringLength(200)] string Title,
     CardColor? Color = null,
@@ -114,7 +115,8 @@ public record CreateCardRequest(
     [property: MaxLength(10)] List<string>? Tags = null,
     [property: MaxLength(10)] List<Guid>? AssigneeIds = null,
     [property: MaxLength(CardComponent.MaxComponents)] List<NewCardComponent>? Components = null,
-    bool? AgentWorking = null);
+    bool? AgentWorking = null,
+    bool? Loose = null);
 
 /// <summary>Creates several cards at once (createCards), in the order given.</summary>
 /// <param name="Cards">The cards, each as createCard takes one; at most 50.</param>
@@ -143,12 +145,14 @@ public record SetWorkingRequest(bool Working);
 /// <summary>
 /// Moves a card. Give a bucketId (the card lands in a free spot inside that bucket, which grows when full) or X and Y
 /// (the card goes exactly there and belongs to the topmost bucket containing its center, or none). Give both to put it
-/// exactly there in that bucket, where buckets overlap: the bucket must contain the card's center.
+/// exactly there in that bucket, which the card must overlap.
 /// </summary>
-/// <param name="BucketId">Destination bucket on the same board. With X and Y: which of the overlapping buckets there the card joins.</param>
+/// <param name="BucketId">Destination bucket on the same board. With X and Y: the bucket the card joins there, which it must overlap.</param>
 /// <param name="X">New left edge in canvas pixels; snapped to the 20 px grid.</param>
 /// <param name="Y">New top edge in canvas pixels; snapped to the 20 px grid.</param>
+/// <param name="Loose">With X and Y: true to join no bucket, even over one (a card dropped outside every bucket in the web app). Do not combine with bucketId.</param>
 public record MoveCardRequest(
     Guid? BucketId = null,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X = null,
-    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null);
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null,
+    bool? Loose = null);

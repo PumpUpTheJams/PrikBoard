@@ -1,31 +1,34 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
-using Npgsql;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
 
-/// <summary>The ChatWorkspaces migration, run against a throwaway database of its own (see <see cref="MigrationTests"/>).</summary>
+/// <summary>
+/// The ChatWorkspacesAndSlackApp migration, run against a database of its own that starts missing
+/// (<see cref="TestDatabases.LeaseMissingDatabase"/>, which also drops it later).
+/// </summary>
 public class ChatWorkspacesMigrationTests : IAsyncLifetime
 {
-    private const string WithDiscordTables = "20261023185940_CardIndexAndAttachmentChecks";
+    private const string WithDiscordTables = "20261024163748_InitialCreate";
 
-    private readonly PrikBoardDbContext db = new(new DbContextOptionsBuilder<PrikBoardDbContext>()
-        .UseNpgsql(new NpgsqlConnectionStringBuilder(
-            Environment.GetEnvironmentVariable("PRIKBOARD_TEST_POSTGRES") ?? "Host=localhost;Port=5432;Username=prikboard;Password=prikboard")
-        {
-            Database = $"prikboard_tests_{Guid.NewGuid():N}",
-        }.ConnectionString)
-        .Options);
+    private readonly TestDatabases.Lease lease = TestDatabases.LeaseMissingDatabase();
+    private PrikBoardDbContext db = null!;
 
-    public Task InitializeAsync() => db.GetService<IMigrator>().MigrateAsync(WithDiscordTables);
-
-    public async Task DisposeAsync()
+    public async ValueTask InitializeAsync()
     {
-        await db.Database.EnsureDeletedAsync();
+        db = new PrikBoardDbContext(new DbContextOptionsBuilder<PrikBoardDbContext>()
+            .UseNpgsql(TestDatabases.ConnectionString(lease.Database))
+            .Options);
+        await db.GetService<IMigrator>().MigrateAsync(WithDiscordTables);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
         await db.DisposeAsync();
+        lease.Dispose();
     }
 
     [Fact]
@@ -35,8 +38,8 @@ public class ChatWorkspacesMigrationTests : IAsyncLifetime
         var hash = Enumerable.Range(1, 32).Select(i => (byte)i).ToArray();
         var channels = $$"""[{"id": "1300000000000000001", "name": "general", "updates": 3, "saveBucketId": "{{bucket}}"}]""";
         await db.Database.ExecuteSqlAsync($$"""
-            INSERT INTO "Boards" ("Id", "Name", "Key", "ShortId", "NextCardNumber", "IsPublic", "PublicShowsPeople", "CreatedAt", "UpdatedAt")
-            VALUES ({{board}}, 'Night owls', 'OWL', 'owl001', 1, false, false, now(), now());
+            INSERT INTO "Boards" ("Id", "Name", "Key", "ShortId", "NextCardNumber", "IsPublic", "PublicShowsPeople", "ShowCursors", "CreatedAt", "UpdatedAt")
+            VALUES ({{board}}, 'Night owls', 'OWL', 'owl001', 1, false, false, true, now(), now());
             INSERT INTO "Principals" ("Id", "Kind", "DisplayName", "IsAdmin", "AvatarOptedOut", "CreatedAt", "LastSeenAt")
             VALUES ({{owner}}, 'User', 'Owner', false, false, now(), now());
             INSERT INTO "Principals" ("Id", "Kind", "DisplayName", "Issuer", "ClientId", "CreatedAt", "LastSeenAt")

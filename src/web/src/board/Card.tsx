@@ -4,6 +4,7 @@ import { AvatarStack } from '../components/Avatar'
 import { plural } from '../components/plural'
 import { Highlight } from './Highlight'
 import type { SearchTerm } from './search'
+import { titleLines } from './cardFace'
 import { CheckIcon, ExpandIcon, LinkIcon, PutBackIcon, TrashIcon } from './icons'
 import { cardLabel } from './links'
 import { CARD_HEIGHT, CARD_WIDTH } from './layout'
@@ -29,15 +30,6 @@ function contentSummary(card: CardDetail, images: number) {
 /** Keeps a press or double-click on a part of the card to that part, so it doesn't drag or expand the card. */
 const stop = (e: PointerEvent | MouseEvent) => e.stopPropagation()
 
-/** Rough width of a tag chip: 11 px mono is about 6.6 px per character, plus padding and gap. */
-const tagWidth = (tag: string) => tag.length * 6.6 + 16
-
-/** Title lines that fit: three, or two when the tags wrap to a second row. */
-function titleLines(card: CardDetail) {
-  const avatars = Math.min(card.assignees.length, 3)
-  const room = CARD_WIDTH - 24 - (avatars > 0 ? 24 + (avatars - 1) * 18 + 8 : 0)
-  return card.tags.reduce((sum, tag) => sum + tagWidth(tag), 0) > room ? 2 : 3
-}
 
 interface CardProps {
   card: CardDetail
@@ -53,7 +45,6 @@ interface CardProps {
   selected: boolean
   lifted: boolean
   /** Drawn above the rest, with the topmost open bucket it is in. */
-  front?: boolean
   /** Faded: it doesn't match the board's filters or search. */
   dimmed?: boolean
   /** Search words to mark in the title and tags. */
@@ -90,7 +81,7 @@ interface CardProps {
  * expand button, with copy link (its tooltip names the readable id) below it.
  */
 export function Card(props: CardProps) {
-  const { card, point, images = 0, tagColors, selected, lifted, front, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
+  const { card, point, images = 0, tagColors, selected, lifted, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
   const { editingTitle, titleCaret, onRenameTitle, onTitleDone, onPutBack, onPurge } = props
   /** A title just saved, shown until the reload brings it (while the card still has the old title, `from`). */
   const [saved, setSaved] = useState<{ title: string; from: string } | null>(null)
@@ -110,7 +101,6 @@ export function Card(props: CardProps) {
   if (!point) classes.push('in-list')
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
-  if (front) classes.push('in-front')
   if (card.agentWorking) classes.push('agent-working')
   if (dimmed) classes.push('dimmed')
   if (current) classes.push('search-current')

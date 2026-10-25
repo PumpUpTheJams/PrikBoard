@@ -11,13 +11,17 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
 {
     private HttpClient _client = null!;
 
-    public async Task InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
+    public async ValueTask InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
-    public async Task New_board_starts_with_default_buckets_side_by_side_and_is_listed()
+    public async Task A_new_board_needs_a_name_starts_with_default_buckets_side_by_side_and_is_listed()
     {
+        var nameless = await _client.PostAsJsonAsync("/api/boards", new { name = "" });
+        Assert.Equal(HttpStatusCode.BadRequest, nameless.StatusCode);
+        Assert.Equal("application/problem+json", nameless.Content.Headers.ContentType?.MediaType);
+
         var board = await CreateBoard("Launch");
 
         Assert.Equal(["To do", "Doing", "Done"], board.Buckets.Select(b => b.Name));
@@ -30,30 +34,25 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
-    public async Task Board_name_is_required()
-    {
-        var response = await _client.PostAsJsonAsync("/api/boards", new { name = "" });
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
-    }
-
-    [Fact]
-    public async Task Card_requests_are_validated()
+    public async Task Card_requests_and_moves_are_validated()
     {
         var board = await CreateBoard("Validation");
+        var other = await CreateBoard("Other");
         var cardsUrl = $"/api/boards/{board.Id}/cards";
+        var card = await CreateCard(board.Id, new { title = "Stay here" });
 
         var tooLong = await _client.PostAsJsonAsync(cardsUrl, new { title = new string('x', 201) });
         // The board has no edge at the origin, but it does end somewhere.
         var negative = await _client.PostAsJsonAsync(cardsUrl, new { title = "Ok", x = -100_020, y = 0 });
         var onlyX = await _client.PostAsJsonAsync(cardsUrl, new { title = "Ok", x = 100 });
         var outsideBucket = await _client.PostAsJsonAsync(cardsUrl, new { title = "Ok", bucketId = board.Buckets[0].Id, x = -1000, y = 0 });
+        var otherBoard = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/move", new { bucketId = other.Buckets[0].Id });
 
         Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, negative.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, onlyX.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, outsideBucket.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, otherBoard.StatusCode);
     }
 
     [Fact]
@@ -75,7 +74,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
-    public async Task Cards_default_to_free_spots_in_the_first_bucket()
+    public async Task Cards_default_to_free_spots_in_the_first_bucket_which_grows_when_full()
     {
         var board = await CreateBoard("Defaults");
         var todo = board.Buckets[0];
@@ -83,11 +82,18 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var first = await CreateCard(board.Id, new { title = "First" });
         var second = await CreateCard(board.Id, new { title = "Second", color = "Coral" });
         var third = await CreateCard(board.Id, new { title = "Third" });
+        await CreateCard(board.Id, new { title = "Fourth" });
+        // To do holds four; the fifth makes it grow.
+        var fifth = await CreateCard(board.Id, new { title = "Fifth" });
 
         Assert.All([first, second, third], n => Assert.Equal(todo.Id, n.BucketId));
         Assert.Equal(CardColor.Butter, first.Color);
         Assert.Equal(CardColor.Coral, second.Color);
         Assert.Equal([(60, 60), (60, 200), (60, 340)], new[] { first, second, third }.Select(n => (n.X, n.Y)));
+        var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
+        Assert.Equal((60, 620, todo.Id), (fifth.X, fifth.Y, fifth.BucketId));
+        Assert.Equal(720, snapshot!.Buckets[0].Height);
+        Assert.Equal(5, snapshot.Cards.Count(n => n.BucketId == todo.Id));
     }
 
     [Fact]
@@ -121,18 +127,6 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
 
         Assert.Equal((expectedX, expectedY), (moved.X, moved.Y));
         Assert.Equal(board.Buckets.SingleOrDefault(b => b.Name == expectedBucket)?.Id, moved.BucketId);
-    }
-
-    [Fact]
-    public async Task Moving_to_a_bucket_on_another_board_is_rejected()
-    {
-        var board = await CreateBoard("Source");
-        var other = await CreateBoard("Other");
-        var card = await CreateCard(board.Id, new { title = "Stay here" });
-
-        var response = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/move", new { bucketId = other.Buckets[0].Id });
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -221,7 +215,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
-    public async Task A_resized_bucket_lets_go_of_its_cards_outside_it_and_takes_only_loose_ones()
+    public async Task A_resized_bucket_lets_go_of_its_cards_outside_it_and_takes_none()
     {
         var board = await CreateBoard("Resize members");
         var (doing, done) = (board.Buckets[1], board.Buckets[2]);
@@ -234,35 +228,32 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var resized = await _client.PatchAsJsonAsync($"/api/buckets/{done.Id}", new { x = doing.X - 20, width = done.X + done.Width - doing.X + 20, height = 160 });
         resized.EnsureSuccessStatusCode();
         var shrunk = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Cards;
-        // Then tall again: the loose cards it now covers join it.
+        // Then tall again: the loose cards it now covers stay loose (only a bucket drawn around them takes them).
         (await _client.PatchAsJsonAsync($"/api/buckets/{done.Id}", new { height = done.Height + 300 })).EnsureSuccessStatusCode();
         var grown = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Cards;
 
         Assert.Equal(done.Id, shrunk.Single(n => n.Id == first.Id).BucketId);
         Assert.Null(shrunk.Single(n => n.Id == second.Id).BucketId);
         Assert.Equal(doing.Id, shrunk.Single(n => n.Id == inDoing.Id).BucketId);
-        Assert.Equal(done.Id, grown.Single(n => n.Id == second.Id).BucketId);
-        Assert.Equal(done.Id, grown.Single(n => n.Id == loose.Id).BucketId);
+        Assert.Null(grown.Single(n => n.Id == second.Id).BucketId);
+        Assert.Null(grown.Single(n => n.Id == loose.Id).BucketId);
         Assert.Equal(doing.Id, grown.Single(n => n.Id == inDoing.Id).BucketId);
     }
 
     [Fact]
-    public async Task A_bucket_that_grows_for_a_new_card_takes_the_loose_card_below_it_with_its_history()
+    public async Task A_bucket_that_grows_for_a_new_card_leaves_the_loose_card_below_it_loose()
     {
         var board = await CreateBoard("Grow over loose");
         var done = board.Buckets[2];
         var loose = await CreateCard(board.Id, new { title = "Below", x = done.X + 20, y = done.Y + done.Height + 40 });
         Assert.Null(loose.BucketId);
 
-        // Fill Done until it grows down over the loose card.
+        // Fill Done until it grows down over the loose card, which stays loose and where it is.
         for (var i = 0; i < 12; i++) await CreateCard(board.Id, new { title = $"Filler {i}", bucketId = done.Id });
 
         var after = (await _client.GetFromJsonAsync<CardDetail>($"/api/cards/{loose.Id}"))!;
-        Assert.Equal(done.Id, after.BucketId);
+        Assert.Null(after.BucketId);
         Assert.Equal((loose.X, loose.Y, "Below"), (after.X, after.Y, after.Title));
-        var history = await _client.GetFromJsonAsync<JsonElement>($"/api/cards/{loose.Id}/history");
-        Assert.Contains(history.EnumerateArray(), c => c.GetProperty("entries").EnumerateArray()
-            .Any(e => e.GetProperty("kind").GetString() == "Bucket" && e.GetProperty("after").GetString() == "Done"));
     }
 
     [Fact]
@@ -322,11 +313,14 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
-    public async Task A_new_bucket_adopts_the_loose_cards_it_covers_and_sits_on_top()
+    public async Task A_new_bucket_adopts_only_the_loose_cards_it_covers_and_sits_on_top()
     {
         var board = await CreateBoard("Adopt");
+        var todo = board.Buckets[0];
         var loose = await CreateCard(board.Id, new { title = "Loose", x = 40, y = 700 });
         var inTodo = await CreateCard(board.Id, new { title = "In to do" });
+        // In To do, hanging out of it over where the new bucket goes.
+        var hanging = await CreateCard(board.Id, new { title = "Hanging out", x = todo.X + 100, y = todo.Y + todo.Height - 40, bucketId = todo.Id });
 
         var created = await _client.PostAsJsonAsync(
             $"/api/boards/{board.Id}/buckets", new { name = "Review", x = 20, y = 60, width = 300, height = 800 });
@@ -336,7 +330,45 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
         Assert.Equal("Review", snapshot!.Buckets[^1].Name);
         Assert.Equal(review.Id, snapshot.Cards.Single(n => n.Id == loose.Id).BucketId);
-        Assert.Equal(review.Id, snapshot.Cards.Single(n => n.Id == inTodo.Id).BucketId);
+        Assert.Equal(todo.Id, snapshot.Cards.Single(n => n.Id == inTodo.Id).BucketId);
+        Assert.Equal(todo.Id, snapshot.Cards.Single(n => n.Id == hanging.Id).BucketId);
+    }
+
+    [Fact]
+    public async Task Items_a_bucket_lets_go_of_go_loose_not_into_another_bucket()
+    {
+        var board = await CreateBoard("Let go");
+        var (todo, doing) = (board.Buckets[0], board.Buckets[1]);
+        var card = await CreateCard(board.Id, new { title = "Card", bucketId = todo.Id });
+        // Doing moves under To do (To do stays on top), so the card also lies over Doing.
+        (await _client.PatchAsJsonAsync($"/api/buckets/{doing.Id}", new { x = todo.X, y = todo.Y })).EnsureSuccessStatusCode();
+        (await _client.PostAsync($"/api/buckets/{todo.Id}/front", null)).EnsureSuccessStatusCode();
+
+        (await _client.DeleteAsync($"/api/buckets/{todo.Id}")).EnsureSuccessStatusCode();
+        var afterDelete = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Cards.Single(n => n.Id == card.Id);
+        // A restored bucket takes nothing back by itself; the web app's undo puts its items back by id.
+        (await _client.PostAsync($"/api/buckets/{todo.Id}/restore", null)).EnsureSuccessStatusCode();
+        var afterRestore = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Cards.Single(n => n.Id == card.Id);
+        var putBack = await MoveCard(card.Id, new { x = card.X, y = card.Y, bucketId = todo.Id });
+
+        Assert.Null(afterDelete.BucketId);
+        Assert.Null(afterRestore.BucketId);
+        Assert.Equal(todo.Id, putBack.BucketId);
+    }
+
+    [Fact]
+    public async Task Resizing_or_folding_a_bucket_takes_no_items()
+    {
+        var board = await CreateBoard("No taking");
+        var todo = board.Buckets[0];
+        var loose = await CreateCard(board.Id, new { title = "Loose", x = todo.X + 20, y = todo.Y + todo.Height + 40 });
+
+        (await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { height = todo.Height + 400 })).EnsureSuccessStatusCode();
+        (await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { collapsed = true })).EnsureSuccessStatusCode();
+        (await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { collapsed = false })).EnsureSuccessStatusCode();
+
+        var after = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Cards.Single(n => n.Id == loose.Id);
+        Assert.Null(after.BucketId);
     }
 
     [Fact]
@@ -354,38 +386,16 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
-    public async Task A_full_bucket_grows_to_make_room()
+    public async Task Deleting_the_buckets_leaves_their_cards_loose_in_place_and_new_cards_land_loose_in_free_spots()
     {
-        var board = await CreateBoard("Grow");
-        var todo = board.Buckets[0];
-
-        CardDetail last = null!;
-        for (var i = 1; i <= 5; i++) last = await CreateCard(board.Id, new { title = $"Task {i}" });
-
-        var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
-        Assert.Equal((60, 620, todo.Id), (last.X, last.Y, last.BucketId));
-        Assert.Equal(720, snapshot!.Buckets[0].Height);
-        Assert.Equal(5, snapshot.Cards.Count(n => n.BucketId == todo.Id));
-    }
-
-    [Fact]
-    public async Task Deleting_a_bucket_leaves_its_cards_loose_in_place()
-    {
-        var board = await CreateBoard("Unbucket");
+        var board = await CreateBoard("Empty");
         var card = await CreateCard(board.Id, new { title = "Survivor" });
 
-        (await _client.DeleteAsync($"/api/buckets/{board.Buckets[0].Id}")).EnsureSuccessStatusCode();
+        foreach (var bucket in board.Buckets) (await _client.DeleteAsync($"/api/buckets/{bucket.Id}")).EnsureSuccessStatusCode();
 
         var after = await _client.GetFromJsonAsync<CardDetail>($"/api/cards/{card.Id}");
         Assert.Equal((card.X, card.Y), (after!.X, after.Y));
         Assert.Null(after.BucketId);
-    }
-
-    [Fact]
-    public async Task Cards_on_a_board_without_buckets_land_loose_in_free_spots()
-    {
-        var board = await CreateBoard("Empty");
-        foreach (var bucket in board.Buckets) (await _client.DeleteAsync($"/api/buckets/{bucket.Id}")).EnsureSuccessStatusCode();
 
         var first = await CreateCard(board.Id, new { title = "First" });
         var second = await CreateCard(board.Id, new { title = "Second" });
@@ -407,6 +417,26 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var hits = await _client.GetFromJsonAsync<List<CardDetail>>($"/api/boards/{board.Id}/cards?search=logo");
 
         Assert.Equal(["Design LOGO", "Write copy", "Print", "Brand"], hits!.Select(n => n.Title));
+    }
+
+    [Fact]
+    public async Task Search_finds_a_card_by_its_number_or_readable_id()
+    {
+        var board = await CreateBoard("Numbers");
+        var tiles = await CreateCard(board.Id, new { title = "Order 12 tiles" });
+        var call = await CreateCard(board.Id, new { title = "Call back" });
+        await CreateCard(board.Id, new { title = "Book venue" });
+        async Task<List<string>> Search(string search) =>
+            (await _client.GetFromJsonAsync<List<CardDetail>>($"/api/boards/{board.Id}/cards?search={Uri.EscapeDataString(search)}"))!.Select(n => n.Title).ToList();
+
+        Assert.Equal((1, 2), (tiles.Number, call.Number));
+        // The card with that number first, then the cards with that text.
+        Assert.Equal(["Call back", "Order 12 tiles"], await Search("2"));
+        Assert.Equal(["Call back"], await Search(" 002 "));
+        Assert.Equal(["Call back"], await Search("#2"));
+        Assert.Equal(["Call back"], await Search(call.ReadableId.ToLowerInvariant()));
+        Assert.Empty(await Search("#9"));
+        Assert.Equal(["Order 12 tiles"], await Search("12"));
     }
 
     [Fact]
@@ -527,18 +557,6 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
-    public async Task Deleting_a_board_removes_its_cards()
-    {
-        var board = await CreateBoard("Temporary");
-        var card = await CreateCard(board.Id, new { title = "Gone soon" });
-
-        (await _client.DeleteAsync($"/api/boards/{board.Id}")).EnsureSuccessStatusCode();
-
-        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"/api/boards/{board.Id}")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"/api/cards/{card.Id}")).StatusCode);
-    }
-
-    [Fact]
     public async Task Without_sign_in_providers_the_api_reference_is_still_readable()
     {
         var response = await factory.CreateAnonymousClient().GetAsync("/scalar/");
@@ -580,6 +598,146 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
             operationIds);
     }
 
+    // A board's agent rules: Markdown that owners write and agents follow.
+    [Fact]
+    public async Task Owners_set_and_clear_the_rules_every_member_reads_them_and_other_changes_leave_their_time_alone()
+    {
+        var owner = await factory.CreateSignedInClientAsync("rules-owner@example.com");
+        var viewer = await factory.CreateSignedInClientAsync("rules-viewer@example.com");
+        var board = await owner.CreateBoardAsync("Rules");
+        Assert.Null(board.Rules);
+        Assert.Null(board.RulesUpdatedAt);
+        await owner.ShareAsync(board.Id, viewer, BoardRole.Viewer);
+
+        const string rules = "# About\nRelease work.\n\n- Move cards to *Done* when merged.";
+        (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { rules })).EnsureSuccessStatusCode();
+
+        var seen = (await viewer.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
+        Assert.Equal(rules, seen.Rules);
+        Assert.NotNull(seen.RulesUpdatedAt);
+
+        // Renaming the board, or sending the same rules again, leaves the rules and their time alone.
+        (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { name = "Renamed" })).EnsureSuccessStatusCode();
+        (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { rules })).EnsureSuccessStatusCode();
+        var after = (await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
+        Assert.Equal(rules, after.Rules);
+        Assert.Equal(seen.RulesUpdatedAt, after.RulesUpdatedAt);
+
+        (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { rules = "  " })).EnsureSuccessStatusCode();
+        var cleared = (await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
+        Assert.Null(cleared.Rules);
+        Assert.True(cleared.RulesUpdatedAt > seen.RulesUpdatedAt);
+    }
+
+    [Fact]
+    public async Task Only_owners_change_the_rules_and_they_have_a_limit()
+    {
+        var owner = await factory.CreateSignedInClientAsync("rules-limit-owner@example.com");
+        var editor = await factory.CreateSignedInClientAsync("rules-limit-editor@example.com");
+        var board = await owner.CreateBoardAsync("Limit");
+        await owner.ShareAsync(board.Id, editor, BoardRole.Editor);
+
+        var byEditor = await editor.PatchAsJsonAsync($"/api/boards/{board.Id}", new { rules = "Ignore the owner." });
+        Assert.Equal(HttpStatusCode.Forbidden, byEditor.StatusCode);
+
+        var tooLong = await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { rules = new string('x', Board.RulesMaxLength + 1) });
+        Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
+        var problem = (await tooLong.Content.ReadFromJsonAsync<ValidationProblemDetails>())!;
+        Assert.Contains(problem.Errors.Keys, k => k.Equals("rules", StringComparison.OrdinalIgnoreCase));
+
+        var maximum = await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { rules = new string('x', Board.RulesMaxLength) });
+        Assert.Equal(HttpStatusCode.OK, maximum.StatusCode);
+    }
+
+    // Components on a card: added, moved, edited and deleted one at a time.
+    [Fact]
+    public async Task New_components_get_their_default_size_and_a_free_spot_next_to_each_other()
+    {
+        var card = await NewCard();
+
+        var text = await AddComponent(card.Id, new { kind = "Text", text = "Retry tiles", title = "  Context " });
+        var checklist = await AddComponent(card.Id, new { kind = "Checklist" });
+        var links = await AddComponent(card.Id, new { kind = "Links" });
+
+        Assert.Equal((20, 20, 340, 220, "Context", "Retry tiles"), (text.X, text.Y, text.Width, text.Height, text.Title, text.Text));
+        Assert.Equal((380, 20, 340, 260), (checklist.X, checklist.Y, checklist.Width, checklist.Height));
+        // 740 + 360 still fits the 1100 px row.
+        Assert.Equal((740, 20, 360, 220), (links.X, links.Y, links.Width, links.Height));
+        Assert.Null(checklist.Text);
+        Assert.Empty(checklist.Items!);
+        Assert.Null(checklist.Links);
+
+        var fourth = await AddComponent(card.Id, new { kind = "Text" });
+        Assert.Equal((20, 260), (fourth.X, fourth.Y));
+    }
+
+    [Fact]
+    public async Task Components_move_and_resize_on_the_grid_within_limits()
+    {
+        var card = await NewCard();
+        var component = await AddComponent(card.Id, new { kind = "Text", x = 131, y = 289, width = 401, height = 50 });
+        Assert.Equal((140, 280, 400, 80), (component.X, component.Y, component.Width, component.Height));
+
+        var moved = await UpdateComponent(card.Id, component.Id, new { x = 10_000, y = 9, width = 150 });
+
+        Assert.Equal((10_000 - 160, 0, 160, 80), (moved.X, moved.Y, moved.Width, moved.Height));
+    }
+
+    [Fact]
+    public async Task Content_must_fit_the_kind_and_can_be_cleared()
+    {
+        var card = await NewCard();
+        var text = await AddComponent(card.Id, new { kind = "Text", text = "Draft", title = "Cards" });
+        var url = $"/api/cards/{card.Id}/components/{text.Id}";
+
+        var items = await _client.PatchAsJsonAsync(url, new { items = new[] { new { text = "x" } } });
+        var noKind = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { text = "x" });
+        var xOnly = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Text", x = 40 });
+        var cleared = await UpdateComponent(card.Id, text.Id, new { text = "", title = " " });
+
+        Assert.Equal(HttpStatusCode.BadRequest, items.StatusCode);
+        Assert.Contains("items", await items.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.BadRequest, noKind.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, xOnly.StatusCode);
+        Assert.Equal(("", null), (cleared.Text, cleared.Title));
+    }
+
+    [Fact]
+    public async Task Components_are_deleted_and_unknown_ones_are_not_found()
+    {
+        var card = await NewCard();
+        var other = await NewCard();
+        var component = await AddComponent(card.Id, new { kind = "Links" });
+
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.PatchAsJsonAsync($"/api/cards/{other.Id}/components/{component.Id}", new { title = "x" })).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/cards/{card.Id}/components/{component.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.DeleteAsync($"/api/cards/{card.Id}/components/{component.Id}")).StatusCode);
+        Assert.Empty((await GetCard(card.Id)).Components);
+    }
+
+    [Fact]
+    public async Task A_card_holds_at_most_thirty_components()
+    {
+        var card = await NewCard();
+        for (var i = 0; i < CardComponent.MaxComponents; i++) await AddComponent(card.Id, new { kind = "Text" });
+
+        var response = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Text" });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Edits_to_different_components_at_the_same_time_both_survive()
+    {
+        var card = await NewCard();
+        var components = new List<CardComponentDetail>();
+        for (var i = 0; i < 6; i++) components.Add(await AddComponent(card.Id, new { kind = "Text" }));
+
+        await Task.WhenAll(components.Select((b, i) => _client.PatchAsJsonAsync($"/api/cards/{card.Id}/components/{b.Id}", new { text = $"Edit {i}" })));
+
+        Assert.Equal(Enumerable.Range(0, 6).Select(i => $"Edit {i}"), (await GetCard(card.Id)).Components.Select(b => b.Text));
+    }
+
     private async Task<BoardDetail> CreateBoard(string name)
     {
         var response = await _client.PostAsJsonAsync("/api/boards", new { name });
@@ -608,5 +766,27 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var response = await _client.PostAsJsonAsync($"/api/cards/{cardId}/move", request);
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<CardDetail>())!;
+    }
+
+    private async Task<CardDetail> NewCard()
+    {
+        var board = await _client.CreateBoardAsync("Components");
+        return await _client.CreateCardAsync(board.Id);
+    }
+
+    private async Task<CardDetail> GetCard(Guid cardId) => (await _client.GetFromJsonAsync<CardDetail>($"/api/cards/{cardId}"))!;
+
+    private async Task<CardComponentDetail> AddComponent(Guid cardId, object request)
+    {
+        var response = await _client.PostAsJsonAsync($"/api/cards/{cardId}/components", request);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<CardComponentDetail>())!;
+    }
+
+    private async Task<CardComponentDetail> UpdateComponent(Guid cardId, Guid componentId, object request)
+    {
+        var response = await _client.PatchAsJsonAsync($"/api/cards/{cardId}/components/{componentId}", request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<CardComponentDetail>())!;
     }
 }

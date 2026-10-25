@@ -2,7 +2,7 @@
 
 Your PrikBoard boards, buckets and cards in the side bar. Work in progress.
 
-**Assigned to you**, at the top of the tree, lists the cards assigned to you on all your boards, with the board and bucket next to each. It uses who you are signed in as (`whoAmI`), so it shows your own cards after **Sign in**, or the agent's after signing in with an agent's access token.
+**Assigned to you**, at the top of the tree, lists the cards assigned to you on all your boards, sorted into their buckets (buckets with the same name on different boards, such as *Doing*, share one row), with the board next to each card. Collapse the buckets you care less about; VS Code remembers which ones. It uses who you are signed in as (`whoAmI`), so it shows your own cards after **Sign in**, or the agent's after signing in with an agent's access token.
 
 On boards where you are an Editor or Owner you can, from the tree:
 
@@ -58,4 +58,12 @@ The extension reuses the web app's API client and types (`src/web/src/api`) inst
 ```bash
 npm run build      # type check and bundle to dist/
 npm run package    # build a .vsix
+```
+
+## Releasing
+
+The extension is released apart from the app. Push a tag `vscode-1.2.3` and the [VS Code extension workflow](https://github.com/PumpUpTheJams/PrikBoard/blob/main/.github/workflows/extension.yml) packages it as version 1.2.3 and publishes the .vsix as its own GitHub release, *PrikBoard for VS Code 1.2.3*, which never becomes the latest release (that stays the app's). It also pushes the .vsix to the GitHub Container Registry, so it shows under the repository's Packages as `prikboard-vscode`; get it from there with `oras pull ghcr.io/pumpupthejams/prikboard-vscode:1.2.3`. App tags (`1.2.3`) build only the container image.
+
+```bash
+git tag vscode-1.2.3 && git push origin vscode-1.2.3
 ```

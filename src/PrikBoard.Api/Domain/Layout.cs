@@ -74,25 +74,26 @@ public static class Layout
         buckets.OrderBy(b => b.CreatedAt).ThenBy(b => b.Id).ToList();
 
     // Bucket membership. A card, image or drawing on the board keeps its bucket (BucketId) until it moves itself: then it
-    // joins the topmost bucket containing its center (Place). Changes to a bucket only touch its own items, so moving a
-    // bucket onto another never moves items from one to the other: a moved bucket carries its own items and takes none;
-    // a resized one lets go of its items now outside it (Release) and takes the loose ones it now covers (Adopt,
-    // looseOnly); a created or restored one takes everything it covers (Adopt); a deleted one lets all its items go.
-    // A collapsed bucket keeps its items but takes no others, since they would vanish into it. The exception is a card
-    // put into it by bucketId (dropped on its square).
+    // joins the topmost bucket containing its center (Place). Only a bucket drawn around loose items takes them (Adopt);
+    // an item in a bucket is never taken by another one, and no other change to a bucket takes any. A moved bucket
+    // carries its own items; a resized one lets go of its items that no longer reach into it (Release), which go loose;
+    // a deleted one lets all its items go loose (a restored one takes none back: the web app's undo puts them back). A
+    // collapsed bucket keeps its items. Items put into a bucket by id (bucketId, placeItemsInBucket) join it, even
+    // collapsed.
+    // An item dragged in the web app goes by the pointer instead of its center: it names the bucket the pointer was in,
+    // which it only has to overlap (PlaceIn), or stays loose where it was dropped.
 
     /// <summary>For a card that moved: puts it in the topmost open bucket containing its center, or makes it loose.</summary>
     public static void Place(Card card, IReadOnlyList<Bucket> stacked) => card.BucketId = TopmostAt(stacked, Centre(card))?.Id;
 
     /// <summary>
-    /// Puts a card in <paramref name="bucket"/> if the bucket contains its center, even when another bucket is stacked above
-    /// it there (the web app may show this one in front) or it is collapsed (the card was dropped on its square). Returns
-    /// false and changes nothing otherwise.
+    /// Puts a card in <paramref name="bucket"/> if it overlaps the bucket, even when another bucket is stacked above it
+    /// there (the web app may show this one in front) or it is collapsed. A card dropped in the web app names the bucket
+    /// the pointer was in, so it may hang over its edge. Returns false and changes nothing otherwise.
     /// </summary>
     public static bool PlaceIn(Card card, Bucket bucket)
     {
-        var (x, y) = Centre(card);
-        if (!bucket.Contains(x, y)) return false;
+        if (!Intersects((card.X, card.Y, CardWidth, CardHeight), (bucket.X, bucket.Y, bucket.Width, bucket.Height))) return false;
         card.BucketId = bucket.Id;
         return true;
     }
@@ -100,6 +101,17 @@ public static class Layout
     /// <summary>Likewise for an image or drawing; one on a card is in no bucket.</summary>
     public static void Place(ICanvasItem item, IReadOnlyList<Bucket> stacked) =>
         item.BucketId = item.CardId is null ? TopmostAt(stacked, Centre(item))?.Id : null;
+
+    /// <summary>Likewise for an image or drawing on the board.</summary>
+    public static bool PlaceIn(ICanvasItem item, Bucket bucket)
+    {
+        if (item.CardId is not null || !Intersects((item.X, item.Y, item.Width, item.Height), (bucket.X, bucket.Y, bucket.Width, bucket.Height)))
+        {
+            return false;
+        }
+        item.BucketId = bucket.Id;
+        return true;
+    }
 
     /// <summary>Places every card, image and drawing by position, for a board built from scratch (an import).</summary>
     public static void PlaceAll(IEnumerable<Card> cards, IEnumerable<ICanvasItem> items, IEnumerable<Bucket> buckets)
@@ -110,45 +122,41 @@ public static class Layout
     }
 
     /// <summary>
-    /// Keeps a card in its bucket if that bucket is still in <paramref name="stacked"/> and contains its center;
-    /// otherwise places it by position. For a restored card, or one its bucket let go.
+    /// Keeps a card in its bucket if that bucket is still in <paramref name="stacked"/> and the card still overlaps it (it
+    /// may hang over the edge, as a drop by the pointer leaves it); otherwise it goes loose, never into another bucket.
+    /// For a restored card, or one its bucket may let go.
     /// </summary>
     public static void Recheck(Card card, IReadOnlyList<Bucket> stacked)
     {
-        if (!StillIn(card.BucketId, Centre(card), stacked)) Place(card, stacked);
+        if (!StillIn(card.BucketId, (card.X, card.Y, CardWidth, CardHeight), stacked)) card.BucketId = null;
     }
 
-    /// <summary>Likewise for an image or drawing.</summary>
+    /// <summary>Likewise for an image or drawing (one on a card is in no bucket).</summary>
     public static void Recheck(ICanvasItem item, IReadOnlyList<Bucket> stacked)
     {
-        if (item.CardId is not null || !StillIn(item.BucketId, Centre(item), stacked)) Place(item, stacked);
+        if (item.CardId is not null || !StillIn(item.BucketId, (item.X, item.Y, item.Width, item.Height), stacked)) item.BucketId = null;
     }
 
     /// <summary>
-    /// Items whose center lies in <paramref name="bucket"/>, where it is the topmost bucket, join it: all of them (a bucket
-    /// created or restored around them) or, with <paramref name="looseOnly"/>, only loose ones (a bucket that grew).
-    /// A collapsed bucket takes none.
+    /// Loose items whose center lies in <paramref name="bucket"/>, where it is the topmost bucket, join it: a bucket drawn
+    /// around them, the only one that takes items. Items in another bucket stay in theirs. A collapsed bucket takes none.
     /// </summary>
-    public static void Adopt(
-        Bucket bucket, IReadOnlyList<Bucket> stacked, IEnumerable<Card> cards, IEnumerable<ICanvasItem> items, bool looseOnly)
+    public static void Adopt(Bucket bucket, IReadOnlyList<Bucket> stacked, IEnumerable<Card> cards, IEnumerable<ICanvasItem> items)
     {
         if (bucket.Collapsed) return;
         foreach (var card in cards)
         {
-            if ((!looseOnly || card.BucketId is null) && TopmostAt(stacked, Centre(card)) == bucket) card.BucketId = bucket.Id;
+            if (card.BucketId is null && TopmostAt(stacked, Centre(card)) == bucket) card.BucketId = bucket.Id;
         }
         foreach (var item in items)
         {
-            if (item.CardId is null && (!looseOnly || item.BucketId is null) && TopmostAt(stacked, Centre(item)) == bucket)
-            {
-                item.BucketId = bucket.Id;
-            }
+            if (item.CardId is null && item.BucketId is null && TopmostAt(stacked, Centre(item)) == bucket) item.BucketId = bucket.Id;
         }
     }
 
     /// <summary>
-    /// Items of <paramref name="bucket"/> that are no longer inside it go to whatever is under them (another bucket, or
-    /// loose). For a deleted bucket, leave it out of <paramref name="stacked"/> so all its items go.
+    /// Items of <paramref name="bucket"/> that no longer reach into it at all go loose. For a deleted bucket, leave it out
+    /// of <paramref name="stacked"/> so all its items go.
     /// </summary>
     public static void Release(Bucket bucket, IReadOnlyList<Bucket> stacked, IEnumerable<Card> cards, IEnumerable<ICanvasItem> items)
     {
@@ -160,8 +168,8 @@ public static class Layout
 
     private static (int X, int Y) Centre(ICanvasItem item) => (item.X + item.Width / 2, item.Y + item.Height / 2);
 
-    private static bool StillIn(Guid? bucketId, (int X, int Y) centre, IReadOnlyList<Bucket> stacked) =>
-        bucketId is { } id && stacked.Any(b => b.Id == id && b.Contains(centre.X, centre.Y));
+    private static bool StillIn(Guid? bucketId, (int X, int Y, int Width, int Height) item, IReadOnlyList<Bucket> stacked) =>
+        bucketId is { } id && stacked.Any(b => b.Id == id && Intersects(item, (b.X, b.Y, b.Width, b.Height)));
 
     /// <summary>The topmost of <paramref name="stacked"/> (back to front) containing a point, leaving out collapsed ones.</summary>
     private static Bucket? TopmostAt(IReadOnlyList<Bucket> stacked, (int X, int Y) point) =>
@@ -195,8 +203,9 @@ public static class Layout
     /// of what is <paramref name="taken"/> and of buckets stacked above it (a card placed there by position would belong to
     /// that one; for a collapsed one only its square counts, as the rest takes no cards). When there aren't enough, the
     /// bucket grows a row or column at a time towards <paramref name="grow"/> (growing left or up moves that edge out;
-    /// what is in it stays put), and downwards once that side reaches the size or coordinate limit. Slots that can't be
-    /// found at all fall back to the top-left one.
+    /// what is in it stays put), downwards once that side reaches the size or coordinate limit, and to the right or left
+    /// once it is as tall as it can be (<see cref="GrowAny"/>). Slots that can't be found at all fall back to the
+    /// top-left one.
     /// </summary>
     private static List<(int X, int Y)> FreeSpotsIn(
         Bucket bucket, int count, IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, IEnumerable<Bucket> buckets, GrowSide grow)
@@ -207,7 +216,7 @@ public static class Layout
                 : (b.X, b.Y, b.Width, b.Height))
             .ToList();
         var spots = SlotsIn(bucket, count, taken, above);
-        while (spots.Count < count && (Grow(bucket, grow) || Grow(bucket, GrowSide.Down)))
+        while (spots.Count < count && GrowAny(bucket, grow))
         {
             spots = SlotsIn(bucket, count, taken, above);
         }
@@ -246,7 +255,7 @@ public static class Layout
         (int X, int Y)?[] spots)
     {
         // Every place with the gap around it lies inside the bucket, so only what reaches into the bucket can be in the way.
-        var inTheWay = Touching(taken, Bounds(bucket));
+        var inTheWay = new Blockers(Touching(taken, Bounds(bucket)));
         // Items placed before the bucket grew keep their places.
         for (var i = 0; i < spots.Length; i++)
         {
@@ -266,26 +275,30 @@ public static class Layout
     }
 
     /// <summary>The first place for an item of <paramref name="size"/> inside the bucket from <paramref name="from"/> on, row by row, a gap clear of <paramref name="inTheWay"/>.</summary>
-    private static (int X, int Y)? FirstFree(
-        Bucket bucket, (int Width, int Height) size, (int X, int Y) from, List<(int X, int Y, int Width, int Height)> inTheWay)
+    private static (int X, int Y)? FirstFree(Bucket bucket, (int Width, int Height) size, (int X, int Y) from, Blockers inTheWay)
     {
         var left = bucket.X + Gap;
         var right = bucket.X + Math.Max(bucket.Width, MinBucketWidth) - Gap;
         var bottom = bucket.Y + Math.Max(bucket.Height, MinBucketHeight) - Gap;
         for (var y = from.Y; y + size.Height <= bottom; y += Grid)
         {
-            for (var x = y == from.Y ? from.X : left; x + size.Width <= right; x += Grid)
+            for (var x = y == from.Y ? from.X : left; x + size.Width <= right;)
             {
                 var around = (x - Gap, y - Gap, size.Width + 2 * Gap, size.Height + 2 * Gap);
-                if (!AnyIntersects(inTheWay, around)) return (x, y);
+                if (inTheWay.RightEdgeAt(around) is not { } blockedTo) return (x, y);
+                // Every grid step before a gap past that edge would be in its way too.
+                x += StepsPast(blockedTo + Gap - x, Grid);
             }
         }
         return null;
     }
 
+    /// <summary>The distance of whole <paramref name="step"/>s that reaches <paramref name="distance"/> (at least one step).</summary>
+    private static int StepsPast(int distance, int step) => Math.Max(1, (distance + step - 1) / step) * step;
+
     /// <summary>
     /// Grows the bucket for an item that found no place: towards <paramref name="grow"/>, except across when the item is
-    /// wider or taller than the bucket's room that way, then downwards once that side reaches the limit.
+    /// wider or taller than the bucket's room that way, then as <see cref="GrowAny"/> does.
     /// </summary>
     private static bool GrowFor(Bucket bucket, (int Width, int Height) size, GrowSide grow)
     {
@@ -294,7 +307,7 @@ public static class Layout
         var vertical = grow is GrowSide.Down or GrowSide.Up;
         if (vertical && tooWide && (Grow(bucket, GrowSide.Right) || Grow(bucket, GrowSide.Left))) return true;
         if (!vertical && tooTall && (Grow(bucket, GrowSide.Down) || Grow(bucket, GrowSide.Up))) return true;
-        return Grow(bucket, grow) || Grow(bucket, GrowSide.Down);
+        return GrowAny(bucket, grow);
     }
 
     private const int ColumnStep = CardWidth + Gap;
@@ -309,18 +322,31 @@ public static class Layout
         var bottom = bucket.Y + Math.Max(bucket.Height, MinBucketHeight) - Gap;
         // Slots lie inside the bucket, so only what reaches into it can cover one.
         var bounds = Bounds(bucket);
-        var inTheWay = Touching(taken, bounds);
-        inTheWay.AddRange(Touching(above, bounds));
+        var inTheWay = new Blockers(Touching(taken, bounds));
+        foreach (var rect in Touching(above, bounds)) inTheWay.Add(rect);
         for (var y = bucket.Y + Gap; y + CardHeight <= bottom && spots.Count < count; y += RowStep)
         {
-            for (var x = bucket.X + Gap; x + CardWidth <= right && spots.Count < count; x += ColumnStep)
+            for (var x = bucket.X + Gap; x + CardWidth <= right && spots.Count < count;)
             {
-                if (AnyIntersects(inTheWay, (x, y, CardWidth, CardHeight))) continue;
+                if (inTheWay.RightEdgeAt((x, y, CardWidth, CardHeight)) is { } blockedTo)
+                {
+                    // Every slot before that edge would be covered too.
+                    x += StepsPast(blockedTo - x, ColumnStep);
+                    continue;
+                }
                 spots.Add((x, y));
+                x += ColumnStep;
             }
         }
         return spots;
     }
+
+    /// <summary>
+    /// Grows the bucket a step towards <paramref name="side"/>, else downwards, else to the right or left once it is as tall
+    /// as it can be; false when it can grow no further.
+    /// </summary>
+    private static bool GrowAny(Bucket bucket, GrowSide side) =>
+        Grow(bucket, side) || Grow(bucket, GrowSide.Down) || Grow(bucket, GrowSide.Right) || Grow(bucket, GrowSide.Left);
 
     /// <summary>
     /// Makes a bucket one row or column of card slots bigger towards a side (slots are laid out from its top-left).
@@ -453,5 +479,58 @@ public static class Layout
             if (Intersects(other, rect)) return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Rectangles in the way of placing something, filed by the squares of a coarse grid they reach into, so a search
+    /// only checks the ones near where it looks instead of all of them.
+    /// </summary>
+    private sealed class Blockers
+    {
+        /// <summary>The coarse grid's squares are 2^9 = 512 px.</summary>
+        private const int Shift = 9;
+        private readonly Dictionary<(int, int), List<(int X, int Y, int Width, int Height)>> _squares = [];
+
+        public Blockers(IEnumerable<(int X, int Y, int Width, int Height)> rects)
+        {
+            foreach (var rect in rects) Add(rect);
+        }
+
+        public void Add((int X, int Y, int Width, int Height) rect)
+        {
+            foreach (var square in Squares(rect))
+            {
+                if (!_squares.TryGetValue(square, out var list)) _squares[square] = list = [];
+                list.Add(rect);
+            }
+        }
+
+        /// <summary>The right edge of the rightmost rectangle that intersects <paramref name="area"/>; null when none does.</summary>
+        public int? RightEdgeAt((int X, int Y, int Width, int Height) area)
+        {
+            int? edge = null;
+            foreach (var square in Squares(area))
+            {
+                if (!_squares.TryGetValue(square, out var list)) continue;
+                foreach (var rect in list)
+                {
+                    if (Intersects(rect, area) && (edge is null || rect.X + rect.Width > edge)) edge = rect.X + rect.Width;
+                }
+            }
+            return edge;
+        }
+
+        /// <summary>The squares a rectangle reaches into (an empty one counts where it sits).</summary>
+        private static IEnumerable<(int, int)> Squares((int X, int Y, int Width, int Height) rect)
+        {
+            // An arithmetic shift rounds down, negative coordinates too.
+            var (left, top) = (rect.X >> Shift, rect.Y >> Shift);
+            var right = (rect.X + Math.Max(1, rect.Width) - 1) >> Shift;
+            var bottom = (rect.Y + Math.Max(1, rect.Height) - 1) >> Shift;
+            for (var x = left; x <= right; x++)
+            {
+                for (var y = top; y <= bottom; y++) yield return (x, y);
+            }
+        }
     }
 }

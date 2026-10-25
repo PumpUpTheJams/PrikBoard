@@ -433,7 +433,20 @@ FodyWeavers.xsd
 # Images and avatars of a local API (Storage:Path in Development)
 src/PrikBoard.Api/files/
 
+# Local configuration that may hold secrets; the examples stay tracked
+.env.*
+!.env.example
+appsettings.Production.json
+appsettings.*.local.json
+
+# Claude Code's own local settings and the worktrees it makes
+.claude/settings.local.json
+.claude/worktrees/
+
 # SQLite databases from before PostgreSQL
 *.db
 *.db-wal
 *.db-shm
+
+# Boards generated for measuring (tools/perf)
+tools/perf/out/

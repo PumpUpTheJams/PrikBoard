@@ -111,8 +111,14 @@ export default function App() {
         />
       )
     }
+    // A refused sign-in (a newcomer without an invite) comes back to the board it started from, and says why over it.
     if (boardRef && !signingIn && !invite && !connect && notVisible !== boardRef) {
-      return <VisitorPage key={boardRef} boardRef={boardRef} onMissing={() => setNotVisible(boardRef)} onSignIn={() => setSigningIn(true)} />
+      return (
+        <>
+          <VisitorPage key={boardRef} boardRef={boardRef} onMissing={() => setNotVisible(boardRef)} onSignIn={() => setSigningIn(true)} />
+          {authError && <NoticeDialog title="Not signed in" messages={[authError]} onClose={() => setAuthError(null)} />}
+        </>
+      )
     }
     return <SignIn authError={authError} />
   }
@@ -238,7 +244,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   // Live updates tell the open board to reload when others save; until connected, the board polls.
   const refreshBoard = useRef(() => {})
   const live = useLive(activeBoard?.id ?? null, { onBoardChanged: () => refreshBoard.current(), onBoardsChanged: loadBoards })
-  const { board, run, setPaused, refresh } = useBoard(activeBoard?.id ?? null, setError, onLost, live.connected)
+  const { board, run, setPaused, refresh, loads } = useBoard(activeBoard?.id ?? null, setError, onLost, live.connected)
   /** Undo history of every board opened in this tab; switching boards keeps it. */
   const [undoHistory] = useState(() => new UndoHistory())
   const { boardLoaded } = live
@@ -253,7 +259,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
     refresh()
   }, [user.displayName, refresh])
   // Someone's finished drag stays where they dropped it until the reload shows where it landed.
-  useEffect(() => boardLoaded(), [board, boardLoaded])
+  useEffect(() => boardLoaded(), [loads, boardLoaded])
   const othersHere = live.viewers.filter((v) => v.principalId !== user.id)
   /** Who points at the board, or has something selected or dragged on it, if it shows cursors: their avatar in the top bar goes there. */
   const pointers = useSyncExternalStore(live.cursors.subscribe, live.cursors.principals)

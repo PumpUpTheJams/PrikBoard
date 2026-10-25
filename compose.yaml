@@ -9,8 +9,9 @@ services:
       POSTGRES_USER: prikboard
       POSTGRES_PASSWORD: prikboard
       POSTGRES_DB: prikboard
+    # Only this machine can reach it: the password is the same in every checkout.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:

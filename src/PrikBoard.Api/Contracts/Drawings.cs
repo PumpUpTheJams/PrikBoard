@@ -145,10 +145,14 @@ public record NewDrawingStroke(
 /// <param name="Colors">New ink for each stroke, as many as it has (in drawing order). Do not combine with color.</param>
 /// <param name="CardId">Put the drawing on this card's canvas (on the same board), from the board or from another card.</param>
 /// <param name="Detach">True to take a drawing off its card and put it on the board. Do not combine with cardId.</param>
+/// <param name="BucketId">With X and Y on the board: the bucket it joins, which it must overlap (without one it joins the topmost one containing its center).</param>
+/// <param name="Loose">With X and Y on the board: true to join no bucket, even over one. Do not combine with bucketId.</param>
 public record UpdateDrawingRequest(
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X = null,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null,
     InkColor? Color = null,
     [property: MaxLength(BoardDrawing.MaxStrokes)] List<InkColor>? Colors = null,
     Guid? CardId = null,
-    bool? Detach = null);
+    bool? Detach = null,
+    Guid? BucketId = null,
+    bool? Loose = null);

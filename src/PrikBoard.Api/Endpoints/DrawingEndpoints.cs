@@ -113,7 +113,7 @@ public static class DrawingEndpoints
     internal static async Task<Results<Created<DrawingDetail>, NotFound, ValidationProblem, ProblemHttpResult>> CreateDrawing(
         Guid boardId, CreateDrawingRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
     {
-        if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
+        // The board exists: the role check (or the MCP tool's) found it.
 
         if (request.CardId is not null && !await db.Cards.AnyAsync(n => n.Id == request.CardId && n.BoardId == boardId, ct))
         {
@@ -226,6 +226,8 @@ public static class DrawingEndpoints
         {
             return Problems.Invalid(request.X is null ? "x" : "y", "Give x and y on the new canvas when moving between the board and a card.");
         }
+        var dropped = request.BucketId is not null || request.Loose == true;
+        if (Problems.Drop(request.BucketId, request.Loose, request.X is not null && request.Y is not null) is { } drop) return drop;
         if (moving && !detach)
         {
             if (!await db.Cards.AnyAsync(n => n.Id == request.CardId && n.BoardId == drawing.BoardId, ct))
@@ -240,8 +242,15 @@ public static class DrawingEndpoints
         }
 
         Place(drawing, request.X ?? drawing.X, request.Y ?? drawing.Y);
-        // A drawing that moved joins the bucket it now sits in, on top; only a new color leaves it where it is.
-        if (moving || request.X is not null || request.Y is not null)
+        // A drawing that moved joins the bucket it now sits in (or the one the pointer was in when it was dropped in the
+        // web app), on top; only a new color leaves it where it is.
+        if (dropped)
+        {
+            if (drawing.CardId is not null) return Problems.Invalid(request.BucketId is null ? "loose" : "bucketId", "Only for a drawing on the board.");
+            if (BucketEndpoints.DropIn(drawing, request.BucketId, await BucketEndpoints.StackAsync(db, drawing.BoardId, ct)) is { } outside) return outside;
+            drawing.ToFront();
+        }
+        else if (moving || request.X is not null || request.Y is not null)
         {
             Layout.Place(drawing, await BucketEndpoints.StackAsync(db, drawing.BoardId, ct));
             drawing.ToFront();

@@ -79,7 +79,7 @@ public partial class Board
     /// <summary>
     /// A key from a board name: the initials of its words (letters and digits only) or, when that gives fewer than two,
     /// the start of the name. At most four characters, never starting with a digit; "PB" when nothing usable is left.
-    /// "MCP me some tickets" becomes MMST, "PrikBoard" PRIK. The ReadableIds migration does the same in SQL.
+    /// "MCP me some tickets" becomes MMST, "PrikBoard" PRIK.
     /// </summary>
     public static string KeyFrom(string name)
     {
