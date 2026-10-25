@@ -4,21 +4,8 @@ import { api } from '../api/client'
 import { inkColors, type DrawingDetail, type DrawingStroke, type InkColor, type Point, type StrokePoint } from '../api/types'
 import { GRID, MAX_COORDINATE, MIN_COORDINATE } from './layout'
 
-/** The inks' colors, as the `--ink-*` tokens in index.css. */
-export const inkHex: Record<InkColor, string> = {
-  Chalk: '#e6e8ec',
-  Butter: '#f3d77a',
-  Mint: '#9fe0c0',
-  Sky: '#9ccbf5',
-  Coral: '#f4a99a',
-  Lilac: '#cdb8f5',
-  Ink: '#17181b',
-  Ochre: '#7a5a00',
-  Pine: '#1f6249',
-  Ocean: '#1d5a8c',
-  Brick: '#963528',
-  Violet: '#663d8f',
-}
+/** The inks' colors: the `--ink-*` tokens in index.css, which each color scheme sets (use them in `style`, not SVG attributes). */
+export const inkColor = Object.fromEntries(inkColors.map((ink) => [ink, `var(--ink-${ink.toLowerCase()})`])) as Record<InkColor, string>
 
 /** The pen's base widths, with the size of the dot that shows each in the flyout. */
 export const strokeSizes = [

@@ -1,5 +1,7 @@
 /*
- * "Night shift" board design (docs/Scrum Board — Night shift.html). Dark only.
+ * "Night shift" board design (docs/Scrum Board — Night shift.html). Two color schemes, picked in the settings menu
+ * (theme.ts): Productivity, the dark one on :root, and Positivity, a light daytime one ([data-theme='positivity'] below)
+ * with the same card fills. Every color the schemes differ in is a token here.
  */
 :root {
   --bg: #0e1014;
@@ -42,6 +44,18 @@
   --scrollbar-thumb: #3a4150;
   --scrollbar-thumb-hover: #4a5265;
   --scrollbar-track: #111318;
+  --window-shadow: 0 40px 100px rgba(0, 0, 0, 0.6);
+  --dialog-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  --avatar-bg: #20242c;
+  --avatar-text: #e6e8ec;
+  --avatar-more-bg: #2e3441;
+  --avatar-more-text: #c9ced8;
+  /* Agents' avatars, chips and badges. */
+  --agent-bg: #2a2140;
+  --agent-text: #d9c9ff;
+  /* A connected Discord server's badge, in Discord's own blurple. */
+  --discord-bg: #262a52;
+  --discord-text: #c9cdff;
 
   --ink: #17181b;
   --fill-butter: #f3d77a;
@@ -72,6 +86,69 @@
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Positivity: light but not bright, for daytime. Soft pastel greys and blues in the same bands as the dark scheme, the
+ * same card fills, and inks deep enough to show on the light board (Chalk draws in graphite here).
+ */
+:root[data-theme='positivity'] {
+  --bg: #e4e8ee;
+  --bar: #edf0f4;
+  --bar-line: #d3d9e2;
+  --panel: #f3f5f8;
+  --panel-2: #f0f3f7;
+  --dialog: #f5f7fa;
+  --dialog-line: #cdd4de;
+  --line: #d4dae3;
+  --line-strong: #c2cad6;
+  --text: #22262e;
+  --text-2: #39404c;
+  --text-body: #2d333d;
+  --muted: #5b6474;
+  --subtle: #677183;
+  --hover: #e3e8ee;
+  --tool-hover: #dce2ea;
+  --row-hover: #e8ecf1;
+  --accent: #3f8fd8;
+  --accent-ink: #ffffff;
+  --accent-bg: #d5e6f7;
+  --danger: #cf4a3f;
+  --danger-strong: #e5484d;
+  --bucket-bg: rgba(241, 244, 248, 0.8);
+  --bucket-fill: rgba(241, 244, 248, 0.97);
+  --bucket-dot: rgba(34, 38, 46, 0.07);
+  --dot: rgba(34, 38, 46, 0.12);
+  --mini-bg: #eaedf2;
+  --mini-dot: rgba(34, 38, 46, 0.1);
+  --chip: #e3e8ee;
+  --dim: rgba(228, 232, 238, 0.8);
+  --minimap-bucket-fill: #d0d7e1;
+  --slot: #a9b3c2;
+  --halo: #9a78e6;
+  --float-shadow: 0 12px 32px rgba(40, 52, 72, 0.16);
+  --scrollbar-thumb: #c2cad6;
+  --scrollbar-thumb-hover: #a9b3c2;
+  --scrollbar-track: #edf0f4;
+  --window-shadow: 0 40px 100px rgba(40, 52, 72, 0.22);
+  --dialog-shadow: 0 24px 60px rgba(40, 52, 72, 0.2);
+  --avatar-bg: #d8dee7;
+  --avatar-text: #2d333d;
+  --avatar-more-bg: #cdd4de;
+  --avatar-more-text: #39404c;
+  --agent-bg: #e6dcfa;
+  --agent-text: #4b3291;
+  --discord-bg: #dcdffa;
+  --discord-text: #3b40a3;
+
+  --ink-chalk: #4a505b;
+  --ink-butter: #d6ac30;
+  --ink-mint: #3fae80;
+  --ink-sky: #3f8fd8;
+  --ink-coral: #dc6f5a;
+  --ink-lilac: #9877dd;
+
+  color-scheme: light;
 }
 
 .fill-butter { --fill: var(--fill-butter); --ink-soft: #5a4a14; }
@@ -532,6 +609,38 @@ main {
   flex: none;
 }
 
+/* A MenuToggle's switch, on the right: a track with a knob that slides over when it is on. */
+.menu-switch {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 18px;
+  margin-left: auto;
+  border-radius: 999px;
+  background: var(--line-strong);
+  transition: background 0.15s;
+}
+
+.menu-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: transform 0.15s;
+}
+
+.menu-item[aria-checked='true'] .menu-switch {
+  background: var(--accent);
+}
+
+.menu-item[aria-checked='true'] .menu-switch::after {
+  transform: translateX(12px);
+}
+
 .menu-divider {
   height: 1px;
   margin: 4px 6px;
@@ -633,8 +742,8 @@ main {
   flex: none;
   place-items: center;
   border-radius: 50%;
-  background: #20242c;
-  color: #e6e8ec;
+  background: var(--avatar-bg);
+  color: var(--avatar-text);
   font-weight: 600;
 }
 
@@ -679,13 +788,13 @@ main {
 }
 
 .avatar.agent {
-  background: #2a2140;
-  color: #d9c9ff;
+  background: var(--agent-bg);
+  color: var(--agent-text);
 }
 
 .avatar.more {
-  background: #2e3441;
-  color: #c9ced8;
+  background: var(--avatar-more-bg);
+  color: var(--avatar-more-text);
   font: 400 11px var(--mono);
 }
 
@@ -1631,7 +1740,7 @@ main {
   border: 1px solid var(--dialog-line);
   border-radius: 16px;
   background: var(--dialog);
-  box-shadow: 0 40px 100px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--window-shadow);
   outline: none;
 }
 
@@ -1896,8 +2005,8 @@ main {
   padding: 0 8px 0 10px;
   border: 0;
   border-radius: 999px;
-  background: #2a2140;
-  color: #d9c9ff;
+  background: var(--agent-bg);
+  color: var(--agent-text);
   font-size: 12px;
   font-weight: 500;
   box-shadow: 0 0 0 2px var(--halo);
@@ -2577,7 +2686,7 @@ li:hover .row-remove,
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--panel);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--dialog-shadow);
 }
 
 .confirm h2 {
@@ -3422,7 +3531,7 @@ a.button.primary:hover {
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--panel);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--dialog-shadow);
   outline: none;
 }
 
@@ -3885,14 +3994,14 @@ a.button.primary:hover {
 }
 
 .badge.agent {
-  background: #2a2140;
-  color: #d9c9ff;
+  background: var(--agent-bg);
+  color: var(--agent-text);
 }
 
 /* A Discord server connected for link previews; Discord's own blurple. */
 .badge.discord {
-  background: #262a52;
-  color: #c9cdff;
+  background: var(--discord-bg);
+  color: var(--discord-text);
 }
 
 .discord-channels {
@@ -5618,8 +5727,8 @@ button.picker-color:hover,
 }
 
 .admin-chip.agent {
-  background: #2a2140;
-  color: #d9c9ff;
+  background: var(--agent-bg);
+  color: var(--agent-text);
 }
 
 .admin-chip-role {
@@ -6824,7 +6933,7 @@ button.picker-color:hover,
 }
 
 .avatar.agent-at-work {
-  --agent-face: #20242c;
+  --agent-face: var(--avatar-bg);
   position: relative;
   z-index: 1;
   border: 2px solid transparent;
@@ -6836,7 +6945,7 @@ button.picker-color:hover,
 }
 
 .avatar.agent.agent-at-work {
-  --agent-face: #2a2140;
+  --agent-face: var(--agent-bg);
 }
 
 @keyframes agent-turn {

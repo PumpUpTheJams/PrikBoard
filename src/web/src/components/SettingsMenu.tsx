@@ -1,7 +1,23 @@
 import type { Caller } from '../api/types'
-import { CardIcon, ChevronDownIcon, ExternalIcon, ShieldIcon, SignOutIcon, UserIcon } from '../board/icons'
+import { CardIcon, ChevronDownIcon, ExternalIcon, ShieldIcon, SignOutIcon, SunIcon, UserIcon } from '../board/icons'
+import { useColorScheme } from '../theme'
 import { Face } from './Avatar'
-import { Menu, MenuItem } from './Menu'
+import { Menu, MenuItem, MenuToggle } from './Menu'
+
+/** Switches between the Productivity (dark) and Positivity (light) color schemes, in this browser. */
+export function ColorSchemeToggle() {
+  const { scheme, choose } = useColorScheme()
+  return (
+    <MenuToggle
+      icon={<SunIcon />}
+      title="Positivity: light daytime colors. Off: Productivity, the dark ones."
+      checked={scheme === 'positivity'}
+      onChange={(on) => choose(on ? 'positivity' : 'productivity')}
+    >
+      Positivity colors
+    </MenuToggle>
+  )
+}
 
 interface SettingsMenuProps {
   user: Caller
@@ -58,6 +74,7 @@ export function SettingsMenu({ user, canSwitch, onAccount, onMobile, onSignOut }
               Admin
             </MenuItem>
           )}
+          <ColorSchemeToggle />
           {canSwitch && (
             <MenuItem icon={<CardIcon />} onClick={onMobile}>
               Mobile view

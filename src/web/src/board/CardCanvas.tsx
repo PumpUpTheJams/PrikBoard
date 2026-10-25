@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { api } from '../api/client'
 import type { DrawingDetail, DropBucket, ImageDetail, InkColor, CardComponent, CardComponentKind, CardDetail, Point, Rect, ResizeHandle } from '../api/types'
 import { BoardImageView } from './BoardImageView'
-import { inkHex, movePenRing, CARD_PEN, usePen } from './drawings'
+import { inkColor, movePenRing, CARD_PEN, usePen } from './drawings'
 import { DrawingGhost, DrawingToolbar, DrawingView, IncomingDrawingView, PenRing, StrokeSvg } from './DrawingView'
 import { delta, isDrag } from './gesture'
 import { ImageInspector } from './Inspector'
@@ -650,7 +650,7 @@ export function CardCanvas(props: CardCanvasProps) {
             ))}
 
             {pen.strokes.map((s, i) => (
-              <StrokeSvg key={i} points={s.points} color={inkHex[s.color]} strokeWidth={s.width} at={{ x: 0, y: 0 }} />
+              <StrokeSvg key={i} points={s.points} color={inkColor[s.color]} strokeWidth={s.width} at={{ x: 0, y: 0 }} />
             ))}
 
             {selectedDrawing && !(dragging?.id === selectedDrawing.drawing.id && !dragging.done) && (

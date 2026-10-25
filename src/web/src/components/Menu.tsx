@@ -67,6 +67,25 @@ interface MenuItemProps {
   children: ReactNode
 }
 
+interface MenuToggleProps {
+  icon?: ReactNode
+  title?: string
+  checked: boolean
+  onChange: (checked: boolean) => void
+  children: ReactNode
+}
+
+/** A switch in a Menu (menuitemcheckbox). The menu stays open, so the change shows at once. */
+export function MenuToggle({ icon, title, checked, onChange, children }: MenuToggleProps) {
+  return (
+    <button type="button" role="menuitemcheckbox" aria-checked={checked} className="menu-item" title={title} onClick={() => onChange(!checked)}>
+      {icon}
+      <span className="menu-item-text">{children}</span>
+      <span className="menu-switch" aria-hidden="true" />
+    </button>
+  )
+}
+
 /** A button in a Menu that closes the menu, then runs `onClick`. */
 export function MenuItem({ icon, title, danger, checked, onClick, children }: MenuItemProps) {
   const close = useContext(CloseMenu)

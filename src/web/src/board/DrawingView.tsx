@@ -1,7 +1,7 @@
 import { useMemo, useState, type CSSProperties, type PointerEvent, type Ref } from 'react'
 import { inkColors, type DrawingDetail, type DrawingStroke, type InkColor, type Point, type Rect, type StrokePoint } from '../api/types'
 import { keepPress } from './gesture'
-import { inkHex, MAX_SCALE, MIN_SCALE, reshapeStrokes, strokePaths, strokeSizes, useDrawingStrokes, type Reshape } from './drawings'
+import { inkColor, MAX_SCALE, MIN_SCALE, reshapeStrokes, strokePaths, strokeSizes, useDrawingStrokes, type Reshape } from './drawings'
 import { TrashIcon } from './icons'
 
 /** A stroke's line being drawn, at its place. */
@@ -10,7 +10,7 @@ export function StrokeSvg({ points, color, strokeWidth, at }: { points: StrokePo
   return (
     <svg className="stroke" style={{ left: at.x, top: at.y }} width={1} height={1} aria-hidden="true">
       {paths.map((p, i) => (
-        <path key={i} d={p.d} stroke={color} strokeWidth={p.width} />
+        <path key={i} d={p.d} style={{ stroke: color }} strokeWidth={p.width} />
       ))}
     </svg>
   )
@@ -27,12 +27,12 @@ export function DrawingSvg({ strokes, colors, at, hit }: { strokes: DrawingStrok
     <svg className="stroke" style={{ left: at.x, top: at.y }} width={1} height={1} aria-hidden="true">
       {strokes.map((stroke, i) => {
         const paths = shapes[i]
-        const color = inkHex[colors[i] ?? colors.at(-1) ?? 'Chalk']
+        const color = inkColor[colors[i] ?? colors.at(-1) ?? 'Chalk']
         return (
           <g key={i}>
             {hit && <path className="stroke-hit" d={paths.map((p) => p.d).join('')} strokeWidth={Math.max(14, stroke.strokeWidth * 2)} />}
             {paths.map((p, j) => (
-              <path key={j} d={p.d} stroke={color} strokeWidth={p.width} />
+              <path key={j} d={p.d} style={{ stroke: color }} strokeWidth={p.width} />
             ))}
           </g>
         )

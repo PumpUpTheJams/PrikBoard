@@ -1,6 +1,6 @@
 import type { ComponentType, CSSProperties, PointerEvent, Ref } from 'react'
 import { cardColors, type InkColor, type CardColor } from '../api/types'
-import { inkHex } from './drawings'
+import { inkColor } from './drawings'
 import { PenOptions } from './DrawingView'
 import { BucketToolIcon, ImageIcon, PenIcon, CardIcon, SearchIcon, SelectIcon, TrashIcon } from './icons'
 import type { Tool } from './tools'
@@ -113,7 +113,7 @@ export function ToolRail(props: ToolRailProps) {
             <ImageIcon />
           </button>
           <div className="rail-anchor">
-            {button({ tool: 'pen', label: 'Pen', shortcut: 'P', Icon: PenIcon }, 'pen-button', undefined, undefined, { '--pen-ink': inkHex[ink] } as CSSProperties)}
+            {button({ tool: 'pen', label: 'Pen', shortcut: 'P', Icon: PenIcon }, 'pen-button', undefined, undefined, { '--pen-ink': inkColor[ink] } as CSSProperties)}
             {tool === 'pen' && (
               <div className="fill-flyout pen-flyout" role="group" aria-label="Pen color and size">
                 <PenOptions ink={ink} onInkChange={onInkChange} width={strokeWidth} onWidthChange={onStrokeWidthChange} />

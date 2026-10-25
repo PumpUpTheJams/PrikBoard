@@ -14,7 +14,7 @@ import { CardIndex } from './CardIndex'
 import { BoardBucket, BoardCard, BoardCollapsedBucket, BoardDrawing, BoardImage, type BoardItemHandlers } from './boardItemViews'
 import type { BucketCount } from './BucketView'
 import { usePan, useFileDrop } from './canvasHooks'
-import { BOARD_PEN, inkHex, movePenRing, usePen } from './drawings'
+import { BOARD_PEN, inkColor, movePenRing, usePen } from './drawings'
 import { DrawingToolbar, PenRing, StrokeSvg } from './DrawingView'
 import { dropTargetsFor, NO_DROPS, released, useDropProbe, type DropTargets } from './dropTargets'
 import { ExpandedCard, type ExpandedCardHandle } from './ExpandedCard'
@@ -992,7 +992,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             {/* Above everything while it is drawn; once saved, the drawing takes its place in the stack. */}
             <div className="pen-strokes">
               {pen.strokes.map((s, i) => (
-                <StrokeSvg key={i} points={s.points} color={inkHex[s.color]} strokeWidth={s.width} at={{ x: 0, y: 0 }} />
+                <StrokeSvg key={i} points={s.points} color={inkColor[s.color]} strokeWidth={s.width} at={{ x: 0, y: 0 }} />
               ))}
             </div>
 
