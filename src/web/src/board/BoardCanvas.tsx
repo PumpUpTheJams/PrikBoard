@@ -421,12 +421,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     setGesture({ ...what, start: point, current: point, home: homeOf(what) ?? undefined })
   }
 
-  /**
-   * The place a card being dragged takes up as the drag begins: released back over it, nothing changes. A group has
-   * none, so it can be put down where it started in another shape (lined up by shaking it, say).
-   */
+  /** The area a card or group being dragged takes up as the drag begins: released back over it, nothing changes. */
   function homeOf(what: GestureTarget): Rect | null {
-    return what.kind === 'card' ? liveRect('card', what.id) : null
+    const items = what.kind === 'card' ? [{ kind: 'card' as const, id: what.id }] : what.kind === 'group' ? what.members : []
+    return bounds(items.flatMap((m) => liveRect(m.kind, m.id) ?? []))
   }
 
   /**
