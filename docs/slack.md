@@ -184,7 +184,7 @@ Drafts wait 15 minutes, in memory (one instance, like the rest).
 
 0. **Spike** (done in a real workspace on 2026-10-25, see *Tried in a real workspace* below). The questions:
    1. Does `link_shared` give the URL with its `#/boards/…` part? **Yes**: Slack sent `https://…/#/boards/zht8s5/cards/2` in full, so no share links without a fragment are needed.
-   2. Does a second `chat.unfurl` on the same message replace the unfurl? Not confirmed yet.
+   2. Does a second `chat.unfurl` on the same message replace the unfurl? **Yes**: renaming a card changed its preview in Slack, so previews follow their cards for a week, as in Discord.
    3. Does the manifest prefill link work? Not tried: the app was made from the copied manifest.
    4. Which unfurl domain works for local testing? A Cloudflare quick tunnel (`cloudflared tunnel --url http://localhost:5173`, no account): Slack takes its `….trycloudflare.com` host as unfurl domain. Its address changes with every start.
 1. **Shared chat model** (built). A refactor and migration, with Discord unchanged and its tests green.
@@ -249,7 +249,7 @@ Everything worked against real Slack once the app was set up right: previews, `/
 ## Open questions
 
 1. ~~**Fragments in `link_shared`**~~ Answered: Slack keeps them (phase 0).
-2. **Refreshing unfurls** (phase 0). Live previews depend on it.
+2. ~~**Refreshing unfurls**~~ Answered: Slack replaces a message's unfurl when the app sends it again (phase 0).
 3. **Bare ids.** Off, because it needs `channels:history`, which means reading every message in channels the bot is in. If we want it, make it a per-channel opt-in that an owner turns on, with the scope requested only then.
 4. **Several workspaces.** Not with one Socket Mode app per instance. That needs an OAuth "Add to Slack" app with a public events URL, after there is a deployment (Discord's open question 10).
 5. **Enterprise Grid.** An org-wide install gives events from many workspaces. The model keys on team id, so it should just work, but it is untested.
