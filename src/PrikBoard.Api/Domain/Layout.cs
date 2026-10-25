@@ -80,19 +80,20 @@ public static class Layout
     // looseOnly); a created or restored one takes everything it covers (Adopt); a deleted one lets all its items go.
     // A collapsed bucket keeps its items but takes no others, since they would vanish into it. The exception is a card
     // put into it by bucketId (dropped on its square).
+    // An item dragged in the web app goes by the pointer instead of its center: it names the bucket the pointer was in,
+    // which it only has to overlap (PlaceIn), or stays loose where it was dropped.
 
     /// <summary>For a card that moved: puts it in the topmost open bucket containing its center, or makes it loose.</summary>
     public static void Place(Card card, IReadOnlyList<Bucket> stacked) => card.BucketId = TopmostAt(stacked, Centre(card))?.Id;
 
     /// <summary>
-    /// Puts a card in <paramref name="bucket"/> if the bucket contains its center, even when another bucket is stacked above
-    /// it there (the web app may show this one in front) or it is collapsed (the card was dropped on its square). Returns
-    /// false and changes nothing otherwise.
+    /// Puts a card in <paramref name="bucket"/> if it overlaps the bucket, even when another bucket is stacked above it
+    /// there (the web app may show this one in front) or it is collapsed. A card dropped in the web app names the bucket
+    /// the pointer was in, so it may hang over its edge. Returns false and changes nothing otherwise.
     /// </summary>
     public static bool PlaceIn(Card card, Bucket bucket)
     {
-        var (x, y) = Centre(card);
-        if (!bucket.Contains(x, y)) return false;
+        if (!Intersects((card.X, card.Y, CardWidth, CardHeight), (bucket.X, bucket.Y, bucket.Width, bucket.Height))) return false;
         card.BucketId = bucket.Id;
         return true;
     }
@@ -100,6 +101,17 @@ public static class Layout
     /// <summary>Likewise for an image or drawing; one on a card is in no bucket.</summary>
     public static void Place(ICanvasItem item, IReadOnlyList<Bucket> stacked) =>
         item.BucketId = item.CardId is null ? TopmostAt(stacked, Centre(item))?.Id : null;
+
+    /// <summary>Likewise for an image or drawing on the board.</summary>
+    public static bool PlaceIn(ICanvasItem item, Bucket bucket)
+    {
+        if (item.CardId is not null || !Intersects((item.X, item.Y, item.Width, item.Height), (bucket.X, bucket.Y, bucket.Width, bucket.Height)))
+        {
+            return false;
+        }
+        item.BucketId = bucket.Id;
+        return true;
+    }
 
     /// <summary>Places every card, image and drawing by position, for a board built from scratch (an import).</summary>
     public static void PlaceAll(IEnumerable<Card> cards, IEnumerable<ICanvasItem> items, IEnumerable<Bucket> buckets)

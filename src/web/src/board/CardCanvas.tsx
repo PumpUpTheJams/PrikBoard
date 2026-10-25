@@ -1,7 +1,7 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../api/client'
-import type { DrawingDetail, ImageDetail, InkColor, CardComponent, CardComponentKind, CardDetail, Point, Rect, ResizeHandle } from '../api/types'
+import type { DrawingDetail, DropBucket, ImageDetail, InkColor, CardComponent, CardComponentKind, CardDetail, Point, Rect, ResizeHandle } from '../api/types'
 import { BoardImageView } from './BoardImageView'
 import { inkHex, movePenRing, CARD_PEN, usePen } from './drawings'
 import { DrawingGhost, DrawingToolbar, DrawingView, IncomingDrawingView, PenRing, StrokeSvg } from './DrawingView'
@@ -108,6 +108,8 @@ interface CardCanvasProps {
   onPickImages: () => void
   /** A screen point in board canvas pixels when it is over the board, to drop an image or drawing there; else null. */
   boardPoint: (client: Point) => Point | null
+  /** The bucket an image or drawing dropped on the board joins, by the pointer there (`dropBucket`). */
+  dropBucket?: (pointer: Point, item?: Rect) => DropBucket
   boardZoom: number
   /** Asks to delete the whole card. */
   onDeleteCard: () => void
@@ -115,7 +117,7 @@ interface CardCanvasProps {
 
 /** The card's own small board: its components, images and drawings, moved and resized like items on the board, with zoom and pan. */
 export function CardCanvas(props: CardCanvasProps) {
-  const { card, images, drawings, cards, readOnly, highlight, handle, run, history, onBusy, incoming, incomingDrawing, onAddImages, onPickImages, boardPoint, boardZoom, onDeleteCard } = props
+  const { card, images, drawings, cards, readOnly, highlight, handle, run, history, onBusy, incoming, incomingDrawing, onAddImages, onPickImages, boardPoint, dropBucket, boardZoom, onDeleteCard } = props
   /** The selected items: one, or several (Shift or Ctrl/Cmd + click, or the selection rectangle). */
   const { selected, setSelected, selection, setSelection, unselect, isSelected } = useSelection<Item>()
   /** Space is held: a left press pans, as the middle button does. */
@@ -453,7 +455,8 @@ export function CardCanvas(props: CardCanvasProps) {
       setGesture({ ...gesture, done: true })
       setSelection(null)
       const grab = { x: gesture.start.x - item.x, y: gesture.start.y - item.y }
-      const place = { detach: true, ...snapPoint({ x: at.x - grab.x, y: at.y - grab.y }) }
+      const corner = snapPoint({ x: at.x - grab.x, y: at.y - grab.y })
+      const place = { detach: true, ...corner, ...dropBucket?.(at, { ...corner, width: item.width, height: item.height }) }
       if (gesture.kind === 'drawing') void settle(...ops.editDrawing(item as DrawingDetail, place, 'Put drawing on the board', ['cardId', 'x', 'y']))
       else void settle(...ops.editImage(item as ImageDetail, place, 'Put image on the board', ['cardId', 'x', 'y']))
       return

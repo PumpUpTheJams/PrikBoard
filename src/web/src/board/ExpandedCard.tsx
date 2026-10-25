@@ -6,11 +6,13 @@ import {
   type BoardTag,
   type BucketDetail,
   type DrawingDetail,
+  type DropBucket,
   type ImageDetail,
   type CardChanges,
   type CardColor,
   type CardDetail,
   type Point,
+  type Rect,
   type TagColor,
 } from '../api/types'
 import { Avatar } from '../components/Avatar'
@@ -91,6 +93,8 @@ interface ExpandedCardProps {
   linking: boolean
   /** A screen point on the board in canvas pixels, when it is over the board; to drop images out of the card. */
   boardPoint: (client: Point) => Point | null
+  /** The bucket an image or drawing dropped out of the card joins, by the pointer on the board (`dropBucket`). */
+  dropBucket?: (pointer: Point, item?: Rect) => DropBucket
   boardZoom: number
   /** For a card in the trash (shown read only): putting it back on the board (not for viewers). */
   deleted?: { onPutBack?: () => void }
@@ -103,7 +107,7 @@ interface ExpandedCardProps {
 export function ExpandedCard(props: ExpandedCardProps) {
   const { card, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onClose, readOnly, highlight } = props
   const { boardTags, tagColors, people, cards, onRenameTag, onRecolorTag, onPreviewTagColor, onDeleteTag, handle, run, onBusy, incoming, linking, boardPoint, boardZoom, deleted } = props
-  const { drawings = [], incomingDrawing = null, visiting = false, history } = props
+  const { drawings = [], incomingDrawing = null, visiting = false, history, dropBucket } = props
   /** The tag or people window, opened from its button in the band. */
   const [picking, setPicking] = useState<{ kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
   const [fileOver, setFileOver] = useState(false)
@@ -295,6 +299,7 @@ export function ExpandedCard(props: ExpandedCardProps) {
           onAddImages={onAddImages}
           onPickImages={onPickImages}
           boardPoint={boardPoint}
+          dropBucket={dropBucket}
           boardZoom={boardZoom}
           onDeleteCard={onDelete}
         />

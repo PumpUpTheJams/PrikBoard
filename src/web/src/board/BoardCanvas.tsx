@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type RefObject } from 'react'
 import { api } from '../api/client'
-import type { BoardDetail, BucketDetail, CardColor, CardDetail, CursorUpdate, DragUpdate, LiveViewer, Point, Rect, ResizeHandle } from '../api/types'
+import type { BoardDetail, BucketDetail, CardColor, CardDetail, CursorUpdate, DragUpdate, DropBucket, LiveViewer, Point, Rect, ResizeHandle } from '../api/types'
 import type { CursorStore, LiveDrag } from '../live/useLive'
 import { Toast } from '../components/Toast'
 import { BoardFilters } from './BoardFilters'
@@ -19,7 +19,7 @@ import { DrawingToolbar, PenRing, StrokeSvg } from './DrawingView'
 import { dropTargetsFor, NO_DROPS, released, useDropProbe, type DropTargets } from './dropTargets'
 import { ExpandedCard, type ExpandedCardHandle } from './ExpandedCard'
 import { isDrag } from './gesture'
-import { MAX_COORDINATE, MIN_BUCKET_HEIGHT, MIN_BUCKET_WIDTH, MIN_COORDINATE, backToFront, bucketUnder, bucketUnderCard, collapsedRect, intersects, isLooseDrawing, layersBackToFront, snapPoint, spanRect } from './layout'
+import { MAX_COORDINATE, MIN_BUCKET_HEIGHT, MIN_BUCKET_WIDTH, MIN_COORDINATE, backToFront, bucketAtPointer, bucketUnderCard, collapsedRect, intersects, isLooseDrawing, layersBackToFront, snapPoint, spanRect } from './layout'
 import { activeDrags, draggingOf, gridFor, itemKindOf, liveGeometry, sentDrag } from './liveGeometry'
 import { ops, recordingRun, settling } from './ops'
 import { RemoteCursors } from './RemoteCursors'
@@ -227,6 +227,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       search.revealSoon(card.id)
     },
     boardPoint: (client) => (expandedRef.current?.contains(client) ? null : boardPoint(client)),
+    dropBucket,
   })
   const address = useCardAddress(board, {
     trashOpen: trash.open,
@@ -321,12 +322,22 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     const shown = stacked.map((b) => ({ ...b, ...bucketRect(b) }))
     return bucketUnderCard(shown, at, null, front)?.id === front ? { ...at, bucketId: front } : at
   }
+  /** The bucket shown under the pointer at a canvas point, which what is let go there joins (`bucketAtPointer`). */
+  const bucketAt = (pointer: Point) => bucketAtPointer(stacked.map((b) => ({ ...b, ...bucketRect(b) })), pointer, front)
+  /**
+   * What a drop with the pointer at a canvas point tells the server about an item landing at `item`: that bucket, or
+   * loose (`DropBucket`). An item that doesn't reach into the bucket (one of a group, away from the pointer) stays loose.
+   */
+  function dropBucket(pointer: Point, item?: Rect): DropBucket {
+    const bucket = bucketAt(pointer)
+    return bucket && (!item || intersects(bucketRect(bucket), item)) ? { bucketId: bucket.id } : { loose: true }
+  }
   /** The cards on the board in the order they are drawn: the front bucket's above the rest, the most recently updated on top. */
   const drawn = drawOrder(visibleCards, front)
   const geometry = { bucketRect, cardPoint, imageRect, drawingRect }
   const probe = useDropProbe({ board, expanded, cardHandle: expandedRef, trash, railTrash: trashRef, toCanvas, drawn, stacked, front, ...geometry })
   const { onTrash, cardAt } = probe
-  const moves = useBoardMoves({ board, selected, setSelected, expanded, closeCard: () => setExpanded(null), settle, cardPlace, ...geometry })
+  const moves = useBoardMoves({ board, selected, setSelected, expanded, closeCard: () => setExpanded(null), settle, cardPlace, dropBucket, ...geometry })
   const { deleteSelected, moveGroup, putItems } = moves
 
   const edits = useBoardEdits({
@@ -339,7 +350,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     expanded,
     setExpanded,
     toFront,
-    cardPlace,
+    dropBucket,
     fill,
     setTool,
     viewportCenter: () => canvas.viewportCenter(),
@@ -389,7 +400,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     settle,
     notify,
     toCanvas,
-    cardPlace,
+    dropBucket,
     toFront,
     bucketRect,
     cardPoint,
@@ -495,7 +506,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       beginGesture(e, { kind: 'draw' })
     } else if (tool === 'card') {
       // The new card's top-left corner goes where you clicked, so you can tell where it goes.
-      edits.stickCard(snapPoint(toCanvas(e)))
+      edits.stickCard(snapPoint(toCanvas(e)), toCanvas(e))
     } else if (readOnly) {
       setSelection(null)
     } else {
@@ -785,11 +796,11 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const imageTarget = dragging?.kind === 'image' && !dragging.done && !incoming ? cardAt(dragging.current) : undefined
   /** Whether the item dragged goes elsewhere than a place on the board: into a card, the open card, the trash or a collapsed bucket. */
   const elsewhere = linkDrop || overTrash || deletedDrop || foldDrop || imageTarget || incoming || incomingDrawing
-  /** The bucket an item being dragged, or a new card carried from the rail, would go into. */
+  /** The bucket an item being dragged, or a new card carried from the rail, would go into: the one under the pointer. */
   const dropTarget = draggedItem && !elsewhere
-    ? bucketUnder(stacked, draggedItem.now, draggedItem.bucketId, front)
-    : newCard.spot
-      ? bucketUnderCard(stacked, newCard.spot, null, front)
+    ? bucketAt(dragging!.current)
+    : newCard.pointer
+      ? bucketAt(newCard.pointer)
       : undefined
   /** The bucket a group of cards would go into, while it is dragged. */
   const arrangingInto = arrangeDrop && !dragging?.done ? arrangeDrop.bucket.id : null
@@ -1117,6 +1128,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
           incomingDrawing={incomingDrawing}
           linking={!!linkDrop?.window || !!attachDrop?.window}
           boardPoint={boardPoint}
+          dropBucket={dropBucket}
           boardZoom={zoom}
           focusTitle={expanded?.fresh ?? false}
           onChange={(changes) => editCard(expandedCard, changes)}

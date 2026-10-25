@@ -32,7 +32,7 @@ public static class CardEndpoints
             .WithSummary("Create a card")
             .WithDescription("Creates a card in a free spot inside bucketId (default: the board's first bucket; a full bucket grows " +
                              "downwards), or exactly at x and y. With all three, the card goes at x and y and joins that bucket, which " +
-                             "must contain its center (400 otherwise). Optionally with its first components. " +
+                             "it must overlap (400 otherwise); with x, y and loose it joins no bucket. Optionally with its first components. " +
                              "Tags the board does not have yet are added to it (see listBoardTags).")
             .ProducesValidationProblem();
 
@@ -85,7 +85,8 @@ public static class CardEndpoints
             .WithSummary("Move a card")
             .WithDescription("Moves the card into a free spot in a bucket on the same board (e.g. from \"Doing\" to \"Done\"; " +
                              "a full bucket grows downwards), or to exact x and y, where it joins the topmost bucket containing its " +
-                             "center. With all three, it goes at x and y and joins that bucket, which must contain its center (400 otherwise).")
+                             "center. With all three, it goes at x and y and joins that bucket, which it must overlap (400 otherwise); " +
+                             "with x, y and loose it joins no bucket.")
             .ProducesValidationProblem();
 
         cards.MapDelete("/cards/{cardId:guid}", DeleteCard)
@@ -256,7 +257,7 @@ public static class CardEndpoints
         {
             var request = requests[i];
             var bucketId = request.BucketId ?? (request.X is null && request.Y is null ? first : null);
-            if (Place(cards[i], bucketId, request.X, request.Y, buckets, others) is { } problem) return Keyed(problem, i);
+            if (Place(cards[i], bucketId, request.X, request.Y, request.Loose, buckets, others) is { } problem) return Keyed(problem, i);
             // The next card makes room for this one.
             others.Add(cards[i]);
         }
@@ -434,7 +435,7 @@ public static class CardEndpoints
         var buckets = await db.Buckets.Where(b => b.BoardId == card.BoardId).ToListAsync(ct);
         var others = await PlacedCardsAsync(db, card.BoardId, cardId, ct);
         var placed = others.ToDictionary(n => n.Id, n => n.BucketId);
-        if (Place(card, request.BucketId, request.X, request.Y, buckets, others) is { } problem) return problem;
+        if (Place(card, request.BucketId, request.X, request.Y, request.Loose, buckets, others) is { } problem) return problem;
         TrackMoved(db, others, placed);
 
         card.UpdatedAt = DateTimeOffset.UtcNow;
@@ -552,6 +553,7 @@ public static class CardEndpoints
         Guid cardId, RestoreCardRequest? request, PrikBoardDbContext db, CancellationToken ct)
     {
         if (Problems.XWithoutY(request?.X, request?.Y) is { } apart) return apart;
+        if (Problems.Drop(request?.BucketId, request?.Loose, request?.X is not null) is { } drop) return drop;
         var boardId = await db.Cards.WithDeleted().Where(n => n.Id == cardId).Select(n => (Guid?)n.BoardId).FirstOrDefaultAsync(ct);
         if (boardId is null) return TypedResults.NotFound();
 
@@ -570,10 +572,18 @@ public static class CardEndpoints
         var stacked = await BucketEndpoints.StackAsync(db, card.BoardId, ct);
         if (request is { X: { } x, Y: { } y })
         {
-            // Dropped somewhere else (out of the trash): like a move, so it comes out on top, in whatever bucket it lands in.
+            // Dropped somewhere else (out of the trash): like a move, so it comes out on top, in whatever bucket it lands in
+            // (by the pointer when it names one or loose).
             (card.X, card.Y) = (Layout.Snap(x), Layout.Snap(y));
             card.UpdatedAt = DateTimeOffset.UtcNow;
-            Layout.Place(card, stacked);
+            if (request.BucketId is not null || request.Loose == true)
+            {
+                if (BucketEndpoints.DropIn(card, request.BucketId, stacked) is { } outside) return outside;
+            }
+            else
+            {
+                Layout.Place(card, stacked);
+            }
         }
         else
         {
@@ -635,14 +645,16 @@ public static class CardEndpoints
     private sealed record CardWithBoard(Card Card, BoardRef Board);
 
     /// <summary>
-    /// Positions <paramref name="card"/> exactly at X and Y (joining the named bucket, or else the topmost one there), in a
-    /// free spot inside the named bucket (joining it), or, with neither, in a free spot outside the buckets. Other cards keep
-    /// their bucket, except loose ones that a bucket grown to make room now covers. Returns a problem for an invalid combination.
+    /// Positions <paramref name="card"/> exactly at X and Y (joining the named bucket, which it must overlap, or staying
+    /// <paramref name="loose"/>, or else joining the topmost one containing its center), in a free spot inside the named
+    /// bucket (joining it), or, with neither, in a free spot outside the buckets. Other cards keep their bucket, except
+    /// loose ones that a bucket grown to make room now covers. Returns a problem for an invalid combination.
     /// </summary>
     private static ValidationProblem? Place(
-        Card card, Guid? bucketId, int? x, int? y, List<Bucket> buckets, List<Card> others)
+        Card card, Guid? bucketId, int? x, int? y, bool? loose, List<Bucket> buckets, List<Card> others)
     {
         if (Problems.XWithoutY(x, y) is { } apart) return apart;
+        if (Problems.Drop(bucketId, loose, x is not null, bucketAlone: true) is { } drop) return drop;
         var bucket = bucketId is { } id ? buckets.Find(b => b.Id == id) : null;
         if (bucketId is not null && bucket is null)
         {
@@ -653,12 +665,9 @@ public static class CardEndpoints
         if (x is { } exactX && y is { } exactY)
         {
             (card.X, card.Y) = (Layout.Snap(exactX), Layout.Snap(exactY));
-            // Dropped where buckets overlap, it joins the one named (shown in front), not the topmost.
-            if (bucket is null) Layout.Place(card, stacked);
-            else if (!Layout.PlaceIn(card, bucket))
-            {
-                return Problems.Invalid("bucketId", "With X and Y, the bucket must contain the card's centre.");
-            }
+            // Dropped in the web app, it goes by the pointer: into the bucket named (shown in front there), or loose.
+            if (bucket is not null || loose == true) return BucketEndpoints.DropIn(card, bucket?.Id, stacked);
+            Layout.Place(card, stacked);
         }
         else if (bucket is not null)
         {

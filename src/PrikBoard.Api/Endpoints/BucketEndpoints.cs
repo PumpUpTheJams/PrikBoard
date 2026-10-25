@@ -47,7 +47,7 @@ public static class BucketEndpoints
             .WithSummary("Put cards, images and drawings into a bucket")
             .WithDescription("Moves the items into free room in the bucket, each at its own size: cards first, then images, then " +
                              "drawings, row by row in the order given, on the 20 px grid and a grid step clear of the bucket's own and " +
-                             "loose items; other buckets' items don't count. When they don't fit, the bucket grows towards grow (Down by " +
+                             "loose items (only cards with onlyCardsTakeRoom); other buckets' items don't count. When they don't fit, the bucket grows towards grow (Down by " +
                              "default, or Right, Left or Up) by whole rows or columns, only as far as needed, also over neighboring " +
                              "buckets (the items still join this one). Works on a collapsed bucket too. The bucket goes on top of the " +
                              "others. Returns the bucket and the items; 400 when no item is given, or one is not on the bucket's board " +
@@ -221,7 +221,7 @@ public static class BucketEndpoints
         // save for nothing. The ones the grown bucket takes are saved with their new bucket.
         var others = (await CardEndpoints.PlacedCardsAsync(db, bucket.BoardId, null, ct)).Where(n => !cards.ContainsKey(n.Id)).ToList();
         var was = others.ToDictionary(n => n.Id, n => n.BucketId);
-        await PackItemsAsync(db, bucket, buckets, others, items, request.Grow ?? GrowSide.Down, ct);
+        await PackItemsAsync(db, bucket, buckets, others, items, request.Grow ?? GrowSide.Down, ct, cardsOnly: request.OnlyCardsTakeRoom == true);
         CardEndpoints.TrackMoved(db, others, was);
         var now = DateTimeOffset.UtcNow;
         foreach (var card in items.Cards) card.UpdatedAt = now;
@@ -245,10 +245,12 @@ public static class BucketEndpoints
     /// <summary>
     /// Puts <paramref name="items"/> into free room in <paramref name="bucket"/>, each at its own size and cards first
     /// (<see cref="Layout.PackIn"/>), and brings it to the front; <paramref name="others"/> are the board's other cards.
-    /// placeItemsInBucket and pastes into a bucket use this.
+    /// With <paramref name="cardsOnly"/>, the images and drawings already there take no room. placeItemsInBucket and
+    /// pastes into a bucket use this.
     /// </summary>
     internal static async Task PackItemsAsync(
-        PrikBoardDbContext db, Bucket bucket, List<Bucket> buckets, List<Card> others, BucketItems items, GrowSide grow, CancellationToken ct)
+        PrikBoardDbContext db, Bucket bucket, List<Bucket> buckets, List<Card> others, BucketItems items, GrowSide grow, CancellationToken ct,
+        bool cardsOnly = false)
     {
         // It may grow over its neighbors, so it comes on top of them, with the items it takes.
         bucket.ToFront();
@@ -262,7 +264,7 @@ public static class BucketEndpoints
         List<(int X, int Y, int Width, int Height)> taken =
         [
             .. others.Where(n => InTheWay(n.BucketId)).Select(n => (n.X, n.Y, Layout.CardWidth, Layout.CardHeight)),
-            .. staying.Where(i => InTheWay(i.BucketId)).Select(i => (i.X, i.Y, i.Width, i.Height)),
+            .. staying.Where(i => !cardsOnly && InTheWay(i.BucketId)).Select(i => (i.X, i.Y, i.Width, i.Height)),
         ];
         List<ICanvasItem> placed = [.. items.Images, .. items.Drawings];
         List<(int Width, int Height)> sizes =
@@ -321,6 +323,34 @@ public static class BucketEndpoints
     /// <summary>The board's buckets, back to front: what decides which bucket a card, image or drawing joins.</summary>
     internal static async Task<List<Bucket>> StackAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
         Layout.BackToFront(await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct));
+
+    /// <summary>
+    /// An item dropped in the web app goes by the pointer: into the bucket it names (the one the pointer was in), which it
+    /// must overlap (<see cref="Layout.PlaceIn(ICanvasItem, Bucket)"/>), or loose when it names none. A problem keyed on
+    /// bucketId otherwise.
+    /// </summary>
+    internal static ValidationProblem? DropIn(ICanvasItem item, Guid? bucketId, IReadOnlyList<Bucket> buckets)
+    {
+        if (bucketId is not { } id)
+        {
+            item.BucketId = null;
+            return null;
+        }
+        if (buckets.FirstOrDefault(b => b.Id == id) is not { } bucket) return Problems.Invalid("bucketId", "The bucket does not exist on this board.");
+        return Layout.PlaceIn(item, bucket) ? null : Problems.Invalid("bucketId", "With X and Y, the item must overlap the bucket.");
+    }
+
+    /// <summary>Likewise for a card (<see cref="Layout.PlaceIn(Card, Bucket)"/>).</summary>
+    internal static ValidationProblem? DropIn(Card card, Guid? bucketId, IReadOnlyList<Bucket> buckets)
+    {
+        if (bucketId is not { } id)
+        {
+            card.BucketId = null;
+            return null;
+        }
+        if (buckets.FirstOrDefault(b => b.Id == id) is not { } bucket) return Problems.Invalid("bucketId", "The bucket does not exist on this board.");
+        return Layout.PlaceIn(card, bucket) ? null : Problems.Invalid("bucketId", "With X and Y, the card must overlap the bucket.");
+    }
 
     /// <summary>The images and drawings on the board (not on cards): the items besides cards that buckets take, carry and let go.</summary>
     internal static async Task<List<ICanvasItem>> CanvasItemsAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>

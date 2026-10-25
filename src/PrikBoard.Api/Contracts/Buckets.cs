@@ -78,11 +78,13 @@ public record UpdateBucketRequest(
 /// <param name="ImageIds">Images on the bucket's board itself (not attached to a card).</param>
 /// <param name="DrawingIds">Drawings on the bucket's board itself (not on a card).</param>
 /// <param name="Grow">The side the bucket grows towards when it is full: Down (default), Right, Left or Up. Left and Up move its left or top edge out; what is in it stays.</param>
+/// <param name="OnlyCardsTakeRoom">True when only cards count as being in the way: images and drawings already there don't, so the items may go over them (what the web app does with items dropped on a bucket).</param>
 public record PlaceItemsRequest(
     [property: MaxLength(PlaceItemsRequest.MaxEach)] List<Guid>? CardIds = null,
     [property: MaxLength(PlaceItemsRequest.MaxEach)] List<Guid>? ImageIds = null,
     [property: MaxLength(PlaceItemsRequest.MaxEach)] List<Guid>? DrawingIds = null,
-    GrowSide? Grow = null)
+    GrowSide? Grow = null,
+    bool? OnlyCardsTakeRoom = null)
 {
     /// <summary>The most ids each list takes.</summary>
     public const int MaxEach = 2000;

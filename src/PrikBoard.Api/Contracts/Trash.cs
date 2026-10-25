@@ -21,6 +21,10 @@ public record EmptyTrashResult(int Purged);
 /// </summary>
 /// <param name="X">Left edge in canvas pixels; snapped to the 20 px grid. Give it together with Y.</param>
 /// <param name="Y">Top edge in canvas pixels; snapped to the 20 px grid. Give it together with X.</param>
+/// <param name="BucketId">With X and Y: the bucket it joins, which it must overlap (without one it joins the topmost one containing its center).</param>
+/// <param name="Loose">With X and Y: true to join no bucket, even over one. Do not combine with bucketId.</param>
 public record RestoreCardRequest(
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X = null,
-    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null);
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null,
+    Guid? BucketId = null,
+    bool? Loose = null);
