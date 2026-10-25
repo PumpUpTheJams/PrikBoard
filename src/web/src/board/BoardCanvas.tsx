@@ -45,6 +45,7 @@ import { useNewCardDrag } from './useNewCardDrag'
 import { useStableHandlers } from './useStableHandlers'
 import { useStroke } from './useStroke'
 import { useToast } from './useToast'
+import { describeMissingCard } from './missingCard'
 import { useTrashWindow } from './useTrashWindow'
 import { useUndo, type UndoHistory } from './useUndo'
 import { BoardMapItems, ViewControls, type HistoryButtons } from './ViewControls'
@@ -236,6 +237,21 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       setQuickEdit(null)
       if (id) setSelection({ kind: 'card', id })
       if (toTrash) trash.setOpen(true)
+    },
+    onMissing: (route) => {
+      void describeMissingCard(board, route).then(({ text, deleted }) =>
+        notify({
+          text,
+          tone: 'warn',
+          action: deleted && {
+            label: 'Show',
+            onAction: () => {
+              trash.setOpen(true)
+              trash.setPreview(deleted)
+            },
+          },
+        }),
+      )
     },
     onExpand: () => {
       setTitleEdit(null)
