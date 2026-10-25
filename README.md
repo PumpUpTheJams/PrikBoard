@@ -74,7 +74,7 @@ To preview PrikBoard links in chat, post board updates and save messages as card
 
 Prerequisites: [.NET 10 SDK](https://dotnet.microsoft.com/download), [Node.js 22+](https://nodejs.org) and Docker.
 
-Start PostgreSQL from [`compose.yaml`](compose.yaml). Its data is kept in the `postgres-data` volume, so it survives restarts and `docker compose down` (`docker compose down -v` wipes it):
+Start PostgreSQL from [`compose.yaml`](compose.yaml). Its data is kept in the `postgres18-data` volume, so it survives restarts and `docker compose down` (`docker compose down -v` wipes it):
 
 ```bash
 docker compose up -d

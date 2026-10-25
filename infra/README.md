@@ -22,6 +22,26 @@ Open http://localhost:8080 and follow the setup: enter the setup key, add sign-i
 - **One instance.** Live presence and the sign-in provider schemes live in the app's memory, so run one replica.
 - The image is based on the chiseled .NET runtime, which has no shell, so `docker exec` into it doesn't work; use `docker compose logs app`, or `docker run --rm -v prikboard-server_data:/data alpine` to look at the data volume.
 
+## Upgrading from PostgreSQL 17
+
+The compose file used PostgreSQL 17 with its database in the `postgres-data` volume. It now runs 18 in `postgres18-data`, since 18 can't open the data of 17, so an install from before the change starts with an empty database until you move the data over. Dump it with the old compose file still running, before pulling the new one:
+
+```bash
+cd infra/compose
+docker compose exec -T postgres pg_dump -U prikboard -Fc prikboard > prikboard.dump
+docker compose down
+```
+
+Then, with the new compose file, start only PostgreSQL (the app would create empty tables first), restore the dump and start the rest:
+
+```bash
+docker compose up -d postgres
+docker compose exec -T postgres pg_restore -U prikboard -d prikboard --no-owner < prikboard.dump
+docker compose up -d
+```
+
+The `data` volume is used as before. Once everything is there, `docker volume rm prikboard-server_postgres-data` removes the old database.
+
 ## Configuration
 
 Everything has a default; these override it, as environment variables on the app:
