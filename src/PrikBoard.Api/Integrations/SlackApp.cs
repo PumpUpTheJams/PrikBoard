@@ -37,9 +37,6 @@ public sealed class SlackApp(IConfiguration config, IDataProtectionProvider prot
     /// <summary>The sign-in provider id the manifest's redirect URL is for, when the same app does Sign in with Slack.</summary>
     public const string SignInProviderId = "slack";
 
-    /// <summary>The user scopes Sign in with Slack asks for (OpenID Connect).</summary>
-    public static readonly string[] SignInScopes = ["openid", "profile", "email"];
-
     /// <summary>The slash command the app answers.</summary>
     public const string Command = "/prikboard";
 
@@ -88,7 +85,7 @@ public sealed class SlackApp(IConfiguration config, IDataProtectionProvider prot
     /// <summary>
     /// The manifest to create the Slack app from: Socket Mode, the <c>link_shared</c> event, <see cref="Command"/>, <see cref="Scopes"/>, the
     /// public address's host as its unfurl domain (Slack only sends links on those domains), and Sign in with Slack's
-    /// redirect URL and user scopes, so the same app can be a Slack sign-in provider (id <see cref="SignInProviderId"/>).
+    /// redirect URL, so the same app can be a Slack sign-in provider (id <see cref="SignInProviderId"/>).
     /// </summary>
     public static string Manifest(string? publicUrl)
     {
@@ -133,7 +130,9 @@ public sealed class SlackApp(IConfiguration config, IDataProtectionProvider prot
             {
                 // For Sign in with Slack with this app's client id and secret (a Slack sign-in provider, id "slack").
                 ["redirect_urls"] = new[] { signInCallback },
-                ["scopes"] = new Dictionary<string, object> { ["bot"] = Scopes, ["user"] = SignInScopes },
+                // No user scopes: Sign in with Slack asks for openid, profile and email itself, and Slack refuses to install
+                // an app that lists them ("Invalid permissions requested").
+                ["scopes"] = new Dictionary<string, object> { ["bot"] = Scopes },
             },
             ["settings"] = new Dictionary<string, object>
             {

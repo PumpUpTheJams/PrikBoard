@@ -340,9 +340,18 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
         var channelId = e.TryGetProperty("channel", out var c) ? c.GetString() : null;
         var ts = e.TryGetProperty("message_ts", out var m) ? m.GetString() : null;
         var source = e.TryGetProperty("source", out var s) ? s.GetString() : null;
+        var urls = e.TryGetProperty("links", out var links)
+            ? links.EnumerateArray().Select(l => l.TryGetProperty("url", out var url) ? url.GetString() : null).OfType<string>().ToList()
+            : [];
+        // What Slack sent, so a link that previews nothing can be told from one that never arrived (invite tokens masked).
+        logger.LogInformation("Slack link_shared in {Channel} ({Source}): {Links}", channelId, source, string.Join(" ", urls.Select(Masked)));
         if (channelId is null or "COMPOSER" || ts is null || source == "composer") return;
-        var urls = e.GetProperty("links").EnumerateArray().Select(l => l.GetProperty("url").GetString()).OfType<string>().ToList();
-        if (urls.Count == 0 || await ChannelAsync(botToken, channelId, ct) is not { IsExtShared: false }) return;
+        if (urls.Count == 0) return;
+        if (await ChannelAsync(botToken, channelId, ct) is not { IsExtShared: false } channel)
+        {
+            logger.LogInformation("No unfurl in {Channel}: the app can't see it, or it is shared with another organization.", channelId);
+            return;
+        }
 
         await using var scope = services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
@@ -351,7 +360,11 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
             using var lease = _previews.AttemptAcquire(teamId);
             return lease.IsAcquired;
         });
-        if (shown.Count == 0) return;
+        if (shown.Count == 0)
+        {
+            logger.LogInformation("No unfurl in #{Channel}: none of the links preview there (address {Site}).", channel.Name, site.Url);
+            return;
+        }
 
         try
         {
@@ -628,6 +641,10 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
             logger.LogInformation("The Slack app could not post in {Channel}: {Error}", channelId, error.Error);
         }
     }
+
+    /// <summary>A link for the log: an invite's token is the key to the board, so it is left out.</summary>
+    private static string Masked(string url) =>
+        url.IndexOf("#/invite/", StringComparison.Ordinal) is var at and >= 0 ? url[..(at + "#/invite/".Length)] + "…" : url;
 
     /// <summary>A channel as Slack describes it, kept for a minute; null when the bot can't see it.</summary>
     private async Task<SlackChannelInfo?> ChannelAsync(string botToken, string channelId, CancellationToken ct)

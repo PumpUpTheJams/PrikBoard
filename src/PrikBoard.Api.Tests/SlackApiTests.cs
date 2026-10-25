@@ -99,7 +99,8 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
         Assert.Equal((SlackAppState.Off, "https://board.example"), (unconnected.State, unconnected.PublicUrl));
         Assert.Contains("\"board.example\"", unconnected.Manifest);
         Assert.Contains("\"https://board.example/api/auth/callback/slack\"", unconnected.Manifest);
-        Assert.Contains("\"openid\"", unconnected.Manifest);
+        // Never as user scopes: Slack won't install an app that lists Sign in with Slack's scopes.
+        Assert.DoesNotContain("openid", unconnected.Manifest);
         Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync("/api/admin/slack")).StatusCode);
 
         // Both tokens the first time, each the right kind, and each accepted by Slack.
