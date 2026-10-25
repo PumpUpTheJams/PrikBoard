@@ -151,6 +151,13 @@
   color-scheme: light;
 }
 
+/* Switching schemes fades the whole page from one to the other, like a dimmer (applyColorScheme in theme.ts). */
+:root.scheme-fade::view-transition-old(root),
+:root.scheme-fade::view-transition-new(root) {
+  animation-duration: 0.75s;
+  animation-timing-function: ease-in-out;
+}
+
 .fill-butter { --fill: var(--fill-butter); --ink-soft: #5a4a14; }
 .fill-mint { --fill: var(--fill-mint); --ink-soft: #24463a; }
 .fill-sky { --fill: var(--fill-sky); --ink-soft: #1f3a57; }
