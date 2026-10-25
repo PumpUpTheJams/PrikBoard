@@ -35,13 +35,13 @@ Without a checkout, this `compose.yaml` is enough (a trimmed [`infra/compose/com
 ```yaml
 services:
   postgres:
-    image: postgres:17
+    image: postgres:18
     environment:
       POSTGRES_USER: prikboard
       POSTGRES_PASSWORD: change-me
       POSTGRES_DB: prikboard
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql   # from 18 on, not .../data: the image keeps a folder per major version here
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U prikboard -d prikboard"]
       interval: 5s
