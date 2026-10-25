@@ -30,11 +30,13 @@ public class TrashAndCollapseApiTests(PrikBoardApiFactory factory) : IClassFixtu
 
         var trash = await Trash(board.Id);
         var found = await Trash(board.Id, "VENUE");
+        var numbered = await Trash(board.Id, $"%23{first.Number}");
 
         Assert.Equal([second.Id, first.Id], trash.Cards.Select(n => n.Id));
         Assert.All(trash.Cards, n => Assert.NotNull(n.DeletedAt));
         Assert.Equal(image.Id, Assert.Single(trash.Images).Id); // the one deleted on its own earlier doesn't come back with it
         Assert.Equal(second.Id, Assert.Single(found.Cards).Id);
+        Assert.Equal(first.Id, Assert.Single(numbered.Cards).Id);
         Assert.DoesNotContain(trash.Cards, n => n.Id == kept.Id);
         Assert.Null((await _client.GetFromJsonAsync<CardDetail>($"/api/cards/{kept.Id}"))!.DeletedAt);
     }

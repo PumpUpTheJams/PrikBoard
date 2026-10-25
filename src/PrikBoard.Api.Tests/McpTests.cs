@@ -431,6 +431,8 @@ public class McpTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoardApiF
         var summary = Assert.Single(hits.EnumerateArray().ToList());
         Assert.Equal("2/3", summary.GetProperty("checklist").GetString());
         Assert.True(summary.GetProperty("hasContent").GetBoolean());
+        var byId = await CallAsync(mcp, "search_cards", new() { ["board"] = board.Id, ["text"] = created.GetProperty("readableId").GetString() });
+        Assert.Equal(cardId, Assert.Single(byId.EnumerateArray().ToList()).GetProperty("id").GetGuid());
 
         Assert.Equal("Deleted.", Text(await CallRawAsync(mcp, "delete_card_component", new() { ["card"] = cardId, ["component"] = "Text" })));
         var saved = (await owner.GetFromJsonAsync<CardDetail>($"/api/cards/{cardId}"))!;

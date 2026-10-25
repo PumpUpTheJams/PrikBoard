@@ -410,6 +410,26 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
+    public async Task Search_finds_a_card_by_its_number_or_readable_id()
+    {
+        var board = await CreateBoard("Numbers");
+        var tiles = await CreateCard(board.Id, new { title = "Order 12 tiles" });
+        var call = await CreateCard(board.Id, new { title = "Call back" });
+        await CreateCard(board.Id, new { title = "Book venue" });
+        async Task<List<string>> Search(string search) =>
+            (await _client.GetFromJsonAsync<List<CardDetail>>($"/api/boards/{board.Id}/cards?search={Uri.EscapeDataString(search)}"))!.Select(n => n.Title).ToList();
+
+        Assert.Equal((1, 2), (tiles.Number, call.Number));
+        // The card with that number first, then the cards with that text.
+        Assert.Equal(["Call back", "Order 12 tiles"], await Search("2"));
+        Assert.Equal(["Call back"], await Search(" 002 "));
+        Assert.Equal(["Call back"], await Search("#2"));
+        Assert.Equal(["Call back"], await Search(call.ReadableId.ToLowerInvariant()));
+        Assert.Empty(await Search("#9"));
+        Assert.Equal(["Order 12 tiles"], await Search("12"));
+    }
+
+    [Fact]
     public async Task Cards_carry_tags_assignees_and_content_components()
     {
         var board = await CreateBoard("Details");

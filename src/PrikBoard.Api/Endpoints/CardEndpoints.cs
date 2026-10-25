@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
@@ -21,7 +22,9 @@ public static class CardEndpoints
             .WithDescription("Returns cards bucket by bucket (loose cards last), each group top to bottom and left to right. " +
                              "Optionally filter by bucket, by tags (repeat tag for several; a card matches when it has any of them), " +
                              "by assignee (a principal id, or a current display name, case-insensitive) " +
-                             "and/or a case-insensitive text search on the title and all of the card's content (text, checklist items and links).");
+                             "and/or a case-insensitive text search on the title and all of the card's content (text, checklist items and links). " +
+                             "A search that is a card's number (224) also finds that card, listed first; #224 or its readable id " +
+                             "(PRIK-224) finds only that card.");
 
         cards.MapPost("/boards/{boardId:guid}/cards", CreateCard)
             .RequireBoardRole(BoardRole.Editor)
@@ -118,7 +121,7 @@ public static class CardEndpoints
             .WithSummary("List the cards in the trash")
             .WithDescription($"Returns the cards deleted in the last {Tombstones.RetentionText} (deletedAt set), most recently " +
                              "deleted first, with the images deleted along with them. Optionally only cards whose title or content " +
-                             "contains search (case-insensitive). restoreCard brings one back.");
+                             "contains search (case-insensitive), or the card it names by its number, as in listCards. restoreCard brings one back.");
 
         cards.MapDelete("/boards/{boardId:guid}/trash/{cardId:guid}", PurgeCard)
             .RequireBoardRole(BoardRole.Editor)
@@ -153,10 +156,10 @@ public static class CardEndpoints
         var cards = await query.ToListAsync(ct);
         var principals = await PrincipalsOnAsync(db, cards, ct);
         // Boards are small, so text, tags and assignees are filtered in memory.
+        Card? numbered = null;
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var text = search.Trim();
-            cards = cards.Where(n => ContainsText(n, text)).ToList();
+            (cards, numbered) = Search(cards, search, board.Key);
         }
         if (tag is not null && CardTags.Normalize(tag) is { Count: > 0 } wanted)
         {
@@ -170,7 +173,7 @@ public static class CardEndpoints
                 || (principals.TryGetValue(a, out var p) && p.ShownName.Equals(name, StringComparison.OrdinalIgnoreCase)))).ToList();
         }
         var buckets = await db.Buckets.AsNoTracking().Where(b => b.BoardId == boardId).ToListAsync(ct);
-        return TypedResults.Ok(Layout.ReadingOrder(cards, buckets).Select(n => CardDetail.From(n, board, principals)).ToList());
+        return TypedResults.Ok(NumberedFirst(Layout.ReadingOrder(cards, buckets), numbered).Select(n => CardDetail.From(n, board, principals)).ToList());
     }
 
     internal static Task<Results<Created<CardDetail>, NotFound, ValidationProblem>> CreateCard(
@@ -492,6 +495,28 @@ public static class CardEndpoints
         card.Title.Contains(text, StringComparison.OrdinalIgnoreCase)
         || card.Components.Any(b => b.SearchText().Any(t => t.Contains(text, StringComparison.OrdinalIgnoreCase)));
 
+    /// <summary>
+    /// The cards a search finds, as listCards and listDeletedCards search, and the one it names by its number. A number
+    /// (<c>224</c>, leading zeros aside) finds that card and the cards with that text; <c>#224</c> or the readable id
+    /// (<c>PRIK-224</c>, any case) finds only that card; anything else is looked for in the title and content.
+    /// </summary>
+    internal static (List<Card> Found, Card? Numbered) Search(List<Card> cards, string search, string boardKey)
+    {
+        var text = search.Trim();
+        var only = text.StartsWith('#') || text.StartsWith($"{boardKey}-", StringComparison.OrdinalIgnoreCase);
+        var digits = text.StartsWith('#') ? text[1..] : only ? text[(boardKey.Length + 1)..] : text;
+        int? number = digits.Length > 0 && digits.All(char.IsAsciiDigit) && int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var n)
+            ? n
+            : null;
+        var numbered = number is null ? null : cards.FirstOrDefault(c => c.Number == number);
+        if (number is not null && only) return (numbered is null ? [] : [numbered], numbered);
+        return (cards.Where(c => c == numbered || ContainsText(c, text)).ToList(), numbered);
+    }
+
+    /// <summary>The cards with the one a search named by its number (Search) first, when it is among them.</summary>
+    private static List<Card> NumberedFirst(List<Card> cards, Card? numbered) =>
+        numbered is not null && cards.Remove(numbered) ? [numbered, .. cards] : cards;
+
     internal static async Task<Results<Ok<TrashContents>, NotFound>> ListDeletedCards(
         Guid boardId, string? search, PrikBoardDbContext db, CancellationToken ct)
     {
@@ -501,12 +526,12 @@ public static class CardEndpoints
             .Where(n => n.BoardId == boardId && n.DeletedAt != null)
             .ToListAsync(ct);
         // Boards are small, so the search runs in memory, like listCards.
+        Card? numbered = null;
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var text = search.Trim();
-            cards = cards.Where(n => ContainsText(n, text)).ToList();
+            (cards, numbered) = Search(cards, search, board.Key);
         }
-        cards = cards.OrderByDescending(n => n.DeletedAt).ThenByDescending(n => n.Id).ToList();
+        cards = NumberedFirst(cards.OrderByDescending(n => n.DeletedAt).ThenByDescending(n => n.Id).ToList(), numbered);
 
         // The images that come back with them: deleted at the same moment.
         var stamps = cards.ToDictionary(n => n.Id, n => n.DeletedAt);
