@@ -2468,6 +2468,16 @@ li:hover .row-remove,
   color: var(--accent);
 }
 
+/* A link to a card of this board that is gone. */
+.link-row.missing .link-title {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.link-row.missing svg {
+  color: var(--muted);
+}
+
 .link-text {
   display: flex;
   flex: 1;

@@ -30,6 +30,12 @@ export function cardInHash(board: { id: string; shortId: string; cards: { id: st
   return route && isBoard(board, route.board) ? (linkedCard(board.cards, cardPath(route))?.id ?? null) : null
 }
 
+/** The card the address bar names on `board` when `board` doesn't have it (deleted, or never there), if any. */
+export function missingCardInHash(board: { id: string; shortId: string; cards: { id: string; path: string }[] }): CardRoute | null {
+  const route = cardRouteFromHash()
+  return route && isBoard(board, route.board) && !linkedCard(board.cards, cardPath(route)) ? route : null
+}
+
 /** Whether `url` links to `card`, in either form of its path. */
 export function linksTo(url: string, card: { id: string; path: string }) {
   const route = cardRoute(url)
