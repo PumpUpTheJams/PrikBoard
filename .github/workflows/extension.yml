@@ -3,7 +3,11 @@ name: VS Code extension
 # The extension is released on its own, apart from the app: pushing a tag vscode-1.2.3 packages it with version 1.2.3 and
 # publishes the .vsix as its own GitHub release, "PrikBoard for VS Code 1.2.3", which never becomes the repository's
 # latest release (that stays the app's). A release drafted on GitHub for such a tag gets the .vsix attached instead.
-# App tags (1.2.3) only build the container image (containers.yml). Pull requests are covered by the vscode job in ci.yml.
+# The same .vsix is also pushed to the GitHub Container Registry as an OCI artifact, ghcr.io/<owner>/prikboard-vscode:1.2.3
+# and :latest, so the repository's Packages list shows the extension next to the app's image. Its
+# org.opencontainers.image.source annotation links the package to this repository; a new package may still need its
+# visibility set to public once (Package settings). App tags (1.2.3) only build the container image (containers.yml).
+# Pull requests are covered by the vscode job in ci.yml.
 on:
   push:
     tags: ['vscode-[0-9]+.[0-9]+.[0-9]+']
@@ -14,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: write
     defaults:
       run:
         working-directory: src/vscode
@@ -48,3 +53,18 @@ jobs:
               --latest=false \
               --notes "The PrikBoard extension for VS Code, version $VERSION. To install it, download $file and run **Extensions: Install from VSIX...** from the command palette, or \`code --install-extension $file\`."
           fi
+      - uses: oras-project/setup-oras@v1
+      - name: Push to the GitHub Container Registry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          file="prikboard-vscode-$VERSION.vsix"
+          # ghcr.io only takes lower-case names.
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/prikboard-vscode"
+          echo "$GH_TOKEN" | oras login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          oras push "$image:$VERSION,latest" \
+            --artifact-type application/vnd.prikboard.vscode-extension \
+            --annotation "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --annotation "org.opencontainers.image.description=PrikBoard for VS Code. Install the .vsix with: oras pull $image:$VERSION && code --install-extension $file" \
+            --annotation "org.opencontainers.image.version=$VERSION" \
+            "$file:application/zip"
