@@ -72,7 +72,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         Assert.Equal(HttpStatusCode.Created, (await owner.Http.SendAsync(request)).StatusCode);
 
         await inbox2.NextAsync();
-        Assert.False(await inbox1.AnyWithinAsync(TimeSpan.FromMilliseconds(500)));
+        Assert.False(await inbox1.AnyAsync());
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         await owner.Http.GetAsync($"/api/boards/{board.Id}");
         await owner.Http.PostAsJsonAsync($"/api/boards/{board.Id}/members/lookup", new { email = "nobody@example.com" });
 
-        Assert.False(await changes.AnyWithinAsync(TimeSpan.FromMilliseconds(500)));
+        Assert.False(await changes.AnyAsync());
     }
 
     [Fact]
@@ -199,7 +199,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
 
         await ownerLive.Connection.InvokeAsync("DragEnd");
         Assert.Equal(joined.Key, await ended.NextAsync());
-        Assert.False(await ownerDrags.AnyWithinAsync(TimeSpan.FromMilliseconds(200)));
+        Assert.False(await ownerDrags.AnyAsync());
 
         var refused = await Assert.ThrowsAsync<HubException>(() =>
             viewerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Card, card.Id, 1, 1)));
@@ -227,7 +227,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         await viewerLive.Connection.InvokeAsync("MoveCursor", new CursorUpdate(120.5, -40));
         var cursor = await cursors.NextAsync();
         Assert.Equal((joined.Key, (await viewer.Http.MeAsync()).Id, 120.5, -40d), (cursor.Key, cursor.PrincipalId, cursor.X, cursor.Y));
-        Assert.False(await ownCursors.AnyWithinAsync(TimeSpan.FromMilliseconds(200)));
+        Assert.False(await ownCursors.AnyAsync());
 
         var off = await Assert.ThrowsAsync<HubException>(() =>
             viewerLive.Connection.InvokeAsync("MoveCursor", new CursorUpdate(1e9, 0)));
@@ -268,7 +268,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var selected = await selections.NextAsync();
         Assert.Equal((joined.Key, (await viewer.Http.MeAsync()).Id), (selected.Key, selected.PrincipalId));
         Assert.Equal([card.Id, bucketId], selected.Items);
-        Assert.False(await ownSelections.AnyWithinAsync(TimeSpan.FromMilliseconds(200)));
+        Assert.False(await ownSelections.AnyAsync());
 
         // Someone joining later sees it at once.
         var lateLive = await ConnectAsync(owner);
@@ -344,12 +344,12 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         await ownerLive.Connection.InvokeAsync("MoveCursor", new CursorUpdate(5, 5));
         await memberCursors.NextAsync();
         await ownerLive.Connection.InvokeAsync("HideCursor");
-        Assert.False(await guestCursors.AnyWithinAsync(TimeSpan.FromMilliseconds(300)));
-        Assert.False(await guestHidden.AnyWithinAsync(TimeSpan.FromMilliseconds(100)));
+        Assert.False(await guestCursors.AnyAsync());
+        Assert.False(await guestHidden.AnyAsync());
 
         var guestSelections = guest.Inbox<RemoteSelection>("Selected");
         await ownerLive.Connection.InvokeAsync("Select", new SelectionUpdate([board.Buckets[0].Id]));
-        Assert.False(await guestSelections.AnyWithinAsync(TimeSpan.FromMilliseconds(300)));
+        Assert.False(await guestSelections.AnyAsync());
 
         await Assert.ThrowsAsync<HubException>(() => guest.Connection.InvokeAsync("MoveCursor", new CursorUpdate(5, 5)));
         await Assert.ThrowsAsync<HubException>(() => guest.Connection.InvokeAsync("Select", new SelectionUpdate([])));
@@ -376,7 +376,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         await changes.DrainAsync();
 
         await owner.Http.CreateCardAsync(board.Id);
-        Assert.False(await changes.AnyWithinAsync(TimeSpan.FromMilliseconds(500)));
+        Assert.False(await changes.AnyAsync());
         Assert.Null(await live.Connection.InvokeAsync<JoinedBoard?>("Join", board.Id));
     }
 
@@ -533,11 +533,18 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
             var channel = Channel.CreateUnbounded<T>();
             if (typeof(T) == typeof(object)) Connection.On(method, () => channel.Writer.TryWrite(default!));
             else Connection.On<T>(method, message => channel.Writer.TryWrite(message));
-            return new Inbox<T>(channel.Reader);
+            return new Inbox<T>(channel.Reader, this);
         }
+
+        /// <summary>
+        /// A round trip to the hub. A connection gets its messages in order, so once the answer is back, everything sent to
+        /// it before has arrived. The hub has no method to call for nothing, so this calls one it doesn't have.
+        /// </summary>
+        public async Task SyncAsync() =>
+            await Assert.ThrowsAsync<HubException>(() => Connection.InvokeAsync("Sync"));
     }
 
-    private sealed record Inbox<T>(ChannelReader<T> Reader)
+    private sealed record Inbox<T>(ChannelReader<T> Reader, Live Live)
     {
         public async Task<T> NextAsync()
         {
@@ -554,24 +561,17 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
             }
         }
 
-        public async Task<bool> AnyWithinAsync(TimeSpan time)
+        /// <summary>Whether a message has come for anything done before: the server sends them before it answers.</summary>
+        public async Task<bool> AnyAsync()
         {
-            using var timeout = new CancellationTokenSource(time);
-            try
-            {
-                await Reader.WaitToReadAsync(timeout.Token);
-                return true;
-            }
-            catch (OperationCanceledException)
-            {
-                return false;
-            }
+            await Live.SyncAsync();
+            return Reader.TryPeek(out _);
         }
 
         /// <summary>Lets messages already on their way arrive, then forgets them.</summary>
         public async Task DrainAsync()
         {
-            await Task.Delay(200);
+            await Live.SyncAsync();
             while (Reader.TryRead(out _)) { }
         }
     }

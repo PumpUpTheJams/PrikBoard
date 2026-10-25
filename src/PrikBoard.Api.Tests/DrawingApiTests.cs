@@ -13,9 +13,9 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
 {
     private HttpClient _client = null!;
 
-    public async Task InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
+    public async ValueTask InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     private static readonly double[][] Squiggle = [[2, 2, 0.5], [40.04, 10.06, 0.123], [100.2, 30, 1]];
 

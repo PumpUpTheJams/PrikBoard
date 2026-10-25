@@ -17,13 +17,13 @@ public class CardHistoryApiTests(PrikBoardApiFactory factory) : IClassFixture<Pr
 {
     private HttpClient _client = null!;
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         _client = await factory.CreateSignedInClientAsync("history@example.com");
         await _client.RenameAsync("Hilde");
     }
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
     public async Task Every_kind_of_change_is_listed_newest_first_with_who_made_it()

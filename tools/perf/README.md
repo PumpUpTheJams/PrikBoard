@@ -33,7 +33,7 @@ Import it on your own PrikBoard through the board menu's **Import**.
 ## Server timings
 
 ```bash
-PRIKBOARD_PERF=1 dotnet test PrikBoard.slnx -c Release --filter "FullyQualifiedName~PerfBenchmarks" --logger "console;verbosity=detailed"
+PRIKBOARD_PERF=1 dotnet test --solution PrikBoard.slnx -c Release --filter "FullyQualifiedName~PerfBenchmarks" --show-live-output on
 ```
 
 This needs the compose database, like the tests, and Node: without `PRIKBOARD_PERF_BOARD` (the path of an export file)

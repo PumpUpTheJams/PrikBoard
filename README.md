@@ -47,10 +47,10 @@ cd src/web && npm install && npm run dev
 
 Signing in needs a GitHub OAuth App (the default provider) with its client id and secret in user secrets, or a provider added in the setup. [`docs/authentication.md`](docs/authentication.md) walks through it, and covers Google, Microsoft, Auth0 and other OpenID Connect providers.
 
-Run the tests. They need the compose database running, and each test class creates and drops its own database on it:
+Run the tests. They need the compose database running, on which they keep a pool of test databases:
 
 ```bash
-dotnet test PrikBoard.slnx
+dotnet test --solution PrikBoard.slnx
 ```
 
 ## Using the API (humans and AI agents)

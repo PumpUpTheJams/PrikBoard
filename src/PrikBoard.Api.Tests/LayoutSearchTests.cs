@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Tests;
@@ -8,7 +9,8 @@ namespace PrikBoard.Api.Tests;
 /// </summary>
 public sealed class StressFactAttribute : FactAttribute
 {
-    public StressFactAttribute()
+    public StressFactAttribute([CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if (Environment.GetEnvironmentVariable("PRIKBOARD_STRESS") != "1") Skip = "A stress test: set PRIKBOARD_STRESS=1 to run it.";
     }

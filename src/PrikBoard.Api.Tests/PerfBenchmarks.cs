@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
 using System.Text;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Domain;
-using Xunit.Abstractions;
 
 namespace PrikBoard.Api.Tests;
 
@@ -13,7 +13,8 @@ namespace PrikBoard.Api.Tests;
 /// </summary>
 public sealed class PerfFactAttribute : FactAttribute
 {
-    public PerfFactAttribute()
+    public PerfFactAttribute([CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if (Environment.GetEnvironmentVariable("PRIKBOARD_PERF") != "1") Skip = "A benchmark: set PRIKBOARD_PERF=1 to run it.";
     }

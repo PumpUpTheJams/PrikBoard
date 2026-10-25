@@ -10,9 +10,9 @@ public class PlaceItemsApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
 {
     private HttpClient _client = null!;
 
-    public async Task InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
+    public async ValueTask InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
     public async Task Cards_fill_the_free_spots_around_what_is_in_the_bucket()

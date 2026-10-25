@@ -11,9 +11,9 @@ public class TrashAndCollapseApiTests(PrikBoardApiFactory factory) : IClassFixtu
 {
     private HttpClient _client = null!;
 
-    public async Task InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
+    public async ValueTask InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
     public async Task The_trash_lists_deleted_cards_newest_first_with_their_images_and_searches_them()

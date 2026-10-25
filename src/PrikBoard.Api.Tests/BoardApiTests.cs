@@ -11,9 +11,9 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
 {
     private HttpClient _client = null!;
 
-    public async Task InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
+    public async ValueTask InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
     public async Task New_board_starts_with_default_buckets_side_by_side_and_is_listed()

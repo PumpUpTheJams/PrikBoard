@@ -14,9 +14,9 @@ public class RestoreApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
 {
     private HttpClient _client = null!;
 
-    public async Task InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
+    public async ValueTask InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
     public async Task A_deleted_card_is_hidden_everywhere_and_comes_back_whole_with_its_images()

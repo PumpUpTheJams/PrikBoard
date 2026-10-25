@@ -15,11 +15,10 @@ using PrikBoard.Api.Domain;
 namespace PrikBoard.Api.Tests;
 
 /// <summary>
-/// Runs the real API in memory against a throwaway PostgreSQL database, created on the server from
-/// <c>compose.yaml</c> (or the one in <c>PRIKBOARD_TEST_POSTGRES</c>), and a throwaway folder for its files, both deleted
-/// again on dispose.
+/// Runs the real API in memory against an empty PostgreSQL database leased from the pool (<see cref="TestDatabases"/>)
+/// and handed back on dispose, and a throwaway folder for its files, deleted on dispose.
 /// </summary>
-public class PrikBoardApiFactory : WebApplicationFactory<Program>
+public class PrikBoardApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     public const string TestProvider = "test";
     private const string TestLoginPath = "/test/login";
@@ -28,13 +27,16 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
     /// <summary>A fixed hash key, so tests can recompute the hashes the API stores.</summary>
     public static readonly byte[] HashKey = System.Text.Encoding.UTF8.GetBytes("prikboard-test-hash-key-0123456789abcdef");
 
-    private const string DefaultServer = "Host=localhost;Port=5432;Username=prikboard;Password=prikboard";
+    private readonly Lazy<TestDatabases.Lease> _database;
 
-    private readonly string _connectionString = new NpgsqlConnectionStringBuilder(
-        Environment.GetEnvironmentVariable("PRIKBOARD_TEST_POSTGRES") ?? DefaultServer)
-    {
-        Database = $"prikboard_tests_{Guid.NewGuid():N}",
-    }.ConnectionString;
+    public PrikBoardApiFactory() =>
+        _database = new(() => WithoutDatabase ? TestDatabases.LeaseMissingDatabase() : TestDatabases.LeaseDatabase());
+
+    /// <summary>
+    /// Starts without a database, as a first start does, so the startup migrations create it, instead of on an empty one
+    /// from the pool.
+    /// </summary>
+    public bool WithoutDatabase { get; init; }
 
     /// <summary>
     /// Where this API keeps its files (<c>Storage:Path</c>). Each factory has its own, so one's sweep never sees another's
@@ -44,8 +46,7 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        // Startup migrations create the database.
-        builder.UseSetting("ConnectionStrings:PrikBoard", _connectionString);
+        builder.UseSetting("ConnectionStrings:PrikBoard", TestDatabases.ConnectionString(_database.Value.Database));
         builder.UseSetting(FileStore.PathKey, FilesPath);
         // Not Development, so the developer's user secrets stay out. appsettings.json ships a GitHub client id;
         // clearing it starts every test without sign-in providers, and test classes add the ones they need.
@@ -234,13 +235,42 @@ public class PrikBoardApiFactory : WebApplicationFactory<Program>
         };
     }
 
+    /// <summary>
+    /// Starts the API before a test class that has this factory as its fixture runs. Starting blocks a thread until the
+    /// host is up, so it gets one of its own: on the thread pool, every class starting at once blocked the pool, and the
+    /// startups waited for it to grow for many seconds.
+    /// </summary>
+    async ValueTask IAsyncLifetime.InitializeAsync()
+    {
+        Task? first;
+        lock (FirstStartLock)
+        {
+            first = _firstStart;
+            _firstStart ??= StartAsync();
+        }
+        // The first start compiles the whole app, so the others wait for it (whether it worked or not) rather than all
+        // compiling it at the same time.
+        if (first is not null)
+        {
+            await first.ContinueWith(_ => { }, TaskScheduler.Default);
+            await StartAsync();
+        }
+        else
+        {
+            await _firstStart;
+        }
+    }
+
+    private Task StartAsync() =>
+        Task.Factory.StartNew(() => Server, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+    private static readonly Lock FirstStartLock = new();
+    private static Task? _firstStart;
+
     public override async ValueTask DisposeAsync()
     {
-        await using (var scope = Services.CreateAsyncScope())
-        {
-            await scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>().Database.EnsureDeletedAsync();
-        }
         await base.DisposeAsync();
+        if (_database.IsValueCreated) _database.Value.Dispose();
         if (Directory.Exists(FilesPath)) Directory.Delete(FilesPath, recursive: true);
     }
 }

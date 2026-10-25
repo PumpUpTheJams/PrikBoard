@@ -210,7 +210,6 @@ public static class CardEndpoints
         bool assigneesChecked, bool batch, Func<List<CardDetail>, TCreated> created, CancellationToken ct)
         where TCreated : IResult
     {
-        if (await BoardRefAsync(db, boardId, ct) is not { } board) return TypedResults.NotFound();
         ValidationProblem Keyed(ValidationProblem problem, int i) => batch ? Prefixed(problem, $"cards[{i}].") : problem;
 
         // An agent starting on a card right away works for its owner (or itself), as with setCardWorking.
@@ -259,7 +258,8 @@ public static class CardEndpoints
         }
         TrackMoved(db, others, placed);
 
-        var number = await TakeNumberAsync(db, boardId, ct, cards.Count);
+        if (await TakeNumbersAsync(db, boardId, cards.Count, ct) is not { } taken) return TypedResults.NotFound();
+        var (number, board) = taken;
         foreach (var card in cards) card.Number = number++;
         db.Cards.AddRange(cards);
         await db.SaveChangesAsync(ct);
@@ -311,9 +311,24 @@ public static class CardEndpoints
     /// cards that fail to save give their numbers back.
     /// </summary>
     internal static async Task<int> TakeNumberAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct, int count = 1) =>
-        (await db.Database.SqlQuery<int>($"""
-            UPDATE "Boards" SET "NextCardNumber" = "NextCardNumber" + {count} WHERE "Id" = {boardId} RETURNING "NextCardNumber" - {count} AS "Value"
-            """).ToListAsync(ct)).Single();
+        (await TakeNumbersAsync(db, boardId, count, ct))!.Value.First;
+
+    /// <summary><see cref="TakeNumberAsync"/>, with the board's short id and key for the cards' details; null without the board.</summary>
+    private static async Task<(int First, BoardRef Board)?> TakeNumbersAsync(PrikBoardDbContext db, Guid boardId, int count, CancellationToken ct)
+    {
+        var taken = await db.Database.SqlQuery<TakenNumbers>($"""
+            UPDATE "Boards" SET "NextCardNumber" = "NextCardNumber" + {count} WHERE "Id" = {boardId}
+            RETURNING "NextCardNumber" - {count} AS "First", "ShortId", "Key"
+            """).ToListAsync(ct);
+        return taken is [var row] ? (row.First, new BoardRef(row.ShortId, row.Key)) : null;
+    }
+
+    private sealed class TakenNumbers
+    {
+        public int First { get; init; }
+        public string ShortId { get; init; } = "";
+        public string Key { get; init; } = "";
+    }
 
     /// <summary>
     /// Locks the card's row until the transaction ends, then loads it as it is now; null when it does not exist or is
@@ -390,6 +405,8 @@ public static class CardEndpoints
     internal static async Task<Guid> WorksForAsync(PrikBoardDbContext db, ClaimsPrincipal principal, CancellationToken ct)
     {
         var me = principal.PrincipalId();
+        // A browser session is a person, never an agent.
+        if (!principal.IsToken()) return me;
         var owner = await db.Agents.Where(a => a.Id == me).Select(a => a.OwnerId).FirstOrDefaultAsync(ct);
         return owner ?? me;
     }

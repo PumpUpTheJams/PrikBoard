@@ -113,7 +113,7 @@ public static class DrawingEndpoints
     internal static async Task<Results<Created<DrawingDetail>, NotFound, ValidationProblem, ProblemHttpResult>> CreateDrawing(
         Guid boardId, CreateDrawingRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, CancellationToken ct)
     {
-        if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
+        // The board exists: the role check (or the MCP tool's) found it.
 
         if (request.CardId is not null && !await db.Cards.AnyAsync(n => n.Id == request.CardId && n.BoardId == boardId, ct))
         {

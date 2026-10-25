@@ -116,7 +116,7 @@ public static class ImageEndpoints
         Guid boardId, Stream body, Guid addedById, PrikBoardDbContext db, FileStore files, CancellationToken ct,
         string? fileName = null, Guid? cardId = null, int? x = null, int? y = null, int? width = null, string? caption = null)
     {
-        if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
+        // The board exists: every caller checked the caller's access to it first.
 
         if (InvalidPlacement(x, y, width, caption) is { } invalid) return invalid;
         var card = cardId is null ? null : await db.Cards.AsNoTracking().FirstOrDefaultAsync(n => n.Id == cardId && n.BoardId == boardId, ct);

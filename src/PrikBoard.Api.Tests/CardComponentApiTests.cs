@@ -9,9 +9,9 @@ public class CardComponentApiTests(PrikBoardApiFactory factory) : IClassFixture<
 {
     private HttpClient _client = null!;
 
-    public async Task InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
+    public async ValueTask InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
     public async Task New_components_get_their_default_size_and_a_free_spot_next_to_each_other()

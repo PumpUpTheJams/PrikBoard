@@ -14,7 +14,7 @@ public class StartupLogTests
     public async Task A_first_start_without_a_database_logs_only_the_setup_key()
     {
         var sink = new Collected();
-        await using var empty = new PrikBoardApiFactory();
+        await using var empty = new PrikBoardApiFactory { WithoutDatabase = true };
         await using var started = empty.WithWebHostBuilder(builder =>
             builder.ConfigureTestServices(services => services.AddSingleton<ILogEventSink>(sink)));
 
