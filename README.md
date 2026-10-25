@@ -23,6 +23,13 @@ cd infra/compose && docker compose up -d
 
 Open http://localhost:8080 and follow the setup. It asks for the setup key that PrikBoard prints in its log (`docker compose logs app`), then lets you add sign-in providers (GitHub in one click, Google, Discord, Slack, Steam or any OpenID Connect provider), sign in as the admin and download the recovery kit. For HTTPS on your own domain, see [`infra/README.md`](infra/README.md).
 
+The compose file pulls the published image, which is on both the GitHub Container Registry and Docker Hub (`latest` or a version such as `1.2.3`, for amd64 and arm64):
+
+```bash
+docker pull ghcr.io/pumpupthejams/prikboard:latest   # GitHub Container Registry
+docker pull prikboard/prikboard:latest               # Docker Hub
+```
+
 To preview PrikBoard links in chat, post board updates and save messages as cards, an admin can add a Discord bot or a Slack app under Admin → *Instance*: see [Discord](docs/discord.md) and [Slack](docs/slack.md#setting-it-up).
 
 ## Developing
