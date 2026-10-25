@@ -35,13 +35,13 @@ Without a checkout, this `compose.yaml` is enough (a trimmed [`infra/compose/com
 ```yaml
 services:
   postgres:
-    image: postgres:17
+    image: postgres:18
     environment:
       POSTGRES_USER: prikboard
       POSTGRES_PASSWORD: change-me
       POSTGRES_DB: prikboard
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql   # from 18 on, not .../data: the image keeps a folder per major version here
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U prikboard -d prikboard"]
       interval: 5s
@@ -74,7 +74,7 @@ To preview PrikBoard links in chat, post board updates and save messages as card
 
 Prerequisites: [.NET 10 SDK](https://dotnet.microsoft.com/download), [Node.js 22+](https://nodejs.org) and Docker.
 
-Start PostgreSQL from [`compose.yaml`](compose.yaml). Its data is kept in the `postgres-data` volume, so it survives restarts and `docker compose down` (`docker compose down -v` wipes it):
+Start PostgreSQL from [`compose.yaml`](compose.yaml). Its data is kept in the `postgres18-data` volume, so it survives restarts and `docker compose down` (`docker compose down -v` wipes it):
 
 ```bash
 docker compose up -d
