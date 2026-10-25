@@ -46,6 +46,19 @@ export function kindOf(board: BoardDetail, id: string): SelectionKind | undefine
   return (['card', 'bucket', 'image', 'drawing'] as const).find((kind) => lists[kind].some((x) => x.id === id))
 }
 
+/** An item on the board with its kind. */
+export type KindedItem = { [K in SelectionKind]: { kind: K; item: ItemOfKind[K] } }[SelectionKind]
+
+/** Every item on the board by id, to look many up at once (kindOf and bucketOf search the lists). */
+export function itemsById(board: BoardDetail): Map<string, KindedItem> {
+  const byId = new Map<string, KindedItem>()
+  for (const item of board.cards) byId.set(item.id, { kind: 'card', item })
+  for (const item of board.buckets) byId.set(item.id, { kind: 'bucket', item })
+  for (const item of board.images) byId.set(item.id, { kind: 'image', item })
+  for (const item of board.drawings) byId.set(item.id, { kind: 'drawing', item })
+  return byId
+}
+
 /** The bucket a selected card, image or drawing is in (null: loose). */
 export function bucketOf(board: BoardDetail, item: Picked<SelectionKind>): string | null {
   if (item.kind === 'bucket') return null

@@ -34,7 +34,9 @@ builder.Services.AddProblemDetails();
 builder.Services.AddValidation();
 builder.Services.AddHealthChecks();
 builder.AddPrikBoardAuth();
-builder.Services.AddSignalR()
+// A Select or Group drag may list DragUpdate.MaxItems ids, about 40 KB: more than the default 32 KB, which drops the
+// connection (and the web app's reconnect sends the selection again).
+builder.Services.AddSignalR(options => options.MaximumReceiveMessageSize = 64 * 1024)
     .AddJsonProtocol(options => options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton<IUserIdProvider, PrincipalUserIds>();
 builder.Services.AddSingleton<LiveViewers>();
