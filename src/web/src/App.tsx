@@ -1,9 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { api, ApiError, errorMessage, setUnauthorizedHandler } from './api/client'
+import { api, errorMessage, setUnauthorizedHandler } from './api/client'
 import type { BoardDetail, BoardSummary, Caller, LiveViewer, SetupStatus } from './api/types'
 import { BoardCanvas } from './board/BoardCanvas'
 import { CardIcon, PeopleIcon } from './board/icons'
-import { pickBoardFile, saveFile } from './board/files'
 import { boardRefFromHash, isBoard } from './board/links'
 import { useBoard, type BoardState } from './board/useBoard'
 import { UndoHistory } from './board/useUndo'
@@ -196,8 +195,6 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
   const [recheckedId, setRecheckedId] = useState<string | null>(null)
   const [notPublic, setNotPublic] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  /** Why an import was refused, one message each. */
-  const [importRefused, setImportRefused] = useState<string[] | null>(null)
   const [serverVersion, setServerVersion] = useState<string | null>(null)
   useEffect(() => {
     api.getVersion().then((v) => setServerVersion(v.version), () => {})
@@ -333,25 +330,6 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
       if (changes.key !== undefined) refresh()
     })
 
-  const exportBoard = (target: BoardSummary) =>
-    guard(async () => {
-      const { blob, fileName } = await api.exportBoard(target.id)
-      saveFile(blob, fileName)
-    })
-
-  /** Picks an export file and opens the board made from it. */
-  async function importBoard() {
-    const file = await pickBoardFile()
-    if (!file) return
-    try {
-      addBoard(await api.importBoard(file))
-    } catch (e) {
-      // A refused file says why (a newer PrikBoard made it, it isn't an export, ...): a dialog, so it isn't missed.
-      if (e instanceof ApiError && e.status === 400) setImportRefused([...new Set(Object.values(e.errors).flat())].slice(0, 5))
-      else setError(errorMessage(e))
-    }
-  }
-
   async function leaveBoard(target: BoardSummary) {
     setBoardToLeave(null)
     await guard(async () => {
@@ -429,8 +407,6 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
           onCancel={() => setBoardToDelete(null)}
         />
       )}
-
-      {importRefused && <NoticeDialog title="Can't import this board" messages={importRefused} onClose={() => setImportRefused(null)} />}
     </>
   )
 
@@ -487,8 +463,7 @@ function Workspace({ user, onUserChange, onSignOut }: WorkspaceProps) {
             onCreate={createBoard}
             onUpdate={updateBoard}
             onDialog={setDialog}
-            onExport={(target) => void exportBoard(target)}
-            onImport={() => void importBoard()}
+
             onLeave={setBoardToLeave}
             onDelete={setBoardToDelete}
           />

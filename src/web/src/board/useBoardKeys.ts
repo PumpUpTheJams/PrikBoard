@@ -18,13 +18,14 @@ interface BoardKeysOptions {
   deleteSelected: () => void
   deleteOne: (item: Selection) => void
   duplicateCard: (id: string) => void
+  selectAll: () => void
   addImagesFromPicker: () => void
   undo: { undo: () => void; redo: () => void }
 }
 
-/** The board's keys: tools, Escape, copy, cut, delete and duplicate, and undo and redo (also in the open card). */
+/** The board's keys: tools, Escape, select all, copy, cut, delete and duplicate, and undo and redo (also in the open card). */
 export function useBoardKeys(options: BoardKeysOptions) {
-  const { readOnly, cardOpen, selected, selection, busy, setTool, setSelection, copySelected, deleteSelected, deleteOne, duplicateCard, addImagesFromPicker, undo } = options
+  const { readOnly, cardOpen, selected, selection, busy, setTool, setSelection, copySelected, deleteSelected, deleteOne, duplicateCard, selectAll, addImagesFromPicker, undo } = options
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -36,6 +37,9 @@ export function useBoardKeys(options: BoardKeysOptions) {
         if (cardOpen) return
         setTool('select')
         setSelection(null)
+      } else if (shortcut(e, 'a', { shift: false })) {
+        e.preventDefault()
+        if (!busy.gesture) selectAll()
       } else if (shortcut(e, 'c', { shift: false }) && copying()) {
         // Viewers may copy too: the copies go on boards where they can edit.
         e.preventDefault()

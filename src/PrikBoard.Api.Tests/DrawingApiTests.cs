@@ -204,33 +204,36 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     }
 
     [Fact]
-    public async Task Drawings_travel_with_an_exported_board()
+    public async Task Drawings_travel_with_copied_cards_and_on_the_board()
     {
         var board = await _client.CreateBoardAsync("Sketches");
+        var target = await _client.CreateBoardAsync("Sketches pasted");
         var card = await _client.CreateCardAsync(board.Id, "With a doodle");
-        await Create(board.Id, new { x = 300, y = 400, points = Squiggle, color = "Lilac", strokeWidth = 2 });
+        var looseOne = await Create(board.Id, new { x = 3000, y = 4000, points = Squiggle, color = "Lilac", strokeWidth = 2 });
         await Create(board.Id, new { x = 20, y = 40, points = Squiggle, color = "Violet", cardId = card.Id });
 
-        var file = await _client.GetStringAsync($"/api/boards/{board.Id}/export");
-        var imported = await _client.PostAsync("/api/boards/import", Json(file));
-        Assert.Equal(HttpStatusCode.Created, imported.StatusCode);
-        var copy = (await imported.Content.ReadFromJsonAsync<BoardDetail>())!;
+        var clip = await CopyAsync(board.Id, new { cardIds = new[] { card.Id }, drawingIds = new[] { looseOne.Id } });
+        var at = (X: Math.Min(card.X, 3000), Y: Math.Min(card.Y, 4000));
+        var pasted = await _client.PostAsync($"/api/boards/{target.Id}/paste", Json($$"""{"clip":{{clip}},"x":{{at.X}},"y":{{at.Y}}}"""));
+        Assert.Equal(HttpStatusCode.OK, pasted.StatusCode);
+        var copy = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{target.Id}"))!;
 
         Assert.Equal(2, copy.Drawings.Count);
         var loose = copy.Drawings.Single(d => d.CardId is null);
         var attached = copy.Drawings.Single(d => d.CardId is not null);
-        Assert.Equal((300, 400, InkColor.Lilac, 2), (loose.X, loose.Y, Assert.Single(loose.Colors), await StrokeWidth(loose)));
+        Assert.Equal((3000, 4000, InkColor.Lilac, 2), (loose.X, loose.Y, Assert.Single(loose.Colors), await StrokeWidth(loose)));
         Assert.Equal((Assert.Single(copy.Cards).Id, 20, 40, InkColor.Violet), (attached.CardId, attached.X, attached.Y, Assert.Single(attached.Colors)));
         var points = Assert.Single((await _client.GetFromJsonAsync<DrawingContentDetail>(loose.ContentUrl))!.Strokes).Points;
         Assert.Equal([[2, 2, 0.5], [40, 10.1, 0.12], [100.2, 30, 1]], points);
 
-        // A drawing pointing at a card that isn't in the file, or with bad points, refuses the whole import.
-        var badCard = file.Replace($"\"cardId\":\"{card.Id}\"", $"\"cardId\":\"{Guid.NewGuid()}\"");
-        Assert.NotEqual(file, badCard);
-        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsync("/api/boards/import", Json(badCard))).StatusCode);
-        var badPoints = file.Replace("[100.2,30,1]", "[100.2,30,7]");
-        Assert.NotEqual(file, badPoints);
-        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsync("/api/boards/import", Json(badPoints))).StatusCode);
+        // A drawing pointing at a card that isn't in the clip, or with bad points, refuses the whole paste.
+        var badCard = clip.Replace($"\"cardId\":\"{card.Id}\"", $"\"cardId\":\"{Guid.NewGuid()}\"");
+        Assert.NotEqual(clip, badCard);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsync($"/api/boards/{target.Id}/paste", Json($$"""{"clip":{{badCard}},"x":0,"y":0}"""))).StatusCode);
+        var badPoints = clip.Replace("[100.2,30,1]", "[100.2,30,7]");
+        Assert.NotEqual(clip, badPoints);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsync($"/api/boards/{target.Id}/paste", Json($$"""{"clip":{{badPoints}},"x":0,"y":0}"""))).StatusCode);
+        Assert.Equal(2, (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{target.Id}"))!.Drawings.Count);
     }
 
     [Fact]
@@ -306,7 +309,7 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     }
 
     [Fact]
-    public async Task A_restored_drawing_and_an_imported_one_find_their_bucket()
+    public async Task A_restored_drawing_and_a_pasted_one_find_their_bucket()
     {
         var board = await _client.CreateBoardAsync("Restored drawing");
         var todo = board.Buckets[0];
@@ -318,14 +321,11 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         var restored = await _client.PostAsync($"/api/drawings/{drawing.Id}/restore", null);
         Assert.Null((await restored.Content.ReadFromJsonAsync<DrawingDetail>())!.BucketId);
 
-        // An imported board places its drawings by position too.
-        (await _client.PatchAsJsonAsync($"/api/drawings/{drawing.Id}", new { x = 3020, y = todo.Y + 100 })).EnsureSuccessStatusCode();
-        var file = await _client.GetStringAsync($"/api/boards/{board.Id}/export");
-        var imported = await _client.PostAsync("/api/boards/import", Json(file));
-        Assert.Equal(HttpStatusCode.Created, imported.StatusCode);
-        var copy = (await imported.Content.ReadFromJsonAsync<BoardDetail>())!;
-        var copyTodo = copy.Buckets.Single(b => b.Name == todo.Name);
-        Assert.Equal(copyTodo.Id, Assert.Single(copy.Drawings).BucketId);
+        // A pasted one joins the bucket it lands in, by position too.
+        var clip = await CopyAsync(board.Id, new { drawingIds = new[] { drawing.Id } });
+        var pasted = await _client.PostAsync($"/api/boards/{board.Id}/paste", Json($$"""{"clip":{{clip}},"x":3020,"y":{{todo.Y + 100}}}"""));
+        Assert.Equal(HttpStatusCode.OK, pasted.StatusCode);
+        Assert.Equal(todo.Id, Assert.Single((await pasted.Content.ReadFromJsonAsync<PastedItems>())!.Drawings).BucketId);
     }
 
     /// <summary>A stroke as the web app sends one: its corner on the grid, at least half the thickest line clear of every point.</summary>
@@ -418,31 +418,21 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     }
 
     [Fact]
-    public async Task A_drawing_with_several_strokes_travels_with_an_exported_board_and_old_files_still_import()
+    public async Task A_drawing_with_several_strokes_pastes_with_all_of_them()
     {
         var board = await _client.CreateBoardAsync("Multi");
+        var target = await _client.CreateBoardAsync("Multi pasted");
         var drawing = await Create(board.Id, new { x = 100, y = 100, points = Neat, color = "Sky" });
         await AddStroke(drawing.Id, new { x = 200, y = 100, points = Neat, color = "Coral", strokeWidth = 8 });
 
-        var file = await _client.GetStringAsync($"/api/boards/{board.Id}/export");
-        var imported = await _client.PostAsync("/api/boards/import", Json(file));
-        Assert.Equal(HttpStatusCode.Created, imported.StatusCode);
-        var copy = Assert.Single((await imported.Content.ReadFromJsonAsync<BoardDetail>())!.Drawings);
+        var clip = await CopyAsync(board.Id, new { drawingIds = new[] { drawing.Id } });
+        var pasted = await _client.PostAsync($"/api/boards/{target.Id}/paste", Json($$"""{"clip":{{clip}},"x":100,"y":100}"""));
+        Assert.Equal(HttpStatusCode.OK, pasted.StatusCode);
+        var copy = Assert.Single((await pasted.Content.ReadFromJsonAsync<PastedItems>())!.Drawings);
         Assert.Equal((100, 100, 6), (copy.X, copy.Y, copy.PointCount));
         Assert.Equal([InkColor.Sky, InkColor.Coral], copy.Colors);
         var content = (await _client.GetFromJsonAsync<DrawingContentDetail>(copy.ContentUrl))!;
         Assert.Equal([4, 8], content.Strokes.Select(s => s.StrokeWidth));
-
-        // A version 4 or 5 file has one stroke per drawing, as color, strokeWidth and points.
-        var old = $$"""
-            {"format":"prikboard-board","version":4,"exportedAt":"2026-10-20T10:00:00Z","name":"Old","description":null,"rules":null,
-             "buckets":[],"tags":[],"cards":[],"images":[],
-             "drawings":[{"cardId":null,"x":40,"y":60,"color":"Lilac","strokeWidth":2,"points":[[10,10,0.5],[30,20,0.5]]}]}
-            """;
-        var fromOld = await _client.PostAsync("/api/boards/import", Json(old));
-        Assert.Equal(HttpStatusCode.Created, fromOld.StatusCode);
-        var oldDrawing = Assert.Single((await fromOld.Content.ReadFromJsonAsync<BoardDetail>())!.Drawings);
-        Assert.Equal((40, 60, InkColor.Lilac, 2), (oldDrawing.X, oldDrawing.Y, Assert.Single(oldDrawing.Colors), await StrokeWidth(oldDrawing)));
     }
 
     private static readonly double[][] Line = [[10, 10, 0.5], [90, 10, 0.5]];
@@ -548,17 +538,13 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     }
 
     [Fact]
-    public async Task Loose_drawings_keep_their_place_among_the_buckets_when_exported_or_copied()
+    public async Task Loose_drawings_keep_their_place_among_the_buckets_when_copied()
     {
         var board = await _client.CreateBoardAsync("Stacked sketches");
         var (doing, done) = (board.Buckets[1], board.Buckets[2]);
         var drawing = await Create(board.Id, new { x = 3000, y = 100, points = Line });
         await RaiseAsync($"/api/buckets/{done.Id}/front");
         Assert.Equal(["To do", "Doing", "drawing", "Done"], await StackAsync(board.Id));
-
-        var file = await _client.GetStringAsync($"/api/boards/{board.Id}/export");
-        var imported = (await (await _client.PostAsync("/api/boards/import", Json(file))).Content.ReadFromJsonAsync<BoardDetail>())!;
-        Assert.Equal(["To do", "Doing", "drawing", "Done"], await StackAsync(imported.Id));
 
         // Pasted, they go on top of the board as they were stacked among themselves.
         var copied = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/copy",
@@ -617,6 +603,14 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     }
 
     private static StringContent Json(string json) => new(json, Encoding.UTF8, "application/json");
+
+    /// <summary>The clip of what <paramref name="what"/> names on the board, as JSON.</summary>
+    private async Task<string> CopyAsync(Guid boardId, object what)
+    {
+        var response = await _client.PostAsJsonAsync($"/api/boards/{boardId}/copy", what);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await response.Content.ReadAsStringAsync();
+    }
 
     private async Task<DrawingDetail> Create(Guid boardId, object request)
     {

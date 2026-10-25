@@ -87,11 +87,16 @@ export function gridFor(board: BoardDetail, heldId: string, members: Selection[]
   return Object.fromEntries(cards.map((n, i) => [n.id, { x: held.x - own.x + cell(i).x, y: held.y - own.y + cell(i).y }]))
 }
 
+/** The most items a group drag tells the others about (DragUpdate.MaxItems); they see the rest move once it is dropped. */
+const MAX_DRAG_ITEMS = 1000
+
 /** Your drag in progress as others are told about it, as a string so an unchanged drag sends nothing; null for none. */
 export function sentDrag(dragging: DragGesture | null): string | null {
   if (!dragging || dragging.done) return null
   const { x: dx, y: dy } = delta(dragging)
-  if (dragging.kind === 'group') return JSON.stringify({ kind: 'Group', id: dragging.id, dx, dy, items: dragging.members.map((m) => m.id) })
+  if (dragging.kind === 'group') {
+    return JSON.stringify({ kind: 'Group', id: dragging.id, dx, dy, items: dragging.members.slice(0, MAX_DRAG_ITEMS).map((m) => m.id) })
+  }
   return JSON.stringify({ kind: toDragKind[dragging.kind], id: dragging.id, dx, dy, handle: dragging.handle })
 }
 

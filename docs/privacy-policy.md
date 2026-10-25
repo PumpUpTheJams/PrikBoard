@@ -71,7 +71,7 @@ The Service is hosted on [prikboard.com](https://prikboard.com).
 
 ## 7. Your rights
 
-Depending on where you live (for example under the EU's GDPR), you can ask to see, correct, export or delete your data, or object to how we use it. You can do much of this yourself: change your display name, remove your avatar, revoke tokens, export boards and leave boards. For anything else, including deleting your account, write to prikboardinfo@gmail.com.
+Depending on where you live (for example under the EU's GDPR), you can ask to see, correct, export or delete your data, or object to how we use it. You can do much of this yourself: change your display name, remove your avatar, revoke tokens, copy whole boards (select everything and copy it) and leave boards. For anything else, including deleting your account, write to prikboardinfo@gmail.com.
 
 We process your data to provide the Service you asked for (performance of a contract) and to keep it secure and running (legitimate interest). You can also complain to your local data protection authority.
 

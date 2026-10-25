@@ -27,7 +27,7 @@ internal static class Problems
 
     public static ValidationProblem CardNotOnBoard() => Invalid("cardId", "The card does not exist on this board.");
 
-    /// <summary>A 403 for a token limited to chosen boards, which can't <paramref name="cannot"/> (create new ones, import new ones).</summary>
+    /// <summary>A 403 for a token limited to chosen boards, which can't <paramref name="cannot"/> (create new ones).</summary>
     public static ProblemHttpResult LimitedToken(string cannot) => TypedResults.Problem(statusCode: StatusCodes.Status403Forbidden,
         title: "Limited access token", detail: $"This access token is limited to chosen boards, so it cannot {cannot}.");
 

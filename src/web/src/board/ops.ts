@@ -193,8 +193,8 @@ export const ops = {
    * Adds copied items (a clip) to the board as one step. Undo deletes the buckets, cards, images and drawings it added
    * (images and drawings on the pasted cards go with their cards).
    */
-  paste: (boardId: string, clip: BoardClip, place: PastePlace, label = 'Paste'): Op<PastedItems> => [
-    () => api.pasteItems(boardId, clip, place),
+  paste: (boardId: string, clip: BoardClip, place: PastePlace, label = 'Paste', imageFiles?: (string | null)[]): Op<PastedItems> => [
+    () => api.pasteItems(boardId, clip, place, imageFiles),
     (pasted) => {
       // A cut's originals went to the trash of the board they were cut from: undo puts them back there.
       const moved = pasted.moved

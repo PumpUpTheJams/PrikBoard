@@ -36,7 +36,8 @@ public class RestoreApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         Assert.Empty(hidden.Images);
         Assert.Equal(0, Assert.Single(hidden.Tags).CardCount);
         Assert.Empty((await _client.GetFromJsonAsync<List<CardDetail>>($"/api/boards/{board.Id}/cards?search=launch"))!);
-        Assert.DoesNotContain("Ship the beta", await _client.GetStringAsync($"/api/boards/{board.Id}/export"));
+        var copied = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/copy", new { bucketIds = hidden.Buckets.Select(b => b.Id) });
+        Assert.DoesNotContain("Ship the beta", await copied.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync(attached.ContentUrl)).StatusCode);
         // Its images come back with the card, not on their own.
         Assert.Equal(HttpStatusCode.Conflict, (await _client.PostAsync($"/api/images/{attached.Id}/restore", null)).StatusCode);

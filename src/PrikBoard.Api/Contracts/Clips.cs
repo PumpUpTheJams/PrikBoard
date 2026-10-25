@@ -6,11 +6,11 @@ namespace PrikBoard.Api.Contracts;
 /// <summary>
 /// Items copied from a board, from copyItems and for pasteItems: buckets, cards, images and drawings with everything on
 /// them in one self-contained piece of JSON, so it can be pasted on any board, on this PrikBoard server or another one. The
-/// web app puts it on the clipboard. Like an export (exportBoard) it holds content, not people; ids in it are only
-/// meaningful inside it.
+/// web app puts it on the clipboard, a whole board's worth if need be. It holds content and the ids of who created and
+/// is assigned to cards, which only mean something on this server; other ids in it are only meaningful inside it.
 /// </summary>
 /// <param name="Format">Always "prikboard-clip".</param>
-/// <param name="Version">Version of this format, currently 4 (1 to 3 still paste; their bucket colors are ignored). A clip with a newer version, or with fields the server doesn't know, is refused.</param>
+/// <param name="Version">Version of this format, currently 6 (1 to 5 still paste; bucket colors of 1 to 3 are ignored). A clip with a newer version, or with fields the server doesn't know, is refused.</param>
 /// <param name="CopiedAt">When it was copied (UTC).</param>
 /// <param name="Source">Where the items were copied from.</param>
 /// <param name="Cards">The cards (also those in the copied buckets), the most recently edited last (they are drawn on top).</param>
@@ -35,13 +35,19 @@ public record BoardClip(
 {
     public const string FormatName = "prikboard-clip";
     /// <summary>Raise it with every change to the clip's fields, so an older server refuses a clip it can't fully read.</summary>
-    public const int CurrentVersion = 5;
-    public const int MaxCards = 200;
-    public const int MaxImages = 100;
-    public const int MaxDrawings = 1000;
-    public const int MaxBuckets = 50;
+    public const int CurrentVersion = 6;
+    /// <summary>A whole board fits in one clip.</summary>
+    public const int MaxCards = 2000;
+    public const int MaxImages = 200;
+    public const int MaxDrawings = BoardDrawing.MaxPerBoard;
+    public const int MaxBuckets = 100;
     /// <summary>The most image bytes one clip holds; they travel as base64 through the clipboard.</summary>
-    public const long MaxImageBytes = 40 * 1024 * 1024;
+    public const long MaxImageBytes = 150 * 1024 * 1024;
+    /// <summary>
+    /// The most image bytes a clip holds with the images' data in it, as copyItems returns them and pasteItems takes them
+    /// in one request. Larger clips leave the data out (copyItems' imageData) and upload the images first (uploadPasteImage).
+    /// </summary>
+    public const long MaxInlineImageBytes = 40 * 1024 * 1024;
 }
 
 /// <summary>Where the items in a clip come from.</summary>
@@ -81,6 +87,7 @@ public record ClippedBucket(
 /// <param name="Components">The card's content on its own canvas, in order. Links to other cards are paths on the source server.</param>
 /// <param name="AssigneeIds">Principal ids of its assignees; a paste keeps only those who can be assigned on the board it lands on.</param>
 /// <param name="BucketId">The copied bucket it is in (Buckets), or null (from version 2).</param>
+/// <param name="CreatedById">Principal id of who created it (from version 6): a copy pasted on the same board keeps them as its creator.</param>
 public record ClippedCard(
     Guid Id,
     [property: Range(1, int.MaxValue)] int Number,
@@ -91,37 +98,70 @@ public record ClippedCard(
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int Y,
     [property: MaxLength(CardComponent.MaxComponents)] List<NewCardComponent>? Components = null,
     [property: MaxLength(Endpoints.CardEndpoints.MaxAssignees)] List<Guid>? AssigneeIds = null,
-    Guid? BucketId = null);
+    Guid? BucketId = null,
+    Guid? CreatedById = null);
 
-/// <summary>An image in a clip: as in an export, and the copied bucket it is in.</summary>
+/// <summary>An image in a clip, with its file.</summary>
 /// <param name="CardId">Id of the card (in this clip) the image is attached to, or null for an image on the board.</param>
 /// <param name="FileName">Original file name.</param>
 /// <param name="Caption">Caption, or null.</param>
 /// <param name="X">Left edge on the board, or on the card's canvas for an attached image.</param>
 /// <param name="Y">Top edge on the board, or on the card's canvas for an attached image.</param>
 /// <param name="Width">Display width in pixels; the height follows from the aspect ratio.</param>
-/// <param name="Data">The image file itself, as base64 in JSON (PNG, JPEG, GIF or WebP, at most 10 MB).</param>
+/// <param name="Data">The image file itself, as base64 in JSON; the real format is read from it (PNG, JPEG, GIF or WebP, at most 10 MB). Empty when copyItems left it out (imageData false): get it from getImageContent by Id, and paste it in Data or upload it with uploadPasteImage.</param>
 /// <param name="BucketId">For an image on the board: the copied bucket it is in (Buckets), or null (from version 2).</param>
 /// <param name="Id">The image's id on its board, so a cut can remove it (from version 3).</param>
+/// <param name="Height">Display height in pixels (from version 6), so where it goes can be shown before its data is read.</param>
 public record ClippedImage(
-    Guid? CardId, string FileName, string? Caption, int X, int Y, int Width, byte[] Data, Guid? BucketId = null, Guid? Id = null)
-    : ExportedImage(CardId, FileName, Caption, X, Y, Width, Data);
+    Guid? CardId,
+    [property: Required, StringLength(255)] string FileName,
+    [property: StringLength(500)] string? Caption,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int X,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int Y,
+    [property: Range(Layout.MinImageWidth, Layout.MaxImageWidth)] int Width,
+    [property: Required] byte[] Data,
+    Guid? BucketId = null,
+    Guid? Id = null,
+    int? Height = null);
 
-/// <summary>A drawing in a clip: as in an export, and the copied bucket it is in.</summary>
+/// <summary>A drawing in a clip, with its strokes.</summary>
 /// <param name="CardId">Id of the card (in this clip) the drawing is on, or null for a drawing on the board.</param>
 /// <param name="X">Left edge on the board, or on the card's canvas; the points are relative to it.</param>
 /// <param name="Y">Top edge on the board, or on the card's canvas; the points are relative to it.</param>
 /// <param name="Strokes">The strokes in drawing order.</param>
-/// <param name="Color">Unused (the export file's older one-stroke form); null.</param>
-/// <param name="StrokeWidth">Unused (the export file's older one-stroke form); null.</param>
-/// <param name="Points">Unused (the export file's older one-stroke form); null.</param>
+/// <param name="Color">Unused (an older one-stroke form); null.</param>
+/// <param name="StrokeWidth">Unused (an older one-stroke form); null.</param>
+/// <param name="Points">Unused (an older one-stroke form); null.</param>
 /// <param name="BucketId">For a drawing on the board: the copied bucket it is in (Buckets), or null (from version 2).</param>
 /// <param name="Id">The drawing's id on its board, so a cut can remove it (from version 3).</param>
 /// <param name="BucketsBelow">For a drawing on the board in none of the copied buckets: how many of them (Buckets) it is stacked above (from version 5). Optional; without it, it goes above them all.</param>
 public record ClippedDrawing(
-    Guid? CardId, int X, int Y, List<ExportedStroke>? Strokes = null, InkColor? Color = null, int? StrokeWidth = null,
-    List<double[]>? Points = null, Guid? BucketId = null, Guid? Id = null, int? BucketsBelow = null)
-    : ExportedDrawing(CardId, X, Y, Strokes, Color, StrokeWidth, Points, BucketsBelow);
+    Guid? CardId,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int X,
+    [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int Y,
+    [property: MaxLength(BoardDrawing.MaxStrokes)] List<ClippedStroke>? Strokes = null,
+    InkColor? Color = null,
+    int? StrokeWidth = null,
+    [property: MaxLength(BoardDrawing.MaxPoints)] List<double[]>? Points = null,
+    Guid? BucketId = null,
+    Guid? Id = null,
+    [property: Range(0, BoardClip.MaxBuckets)] int? BucketsBelow = null)
+{
+    /// <summary>The strokes, from either form.</summary>
+    public IReadOnlyList<(InkColor Color, int Width, IReadOnlyList<double[]> Points)> AllStrokes() =>
+        Strokes is not null
+            ? [.. Strokes.Select(s => (s.Color, s.StrokeWidth, (IReadOnlyList<double[]>)s.Points))]
+            : Points is not null ? [(Color ?? InkColor.Chalk, StrokeWidth ?? 4, Points)] : [];
+}
+
+/// <summary>One stroke of a drawing in a clip.</summary>
+/// <param name="Color">Ink color.</param>
+/// <param name="StrokeWidth">Base line width: 2, 4 or 8.</param>
+/// <param name="Points">The stroke, each point [x, y, pressure] relative to the drawing's x and y, as in createDrawing.</param>
+public record ClippedStroke(
+    InkColor Color,
+    int StrokeWidth,
+    [property: Required, MaxLength(BoardDrawing.MaxPoints)] List<double[]> Points);
 
 /// <summary>What to copy, all on the board in the path. A bucket comes with the cards, images and drawings in it.</summary>
 /// <param name="CardIds">Cards.</param>
@@ -129,12 +169,14 @@ public record ClippedDrawing(
 /// <param name="ImageIds">Images on the board (images on cards come with their card).</param>
 /// <param name="DrawingIds">Drawings on the board (drawings on cards come with their card).</param>
 /// <param name="Cut">Cut them: the clip says so, and pasted on another board of this server the originals go to the trash. Needs the Editor role.</param>
+/// <param name="ImageData">With the images' bytes in the clip (default), up to 40 MB of them; false leaves them out (data is empty), up to 150 MB, so a big copy can fetch them one by one from getImageContent.</param>
 public record CopyItemsRequest(
     [property: MaxLength(BoardClip.MaxCards)] List<Guid>? CardIds = null,
     [property: MaxLength(BoardClip.MaxBuckets)] List<Guid>? BucketIds = null,
     [property: MaxLength(BoardClip.MaxImages)] List<Guid>? ImageIds = null,
     [property: MaxLength(BoardClip.MaxDrawings)] List<Guid>? DrawingIds = null,
-    bool Cut = false);
+    bool Cut = false,
+    bool ImageData = true);
 
 /// <summary>
 /// A clip to paste, and where. With X and Y everything keeps its place relative to the rest, the top-left at X and Y; an
@@ -145,11 +187,20 @@ public record CopyItemsRequest(
 /// <param name="X">Where the left edge of the leftmost item goes; give it with Y.</param>
 /// <param name="Y">Where the top edge of the topmost item goes; give it with X.</param>
 /// <param name="BucketId">A bucket on this board to put the cards in, instead of X and Y; only for a clip of cards alone.</param>
+/// <param name="ImageFiles">For a big clip: by index in the clip's images, the token uploadPasteImage gave for that image's file, whose data in the clip is then empty; null for an image whose data is in the clip.</param>
 public record PasteItemsRequest(
     [property: Required] BoardClip Clip,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X = null,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null,
-    Guid? BucketId = null);
+    Guid? BucketId = null,
+    [property: MaxLength(BoardClip.MaxImages)] List<string?>? ImageFiles = null);
+
+/// <summary>An image file uploaded for a paste (uploadPasteImage), waiting for pasteItems to put it on the board.</summary>
+/// <param name="Token">Give it in pasteItems' imageFiles, at the image's index. Only you can use it, on this board, until ExpiresAt.</param>
+/// <param name="ContentType">The format read from the file.</param>
+/// <param name="Size">The file's size in bytes.</param>
+/// <param name="ExpiresAt">When the token stops working (UTC). The file goes with it unless a paste used it.</param>
+public record PasteImageFile(string Token, string ContentType, long Size, DateTimeOffset ExpiresAt);
 
 /// <summary>What a paste added to the board.</summary>
 /// <param name="Cards">The new cards, in the clip's order.</param>

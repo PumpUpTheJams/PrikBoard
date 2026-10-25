@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Writes a big board as a PrikBoard export file, for measuring how the app copes (see README.md). Import it through
-// the board menu's Import, or POST it to /api/boards/import. No dependencies: run it with plain Node.
+// Writes a big board as a PrikBoard clip (what copying a whole board puts on the clipboard), for measuring how the app
+// copes (see README.md). Paste it into a new board with paste-board.mjs. No dependencies: run it with plain Node.
 //
 //   node tools/perf/make-board.mjs [--cards=1250] [--images=100] [--drawings=100] [--out=perf-board.json]
 //
@@ -11,12 +11,11 @@ import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { deflateSync } from 'node:zlib'
 
-/** Mirrors BoardExport.CurrentVersion (src/PrikBoard.Api/Contracts/BoardExport.cs). */
-const VERSION = 8
+/** Mirrors BoardClip.CurrentVersion and its limits (src/PrikBoard.Api/Contracts/Clips.cs). */
+const VERSION = 6
 const MAX_CARDS = 2000
 const MAX_IMAGES = 200
-/** The import takes at most 64 MB (BoardTransferEndpoints.MaxImportBytes); stay well under it. */
-const MAX_FILE_BYTES = 60 * 1024 * 1024
+const MAX_IMAGE_BYTES = 150 * 1024 * 1024
 
 const GRID = 20
 const CARD = { width: 200, height: 120 }
@@ -55,13 +54,13 @@ const tagColors = { bug: 'Brick', feature: 'Moss', perf: 'Ochre', design: 'Viole
 const words = 'the board card bucket drag drop image drawing tag person agent search filter zoom scroll pointer live server'.split(' ')
 const sentence = (n) => Array.from({ length: n }, () => pick(words)).join(' ')
 
-function card(i, x, y) {
+function card(i, x, y, bucketId = null) {
   const components = [{ kind: 'Text', text: `${sentence(12)}.\n\n${sentence(30)}.` }]
   if (i % 4 === 0) {
     components.push({ kind: 'Checklist', title: 'Steps', items: Array.from({ length: 5 }, (_, j) => ({ text: sentence(4), done: j < 2 })) })
   }
   const cardTags = [...new Set(Array.from({ length: i % 4 }, () => pick(tags)))]
-  return { id: randomUUID(), title: `${sentence(5)} ${i + 1}`, color: pick(fills), tags: cardTags, x, y, components }
+  return { id: randomUUID(), number: i + 1, title: `${sentence(5)} ${i + 1}`, color: pick(fills), tags: cardTags, x, y, components, bucketId }
 }
 
 // Six buckets side by side, four card columns each, holding 60% of the cards.
@@ -70,25 +69,26 @@ const BUCKET_WIDTH = GRID + COLUMNS * COLUMN_STEP
 const shares = [0.3, 0.2, 0.2, 0.1, 0.1, 0.1]
 const inBuckets = Math.round(cards * 0.6)
 const buckets = []
-const exportedCards = []
+const clippedCards = []
 let made = 0
 shares.forEach((share, b) => {
   const x = b * (BUCKET_WIDTH + 2 * GRID)
   const n = Math.min(Math.round(inBuckets * share), MAX_ROWS * COLUMNS, cards - made)
   const rows = Math.max(1, Math.ceil(n / COLUMNS))
-  buckets.push({ name: `Bucket ${b + 1} (${n})`, x, y: 0, width: BUCKET_WIDTH, height: GRID + rows * ROW_STEP })
+  const id = randomUUID()
+  buckets.push({ id, name: `Bucket ${b + 1} (${n})`, x, y: 0, width: BUCKET_WIDTH, height: GRID + rows * ROW_STEP })
   for (let i = 0; i < n; i++) {
-    exportedCards.push(card(made++, x + GRID + (i % COLUMNS) * COLUMN_STEP, GRID + Math.floor(i / COLUMNS) * ROW_STEP))
+    clippedCards.push(card(made++, x + GRID + (i % COLUMNS) * COLUMN_STEP, GRID + Math.floor(i / COLUMNS) * ROW_STEP, id))
   }
 })
 const bucketed = made
 // An empty bucket to drop groups of cards into.
 const right = shares.length * (BUCKET_WIDTH + 2 * GRID)
-buckets.push({ name: 'Drop here', x: right, y: 0, width: BUCKET_WIDTH, height: 600 })
+buckets.push({ id: randomUUID(), name: 'Drop here', x: right, y: 0, width: BUCKET_WIDTH, height: 600 })
 
 // The rest loose, 40 to a row, below the buckets.
 const below = Math.max(...buckets.map((b) => b.y + b.height)) + 400
-for (let i = 0; made < cards; i++) exportedCards.push(card(made++, (i % 40) * COLUMN_STEP, below + Math.floor(i / 40) * ROW_STEP))
+for (let i = 0; made < cards; i++) clippedCards.push(card(made++, (i % 40) * COLUMN_STEP, below + Math.floor(i / 40) * ROW_STEP))
 
 /** A PNG of `width` × `height`: a gradient with stripes, which compresses well but decodes to its full size. */
 function png(width, height, hue) {
@@ -133,7 +133,7 @@ function png(width, height, hue) {
 }
 
 // Images and drawings to the left of the buckets, ten to a row.
-const exportedImages = Array.from({ length: images }, (_, i) => ({
+const clippedImages = Array.from({ length: images }, (_, i) => ({
   cardId: null,
   fileName: `photo-${i + 1}.png`,
   caption: i % 3 === 0 ? `Photo ${i + 1}` : null,
@@ -143,7 +143,7 @@ const exportedImages = Array.from({ length: images }, (_, i) => ({
   data: png(2400, 1600, (i * 37) % 256).toString('base64'),
 }))
 const imageRows = Math.ceil(images / 10)
-const exportedDrawings = Array.from({ length: drawings }, (_, i) => ({
+const clippedDrawings = Array.from({ length: drawings }, (_, i) => ({
   cardId: null,
   x: -4000 + (i % 10) * 360,
   y: imageRows * 280 + 200 + Math.floor(i / 10) * 300,
@@ -161,21 +161,20 @@ const exportedDrawings = Array.from({ length: drawings }, (_, i) => ({
   ],
 }))
 
-const file = {
-  format: 'prikboard-board',
+const imageBytes = clippedImages.reduce((sum, i) => sum + (i.data.length * 3) / 4, 0)
+if (imageBytes > MAX_IMAGE_BYTES) throw new Error(`The images would be ${(imageBytes / 2 ** 20).toFixed(0)} MB, more than a clip holds. Use fewer --images.`)
+const clip = {
+  format: 'prikboard-clip',
   version: VERSION,
-  exportedAt: new Date().toISOString(),
-  name: `Perf ${cards}/${images}/${drawings}`,
-  description: 'A generated board for measuring performance (tools/perf).',
+  copiedAt: new Date().toISOString(),
+  // Only names where the cards came from, for links back to them; nothing links there.
+  source: { url: 'http://localhost', boardShortId: 'perf00', boardKey: 'PERF' },
   buckets,
-  tags,
   tagColors,
-  cards: exportedCards,
-  images: exportedImages,
-  drawings: exportedDrawings,
-  key: 'PERF',
+  cards: clippedCards,
+  images: clippedImages,
+  drawings: clippedDrawings,
 }
-const json = JSON.stringify(file)
-if (json.length > MAX_FILE_BYTES) throw new Error(`The file would be ${(json.length / 2 ** 20).toFixed(0)} MB, over the import limit. Use fewer --images.`)
+const json = JSON.stringify(clip)
 writeFileSync(out, json)
 console.log(`${out}: ${cards} cards (${bucketed} in buckets), ${images} images, ${drawings} drawings, ${(json.length / 2 ** 20).toFixed(1)} MB`)

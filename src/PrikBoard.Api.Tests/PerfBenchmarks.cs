@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
-using System.Text;
+using System.Text.Json.Nodes;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Domain;
 
@@ -21,9 +21,10 @@ public sealed class PerfFactAttribute : FactAttribute
 }
 
 /// <summary>
-/// How long the server takes on a big board: the board from tools/perf/make-board.mjs (or the export named by
-/// <c>PRIKBOARD_PERF_BOARD</c>), imported once, then read, added to and packed into buckets. With
-/// <c>PRIKBOARD_PERF_SNAPSHOT</c> set to a path, it saves the board as getBoard returns it there, for serve-board.mjs.
+/// How long the server takes on a big board: the clip from tools/perf/make-board.mjs (or the one named by
+/// <c>PRIKBOARD_PERF_BOARD</c>), pasted into a new board as the web app pastes a big one (images uploaded first), then
+/// read, added to and packed into buckets. With <c>PRIKBOARD_PERF_SNAPSHOT</c> set to a path, it saves the board as
+/// getBoard returns it there, for serve-board.mjs.
 /// </summary>
 public class PerfBenchmarks(PrikBoardApiFactory factory, ITestOutputHelper output) : IClassFixture<PrikBoardApiFactory>
 {
@@ -31,12 +32,35 @@ public class PerfBenchmarks(PrikBoardApiFactory factory, ITestOutputHelper outpu
     public async Task Server_on_a_big_board()
     {
         var client = await factory.CreateSignedInClientAsync();
-        var file = BoardFile();
+        var clip = JsonNode.Parse(await File.ReadAllTextAsync(BoardFile()))!.AsObject();
+        var board = await client.CreateBoardAsync("Perf");
+        // Its top-left where it was, so the layout stays as make-board.mjs drew it.
+        var corners = new[] { "cards", "buckets", "images", "drawings" }.SelectMany(list => clip[list]?.AsArray() ?? []).ToList();
+        var (x, y) = (corners.Min(c => (int)c!["x"]!), corners.Min(c => (int)c!["y"]!));
+
         var sw = Stopwatch.StartNew();
-        var imported = await client.PostAsync("/api/boards/import", new StringContent(await File.ReadAllTextAsync(file), Encoding.UTF8, "application/json"));
-        imported.EnsureSuccessStatusCode();
-        var board = (await imported.Content.ReadFromJsonAsync<BoardDetail>())!;
-        Report("importBoard", sw.Elapsed.TotalMilliseconds, $"{board.Cards.Count} cards, {board.Images.Count} images, {board.Drawings.Count} drawings");
+        var images = clip["images"]!.AsArray();
+        var tokens = new JsonArray();
+        foreach (var image in images)
+        {
+            var content = new ByteArrayContent(Convert.FromBase64String((string)image!["data"]!));
+            content.Headers.ContentType = new("application/octet-stream");
+            var uploaded = await client.PostAsync($"/api/boards/{board.Id}/paste-images", content);
+            uploaded.EnsureSuccessStatusCode();
+            tokens.Add((await uploaded.Content.ReadFromJsonAsync<PasteImageFile>())!.Token);
+            image["data"] = "";
+        }
+        Report($"uploadPasteImage × {images.Count}", sw.Elapsed.TotalMilliseconds);
+
+        sw.Restart();
+        (await client.PostAsJsonAsync($"/api/boards/{board.Id}/paste/check", new { clip, x, y })).EnsureSuccessStatusCode();
+        Report("checkPaste", sw.Elapsed.TotalMilliseconds);
+        sw.Restart();
+        var pasted = await client.PostAsJsonAsync($"/api/boards/{board.Id}/paste", new { clip, x, y, imageFiles = tokens });
+        pasted.EnsureSuccessStatusCode();
+        var added = (await pasted.Content.ReadFromJsonAsync<PastedItems>())!;
+        Report("pasteItems", sw.Elapsed.TotalMilliseconds, $"{added.Cards.Count} cards, {added.Images.Count} images, {added.Drawings.Count} drawings");
+        board = (await client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
 
         string json = "";
         var read = await Median(async () => json = await client.GetStringAsync($"/api/boards/{board.Id}"));
@@ -128,13 +152,13 @@ public class PerfBenchmarks(PrikBoardApiFactory factory, ITestOutputHelper outpu
         return (await response.Content.ReadFromJsonAsync<BucketDetail>())!;
     }
 
-    /// <summary>The export to import: <c>PRIKBOARD_PERF_BOARD</c>, or a fresh one from make-board.mjs (needs Node).</summary>
+    /// <summary>The clip to paste: <c>PRIKBOARD_PERF_BOARD</c>, or a fresh one from make-board.mjs (needs Node).</summary>
     private static string BoardFile()
     {
         if (Environment.GetEnvironmentVariable("PRIKBOARD_PERF_BOARD") is { Length: > 0 } given) return given;
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "tools", "perf", "make-board.mjs"))) dir = dir.Parent;
-        if (dir is null) throw new InvalidOperationException("tools/perf/make-board.mjs not found; set PRIKBOARD_PERF_BOARD to an export file.");
+        if (dir is null) throw new InvalidOperationException("tools/perf/make-board.mjs not found; set PRIKBOARD_PERF_BOARD to a clip file.");
         var file = Path.Combine(Path.GetTempPath(), $"prikboard-perf-{Guid.NewGuid():N}.json");
         using var node = Process.Start(new ProcessStartInfo("node", ["tools/perf/make-board.mjs", $"--out={file}"])
         {

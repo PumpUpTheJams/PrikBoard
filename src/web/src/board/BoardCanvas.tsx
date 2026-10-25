@@ -33,6 +33,9 @@ import { ToolRail } from './ToolRail'
 import type { Tool } from './tools'
 import type { BoardState } from './useBoard'
 import { useBoardClipboard } from './useBoardClipboard'
+import { clipSummary } from './clipboard'
+import { clipShape, progressText } from './transfer'
+import { CopyPanel, PasteGhost } from './TransferViews'
 import { useBoardDrops } from './useBoardDrops'
 import { IMAGE_OFFSET, useBoardEdits } from './useBoardEdits'
 import { useBoardFilters } from './useBoardFilters'
@@ -60,6 +63,12 @@ const hints: Partial<Record<Tool, string>> = {
 
 /** How long a thumbtack picked in the top bar pulses and shows its name. */
 const FOCUS_MS = 2400
+
+/** Up to this many selected items stay on the page wherever they are (`kept`); more go by the visible window like the rest. */
+const KEEP_SELECTED = 50
+
+/** The others see pins in this many of your selected items at most. */
+const SHARED_SELECTION = 100
 
 /**
  * Tells the others where your pointer is on the board (`onCursor`): as it moves, and as the view scrolls or zooms under
@@ -714,16 +723,19 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const { origin, extent } = canvas
   /** The part of the board around the screen (useVisibleWindow): only what touches it is on the page, unless it is kept. */
   const near = useVisibleWindow(boardView.view, zoom, origin)
-  /** On the page wherever they are: what is selected, moving, edited or looked at, so focus and gestures stay with them. */
-  const kept = new Set([...selected.map((s) => s.id), ...liftedIds, ...remoteIds, ...[titleEdit?.id, quickEdit?.cardId, current].filter((id): id is string => !!id)])
+  /**
+   * On the page wherever they are: what is selected (while it is a few items: a whole board selected stays virtualized),
+   * moving, edited or looked at, so focus and gestures stay with them.
+   */
+  const kept = new Set([...(selected.length <= KEEP_SELECTED ? selected.map((s) => s.id) : []), ...liftedIds, ...remoteIds, ...[titleEdit?.id, quickEdit?.cardId, current].filter((id): id is string => !!id)])
   const onPage = (id: string, rect: Rect) => kept.has(id) || intersects(near, rect)
   /** Zoomed far out, cards show only their fill, title and tag colors. */
   const far = zoom < FAR_ZOOM
   useReveal(search, { scrollRef, boardTop, board, zoom, origin, cardPoint })
   const pointing = usePointing({ scrollRef, toCanvas, onCursor })
 
-  // The others see your pins in what you select, until you select something else.
-  const selectedIds = selected.map((s) => s.id).join(' ')
+  // The others see your pins in what you select, until you select something else (the first ones of a big selection).
+  const selectedIds = selected.slice(0, SHARED_SELECTION).map((s) => s.id).join(' ')
   useEffect(() => onSelect?.(selectedIds ? selectedIds.split(' ') : []), [selectedIds, onSelect])
   useEffect(() => () => onSelect?.([]), [onSelect])
   /** Where an item someone else has selected is shown now (moving with drags); null when it is gone or folded away. */
@@ -764,12 +776,22 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     return () => window.clearTimeout(timer)
   }, [focusedTack, focus])
 
+  /** Selects the whole board as a selection rectangle around it would: the buckets, and what isn't in one. */
+  function selectAll() {
+    setSelected([
+      ...board.buckets.map((b): Selection => ({ kind: 'bucket', id: b.id })),
+      ...board.cards.filter((n) => !n.bucketId).map((n): Selection => ({ kind: 'card', id: n.id })),
+      ...board.images.filter((i) => !i.cardId && !i.bucketId).map((i): Selection => ({ kind: 'image', id: i.id })),
+      ...board.drawings.filter((d) => !d.cardId && !d.bucketId).map((d): Selection => ({ kind: 'drawing', id: d.id })),
+    ])
+  }
+
   /** Image files dropped on the board go where they were dropped. */
   const fileDrop = useFileDrop(!readOnly, (files, e) => {
     const at = toCanvas(e)
     void addImages(files, { at: { x: at.x + IMAGE_OFFSET.x - 20, y: at.y + IMAGE_OFFSET.y - 20 } })
   })
-  const { copySelected, duplicateCard } = useBoardClipboard({
+  const { copySelected, duplicateCard, copying, putReady, cancelCopy, pasting, placePaste, cancelPaste } = useBoardClipboard({
     board,
     readOnly,
     selected,
@@ -795,9 +817,17 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     deleteSelected: () => void deleteSelected(),
     deleteOne: edits.deleteOne,
     duplicateCard,
+    selectAll,
     addImagesFromPicker: () => void addImagesFromPicker(),
     undo,
   })
+
+  /** A big paste's outline, and where it is placed. */
+  const pastedClip = pasting?.clip
+  const pasteShape = useMemo(() => (pastedClip ? clipShape(pastedClip) : null), [pastedClip])
+  const pasteRect = pasting?.at && pasteShape ? { ...pasting.at, width: pasteShape.width, height: pasteShape.height } : null
+  /** A copy shows its progress when it has images to fetch, or waits for a key press to go on the clipboard. */
+  const copyShown = copying && (copying.ready || (copying.progress?.imagesTotal ?? 0) > 0)
 
   /** Where a card dragged out of the trash window would land. */
   const outgoingPlace = trash.outgoing ? trash.landing(trash.outgoing) : null
@@ -1044,6 +1074,22 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               <div className="marquee" aria-hidden="true" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />
             )}
 
+            {pasting && pasteShape && (
+              <PasteGhost
+                shape={pasteShape}
+                at={pasting.at}
+                start={pasting.start}
+                zoom={zoom}
+                summary={clipSummary(pasting.clip)}
+                size={pasting.size}
+                progress={pasting.progress}
+                scrollRef={scrollRef}
+                toCanvas={toCanvas}
+                onPlace={placePaste}
+                onCancel={cancelPaste}
+              />
+            )}
+
             {gesture?.home && gesture.away && !gesture.done && (
               <div
                 className={`drag-home${homeDrop ? ' over' : ''}`}
@@ -1125,6 +1171,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             images={shownImages}
             current={current}
             dimmedKey={mapFaded}
+            pasting={pasteRect}
           />
         )}
         onNavigate={canvas.navigate}
@@ -1214,6 +1261,16 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
           zoom={zoom}
           images={attached.get(draggedCard.card.id)}
           tagColors={tagColors}
+        />
+      )}
+
+      {copyShown && (
+        <CopyPanel
+          text={progressText(copying.progress, copying.cut ? 'cut items' : 'the selection')}
+          progress={copying.progress}
+          ready={!!copying.ready}
+          onCopy={putReady}
+          onCancel={cancelCopy}
         />
       )}
 

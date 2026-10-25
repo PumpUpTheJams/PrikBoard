@@ -1,5 +1,5 @@
 import type { BoardDetail, BoardSummary } from '../api/types'
-import { CheckIcon, ChevronDownIcon, DownloadIcon, PlugIcon, RulesIcon, SignOutIcon, TrashIcon, UploadIcon } from '../board/icons'
+import { CheckIcon, ChevronDownIcon, PlugIcon, RulesIcon, SignOutIcon, TrashIcon } from '../board/icons'
 import { trashPath } from '../board/links'
 import { Menu, MenuItem } from './Menu'
 import { QuickAdd } from './QuickAdd'
@@ -16,8 +16,6 @@ interface BoardMenuProps {
   onCreate: (name: string) => Promise<boolean>
   onUpdate: (target: BoardSummary, changes: { name?: string; key?: string }) => Promise<boolean>
   onDialog: (dialog: 'rules' | 'integrations') => void
-  onExport: (target: BoardSummary) => void
-  onImport: () => void
   /** These two ask first (ConfirmDialog). */
   onLeave: (target: BoardSummary) => void
   onDelete: (target: BoardSummary) => void
@@ -25,7 +23,7 @@ interface BoardMenuProps {
 
 /** The board switcher in the top bar: your boards, a new one, and what can be done with the open one. */
 export function BoardMenu(props: BoardMenuProps) {
-  const { boards, activeBoard, board, onSelect, onCreate, onUpdate, onDialog, onExport, onImport, onLeave, onDelete } = props
+  const { boards, activeBoard, board, onSelect, onCreate, onUpdate, onDialog, onLeave, onDelete } = props
   const isOwner = activeBoard?.yourRole === 'Owner'
 
   return (
@@ -70,9 +68,6 @@ export function BoardMenu(props: BoardMenuProps) {
                 return ok
               }}
             />
-            <MenuItem icon={<UploadIcon />} onClick={onImport}>
-              Import board
-            </MenuItem>
           </div>
           {activeBoard && (
             <div className="board-menu-column board-menu-settings">
@@ -108,9 +103,6 @@ export function BoardMenu(props: BoardMenuProps) {
                   Deleted items
                 </MenuItem>
               )}
-              <MenuItem icon={<DownloadIcon />} onClick={() => onExport(activeBoard)}>
-                Export board
-              </MenuItem>
               <span className="menu-divider" role="separator" />
               <MenuItem icon={<SignOutIcon />} onClick={() => onLeave(activeBoard)}>
                 Leave board

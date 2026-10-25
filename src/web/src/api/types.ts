@@ -315,8 +315,8 @@ export interface BoardClip {
   copiedAt: string
   source: ClipSource
   cards: ClippedCard[]
-  images: ClippedItem[]
-  drawings: ClippedItem[]
+  images: ClippedImage[]
+  drawings: ClippedDrawing[]
   tagColors?: Record<string, TagColor> | null
   appVersion?: string | null
   /** Buckets with what is in them (from version 2). */
@@ -341,6 +341,8 @@ export interface ClippedCard {
   y: number
   /** The copied bucket it is in. */
   bucketId?: string | null
+  /** Who created it (from version 6): copies pasted on the same board keep them. */
+  createdById?: string | null
 }
 
 /** A bucket in a clip (the rest of its fields are passed on untouched). */
@@ -349,6 +351,9 @@ export interface ClippedBucket {
   name: string
   x: number
   y: number
+  width: number
+  height: number
+  collapsed?: boolean
 }
 
 /** An image or drawing in a clip: on a card in it, or (null) on the board. */
@@ -362,6 +367,21 @@ export interface ClippedItem {
   bucketId?: string | null
 }
 
+/** An image in a clip. */
+export interface ClippedImage extends ClippedItem {
+  fileName: string
+  width: number
+  /** Display height (from version 6). */
+  height?: number | null
+  /** The file as base64; empty when copyItems left it out (imageData false). */
+  data: string
+}
+
+/** A drawing in a clip: its strokes' points are relative to its x and y. */
+export interface ClippedDrawing extends ClippedItem {
+  strokes?: { strokeWidth: number; points: number[][] }[] | null
+}
+
 /** What copyItems copies, all on one board. A bucket comes with what is in it. */
 export interface CopyItemsRequest {
   cardIds?: string[]
@@ -370,6 +390,32 @@ export interface CopyItemsRequest {
   drawingIds?: string[]
   /** Cut them (Editor): pasted on another board of the same server, the originals go to the trash. */
   cut?: boolean
+  /** False leaves the images' data out of the clip (get each from getImageContent), which allows more of them. */
+  imageData?: boolean
+}
+
+/** An image uploaded for a paste (uploadPasteImage): its token goes in pasteItems' imageFiles, at the image's index. */
+export interface PasteImageFile {
+  token: string
+  contentType: string
+  size: number
+  expiresAt: string
+}
+
+/** Items of one board by id, for deleteItems and restoreItems. */
+export interface ItemIds {
+  cardIds?: string[]
+  bucketIds?: string[]
+  imageIds?: string[]
+  drawingIds?: string[]
+}
+
+/** What restoreItems brought back. */
+export interface RestoredItems {
+  cards: CardDetail[]
+  buckets: BucketDetail[]
+  images: ImageDetail[]
+  drawings: DrawingDetail[]
 }
 
 /**

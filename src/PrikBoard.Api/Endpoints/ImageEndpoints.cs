@@ -98,14 +98,24 @@ public static class ImageEndpoints
         Guid boardId, Stream body, HttpRequest request, ClaimsPrincipal principal, PrikBoardDbContext db, FileStore files, CancellationToken ct,
         string? fileName = null, Guid? cardId = null, int? x = null, int? y = null, int? width = null, string? caption = null)
     {
-        // Only image types (or octet-stream): form encodings would let another site post here with someone's session cookie.
-        var declared = request.ContentType?.Split(';')[0].Trim().ToLowerInvariant();
-        if (declared is null || !(declared.StartsWith("image/") || declared == "application/octet-stream"))
+        if (!SendsImage(request))
         {
             if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
-            return Unsupported("Send the image file itself as the request body, with Content-Type image/png, image/jpeg, image/gif or image/webp.");
+            return Unsupported(SendImageBody);
         }
         return await AddImage(boardId, body, principal.PrincipalId(), db, files, ct, fileName, cardId, x, y, width, caption);
+    }
+
+    internal const string SendImageBody = "Send the image file itself as the request body, with Content-Type image/png, image/jpeg, image/gif or image/webp.";
+
+    /// <summary>
+    /// Whether the body is declared an image (or octet-stream). Uploads take nothing else: form encodings would let another
+    /// site post with someone's session cookie.
+    /// </summary>
+    internal static bool SendsImage(HttpRequest request)
+    {
+        var declared = request.ContentType?.Split(';')[0].Trim().ToLowerInvariant();
+        return declared is not null && (declared.StartsWith("image/") || declared == "application/octet-stream");
     }
 
     /// <summary>
@@ -166,16 +176,28 @@ public static class ImageEndpoints
             return false;
         }
         problem = null;
-        image = new BoardImage
+        image = FromFile(boardId, StoredFile.For(boardId, CleanFileName(fileName, info.ContentType), info.ContentType, data),
+            info.Width, info.Height, caption, width);
+        return true;
+    }
+
+    /// <summary>
+    /// A new image on <paramref name="boardId"/> showing <paramref name="file"/>, which is <paramref name="pixelWidth"/> by
+    /// <paramref name="pixelHeight"/>, at <paramref name="width"/> (default: its own width, at most <see cref="Layout.DefaultImageWidth"/>);
+    /// not yet placed or saved.
+    /// </summary>
+    internal static BoardImage FromFile(Guid boardId, StoredFile file, int pixelWidth, int pixelHeight, string? caption, int? width)
+    {
+        var image = new BoardImage
         {
             BoardId = boardId,
-            PixelWidth = info.Width,
-            PixelHeight = info.Height,
+            PixelWidth = pixelWidth,
+            PixelHeight = pixelHeight,
             Caption = PatchText.Apply(null, caption),
-            File = StoredFile.For(boardId, CleanFileName(fileName, info.ContentType), info.ContentType, data),
+            File = file,
         };
-        image.Resize(width ?? Math.Min(info.Width, Layout.DefaultImageWidth));
-        return true;
+        image.Resize(width ?? Math.Min(pixelWidth, Layout.DefaultImageWidth));
+        return image;
     }
 
     /// <summary>
@@ -388,7 +410,7 @@ public static class ImageEndpoints
     }
 
     /// <summary>The whole body, or null when it is longer than <paramref name="limit"/> bytes.</summary>
-    private static async Task<byte[]?> ReadUpTo(Stream body, int limit, CancellationToken ct)
+    internal static async Task<byte[]?> ReadUpTo(Stream body, int limit, CancellationToken ct)
     {
         // A stream that knows its length (add_image's decoded file) goes straight into an array of that size.
         if (body.CanSeek)
@@ -443,6 +465,6 @@ public static class ImageEndpoints
         return null;
     }
 
-    private static ProblemHttpResult Unsupported(string detail) =>
+    internal static ProblemHttpResult Unsupported(string detail) =>
         TypedResults.Problem(statusCode: StatusCodes.Status415UnsupportedMediaType, title: "Unsupported image", detail: detail);
 }

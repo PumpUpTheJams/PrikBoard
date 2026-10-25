@@ -277,11 +277,11 @@ public class MembershipApiTests(MembershipApiTests.Factory factory) : IClassFixt
         var anonymous = factory.CreateAnonymousClient();
         var stranger = await factory.CreateSignedInClientAsync("public-write-stranger@example.com");
 
-        // Writes need a caller, then membership; other reads (the trash, an export, one card) are for members.
+        // Writes need a caller, then membership; other reads (the trash, one card) are for members.
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "No" })).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await stranger.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "No" })).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await stranger.PatchAsJsonAsync($"/api/boards/{board.Id}", new { isPublic = false })).StatusCode);
-        foreach (var url in new[] { $"/api/boards/{board.Id}/trash", $"/api/boards/{board.Id}/export", $"/api/cards/{card.Id}", $"/api/boards/{board.Id}/members" })
+        foreach (var url in new[] { $"/api/boards/{board.Id}/trash", $"/api/cards/{card.Id}", $"/api/boards/{board.Id}/members" })
         {
             Assert.Equal(HttpStatusCode.NotFound, (await stranger.GetAsync(url)).StatusCode);
             Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(url)).StatusCode);

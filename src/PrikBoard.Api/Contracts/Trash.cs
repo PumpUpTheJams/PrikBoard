@@ -28,3 +28,25 @@ public record RestoreCardRequest(
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null,
     Guid? BucketId = null,
     bool? Loose = null);
+
+/// <summary>Cards, buckets, images and drawings on one board, by id: what deleteItems and restoreItems act on.</summary>
+/// <param name="CardIds">Cards (with the images and drawings on them).</param>
+/// <param name="BucketIds">Buckets. Deleting one leaves what is in it on the board, loose.</param>
+/// <param name="ImageIds">Images, on the board or on a card.</param>
+/// <param name="DrawingIds">Drawings, on the board or on a card.</param>
+public record ItemIds(
+    [property: MaxLength(ItemIds.MaxPerKind)] List<Guid>? CardIds = null,
+    [property: MaxLength(ItemIds.MaxPerKind)] List<Guid>? BucketIds = null,
+    [property: MaxLength(ItemIds.MaxPerKind)] List<Guid>? ImageIds = null,
+    [property: MaxLength(ItemIds.MaxPerKind)] List<Guid>? DrawingIds = null)
+{
+    /// <summary>A whole board's worth of each.</summary>
+    public const int MaxPerKind = 5000;
+}
+
+/// <summary>What restoreItems brought back, as they are now.</summary>
+/// <param name="Cards">The cards, with the images and drawings deleted along with them.</param>
+/// <param name="Buckets">The buckets.</param>
+/// <param name="Images">The images named in the request.</param>
+/// <param name="Drawings">The drawings named in the request.</param>
+public record RestoredItems(List<CardDetail> Cards, List<BucketDetail> Buckets, List<ImageDetail> Images, List<DrawingDetail> Drawings);

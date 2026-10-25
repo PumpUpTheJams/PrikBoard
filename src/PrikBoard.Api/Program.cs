@@ -244,7 +244,7 @@ if (app.Environment.WebRootFileProvider.GetFileInfo("index.html").Exists)
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
-// importBoard and pasteItems read their body twice: once bound to the request, and again as plain JSON for fields this
+// pasteItems and checkPaste read their body twice: once bound to the request, and again as plain JSON for fields this
 // server doesn't know.
 app.Use((context, next) =>
 {
@@ -270,10 +270,10 @@ app.MapScalarApiReference("/scalar", options => options
 var api = app.MapGroup("/api");
 api.MapAuthEndpoints();
 api.MapBoardEndpoints();
-api.MapBoardTransferEndpoints();
 api.MapBucketEndpoints();
 api.MapCardEndpoints();
 api.MapClipEndpoints();
+api.MapItemEndpoints();
 api.MapCardComponentEndpoints();
 api.MapTagEndpoints();
 api.MapImageEndpoints();
