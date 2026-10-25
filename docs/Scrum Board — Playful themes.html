@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scrum Board — Playful themes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Nunito:wght@400;500;600;700;800&family=Fredoka:wght@400;500;600;700&family=Rubik:wght@400;500;600;700;800&family=Kalam:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,800&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!--
+  Playful color schemes for casual users, next to "Night shift" (docs/Scrum Board — Night shift.html), to choose from.
+  Every board on this page is the same markup; only the theme class differs. A scheme changes colors, the font family,
+  corner radii, shadows and decorations drawn outside the layout (pseudo-elements, transforms, box shadows), never font
+  sizes or line heights, paddings, gaps, border widths or element sizes, so switching schemes moves nothing.
+-->
+<style>
+/* ---------- Page ---------- */
+html { background: #f5f4ef; color: #1f1e1d; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+body { margin: 0; padding: 40px 48px 80px; }
+.page { max-width: 2700px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
+.page > header h1 { margin: 0 0 6px; font-size: 22px; font-weight: 600; }
+.page > header p { margin: 0; max-width: 860px; color: #5d5c58; }
+section > h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+section > p.lead { margin: 0 0 16px; color: #6b6a68; max-width: 860px; }
+.gallery { display: grid; grid-template-columns: 1fr 1fr; gap: 32px 24px; }
+.gallery figure { margin: 0; min-width: 0; cursor: pointer; }
+.gallery figcaption { margin: 0 0 8px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.gallery figcaption b { font-size: 14px; font-weight: 600; }
+.gallery figcaption span { font-size: 13px; color: #6b6a68; }
+.gallery figcaption code { font: 11px 'Geist Mono', ui-monospace, monospace; color: #8a8984; }
+.scaler { position: relative; overflow: hidden; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,.12); background: #fff; }
+.scaler > .frame { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.gallery figure:hover .scaler { box-shadow: 0 0 0 2px #1f1e1d; }
+@media (max-width: 1100px) { .gallery { grid-template-columns: 1fr; } }
+.label { margin: 0 0 8px; font-size: 13px; font-weight: 500; color: #6b6a68; }
+
+.picker { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; position: sticky; top: 0; z-index: 10; padding: 10px 0; background: #f5f4ef; }
+.picker button { font: inherit; padding: 7px 14px; border-radius: 999px; border: 1px solid #d6d3c9; background: #fff; cursor: pointer; display: flex; gap: 8px; align-items: center; }
+.picker button i { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
+.picker button[aria-pressed="true"] { background: #1f1e1d; color: #fff; border-color: #1f1e1d; }
+.picker label { display: flex; gap: 6px; align-items: center; color: #5d5c58; font-size: 13px; margin-left: 8px; }
+.detail { display: flex; flex-direction: column; gap: 16px; max-width: 1280px; }
+.detail-head h3 { margin: 0; font-size: 18px; font-weight: 600; }
+.detail-head p { margin: 2px 0 0; color: #5d5c58; max-width: 860px; }
+
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.swatch { border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.swatch i { display: block; height: 64px; }
+.swatch div { padding: 7px 10px 9px; font-size: 12px; }
+.swatch b { display: block; font-weight: 600; }
+.swatch code { font: 11px 'Geist Mono', ui-monospace, monospace; color: #6b6a68; }
+
+table.notes { border-collapse: collapse; width: 100%; max-width: 1280px; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.notes th, .notes td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid #ecebe6; font-size: 13px; }
+.notes th { background: #faf9f5; font-weight: 600; }
+.notes td:first-child { white-space: nowrap; font-weight: 500; }
+.notes code { font: 12px 'Geist Mono', ui-monospace, monospace; background: #f3f1ea; padding: 1px 4px; border-radius: 4px; }
+
+/* =====================================================================
+   Themes. Night shift's values are the app's (src/web/src/index.css); the rest only change tokens.
+   ===================================================================== */
+.frame {
+  /* Defaults shared by the playful schemes; Night shift sets its own below. */
+  --bar-divider: color-mix(in srgb, var(--bar-text) 20%, transparent);
+  --share-bg: var(--accent); --share-text: #fff; --share-r: 999px;
+  --toast-btn-bg: var(--accent); --toast-btn-text: #fff;
+  --photo-edge: #fff; --title-weight: 800; --select-style: dashed; --bucket-shadow: none; --bucket-head: var(--text);
+  --pill: 999px; --corner: none; --logo-rot: -6deg; --presence-fills: 1;
+  --ground-image: radial-gradient(circle, var(--dot) 1px, transparent 1.4px); --ground-size: 20px 20px;
+  --bar-image: none; --bucket-style: solid;
+  --deco: none; --deco-w: 46px; --deco-h: 14px; --deco-top: -7px; --deco-left: 50%; --deco-ml: -23px; --deco-r: 2px;
+  --deco-rot: -4deg; --deco-rot-alt: 3deg; --deco-shadow: 0 1px 1px rgba(27, 42, 51, 0.08);
+  --tag-bg: rgba(27, 42, 51, 0.12); --tag-text: var(--ink); --accent-ink: #fff;
+}
+
+.theme-night {
+  --bg: #0e1014; --bar: #111318; --bar-line: #1f242d; --bar-text: #e6e8ec; --bar-muted: #9aa3b2; --bar-hover: #1d222b; --bar-divider: #262b35;
+  --panel: #161a21; --line: #262b35; --text: #e6e8ec; --text-2: #c9ced8; --muted: #9aa3b2; --subtle: #8b94a5;
+  --tool-hover: #232833; --accent: #7cc4ff; --accent-ink: #0e1622; --accent-bg: #263142;
+  --bucket-fill: rgba(20, 23, 29, 0.97); --bucket-dot: rgba(255, 255, 255, 0.06); --dot: rgba(255, 255, 255, 0.1);
+  --chip: #1d222b; --chip-text: #9aa3b2; --minimap-bucket-fill: #2a303b;
+  --float-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --avatar-bg: #20242c; --avatar-text: #e6e8ec; --agent-bg: #2a2140; --agent-text: #d9c9ff; --halo: #c4a7ff;
+  --logo-bg: #f3d77a; --logo-ink: #17181b;
+  --ink: #17181b; --fill-butter: #f3d77a; --fill-mint: #9fe0c0; --fill-sky: #9ccbf5; --fill-coral: #f4a99a; --fill-lilac: #cdb8f5;
+  --tone-butter: #f3d77a; --tone-mint: #9fe0c0; --tone-sky: #9ccbf5; --tone-coral: #f4a99a; --tone-lilac: #cdb8f5; --ink-coral: #ff8a73;
+  --tag-bg: rgba(23, 24, 27, 0.1); --tag-text: #2a2b30;
+  --tag-brick: #ae4538; --tag-rust: #ad5c15; --tag-ochre: #926e10; --tag-moss: #59772b; --tag-pine: #277659; --tag-teal: #117780;
+  --tag-ocean: #236daa; --tag-indigo: #5156a8; --tag-violet: #794da5; --tag-berry: #a73b6d; --tag-ink: #272c33;
+  --image-bg: #12161c; --peer: #7cc4ff;
+  --r-card: 3px; --r-bucket: 10px; --r-panel: 12px; --r-button: 8px; --r-small: 6px; --r-tag: 4px; --r-logo: 7px; --pill: 8px;
+  --card-shadow: 0 1px 1px rgba(0, 0, 0, 0.25), 0 6px 14px rgba(0, 0, 0, 0.28);
+  --card-shadow-hover: 0 2px 2px rgba(0, 0, 0, 0.25), 0 14px 28px rgba(0, 0, 0, 0.4);
+  --card-hover: scale(1.02);
+  --corner: linear-gradient(135deg, transparent 50%, rgba(0, 0, 0, 0.14) 50%);
+  --share-bg: #1d222b; --share-text: #e6e8ec; --share-r: 8px; --toast-btn-bg: #1d222b; --toast-btn-text: #e6e8ec;
+  --photo-edge: transparent; --title-weight: 600; --select-style: solid; --bucket-head: var(--muted); --logo-rot: 0deg; --presence-fills: 0;
+  --font: Geist, ui-sans-serif, system-ui, sans-serif; --tag-font: 11px/1 'Geist Mono', ui-monospace, monospace;
+}
+
+/* 1. Sorbet: cream paper, deep teal bar, tomato accent, washi tape. */
+.theme-sorbet {
+  --bg: #fbf0e4; --bar: #12394a; --bar-line: #0c2c3a; --bar-text: #fff4e6; --bar-muted: #a9c6cc; --bar-hover: rgba(255, 244, 230, 0.12);
+  --panel: #fffaf3; --line: #ecd8c3; --text: #12394a; --text-2: #1d4a5c; --muted: #5d7177; --subtle: #7f8e90;
+  --tool-hover: #f8e6d4; --accent: #e24e2f; --accent-bg: #ffdccd;
+  --bucket-fill: rgba(255, 250, 243, 0.97); --bucket-dot: rgba(196, 92, 58, 0.1); --dot: rgba(196, 92, 58, 0.24);
+  --chip: #ffe2d4; --chip-text: #b8432a; --minimap-bucket-fill: #f1dcc6;
+  --float-shadow: 0 3px 0 rgba(18, 57, 74, 0.1), 0 14px 30px rgba(150, 80, 40, 0.16);
+  --avatar-bg: #12394a; --avatar-text: #fff4e6; --agent-bg: #ffd3e4; --agent-text: #a3245f; --halo: #f07aa8;
+  --logo-bg: #f2553d; --logo-ink: #fff4e6; --share-bg: #f2553d; --toast-btn-bg: #f2553d;
+  --ink: #1b2a33; --fill-butter: #f8c93e; --fill-mint: #9bd8bd; --fill-sky: #9ab6ee; --fill-coral: #ff8c6e; --fill-lilac: #c9b4f4;
+  --tone-butter: #d99a00; --tone-mint: #1e8c68; --tone-sky: #3d6fd1; --tone-coral: #e24e2f; --tone-lilac: #8a5cd6; --ink-coral: #e24e2f;
+  --tag-brick: #d9432f; --tag-rust: #e0661b; --tag-ochre: #b98300; --tag-moss: #7a861c; --tag-pine: #178a61; --tag-teal: #00848a;
+  --tag-ocean: #2f6fc4; --tag-indigo: #5f63d1; --tag-violet: #9152c9; --tag-berry: #d2407f; --tag-ink: #12394a;
+  --image-bg: #f3e2cf; --peer: #e24e2f;
+  --r-card: 12px; --r-bucket: 18px; --r-panel: 18px; --r-button: 12px; --r-small: 10px; --r-tag: 999px; --r-logo: 10px;
+  --card-shadow: 0 2px 0 rgba(27, 42, 51, 0.14), 0 10px 20px rgba(150, 80, 40, 0.16);
+  --card-shadow-hover: 0 3px 0 rgba(27, 42, 51, 0.16), 0 18px 30px rgba(150, 80, 40, 0.24);
+  --card-hover: rotate(-1.5deg) scale(1.03);
+  --deco: repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.7) 0 4px, rgba(255, 255, 255, 0.45) 4px 8px);
+  --font: Nunito, ui-rounded, system-ui, sans-serif; --tag-font: 600 11px/1 Nunito, ui-rounded, sans-serif;
+}
+
+/* 2. Bubblegum: blush pink, berry bar, candy fills, a push pin on every card. */
+.theme-bubblegum {
+  --bg: #fde8e6; --bar: #7a1f47; --bar-line: #651a3b; --bar-text: #fff0f3; --bar-muted: #f2b6c8; --bar-hover: rgba(255, 240, 243, 0.14);
+  --panel: #fff6f6; --line: #f5cfd3; --text: #5a1835; --text-2: #6e2244; --muted: #8d5568; --subtle: #a47585;
+  --tool-hover: #fde0e3; --accent: #e8416f; --accent-bg: #ffd6e0;
+  --bucket-fill: rgba(255, 246, 246, 0.97); --bucket-dot: rgba(214, 76, 110, 0.1); --dot: rgba(214, 76, 110, 0.22);
+  --chip: #ffd6e0; --chip-text: #c22d5c; --minimap-bucket-fill: #f7d3d8;
+  --float-shadow: 0 3px 0 rgba(122, 31, 71, 0.1), 0 14px 30px rgba(214, 76, 110, 0.18);
+  --avatar-bg: #7a1f47; --avatar-text: #fff0f3; --agent-bg: #e4e1ff; --agent-text: #4b3fb3; --halo: #8f86ff;
+  --logo-bg: #f57b8c; --logo-ink: #fff;
+  --ink: #3d1028; --fill-butter: #f6c445; --fill-mint: #b5e3c8; --fill-sky: #a9b4f0; --fill-coral: #f7837f; --fill-lilac: #e9b2e6;
+  --tone-butter: #c98a00; --tone-mint: #2e8b5e; --tone-sky: #4b5bc9; --tone-coral: #d93f49; --tone-lilac: #a43fb0; --ink-coral: #e8416f;
+  --tag-bg: rgba(61, 16, 40, 0.12);
+  --tag-brick: #d63c4a; --tag-rust: #e46a2b; --tag-ochre: #c08b00; --tag-moss: #6f8a23; --tag-pine: #1f8a5e; --tag-teal: #13878f;
+  --tag-ocean: #3b6fd0; --tag-indigo: #6466d8; --tag-violet: #9b4fd0; --tag-berry: #d6336f; --tag-ink: #5a1835;
+  --image-bg: #f9dade; --peer: #e8416f;
+  --r-card: 16px; --r-bucket: 22px; --r-panel: 20px; --r-button: 14px; --r-small: 12px; --r-tag: 999px; --r-logo: 999px;
+  --card-shadow: 0 3px 0 rgba(122, 31, 71, 0.12), 0 12px 22px rgba(214, 76, 110, 0.18);
+  --card-shadow-hover: 0 4px 0 rgba(122, 31, 71, 0.14), 0 20px 32px rgba(214, 76, 110, 0.26);
+  --card-hover: rotate(1.5deg) scale(1.03);
+  --deco: radial-gradient(circle at 35% 35%, #fff 0 2px, #e8416f 3px); --deco-w: 14px; --deco-h: 14px; --deco-top: -5px; --deco-ml: -7px;
+  --deco-r: 50%; --deco-rot: 0deg; --deco-rot-alt: 0deg; --deco-shadow: 0 3px 3px rgba(61, 16, 40, 0.3);
+  --title-weight: 600;
+  --font: Fredoka, ui-rounded, system-ui, sans-serif; --tag-font: 500 11px/1 Fredoka, ui-rounded, sans-serif;
+}
+
+/* 3. Pool party: a dark playful one. Deep pool blue, bubblegum accent, bright fills. */
+.theme-pool {
+  --bg: #10324a; --bar: #0a2333; --bar-line: #0b2a3d; --bar-text: #eaf6ff; --bar-muted: #8fb4c9; --bar-hover: rgba(255, 255, 255, 0.08);
+  --panel: #163f5a; --line: #22506e; --text: #eaf6ff; --text-2: #cfe6f5; --muted: #93b5c8; --subtle: #7fa2b6;
+  --tool-hover: #1d4b69; --accent: #ff6fae; --accent-bg: #4a2a55;
+  --bucket-fill: rgba(19, 57, 82, 0.96); --bucket-dot: rgba(255, 255, 255, 0.07); --dot: rgba(255, 255, 255, 0.13);
+  --chip: #1f4c69; --chip-text: #a6d4ee; --minimap-bucket-fill: #22506e;
+  --float-shadow: 0 3px 0 rgba(0, 0, 0, 0.2), 0 14px 32px rgba(0, 0, 0, 0.35);
+  --avatar-bg: #0a2333; --avatar-text: #eaf6ff; --agent-bg: #3d2a6b; --agent-text: #e1d4ff; --halo: #c9a7ff;
+  --logo-bg: #ff6fae; --logo-ink: #fff; --share-bg: #ff6fae;
+  --ink: #10202c; --fill-butter: #ffd23f; --fill-mint: #5fe0b5; --fill-sky: #6ec3ff; --fill-coral: #ff8a65; --fill-lilac: #c79bff;
+  --tone-butter: #ffd23f; --tone-mint: #5fe0b5; --tone-sky: #6ec3ff; --tone-coral: #ff8a65; --tone-lilac: #c79bff; --ink-coral: #ff8a65;
+  --tag-bg: rgba(16, 32, 44, 0.13);
+  --tag-brick: #c94434; --tag-rust: #c96012; --tag-ochre: #a07800; --tag-moss: #5f8a22; --tag-pine: #1d8a5f; --tag-teal: #08858f;
+  --tag-ocean: #2a74c0; --tag-indigo: #5a5ed0; --tag-violet: #8a4fc8; --tag-berry: #c43a7e; --tag-ink: #10324a;
+  --image-bg: #0c2a3e; --peer: #ff6fae; --photo-edge: #eaf6ff;
+  --r-card: 14px; --r-bucket: 20px; --r-panel: 18px; --r-button: 12px; --r-small: 10px; --r-tag: 999px; --r-logo: 10px;
+  --card-shadow: 0 3px 0 rgba(0, 0, 0, 0.25), 0 12px 24px rgba(0, 0, 0, 0.35);
+  --card-shadow-hover: 0 4px 0 rgba(0, 0, 0, 0.25), 0 20px 34px rgba(0, 0, 0, 0.45);
+  --card-hover: rotate(-1.5deg) scale(1.03);
+  --deco: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.35)); --deco-shadow: none;
+  --font: Rubik, ui-sans-serif, system-ui, sans-serif; --tag-font: 500 11px/1 Rubik, ui-sans-serif, sans-serif; --title-weight: 600;
+}
+
+/* 4. Chalkboard: green slate in a dark wooden frame, chalk-drawn buckets, paper cards held by magnets. */
+.theme-chalk {
+  --bg: #22382b; --bar: #8e5b30; --bar-line: #6e4422; --bar-text: #fff4df; --bar-muted: #e8cfa8; --bar-hover: rgba(255, 244, 223, 0.14); --bar-divider: rgba(255, 244, 223, 0.25);
+  /* Horizontal planks: a seam every 19 px, fine grain along each plank, and a little light and shade across. */
+  --bar-image: linear-gradient(90deg, rgba(0, 0, 0, 0.08), transparent 25%, rgba(255, 235, 200, 0.05) 55%, rgba(0, 0, 0, 0.07)), repeating-linear-gradient(180deg, transparent 0 17px, rgba(40, 20, 5, 0.55) 17px 18px, rgba(255, 220, 170, 0.14) 18px 19px), repeating-linear-gradient(180deg, rgba(40, 20, 5, 0.12) 0 1px, transparent 1px 3px, rgba(255, 220, 170, 0.06) 3px 4px, transparent 4px 6px);
+  --ground-image: radial-gradient(ellipse at 30% 20%, rgba(255, 255, 255, 0.06), transparent 60%), radial-gradient(circle, rgba(255, 255, 255, 0.09) 1px, transparent 1.4px);
+  --ground-size: 100% 100%, 20px 20px;
+  --panel: #2c4637; --line: rgba(244, 241, 232, 0.55); --text: #f4f1e8; --text-2: #e6ebe2; --muted: #c7d3c8; --subtle: #a9b8ab;
+  --tool-hover: #355141; --accent: #f5d65c; --accent-ink: #1e2b23; --accent-bg: rgba(245, 214, 92, 0.18);
+  --bucket-fill: rgba(255, 255, 255, 0.04); --bucket-dot: transparent; --bucket-style: dashed;
+  --chip: rgba(244, 241, 232, 0.14); --chip-text: #f4f1e8; --minimap-bucket-fill: #3e5c4a;
+  --float-shadow: 0 3px 0 rgba(0, 0, 0, 0.2), 0 12px 28px rgba(0, 0, 0, 0.35);
+  --avatar-bg: #1e2b23; --avatar-text: #f4f1e8; --agent-bg: #3d2f5a; --agent-text: #e6dcff; --halo: #c9b0ff;
+  --logo-bg: #f5d65c; --logo-ink: #1e2b23; --share-bg: #f5d65c; --share-text: #1e2b23; --toast-btn-bg: #f5d65c; --toast-btn-text: #1e2b23;
+  --ink: #1e2b23; --fill-butter: #f7e58b; --fill-mint: #a8e6c3; --fill-sky: #a9d4f2; --fill-coral: #f6a99a; --fill-lilac: #d2bff2;
+  --tone-butter: #f7e58b; --tone-mint: #a8e6c3; --tone-sky: #a9d4f2; --tone-coral: #f6a99a; --tone-lilac: #d2bff2; --ink-coral: #f6a99a;
+  --tag-bg: rgba(30, 43, 35, 0.12);
+  --tag-brick: #b8432f; --tag-rust: #b85e18; --tag-ochre: #957200; --tag-moss: #5a7a22; --tag-pine: #23764f; --tag-teal: #127478;
+  --tag-ocean: #2a68ad; --tag-indigo: #5054ad; --tag-violet: #7a4aa8; --tag-berry: #a8386a; --tag-ink: #1e2b23;
+  --image-bg: #1d3125; --peer: #f5d65c; --photo-edge: #f4f1e8;
+  --r-card: 4px; --r-bucket: 12px; --r-panel: 12px; --r-button: 10px; --r-small: 4px; --r-tag: 4px; --r-logo: 6px; --pill: 10px; --share-r: 10px;
+  --card-shadow: 0 2px 1px rgba(0, 0, 0, 0.3), 0 8px 16px rgba(0, 0, 0, 0.3);
+  --card-shadow-hover: 0 3px 2px rgba(0, 0, 0, 0.3), 0 16px 26px rgba(0, 0, 0, 0.38);
+  --card-hover: rotate(1.2deg) scale(1.02);
+  --deco: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.7) 0 2px, var(--pin, #f5d65c) 3px);
+  --deco-w: 18px; --deco-h: 18px; --deco-top: -6px; --deco-ml: -9px; --deco-r: 50%; --deco-rot: 0deg; --deco-rot-alt: 0deg;
+  --deco-shadow: 0 2px 0 rgba(0, 0, 0, 0.25), 0 3px 6px rgba(0, 0, 0, 0.3);
+  --logo-rot: -4deg; --title-weight: 700;
+  --font: Kalam, ui-rounded, system-ui, sans-serif; --tag-font: 700 11px/1 Kalam, ui-rounded, sans-serif;
+}
+
+/* 5. Pop: comic book. White paper, yellow bar, ink outlines and offset shadows, primary fills. */
+.theme-pop {
+  --bg: #fffdf6; --bar: #ffcf33; --bar-line: #111; --bar-text: #111; --bar-muted: #3a3a3a; --bar-hover: rgba(17, 17, 17, 0.08); --bar-divider: rgba(17, 17, 17, 0.3);
+  --panel: #fff; --line: #111; --text: #111; --text-2: #222; --muted: #444; --subtle: #666;
+  --tool-hover: #fff1b8; --accent: #2d5bff; --accent-bg: #dbe4ff;
+  --bucket-fill: rgba(255, 255, 255, 0.97); --bucket-dot: rgba(17, 17, 17, 0.07); --dot: rgba(17, 17, 17, 0.16);
+  --chip: #111; --chip-text: #fff; --minimap-bucket-fill: #e8e8e8;
+  --float-shadow: 3px 3px 0 #111;
+  --avatar-bg: #111; --avatar-text: #fff; --agent-bg: #ffd6ec; --agent-text: #b0006a; --halo: #ff4fa3;
+  --logo-bg: #111; --logo-ink: #ffcf33; --share-bg: #111; --toast-btn-bg: #ffcf33; --toast-btn-text: #111;
+  --ink: #111; --fill-butter: #ffd84d; --fill-mint: #63e6a7; --fill-sky: #6fb7ff; --fill-coral: #ff6b57; --fill-lilac: #c49bff;
+  --tone-butter: #d9a400; --tone-mint: #10a066; --tone-sky: #1f73e0; --tone-coral: #e5402c; --tone-lilac: #8a4fe0; --ink-coral: #e5402c;
+  --tag-bg: rgba(17, 17, 17, 0.12);
+  --tag-brick: #e0392b; --tag-rust: #f06a10; --tag-ochre: #c99a00; --tag-moss: #6f9a10; --tag-pine: #0f9a5a; --tag-teal: #009a9a;
+  --tag-ocean: #1f6fe0; --tag-indigo: #4a4ae0; --tag-violet: #8a3ae0; --tag-berry: #e0307a; --tag-ink: #111;
+  --image-bg: #f0f0f0; --peer: #2d5bff;
+  --r-card: 10px; --r-bucket: 14px; --r-panel: 14px; --r-button: 10px; --r-small: 8px; --r-tag: 999px; --r-logo: 8px;
+  --card-shadow: 0 0 0 2px #111, 4px 4px 0 2px #111;
+  --card-shadow-hover: 0 0 0 2px #111, 6px 6px 0 2px #111;
+  --card-hover: translate(-2px, -2px) rotate(-1deg);
+  --bucket-shadow: 5px 5px 0 #111;
+  --font: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif; --tag-font: 600 11px/1 'Bricolage Grotesque', ui-sans-serif, sans-serif;
+}
+
+/* 6. Cloud: soft periwinkle and pastels, puffy shadows, no edges. */
+.theme-cloud {
+  --bg: #eef0fb; --bar: #5b63b7; --bar-line: #4f57a6; --bar-text: #fff; --bar-muted: #d5d8f5; --bar-hover: rgba(255, 255, 255, 0.14);
+  --panel: #fbfbff; --line: #d9dcf3; --text: #2f3570; --text-2: #3a4080; --muted: #636aa0; --subtle: #8085b5;
+  --tool-hover: #e6e8fa; --accent: #6d5dfc; --accent-bg: #e3e0ff;
+  --bucket-fill: rgba(251, 251, 255, 0.96); --bucket-dot: rgba(91, 99, 183, 0.08); --dot: rgba(91, 99, 183, 0.2);
+  --chip: #e3e0ff; --chip-text: #5a4be0; --minimap-bucket-fill: #dfe2f6;
+  --float-shadow: 0 10px 30px rgba(91, 99, 183, 0.2), 0 1px 2px rgba(91, 99, 183, 0.12);
+  --avatar-bg: #5b63b7; --avatar-text: #fff; --agent-bg: #ffe0ef; --agent-text: #b03a78; --halo: #ff8cc6;
+  --logo-bg: #fff; --logo-ink: #5b63b7; --share-bg: #fff; --share-text: #5b63b7;
+  --ink: #2a2f5c; --fill-butter: #fde59a; --fill-mint: #bdeccf; --fill-sky: #bcd3ff; --fill-coral: #ffc2b3; --fill-lilac: #dccbff;
+  --tone-butter: #c79a00; --tone-mint: #2f9a66; --tone-sky: #3f6fe0; --tone-coral: #e0573f; --tone-lilac: #7a55e0; --ink-coral: #e0573f;
+  --tag-bg: rgba(42, 47, 92, 0.1);
+  --tag-brick: #d4513f; --tag-rust: #db6d24; --tag-ochre: #b88a00; --tag-moss: #6f8a2a; --tag-pine: #2a8a62; --tag-teal: #198a94;
+  --tag-ocean: #3a72d8; --tag-indigo: #5f62dc; --tag-violet: #8e57d8; --tag-berry: #d14a8a; --tag-ink: #2f3570;
+  --image-bg: #e1e4f8; --peer: #6d5dfc;
+  --r-card: 18px; --r-bucket: 24px; --r-panel: 22px; --r-button: 14px; --r-small: 12px; --r-tag: 999px; --r-logo: 999px;
+  --card-shadow: 0 6px 16px rgba(91, 99, 183, 0.18), 0 1px 2px rgba(91, 99, 183, 0.15);
+  --card-shadow-hover: 0 14px 28px rgba(91, 99, 183, 0.26), 0 2px 4px rgba(91, 99, 183, 0.15);
+  --card-hover: translateY(-3px) scale(1.02);
+  --bucket-shadow: 0 8px 30px rgba(91, 99, 183, 0.1);
+  --logo-rot: 0deg; --title-weight: 700;
+  --font: Quicksand, ui-rounded, system-ui, sans-serif; --tag-font: 700 11px/1 Quicksand, ui-rounded, sans-serif;
+}
+
+/* =====================================================================
+   App styles: the same structure, class names and sizes as src/web/src/index.css, drawn from the tokens.
+   ===================================================================== */
+.frame { width: 1280px; height: 800px; display: flex; flex-direction: column; background: var(--bg); color: var(--text);
+  font: 14px/1.4 var(--font); overflow: hidden; }
+.frame.live, .frame.live * { transition: background-color .5s, color .5s, border-color .5s, border-radius .5s, box-shadow .5s; }
+.frame * { box-sizing: border-box; }
+.frame svg { display: block; }
+
+.topbar { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 16px; height: 56px; padding: 0 16px;
+  border-bottom: 1px solid var(--bar-line); background-color: var(--bar); background-image: var(--bar-image); color: var(--bar-text); }
+.topbar-start, .topbar-end { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.topbar-start { gap: 6px; }
+.logo { width: 28px; height: 28px; border-radius: var(--r-logo); background: var(--logo-bg); color: var(--logo-ink); display: grid; place-items: center; margin-right: 6px; transform: rotate(var(--logo-rot)); }
+.board-name { height: 36px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: var(--r-button); font-size: 15px; font-weight: var(--title-weight); }
+.board-name svg { color: var(--bar-muted); }
+.share { height: 32px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: var(--share-r); margin-left: 6px;
+  background: var(--share-bg); color: var(--share-text); font-size: 13px; font-weight: 500; }
+.presence { display: flex; }
+.presence .avatar { width: 28px; height: 28px; border: 2px solid var(--bar); font-size: 11px; }
+.presence .avatar + .avatar { margin-left: -8px; }
+.frame:not(.theme-night) .presence .avatar { color: var(--ink); }
+.frame:not(.theme-night) .presence .avatar:nth-child(1) { background: var(--fill-butter); }
+.frame:not(.theme-night) .presence .avatar:nth-child(2) { background: var(--fill-coral); }
+.frame:not(.theme-night) .presence .avatar:nth-child(3) { background: var(--fill-mint); }
+.divider { width: 1px; height: 24px; background: var(--bar-divider); }
+.me { height: 40px; display: flex; align-items: center; gap: 6px; padding: 0 6px 0 4px; border-radius: 999px; color: var(--bar-muted); }
+.me .avatar { width: 32px; height: 32px; font-size: 12px; font-weight: 700; background: var(--logo-bg); color: var(--logo-ink); }
+
+.canvas-wrap { flex: 1; position: relative; overflow: hidden; }
+.canvas { position: absolute; inset: 0; background-color: var(--bg);
+  background-image: var(--ground-image); background-size: var(--ground-size); background-position: -10px -10px; }
+
+.avatar { display: grid; flex: none; place-items: center; border-radius: 50%; background: var(--avatar-bg); color: var(--avatar-text); font-weight: 600; }
+.avatar.agent { background: var(--agent-bg); color: var(--agent-text); }
+.avatar.working { animation: agent-at-work 1.6s ease-in-out infinite; }
+@keyframes agent-at-work { 0%, 100% { box-shadow: 0 0 0 0 var(--halo); } 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--halo) 35%, transparent); } }
+
+.bucket { position: absolute; border: 1px var(--bucket-style) var(--line); border-radius: var(--r-bucket); background-color: var(--bucket-fill); box-shadow: var(--bucket-shadow);
+  background-image: radial-gradient(circle, var(--bucket-dot) 1px, transparent 1.4px); background-size: 20px 20px; background-position: -10px -10px; background-origin: border-box; }
+.bucket-head { position: absolute; right: 0; bottom: calc(100% + 8px); left: 0; display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; height: 22px; padding: 0 2px; color: var(--bucket-head); font-size: 13px; font-weight: 500; }
+.bucket-name { display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; }
+/* A dot of the bucket's color in the 6 px gap the name row already has (Night shift draws it transparent). */
+.bucket-name::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--b); }
+.theme-night .bucket-name::before { background: transparent; }
+.theme-pop .bucket-name::before { box-shadow: 0 0 0 1.5px #111; }
+.count { flex: none; padding: 2px 7px; border-radius: 999px; background: var(--chip); color: var(--chip-text); font: 11px/1.3 'Geist Mono', ui-monospace, monospace; }
+
+.card { position: absolute; width: 200px; height: 120px; display: flex; flex-direction: column; gap: 12px; padding: 12px 12px 10px;
+  border-radius: var(--r-card); background: var(--fill); color: var(--ink); box-shadow: var(--card-shadow); transition: transform .12s ease, box-shadow .12s ease; }
+.card::after { content: ''; position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; border-top-left-radius: 3px; background: var(--corner); }
+.card::before { content: ''; position: absolute; left: var(--deco-left); top: var(--deco-top); width: var(--deco-w); height: var(--deco-h); margin-left: var(--deco-ml);
+  border-radius: var(--deco-r); background: var(--deco); transform: rotate(var(--deco-rot)); box-shadow: var(--deco-shadow); }
+.theme-night .card::before { box-shadow: none; }
+.card:nth-child(3n)::before { transform: rotate(var(--deco-rot-alt)); }
+.card:hover, .card.hover { transform: var(--card-hover); box-shadow: var(--card-shadow-hover); }
+.card.selected { outline: 2px var(--select-style) var(--accent); outline-offset: 3px; }
+.theme-pop .card.selected { outline-offset: 6px; }
+/* Chalkboard: every card gets a magnet of its own color. */
+.theme-chalk .card:nth-child(3n+1) { --pin: #f5d65c; }
+.theme-chalk .card:nth-child(3n+2) { --pin: #f28aa6; }
+.theme-chalk .card:nth-child(3n) { --pin: #7cc8f0; }
+/* The magnet's gradient is set on the card itself, so it picks up the card's own --pin. */
+.theme-chalk .card::before { background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.7) 0 2px, var(--pin) 3px); }
+.card.dimmed { opacity: 0.35; }
+.card-title { font-size: 14px; font-weight: var(--title-weight); line-height: 1.3; letter-spacing: -0.005em; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.card-foot { margin-top: auto; display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; }
+.tags { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.tag { padding: 4px 6px; border-radius: var(--r-tag); background: var(--tag-bg); color: var(--tag-text); font: var(--tag-font); white-space: nowrap; }
+.tag.c { background: var(--tag); color: #fff; }
+.people { display: flex; flex: none; }
+.card .avatar { width: 24px; height: 24px; font-size: 10px; border: 2px solid var(--fill); }
+.theme-night .card .avatar { border-color: color-mix(in srgb, var(--fill), #17181b 12%); }
+.card .avatar + .avatar { margin-left: -6px; }
+.fill-butter { --fill: var(--fill-butter); } .fill-mint { --fill: var(--fill-mint); } .fill-sky { --fill: var(--fill-sky); }
+.fill-coral { --fill: var(--fill-coral); } .fill-lilac { --fill: var(--fill-lilac); }
+.tc-brick { --tag: var(--tag-brick); } .tc-ochre { --tag: var(--tag-ochre); } .tc-moss { --tag: var(--tag-moss); } .tc-pine { --tag: var(--tag-pine); }
+.tc-teal { --tag: var(--tag-teal); } .tc-ocean { --tag: var(--tag-ocean); } .tc-indigo { --tag: var(--tag-indigo); } .tc-violet { --tag: var(--tag-violet); }
+.tc-berry { --tag: var(--tag-berry); } .tc-rust { --tag: var(--tag-rust); } .tc-ink { --tag: var(--tag-ink); }
+
+.image { position: absolute; display: flex; flex-direction: column; gap: 8px; }
+.image-box { border-radius: var(--r-small); background: var(--image-bg); box-shadow: var(--card-shadow); overflow: hidden; border: 6px solid var(--photo-edge); }
+.image-box svg { width: 100%; height: 100%; }
+.image-caption { display: flex; justify-content: space-between; font: 11px 'Geist Mono', monospace; color: var(--muted); }
+.drawing { position: absolute; color: var(--ink-coral); }
+.drawing path { stroke: currentColor; }
+.drawing-text { position: absolute; font-size: 18px; font-weight: 700; color: var(--ink-coral); transform: rotate(-5deg); white-space: nowrap; }
+
+.peer { position: absolute; width: 30px; height: 30px; transform: translate(-4px, -4px); }
+.peer .avatar { width: 30px; height: 30px; font-size: 11px; box-shadow: 0 0 0 2px var(--peer), 0 4px 10px rgba(0,0,0,.25); }
+.peer-pin { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: var(--peer); box-shadow: 0 0 0 2px var(--bg), 0 2px 4px rgba(0,0,0,.3); }
+
+.rail { display: flex; gap: 2px; padding: 6px; border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--panel); box-shadow: var(--float-shadow); }
+.tool-rail { position: absolute; top: 50%; left: 16px; z-index: 5; flex-direction: column; transform: translateY(-50%); }
+.rail-button { display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--r-button); color: var(--muted); }
+.rail-button.small { width: 32px; height: 32px; border-radius: var(--r-small); }
+.rail-button:hover { background: var(--tool-hover); color: var(--text); }
+.rail-button[aria-pressed='true'] { background: var(--accent-bg); color: var(--accent); }
+.rail-button.t-butter { color: var(--tone-butter); } .rail-button.t-coral { color: var(--tone-coral); }
+.rail-divider { height: 1px; margin: 4px 6px; background: var(--line); }
+
+.board-filters { position: absolute; left: 16px; bottom: 16px; display: flex; gap: 8px; z-index: 5; }
+.filter { height: 36px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--pill);
+  background: var(--panel); color: var(--text-2); font-size: 13px; box-shadow: var(--float-shadow); }
+.filter .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tag-berry); }
+
+.view-controls { position: absolute; right: 16px; bottom: 16px; z-index: 5; display: flex; align-items: flex-end; gap: 8px; }
+.view-stack { display: flex; flex-direction: column; gap: 8px; }
+.minimap { position: relative; width: 150px; height: 96px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-bucket); background: var(--panel); box-shadow: var(--float-shadow); }
+.minimap span { position: absolute; border-radius: 2px; }
+.minimap .mb { background: var(--minimap-bucket-fill); }
+.minimap .mc { background: var(--fill); opacity: .85; border-radius: 1px; }
+.minimap .mv { border: 1px solid var(--accent); border-radius: 3px; }
+.zoom-controls { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 4px; border: 1px solid var(--line); border-radius: var(--r-bucket); background: var(--panel); box-shadow: var(--float-shadow); }
+.zoom-level { width: 48px; height: 32px; display: grid; place-items: center; border-radius: var(--r-small); color: var(--text-2); font: 12px 'Geist Mono', monospace; }
+.undo { display: flex; flex-direction: column; gap: 2px; }
+
+.frame.boxes :is(.card, .bucket, .rail-button, .topbar, .minimap, .zoom-controls, .filter, .tag, .avatar, .image-box, .share, .menu div, .toast) { outline: 1px solid #00c2ff !important; outline-offset: 0 !important; }
+
+/* Cards and states */
+.anatomy { width: 1280px; height: 560px; padding: 36px 40px; display: grid; gap: 26px; align-content: start;
+  background-color: var(--bg); background-image: var(--ground-image); background-size: var(--ground-size); }
+.anatomy h3 { margin: 0 0 12px; font-size: 13px; font-weight: 500; color: var(--muted); }
+.row { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+.row .card { position: relative; flex: none; }
+.state { display: flex; flex-direction: column; gap: 10px; }
+.state small { font: 11px 'Geist Mono', monospace; color: var(--muted); }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 14px; border-radius: var(--r-bucket); background: var(--fill-butter); width: max-content; }
+.inks { display: flex; gap: 8px; align-items: center; }
+.inks svg path { stroke: currentColor; }
+.menu { width: 240px; padding: 6px; border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--panel); box-shadow: var(--float-shadow); }
+.menu div { height: 34px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; border-radius: var(--r-small); font-size: 13px; color: var(--text-2); }
+.menu div.on { background: var(--tool-hover); color: var(--text); }
+.switch { width: 34px; height: 20px; border-radius: 999px; background: var(--accent); position: relative; }
+.switch::after { content: ''; position: absolute; right: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; }
+.toast { height: 44px; display: flex; align-items: center; gap: 14px; padding: 0 8px 0 16px; border-radius: var(--r-panel); background: var(--bar); color: var(--bar-text); font-size: 13px; box-shadow: var(--float-shadow); width: max-content; border: 1px solid var(--bar-line); }
+.toast b { padding: 6px 12px; border-radius: var(--share-r); background: var(--toast-btn-bg); color: var(--toast-btn-text); font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1>Scrum Board — Playful themes</h1>
+    <p>Six playful color schemes for casual users to choose from, each drawn next to <b>Night shift</b> (the current dark design). Every board here is the same markup with one class swapped, so cards, buckets, buttons and chips have exactly the same size and place in all of them. A scheme only changes colors, the font family (at the same sizes), corner radii, shadows and decorations that take no room. Click a board to look at it closer below.</p>
+  </header>
+
+  <section>
+    <h2>All options</h2>
+    <p class="lead">The same board in each scheme.</p>
+    <div class="gallery" id="gallery"></div>
+  </section>
+
+  <section id="closer">
+    <h2>A closer look</h2>
+    <div class="picker" id="picker"><label><input type="checkbox" id="boxes"> Show boxes</label></div>
+    <div class="detail">
+      <div class="detail-head"><h3 id="d-name"></h3><p id="d-note"></p></div>
+      <div class="scaler" data-w="1280" data-h="800"><div class="frame live" data-board data-detail></div></div>
+      <div class="scaler" data-w="1280" data-h="560"><div class="anatomy frame live" data-anatomy data-detail></div></div>
+      <div id="palette"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Notes for building any of them</h2>
+    <table class="notes">
+      <tr><th>What</th><th>How</th></tr>
+      <tr><td>Where it goes</td><td>One more block <code>:root[data-theme='…']</code> in <code>index.css</code> next to Positivity with the scheme's tokens, and a choice in <code>ColorSchemeToggle</code> / <code>theme.ts</code>. The bars set their own text tokens, as Positivity's navy bars do.</td></tr>
+      <tr><td>Sizes stay put</td><td>Same font sizes and line heights, paddings, gaps and border widths. What's new takes no room: the card decoration is a <code>::before</code>, the bucket dot sits in the gap the name row already has, hover tilts are <code>transform</code>s, Pop's ink outline and every hard shadow are <code>box-shadow</code>s, and the photo edge is a border Night shift draws transparent.</td></tr>
+      <tr><td>New tokens</td><td>Radii, shadows and a few looks are hard-coded today. Make them tokens on <code>:root</code> with today's values, so Productivity and Positivity don't change: <code>--font</code>, <code>--tag-font</code>, <code>--title-weight</code>, <code>--r-card</code>, <code>--r-bucket</code>, <code>--r-panel</code>, <code>--r-button</code>, <code>--r-small</code>, <code>--r-tag</code>, <code>--card-shadow</code>, <code>--card-shadow-hover</code>, <code>--card-hover</code>, <code>--bucket-shadow</code>, <code>--corner</code> and the <code>--deco-*</code> set for the card decoration.</td></tr>
+      <tr><td>Fonts</td><td>Each scheme can use its own family (Nunito, Fredoka, Rubik, Kalam, Bricolage Grotesque, Quicksand; all Google Fonts under the OFL). Self-host the one picked, as Geist is today. Boxes keep their sizes; only where a long title or tag row wraps can differ a little. Counts and the zoom level stay Geist Mono.</td></tr>
+      <tr><td>Fill names</td><td>Every scheme keeps Butter, Mint, Sky, Coral and Lilac (search words, exports), even where the shade moves (Pop's Coral is a tomato red, Pool party's Sky a bright blue).</td></tr>
+      <tr><td>Textures</td><td>Chalkboard paints the board, the bar and the card decoration in CSS gradients: <code>--ground-image</code>/<code>--ground-size</code> replace the dot grid, <code>--bar-image</code> draws the wooden planks, and <code>--pin</code> gives each card's magnet its color (in the app, from the card's number).</td></tr>
+      <tr><td>Bucket color dot</td><td>Buckets have no color today: cycle the fills by list order, add a bucket color to the API, or drop the dot.</td></tr>
+      <tr><td>Far zoom</td><td><code>.canvas.far</code> already drops shadows; drop the card decoration there too, and Pop's outline can go with the shadow.</td></tr>
+    </table>
+  </section>
+</div>
+
+<script>
+const THEMES = [
+  { id: 'night', name: 'Night shift', note: 'The current dark design, for reference.', font: 'Geist' },
+  { id: 'sorbet', name: 'Sorbet', note: 'Cream paper, a deep teal bar, tomato accent and washi tape on every card.', font: 'Nunito' },
+  { id: 'bubblegum', name: 'Bubblegum', note: 'Blush pink, a berry bar, candy fills, very round, with a push pin on each card.', font: 'Fredoka' },
+  { id: 'pool', name: 'Pool party', note: 'The dark playful one: deep pool blue, bubblegum pink accent, bright fills, glossy tape.', font: 'Rubik' },
+  { id: 'chalk', name: 'Chalkboard', note: 'Green slate in a dark wooden frame, chalk-drawn buckets, paper cards held by magnets.', font: 'Kalam' },
+  { id: 'pop', name: 'Pop', note: 'Comic book: white paper, a yellow bar, ink outlines with offset shadows, primary fills.', font: 'Bricolage Grotesque' },
+  { id: 'cloud', name: 'Cloud', note: 'Soft periwinkle and pastels, puffy shadows, the roundest of all.', font: 'Quicksand' },
+];
+
+const ICONS = {
+  logo: '<path d="M4 4h16v10l-6 6H4z"/><path d="M14 20v-6h6"/>',
+  chevron: '<path d="M6 9l6 6 6-6"/>',
+  share: '<path d="M16 8a3 3 0 1 0-3-3M6 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM16 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8.6 13.5l5 3M13.6 6.5l-5 3"/>',
+  select: '<path d="M5 3l14 7-6 2-2 6z"/>',
+  pan: '<path d="M8 12V5.5a1.5 1.5 0 0 1 3 0V11M11 11V4.5a1.5 1.5 0 0 1 3 0V11M14 11V6a1.5 1.5 0 0 1 3 0v8a6 6 0 0 1-6 6h-.5a6 6 0 0 1-5-2.7L3.3 14.5a1.5 1.5 0 0 1 2.4-1.8L8 15"/>',
+  card: '<path d="M4 4h16v10l-6 6H4z"/><path d="M14 20v-6h6"/>',
+  bucket: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>',
+  image: '<path d="M3 4h18v16H3zM21 16l-5-5-9 9M9 8.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3"/>',
+  pen: '<path d="M4 20l4-1 11-11-3-3L5 16z"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  minus: '<path d="M5 12h14"/>', plus: '<path d="M12 5v14M5 12h14"/>',
+  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
+  redo: '<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
+  tag: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>',
+  people: '<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M17 4a4 4 0 0 1 0 8M22 21a7 7 0 0 0-4-6.3"/>',
+  spark: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',
+};
+const icon = (name, size = 18, w = 2) =>
+  `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+
+const avatar = p => p === 'AI'
+  ? `<span class="avatar agent working" title="Agent at work">${icon('spark', 12, 2.4)}</span>`
+  : `<span class="avatar">${p}</span>`;
+const tag = t => {
+  const [name, color] = t.split(':');
+  return `<span class="tag${color ? ' c tc-' + color : ''}">${name}</span>`;
+};
+const card = (c, pos) => `
+  <div class="card fill-${c.fill}${c.cls ? ' ' + c.cls : ''}"${pos ? ` style="left:${pos[0]}px;top:${pos[1]}px"` : ''}>
+    <div class="card-title">${c.title}</div>
+    <div class="card-foot"><div class="tags">${(c.tags || []).map(tag).join('')}</div><div class="people">${(c.people || []).map(avatar).join('')}</div></div>
+  </div>`;
+
+const BUCKETS = [
+  { name: 'To do', x: 100, b: 'var(--fill-coral)', cards: [
+    { title: 'Plan the team picnic', tags: ['social:berry'], fill: 'butter', people: ['RK'] },
+    { title: 'Book a room for the spring workshop', tags: ['events'], fill: 'coral', people: ['MV'] },
+    { title: 'Ideas for the new welcome pack', tags: ['idea:violet', 'hr'], fill: 'lilac', people: [] },
+  ] },
+  { name: 'Doing', x: 380, b: 'var(--fill-butter)', cards: [
+    { title: 'Write the newsletter for March', tags: ['writing:ocean'], fill: 'mint', people: ['JV', 'AI'] },
+    { title: 'Pick colors for the garden mural', tags: ['design'], fill: 'sky', people: ['SB'], cls: 'selected' },
+  ] },
+  { name: 'Done', x: 660, b: 'var(--fill-mint)', cards: [
+    { title: 'Order new mugs', tags: ['office'], fill: 'sky', people: ['PL'] },
+    { title: 'Sort out the bike shed', tags: ['chores:pine'], fill: 'coral', people: ['RK'] },
+    { title: 'Thank-you cards for volunteers', tags: ['social:berry'], fill: 'butter', people: ['MV'] },
+  ] },
+];
+
+function board() {
+  const top = 100;
+  let html = '';
+  for (const b of BUCKETS) {
+    const h = 20 + b.cards.length * 140;
+    html += `<div class="bucket" style="left:${b.x}px;top:${top}px;width:240px;height:${h}px">
+      <div class="bucket-head"><span class="bucket-name" style="--b:${b.b}">${b.name}</span><span class="count">${b.cards.length}</span></div>
+      ${b.cards.map((c, i) => card(c, [19, 19 + i * 140])).join('')}
+    </div>`;
+  }
+  html += `
+    <div class="image" style="left:960px;top:60px;width:260px">
+      <div class="image-box" style="height:180px"><svg viewBox="0 0 248 168" preserveAspectRatio="xMidYMid slice">
+        <rect width="248" height="168" fill="var(--fill-sky)"/><circle cx="196" cy="44" r="22" fill="var(--fill-butter)"/>
+        <path d="M0 120 L60 70 L110 112 L160 64 L248 130 V168 H0z" fill="var(--tone-mint)"/><path d="M0 140 Q60 120 124 140 T248 136 V168 H0z" fill="var(--fill-mint)"/>
+      </svg></div>
+      <div class="image-caption"><span>mural-sketch.jpg</span><span>added by SB</span></div>
+    </div>
+    <span class="drawing-text" style="left:968px;top:300px">before Friday!</span>
+    <svg class="drawing" width="200" height="24" viewBox="0 0 200 24" style="position:absolute;left:964px;top:330px;transform:rotate(-5deg)">
+      <path d="M4 14c20-8 40 6 60-2s40 6 62-2 40 6 60-2 10 2 10 0" fill="none" stroke-width="3" stroke-linecap="round"/></svg>
+    ${card({ title: 'Ask everyone for their favourite snack', tags: ['question:rust'], fill: 'lilac', people: ['AK'] }, [980, 400])}
+    <div class="peer-pin" style="left:${380 + 19 + 8}px;top:${100 + 19 + 140 - 7}px"></div>
+    <div class="peer" style="left:600px;top:470px"><span class="avatar">SB</span></div>
+  `;
+  const mc = (fill, l, t, w = 20, h = 11) => `<span class="mc fill-${fill}" style="left:${l}px;top:${t}px;width:${w}px;height:${h}px"></span>`;
+  const minimap = `
+    <span class="mb" style="left:10px;top:12px;width:24px;height:44px"></span>
+    <span class="mb" style="left:38px;top:12px;width:24px;height:30px"></span>
+    <span class="mb" style="left:66px;top:12px;width:24px;height:44px"></span>
+    ${mc('butter', 12, 15)}${mc('coral', 12, 29)}${mc('lilac', 12, 43)}${mc('mint', 40, 15)}${mc('sky', 40, 29)}
+    ${mc('sky', 68, 15)}${mc('coral', 68, 29)}${mc('butter', 68, 43)}${mc('sky', 96, 6, 26, 18)}${mc('lilac', 98, 40)}
+    <span class="mv" style="left:4px;top:3px;width:132px;height:72px"></span>`;
+  return `
+  <header class="topbar">
+    <div class="topbar-start">
+      <span class="logo">${icon('logo', 16, 2.2)}</span>
+      <span class="board-name">Community garden ${icon('chevron', 14)}</span>
+      <span class="share">${icon('share', 14)} Share</span>
+    </div>
+    <div class="topbar-end">
+      <div class="presence"><span class="avatar">JV</span><span class="avatar">RK</span><span class="avatar">SB</span></div>
+      <span class="divider"></span>
+      <span class="me"><span class="avatar">MV</span>${icon('chevron', 14)}</span>
+    </div>
+  </header>
+  <div class="canvas-wrap">
+    <div class="canvas">${html}</div>
+    <nav class="rail tool-rail">
+      <span class="rail-button" aria-pressed="true">${icon('select')}</span>
+      <span class="rail-button">${icon('pan')}</span>
+      <span class="rail-divider"></span>
+      <span class="rail-button t-butter">${icon('card')}</span>
+      <span class="rail-button">${icon('bucket')}</span>
+      <span class="rail-button">${icon('image')}</span>
+      <span class="rail-button t-coral">${icon('pen')}</span>
+      <span class="rail-divider"></span>
+      <span class="rail-button">${icon('trash')}</span>
+    </nav>
+    <div class="board-filters">
+      <span class="filter">${icon('tag', 14)} Tags <span class="dot"></span></span>
+      <span class="filter">${icon('people', 14)} People</span>
+    </div>
+    <div class="view-controls">
+      <div class="rail undo"><span class="rail-button small">${icon('undo', 16)}</span><span class="rail-button small">${icon('redo', 16)}</span></div>
+      <div class="view-stack">
+        <div class="minimap">${minimap}</div>
+        <div class="zoom-controls"><span class="rail-button small">${icon('minus', 14)}</span><span class="zoom-level">100%</span><span class="rail-button small">${icon('plus', 14)}</span></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function anatomy() {
+  const fills = ['butter', 'mint', 'sky', 'coral', 'lilac'];
+  const titles = ['Butter', 'Mint', 'Sky', 'Coral', 'Lilac'];
+  const colors = ['brick', 'rust', 'ochre', 'moss', 'pine', 'teal', 'ocean', 'indigo', 'violet', 'berry', 'ink'];
+  const inks = ['var(--text)', 'var(--tone-butter)', 'var(--tone-mint)', 'var(--tone-sky)', 'var(--tone-coral)', 'var(--tone-lilac)'];
+  return `
+  <div><h3>Fills</h3><div class="row">${fills.map((f, i) => card({ title: titles[i] + ' card with a title that wraps', tags: ['tag'], fill: f, people: ['JV'] })).join('')}</div></div>
+  <div><h3>States</h3><div class="row">
+    <div class="state">${card({ title: 'Hovered', tags: ['social:berry'], fill: 'butter', people: ['RK'], cls: 'hover' })}<small>hover</small></div>
+    <div class="state">${card({ title: 'Selected', tags: ['design'], fill: 'sky', people: ['SB'], cls: 'selected' })}<small>selected</small></div>
+    <div class="state">${card({ title: 'An agent is working on it', tags: ['writing:ocean'], fill: 'mint', people: ['JV', 'AI'] })}<small>agent at work</small></div>
+    <div class="state">${card({ title: 'Filtered out', tags: ['office'], fill: 'coral', people: [], cls: 'dimmed' })}<small>dimmed by a filter</small></div>
+    <div class="state"><div class="menu"><div class="on">Color scheme <span class="switch"></span></div><div>Mobile view</div><div>Sign out</div></div><small>menu</small></div>
+  </div></div>
+  <div class="row" style="gap:28px">
+    <div><h3>Tag colors</h3><div class="chips">${colors.map(c => tag(c + ':' + c)).join('')}<span class="tag">default</span></div></div>
+    <div><h3>Pen inks</h3><div class="inks">${inks.map(c => `<svg width="44" height="24" viewBox="0 0 56 24" style="color:${c}"><path d="M4 16c8-10 16 6 24-2s16 6 24-4" fill="none" stroke-width="3.5" stroke-linecap="round"/></svg>`).join('')}</div></div>
+    <div><h3>Toast</h3><div class="toast">Card deleted <b>Undo</b></div></div>
+  </div>`;
+}
+
+// Gallery: one board per scheme.
+document.getElementById('gallery').innerHTML = THEMES.map(t => `
+  <figure data-pick="${t.id}">
+    <figcaption><b>${t.name}</b><span>${t.note}</span><code>${t.font}</code></figcaption>
+    <div class="scaler" data-w="1280" data-h="800"><div class="frame theme-${t.id}" data-board></div></div>
+  </figure>`).join('');
+document.querySelectorAll('[data-board]').forEach(el => el.innerHTML = board());
+document.querySelectorAll('[data-anatomy]').forEach(el => el.innerHTML = anatomy());
+
+// Each frame is drawn at its real size and scaled down to fit its column.
+const fit = () => document.querySelectorAll('.scaler').forEach(s => {
+  const w = +s.dataset.w, h = +s.dataset.h, scale = Math.min(1, s.clientWidth / w);
+  s.firstElementChild.style.transform = `scale(${scale})`;
+  s.style.height = h * scale + 'px';
+});
+new ResizeObserver(fit).observe(document.body);
+
+// A closer look at one scheme, with its palette read back from the tokens.
+const picker = document.getElementById('picker');
+picker.insertAdjacentHTML('afterbegin', THEMES.map(t =>
+  `<button type="button" data-theme="${t.id}"><i class="theme-${t.id}" style="background:var(--bg);box-shadow:inset 0 0 0 3px var(--bar)"></i>${t.name}</button>`).join(''));
+const SWATCHES = [
+  ['Surfaces', [['Board', '--bg'], ['Panel', '--panel'], ['Line', '--line'], ['Bar', '--bar'], ['Accent', '--accent'], ['Accent wash', '--accent-bg'], ['Agent', '--agent-bg']]],
+  ['Card fills', [['Butter', '--fill-butter'], ['Mint', '--fill-mint'], ['Sky', '--fill-sky'], ['Coral', '--fill-coral'], ['Lilac', '--fill-lilac'], ['Ink', '--ink']]],
+  ['Tag colors', ['brick', 'rust', 'ochre', 'moss', 'pine', 'teal', 'ocean', 'indigo', 'violet', 'berry', 'ink'].map(c => [c[0].toUpperCase() + c.slice(1), '--tag-' + c])],
+];
+function pick(id) {
+  const t = THEMES.find(x => x.id === id);
+  document.querySelectorAll('[data-detail]').forEach(el => {
+    THEMES.forEach(x => el.classList.remove('theme-' + x.id));
+    el.classList.add('theme-' + id);
+  });
+  picker.querySelectorAll('[data-theme]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.theme === id)));
+  document.getElementById('d-name').textContent = t.name;
+  document.getElementById('d-note').textContent = `${t.note} Font: ${t.font}.`;
+  const css = getComputedStyle(document.querySelector('[data-detail]'));
+  document.getElementById('palette').innerHTML = SWATCHES.map(([group, items]) => `
+    <p class="label" style="margin-top:12px">${group}</p><div class="swatches">${items.map(([n, v]) => {
+      const c = css.getPropertyValue(v).trim();
+      return `<div class="swatch"><i style="background:${c}"></i><div><b>${n}</b><code>${v} ${c}</code></div></div>`;
+    }).join('')}</div>`).join('');
+  try { localStorage.setItem('playful-theme', id); } catch {}
+}
+picker.addEventListener('click', e => { const b = e.target.closest('[data-theme]'); if (b) pick(b.dataset.theme); });
+document.querySelectorAll('[data-pick]').forEach(f => f.addEventListener('click', () => {
+  pick(f.dataset.pick);
+  document.getElementById('closer').scrollIntoView({ behavior: 'smooth' });
+}));
+document.getElementById('boxes').addEventListener('change', e =>
+  document.querySelectorAll('[data-detail]').forEach(el => el.classList.toggle('boxes', e.target.checked)));
+let saved = null;
+try { saved = localStorage.getItem('playful-theme'); } catch {}
+pick(THEMES.some(t => t.id === saved) ? saved : 'sorbet');
+fit();
+</script>
+</body>
+</html>

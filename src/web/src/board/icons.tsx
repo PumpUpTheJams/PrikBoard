@@ -48,26 +48,11 @@ export const SadCardIcon = ({ size = 18 }: IconProps) => (
   </Icon>
 )
 
-/** A moon: the dark (Productivity) color scheme. */
-export const MoonIcon = ({ size = 16 }: IconProps) => (
-  <Icon size={size}>
-    <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" />
-  </Icon>
-)
-
-/** A circle half filled in: the color scheme. */
+/** A circle half filled in: the theme. */
 export const ContrastIcon = ({ size = 16 }: IconProps) => (
   <Icon size={size}>
     <circle cx="12" cy="12" r="8" />
     <path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" />
-  </Icon>
-)
-
-/** A sun: the light (Positivity) color scheme. */
-export const SunIcon = ({ size = 16 }: IconProps) => (
-  <Icon size={size}>
-    <circle cx="12" cy="12" r="4" />
-    <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
   </Icon>
 )
 
