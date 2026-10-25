@@ -1,6 +1,6 @@
 # Design: Slack integration
 
-Status: planned, nothing built. It follows the Discord integration as it is on main (docs/discord.md: the bot inside the API, *Integrations* per board, live previews, updates, Save to PrikBoard). Wherever Slack allows it, Slack does the same things in the same places.
+Status: phase 1 (the shared chat model) built; Slack itself is planned. It follows the Discord integration as it is on main (docs/discord.md: the bot inside the API, *Integrations* per board, live previews, updates, Save to PrikBoard). Wherever Slack allows it, Slack does the same things in the same places.
 
 ## Goal
 
@@ -36,24 +36,38 @@ The constraints stay the same:
 - **Slack Connect.** In channels shared with other organizations (`is_ext_shared`), unfurls and updates are seen by people outside the workspace. Such channels aren't offered in *Integrations*. If one becomes shared later, nothing is unfurled or posted there (`conversations.info`, cached).
 - **Files need the bot token.** Save to PrikBoard fetches message images from `files.slack.com` with `Authorization: Bearer xoxb-…` (scope `files:read`), and only from that host.
 
-## Shared model (phase 1, no Slack yet)
+## Shared model (phase 1, built)
 
-What the Discord code does is mostly not about Discord. Phase 1 splits the two apart and changes nothing for Discord.
+Most of what the Discord code does isn't specific to Discord. Phase 1 separated the two, and Discord behaves the same as before (`DiscordApiTests` pass with only renames in the test code).
 
-- **Domain.** `DiscordGuild`/`DiscordBoardChannels`/`DiscordChannel` become `ChatWorkspace`, `ChatBoardChannels` and `ChatChannel`, each with a `ChatPlatform` (`Discord`, `Slack`). The id fields become `ExternalId`: a guild id or a Slack team id. `WholeServer` becomes `WholeWorkspace`. `IsId` is per platform: Discord ids are digits, Slack's are `T…`/`C…`/`G…`/`U…` letters and digits. Add `Agent.SlackIssuer = "slack"`, with the `ClientId` the team id. `BoardAccess.AssignableIds` leaves out both issuers.
-- **Migration `ChatWorkspaces`** renames the tables in place and adds `Platform`, `Discord` for the existing rows. It is the same kind of migration as `CardsAndComponents`, and a `*MigrationTests` test seeds Discord rows and checks that they survive. The same goes for `DiscordPreviewMessage` → `ChatPreviewMessage` and `DiscordAccount` → `ChatAccount`. Hashes keep their purpose per platform: `KeyedHasher.Subject("discord-bot", id)` for Discord and `("slack-bot", "{team}:{user}")` for Slack.
-- **Integrations.**
-  - `LinkPreviews.FindAsync` takes `(platform, workspaceId, source, channelId, publicUrl)`.
-  - `Embeds` splits into a neutral `PreviewView` (what to show: title, link, description, fields, color, footer) and two renderers: `DiscordEmbeds` and, in phase 2, `SlackBlocks`.
-  - `DiscordActivity` becomes `ChatActivity`. It reads the card history the same way and hands each post or edit to the platform's gateway through a small `IChatGateway` (`PostAsync`, `EditAsync`). `IDiscordGateway` and `ISlackGateway` both implement it.
-  - `DiscordAccounts.FindUserAsync` and `DiscordSaves` become `ChatAccounts` and `ChatSaves`, with the platform as a parameter.
-- **Endpoints.** The handlers move to shared code that takes the platform, and are mapped once per platform, so the operationIds stay explicit and the Discord ones don't change:
+- **Domain** (`Domain/Chat.cs`):
+  - `ChatWorkspace`, `ChatBoardChannels` (with `WholeWorkspace`), `ChatChannel`, `ChatUpdates`, `ChatAccount` and `ChatPreviewMessage` replace the Discord types. Each one has a `ChatPlatform` (`Discord`, `Slack`), stored as text.
+  - Ids are `WorkspaceId`: a guild id, or a Slack team id.
+  - The keys include the platform. A preview message is keyed by platform, channel and message, because Slack's message timestamps are only unique within a channel.
+  - `ChatPlatforms` has the per-platform rules: `Issuer`, `IsId` and `IdMaxLength` (32).
+  - `Agent.SlackIssuer = "slack"` exists, is reserved as a token issuer id, and is left out of assignees like `discord`.
+  - `Domain/Discord.cs` keeps only `DiscordBotSettings` and `DiscordIds`.
+- **Migration `ChatWorkspaces`.**
+  - It creates the four chat tables, copies the Discord rows in with `Platform = 'Discord'`, then drops the old tables. Creating new tables keeps the keys and constraint names in line with the model.
+  - Rolling back copies the Discord rows back; Slack rows have nowhere to go and are dropped.
+  - `ChatWorkspacesMigrationTests` tests both directions.
+- **Lookups take the platform:**
+  - `LinkPreviews.FindAsync` and `AgentIdAsync`;
+  - `ChatPreviews` (was `DiscordPreviews`);
+  - `ChatSaves.TargetsAsync` (was `DiscordSaves`);
+  - `ChatAccounts` (was `DiscordAccounts`): the hash purpose is per platform (`discord-bot`, `slack-bot`), and so are link codes, so a code from one platform can't be redeemed through the other's endpoint.
+- **Already neutral:** `LinkPreview` was already a plain record of what to show. `Embeds` stays the Discord renderer of it, and Slack gets `SlackBlocks` next to it.
+
+Left for the phases that need them, since they can only be tried once a Slack gateway exists:
+- **Endpoints** (phase 2). The Discord handlers query `ChatPlatform.Discord` directly. Phase 2 moves them into shared code behind a small `IChatGateway` (state, workspaces and channels the bot sees), mapped once per platform so operationIds stay explicit and the Discord ones don't change:
   - board connections: `listSlackConnections`, `listSlackWorkspaces`, `connectSlackChannel`, `updateSlackChannel`, `removeSlackConnection`, `removeSlackWholeWorkspace`, `removeSlackChannel`;
   - the admin's app setup: `getSlackApp`, `setSlackApp`, `deleteSlackApp`, `forgetSlackWorkspace`;
   - your own account link: `getSlackAccount`, `previewSlackAccountLink`, `linkSlackAccount`, `unlinkSlackAccount`.
 
-  `RequireBoardRole`/`NoBoardScope` and the `RequireAdmin` rules are copied from the Discord endpoints. `docs/api.md`, `api/types.ts` and `api/client.ts` get the new endpoints.
-- **Tests.** `DiscordApiTests` keeps passing unchanged. That is the proof of phase 1.
+  These copy the `RequireBoardRole`/`NoBoardScope` and `RequireAdmin` rules from the Discord endpoints. `docs/api.md`, `api/types.ts` and `api/client.ts` get them too.
+- **`DiscordActivity` → `ChatActivity`** (phase 3). It reads the card history once and passes each preview edit and update post to the platform's gateway (`PostAsync`, `EditAsync`). Today it handles only Discord rows, and its update lines are Discord Markdown.
+- **`ChatSaves.SaveAsync`** (phase 4). The link back says "Message in Discord", and images are only fetched from Discord's hosts.
+- **The OpenAPI schema `DiscordUpdates`** is now named `ChatUpdates`. The fields and values are the same, and the web app's hand-written types don't use the schema name.
 
 ## Setting up the Slack app (admins, phase 2)
 
@@ -127,7 +141,7 @@ On `link_shared`, the gateway:
    2. Does a second `chat.unfurl` on the same message replace the unfurl?
    3. Does the manifest prefill link work?
    4. Which unfurl domain works for local testing (an ngrok static domain)?
-1. **Shared chat model.** A refactor and migration, with Discord unchanged and its tests green.
+1. **Shared chat model** (built). A refactor and migration, with Discord unchanged and its tests green.
 2. **Slack app setup, gateway, previews, Integrations UI**, plus the fake Slack.
 3. **Live previews and updates.**
 4. **Save to PrikBoard and account linking.**

@@ -151,7 +151,7 @@ public static partial class AuthSetup
             {
                 throw new InvalidOperationException($"Token issuer id '{id}' must use lowercase letters, digits and dashes.");
             }
-            if (id is Agent.AccessTokenIssuer or Agent.DiscordIssuer)
+            if (id is Agent.AccessTokenIssuer or Agent.DiscordIssuer or Agent.SlackIssuer)
             {
                 throw new InvalidOperationException($"Token issuer id '{id}' is reserved for PrikBoard's own tokens.");
             }

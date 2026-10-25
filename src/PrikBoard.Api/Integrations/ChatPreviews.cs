@@ -6,38 +6,40 @@ using PrikBoard.Api.Domain;
 namespace PrikBoard.Api.Integrations;
 
 /// <summary>
-/// The Discord bot's read-only side, apart from Discord itself so tests can run it: what a message previews, remembering
-/// the reply so <see cref="DiscordActivity"/> can bring it up to date, and the snapshot of /prikboard board. Everything
-/// is looked up as the server's agent, in the channel the message is in.
+/// The chat bots' read-only side, apart from the chat apps themselves so tests can run it: what a message previews,
+/// remembering the message so <see cref="DiscordActivity"/> can bring it up to date, and the snapshot of /prikboard board.
+/// Everything is looked up as the workspace's agent, in the channel the message is in.
 /// </summary>
-public static class DiscordPreviews
+public static class ChatPreviews
 {
     /// <summary>
     /// The sources in <paramref name="text"/> that preview here, each with its preview. <paramref name="allow"/> is asked
-    /// before each lookup (the bot's rate limit per server); a refusal ends the list.
+    /// before each lookup (the bot's rate limit per workspace); a refusal ends the list.
     /// </summary>
     public static async Task<List<(string Source, LinkPreview Preview)>> ForMessageAsync(
-        PrikBoardDbContext db, string guildId, string channelId, string text, LinkFinder links, string publicUrl, CancellationToken ct,
+        PrikBoardDbContext db, ChatPlatform platform, string workspaceId, string channelId, string text, LinkFinder links, string publicUrl,
+        CancellationToken ct,
         Func<bool>? allow = null)
     {
         var shown = new List<(string, LinkPreview)>();
         foreach (var source in LinkPreviews.Sources(text, links))
         {
             if (allow is not null && !allow()) break;
-            if (await LinkPreviews.FindAsync(db, guildId, source, channelId, publicUrl, ct) is { } preview) shown.Add((source, preview));
+            if (await LinkPreviews.FindAsync(db, platform, workspaceId, source, channelId, publicUrl, ct) is { } preview) shown.Add((source, preview));
         }
         return shown;
     }
 
-    /// <summary>Remembers a reply with previews, so it follows its cards for <see cref="DiscordPreviewMessage.KeptFor"/>.</summary>
+    /// <summary>Remembers a message with previews, so it follows its cards for <see cref="ChatPreviewMessage.KeptFor"/>.</summary>
     public static async Task RememberAsync(
-        PrikBoardDbContext db, string messageId, string guildId, string channelId, IReadOnlyList<(string Source, LinkPreview Preview)> shown,
-        CancellationToken ct)
+        PrikBoardDbContext db, ChatPlatform platform, string messageId, string workspaceId, string channelId,
+        IReadOnlyList<(string Source, LinkPreview Preview)> shown, CancellationToken ct)
     {
-        db.DiscordPreviewMessages.Add(new DiscordPreviewMessage
+        db.ChatPreviewMessages.Add(new ChatPreviewMessage
         {
+            Platform = platform,
             MessageId = messageId,
-            GuildId = guildId,
+            WorkspaceId = workspaceId,
             ChannelId = channelId,
             Sources = shown.Select(s => s.Source).ToList(),
             CardIds = shown.Select(s => s.Preview.CardId).OfType<Guid>().Distinct().ToList(),
@@ -46,26 +48,27 @@ public static class DiscordPreviews
         await db.SaveChangesAsync(ct);
     }
 
-    /// <summary>A remembered reply's previews as they are now, in its order; null where a source previews nothing any more.</summary>
-    public static async Task<List<LinkPreview?>> RefreshAsync(PrikBoardDbContext db, DiscordPreviewMessage message, string publicUrl, CancellationToken ct)
+    /// <summary>A remembered message's previews as they are now, in its order; null where a source previews nothing any more.</summary>
+    public static async Task<List<LinkPreview?>> RefreshAsync(PrikBoardDbContext db, ChatPreviewMessage message, string publicUrl, CancellationToken ct)
     {
         var previews = new List<LinkPreview?>();
         foreach (var source in message.Sources)
         {
-            previews.Add(await LinkPreviews.FindAsync(db, message.GuildId, source, message.ChannelId, publicUrl, ct));
+            previews.Add(await LinkPreviews.FindAsync(db, message.Platform, message.WorkspaceId, source, message.ChannelId, publicUrl, ct));
         }
         return previews;
     }
 
     /// <summary>
-    /// The boards connected to this channel that the server can still see, those picked for the channel itself first;
-    /// then those connected to the whole server, by name.
+    /// The boards connected to this channel that the workspace can still see, those picked for the channel itself first;
+    /// then those connected to the whole workspace, by name.
     /// </summary>
-    public static async Task<List<Board>> BoardsInChannelAsync(PrikBoardDbContext db, string guildId, string channelId, CancellationToken ct)
+    public static async Task<List<Board>> BoardsInChannelAsync(
+        PrikBoardDbContext db, ChatPlatform platform, string workspaceId, string channelId, CancellationToken ct)
     {
-        var agentId = await db.DiscordGuilds.Where(g => g.GuildId == guildId).Select(g => (Guid?)g.AgentId).FirstOrDefaultAsync(ct);
+        var agentId = await LinkPreviews.AgentIdAsync(db, platform, workspaceId, ct);
         if (agentId is null) return [];
-        var limits = (await db.DiscordBoardChannels.AsNoTracking().Where(c => c.GuildId == guildId).ToListAsync(ct))
+        var limits = (await db.ChatBoardChannels.AsNoTracking().Where(c => c.Platform == platform && c.WorkspaceId == workspaceId).ToListAsync(ct))
             .Where(c => c.Allows(channelId)).ToList();
         var ids = limits.Select(l => l.BoardId).ToList();
         var member = await db.BoardMembers.Where(m => m.PrincipalId == agentId && ids.Contains(m.BoardId)).Select(m => m.BoardId).ToListAsync(ct);
@@ -107,7 +110,7 @@ public static class DiscordPreviews
             entries.Count(e => e.Kind == CardChangeKind.Bucket));
     }
 
-    /// <summary>Whether the server's agent may still read the board (it is a member).</summary>
+    /// <summary>Whether the workspace's agent may still read the board (it is a member).</summary>
     public static async Task<bool> CanSeeAsync(PrikBoardDbContext db, Guid agentId, Guid boardId, CancellationToken ct) =>
         await BoardAccess.RoleOnBoardAsync(db, boardId, agentId, ct) is not null;
 }

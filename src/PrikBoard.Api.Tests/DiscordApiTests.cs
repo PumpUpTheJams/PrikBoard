@@ -223,7 +223,7 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         await using (var scope = factory.Services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
-            Assert.Equal(ownerId, (await db.DiscordGuilds.SingleAsync(g => g.GuildId == guildId)).ConnectedById);
+            Assert.Equal(ownerId, (await db.ChatWorkspaces.SingleAsync(g => g.Platform == ChatPlatform.Discord && g.WorkspaceId == guildId)).ConnectedById);
         }
 
         // Another channel adds to the list; the whole server comes on top and keeps the channels, which stay when it goes again.
@@ -275,9 +275,9 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         await using (var scope = factory.Services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
-            var limit = await db.DiscordBoardChannels.SingleAsync(c => c.GuildId == guildId);
-            limit.Channels = [.. Enumerable.Range(0, DiscordBoardChannels.MaxChannels - 1).Select(i => new DiscordChannel((1300000000000000000 + i).ToString(), $"c{i}")),
-                new DiscordChannel(Channel, "general")];
+            var limit = await db.ChatBoardChannels.SingleAsync(c => c.Platform == ChatPlatform.Discord && c.WorkspaceId == guildId);
+            limit.Channels = [.. Enumerable.Range(0, ChatBoardChannels.MaxChannels - 1).Select(i => new ChatChannel((1300000000000000000 + i).ToString(), $"c{i}")),
+                new ChatChannel(Channel, "general")];
             await db.SaveChangesAsync();
         }
 
@@ -502,10 +502,10 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         await using (var scope = factory.Services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
-            var shown = await DiscordPreviews.ForMessageAsync(db, guildId, Channel, $"look: {DiscordApiFactory.PublicUrl}{card.Path}",
+            var shown = await ChatPreviews.ForMessageAsync(db, ChatPlatform.Discord, guildId, Channel, $"look: {DiscordApiFactory.PublicUrl}{card.Path}",
                 new LinkFinder(DiscordApiFactory.PublicUrl), DiscordApiFactory.PublicUrl, CancellationToken.None);
             Assert.Equal(card.Id, Assert.Single(shown).Preview.CardId);
-            await DiscordPreviews.RememberAsync(db, messageId, guildId, Channel, shown, CancellationToken.None);
+            await ChatPreviews.RememberAsync(db, ChatPlatform.Discord, messageId, guildId, Channel, shown, CancellationToken.None);
         }
         await TickAsync();
         factory.Gateway.Edits.Clear();
@@ -529,7 +529,7 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         await using (var scope = factory.Services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
-            Assert.False(await db.DiscordPreviewMessages.AnyAsync(m => m.MessageId == messageId));
+            Assert.False(await db.ChatPreviewMessages.AnyAsync(m => m.Platform == ChatPlatform.Discord && m.MessageId == messageId));
         }
     }
 
@@ -594,15 +594,15 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         (await owner.PutAsJsonAsync($"/api/boards/{board.Id}/discord/{guildId}/channels/{Channel}",
             new { updates = Array.Empty<string>(), saveBucketId = doing.Id })).EnsureSuccessStatusCode();
 
-        var accounts = factory.Services.GetRequiredService<DiscordAccounts>();
-        var saves = factory.Services.GetRequiredService<DiscordSaves>();
+        var accounts = factory.Services.GetRequiredService<ChatAccounts>();
+        var saves = factory.Services.GetRequiredService<ChatSaves>();
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
         const string discordUser = "9100000000000000001";
-        Assert.Null(await accounts.FindUserAsync(db, discordUser, CancellationToken.None));
+        Assert.Null(await accounts.FindUserAsync(db, ChatPlatform.Discord, discordUser, CancellationToken.None));
 
         // The bot's button opens PrikBoard with a code; the page shows whose Discord account it is, then links it.
-        var code = accounts.StartLink(discordUser, "jimmy_discord");
+        var code = accounts.StartLink(ChatPlatform.Discord, discordUser, "jimmy_discord");
         Assert.Equal("jimmy_discord", (await owner.GetFromJsonAsync<DiscordAccountLinkPreview>($"/api/me/discord-account/links/{code}"))!.DiscordName);
         Assert.Equal(HttpStatusCode.Forbidden, (await LinkAccount(owner, code, origin: "https://evil.example")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await LinkAccount(owner, code)).StatusCode);
@@ -610,18 +610,18 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         Assert.Equal(HttpStatusCode.NotFound, (await owner.GetAsync($"/api/me/discord-account/links/{code}")).StatusCode);
         var status = (await owner.GetFromJsonAsync<DiscordAccountStatus>("/api/me/discord-account"))!;
         Assert.Equal((true, DiscordAccountSource.Link), (status.Linked, status.Source));
-        Assert.Equal(ownerId, await accounts.FindUserAsync(db, discordUser, CancellationToken.None));
+        Assert.Equal(ownerId, await accounts.FindUserAsync(db, ChatPlatform.Discord, discordUser, CancellationToken.None));
         var (token, _) = await factory.TokenAsync(owner, "No accounts for agents");
         Assert.Equal(HttpStatusCode.Forbidden, (await token.GetAsync("/api/me/discord-account")).StatusCode);
 
         // Boards they can edit that are connected to the server, with the bucket the channel saves to.
-        var target = Assert.Single(await DiscordSaves.TargetsAsync(db, ownerId, guildId, Channel, CancellationToken.None));
+        var target = Assert.Single(await ChatSaves.TargetsAsync(db, ownerId, ChatPlatform.Discord, guildId, Channel, CancellationToken.None));
         Assert.Equal((board.Id, doing.Id), (target.BoardId, target.DefaultBucketId));
-        Assert.Empty(await DiscordSaves.TargetsAsync(db, viewerId, guildId, Channel, CancellationToken.None));
+        Assert.Empty(await ChatSaves.TargetsAsync(db, viewerId, ChatPlatform.Discord, guildId, Channel, CancellationToken.None));
 
         var message = new SavedMessage("Login breaks on **Safari**\nSteps: open it", "Robin", "general",
             "https://discord.com/channels/1/2/3", DateTimeOffset.UtcNow, []);
-        Assert.Equal("Login breaks on **Safari**", DiscordSaves.TitleFor(message));
+        Assert.Equal("Login breaks on **Safari**", ChatSaves.TitleFor(message));
         var (saved, problem) = await saves.SaveAsync(db, ownerId, board.Id, target.DefaultBucketId, "Safari login", message, CancellationToken.None);
         Assert.Null(problem);
         var card = (await owner.GetFromJsonAsync<CardDetail>($"/api/cards/{saved!.Id}"))!;
@@ -640,7 +640,7 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         Assert.NotNull(why);
 
         Assert.Equal(HttpStatusCode.NoContent, (await owner.DeleteAsync("/api/me/discord-account")).StatusCode);
-        Assert.Null(await accounts.FindUserAsync(db, discordUser, CancellationToken.None));
+        Assert.Null(await accounts.FindUserAsync(db, ChatPlatform.Discord, discordUser, CancellationToken.None));
         Assert.False((await owner.GetFromJsonAsync<DiscordAccountStatus>("/api/me/discord-account"))!.Linked);
     }
 
@@ -660,12 +660,12 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
 
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
-        var found = Assert.Single(await DiscordPreviews.BoardsInChannelAsync(db, guildId, OtherChannel, CancellationToken.None));
-        var snapshot = await DiscordPreviews.SnapshotAsync(db, found, DateTimeOffset.UtcNow, CancellationToken.None);
+        var found = Assert.Single(await ChatPreviews.BoardsInChannelAsync(db, ChatPlatform.Discord, guildId, OtherChannel, CancellationToken.None));
+        var snapshot = await ChatPreviews.SnapshotAsync(db, found, DateTimeOffset.UtcNow, CancellationToken.None);
         Assert.Equal([("To do", 2), ("Doing", 1), ("Done", 0)], snapshot.Buckets.Select(b => (b.Name, b.Count)));
         Assert.Equal(["One", "Two"], snapshot.Buckets[0].Cards.Select(c => c.Title));
         Assert.Equal((3, 1), (snapshot.AddedToday, snapshot.MovedToday));
-        Assert.Empty(await DiscordPreviews.BoardsInChannelAsync(db, BotJoinsServer(), Channel, CancellationToken.None));
+        Assert.Empty(await ChatPreviews.BoardsInChannelAsync(db, ChatPlatform.Discord, BotJoinsServer(), Channel, CancellationToken.None));
     }
 
     private Task TickAsync() => factory.Services.GetRequiredService<DiscordActivity>().TickAsync(CancellationToken.None);
@@ -697,7 +697,7 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
     {
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
-        return await LinkPreviews.FindAsync(db, guildId, url, channelId, publicUrl, CancellationToken.None);
+        return await LinkPreviews.FindAsync(db, ChatPlatform.Discord, guildId, url, channelId, publicUrl, CancellationToken.None);
     }
 
     private async Task<LinkPreview> PreviewAsync(string guildId, string url, string channelId = Channel)

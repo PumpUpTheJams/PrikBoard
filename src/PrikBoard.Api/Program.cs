@@ -75,12 +75,12 @@ builder.Services.AddSingleton<IDiscordGateway>(services => services.GetRequiredS
 builder.Services.AddHostedService(services => services.GetRequiredService<DiscordGateway>());
 builder.Services.AddSingleton<DiscordBot>();
 builder.Services.TryAddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<DiscordAccounts>();
-builder.Services.AddSingleton<DiscordSaves>();
+builder.Services.AddSingleton<ChatAccounts>();
+builder.Services.AddSingleton<ChatSaves>();
 builder.Services.AddSingleton<DiscordActivity>();
 builder.Services.AddHostedService(services => services.GetRequiredService<DiscordActivity>());
-// Images of messages saved from Discord, from Discord's own file hosts only (DiscordSaves checks the URL).
-builder.Services.AddHttpClient(DiscordSaves.AttachmentsClient, http => http.Timeout = TimeSpan.FromSeconds(15));
+// Images of messages saved from Discord, from Discord's own file hosts only (ChatSaves checks the URL).
+builder.Services.AddHttpClient(ChatSaves.AttachmentsClient, http => http.Timeout = TimeSpan.FromSeconds(15));
 
 // MCP (Streamable HTTP, stateless): curated tools over the same handlers as the REST API; see Mcp/BoardTools.cs.
 builder.Services.AddHttpContextAccessor();

@@ -25,18 +25,18 @@ public enum DiscordUpdate
 /// <summary>Converts between the API's list of updates and the stored flags.</summary>
 public static class DiscordUpdateLists
 {
-    private static readonly (DiscordUpdate Update, DiscordUpdates Flag)[] Pairs =
+    private static readonly (DiscordUpdate Update, ChatUpdates Flag)[] Pairs =
     [
-        (DiscordUpdate.NewCards, DiscordUpdates.NewCards),
-        (DiscordUpdate.Moves, DiscordUpdates.Moves),
-        (DiscordUpdate.Assignments, DiscordUpdates.Assignments),
-        (DiscordUpdate.AgentWork, DiscordUpdates.AgentWork),
+        (DiscordUpdate.NewCards, ChatUpdates.NewCards),
+        (DiscordUpdate.Moves, ChatUpdates.Moves),
+        (DiscordUpdate.Assignments, ChatUpdates.Assignments),
+        (DiscordUpdate.AgentWork, ChatUpdates.AgentWork),
     ];
 
-    public static List<DiscordUpdate> From(DiscordUpdates flags) => Pairs.Where(p => flags.HasFlag(p.Flag)).Select(p => p.Update).ToList();
+    public static List<DiscordUpdate> From(ChatUpdates flags) => Pairs.Where(p => flags.HasFlag(p.Flag)).Select(p => p.Update).ToList();
 
-    public static DiscordUpdates Flags(IEnumerable<DiscordUpdate> updates) =>
-        updates.Aggregate(DiscordUpdates.None, (all, u) => all | Pairs.First(p => p.Update == u).Flag);
+    public static ChatUpdates Flags(IEnumerable<DiscordUpdate> updates) =>
+        updates.Aggregate(ChatUpdates.None, (all, u) => all | Pairs.First(p => p.Update == u).Flag);
 }
 
 /// <summary>A Discord channel connected to a board, with what it does there.</summary>
@@ -46,7 +46,7 @@ public static class DiscordUpdateLists
 /// <param name="SaveBucketId">Where Save to PrikBoard in this channel puts cards; null for the board's first bucket.</param>
 public sealed record DiscordChannelDetail(string Id, string Name, List<DiscordUpdate> Updates, Guid? SaveBucketId)
 {
-    public static List<DiscordChannelDetail> From(IEnumerable<DiscordChannel> channels) =>
+    public static List<DiscordChannelDetail> From(IEnumerable<ChatChannel> channels) =>
         channels.Select(c => new DiscordChannelDetail(c.Id, c.Name, DiscordUpdateLists.From(c.Updates), c.SaveBucketId)).ToList();
 }
 
@@ -89,8 +89,8 @@ public sealed record DiscordServers(DiscordBotState State, List<DiscordServerCho
 /// <param name="GuildId">The server, from listDiscordServers.</param>
 /// <param name="ChannelId">A channel of it, from listDiscordServers; null for every channel. Channels and the whole server can be combined.</param>
 public sealed record ConnectDiscordRequest(
-    [property: Required, StringLength(DiscordGuild.IdMaxLength, MinimumLength = 1)] string GuildId,
-    [property: StringLength(DiscordGuild.IdMaxLength, MinimumLength = 1)] string? ChannelId = null);
+    [property: Required, StringLength(DiscordIds.MaxLength, MinimumLength = 1)] string GuildId,
+    [property: StringLength(DiscordIds.MaxLength, MinimumLength = 1)] string? ChannelId = null);
 
 /// <summary>What a channel connected to a board does for it. Both fields replace what was set.</summary>
 /// <param name="Updates">The board activity the bot posts in the channel; empty for none.</param>

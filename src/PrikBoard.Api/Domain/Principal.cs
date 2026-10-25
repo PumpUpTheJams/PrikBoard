@@ -60,24 +60,27 @@ public class User : Principal
 
 /// <summary>
 /// A machine client (for example an AI agent): a client of a trusted token issuer, which owners add to boards; the agent
-/// behind a person's access token (<see cref="OwnerId"/> set), which works on its owner's boards; or a connected Discord
-/// server (<see cref="DiscordGuild"/>).
+/// behind a person's access token (<see cref="OwnerId"/> set), which works on its owner's boards; or a connected chat
+/// workspace (<see cref="ChatWorkspace"/>: a Discord server or a Slack workspace).
 /// </summary>
 public class Agent : Principal
 {
     /// <summary>Issuer id for personal access tokens.</summary>
     public const string AccessTokenIssuer = "pat";
 
-    /// <summary>Issuer id of Discord servers connected for link previews (<see cref="DiscordGuild"/>); the client id is the guild id.</summary>
+    /// <summary>Issuer id of Discord servers connected for link previews (<see cref="ChatWorkspace"/>); the client id is the guild id.</summary>
     public const string DiscordIssuer = "discord";
 
-    /// <summary>Id of the configured token issuer (<c>Auth:Tokens:Issuers</c>), <see cref="AccessTokenIssuer"/> or <see cref="DiscordIssuer"/>.</summary>
+    /// <summary>Issuer id of Slack workspaces connected for link previews (<see cref="ChatWorkspace"/>); the client id is the team id.</summary>
+    public const string SlackIssuer = "slack";
+
+    /// <summary>Id of the configured token issuer (<c>Auth:Tokens:Issuers</c>), <see cref="AccessTokenIssuer"/>, <see cref="DiscordIssuer"/> or <see cref="SlackIssuer"/>.</summary>
     public required string Issuer { get; set; }
 
-    /// <summary>The client id in its tokens (azp, client_id or appid), the access token's id, or the Discord guild id: never personal data.</summary>
+    /// <summary>The client id in its tokens (azp, client_id or appid), the access token's id, or the Discord guild or Slack team id: never personal data.</summary>
     public required string ClientId { get; set; }
 
-    /// <summary>The person whose access token this agent acts for; null for issuer clients and Discord servers.</summary>
+    /// <summary>The person whose access token this agent acts for; null for issuer clients and chat workspaces.</summary>
     public Guid? OwnerId { get; set; }
 
     public override string FallbackName => $"Agent {(ClientId.Length <= 60 ? ClientId : ClientId[..60])}";

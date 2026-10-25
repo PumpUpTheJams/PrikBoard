@@ -15,7 +15,7 @@ public enum LinkPreviewKind
     Invite,
 }
 
-/// <summary>What the Discord bot shows for a link or readable id. Which fields are set depends on <paramref name="Kind"/>.</summary>
+/// <summary>What a chat bot shows for a link or readable id. Which fields are set depends on <paramref name="Kind"/>.</summary>
 /// <param name="Kind">Card, Board or Invite.</param>
 /// <param name="BoardName">The board's name (all kinds).</param>
 /// <param name="ReadableId">Card: its readable id, e.g. PRIK-109.</param>
@@ -53,10 +53,10 @@ public sealed record LinkPreview(
     Guid? BoardId = null);
 
 /// <summary>
-/// Decides what a link or readable id in a Discord message previews as, for the bot in <see cref="DiscordGateway"/>,
-/// looking it up as the server's agent. Nothing for every source it won't preview, so silence never tells whether a
-/// board exists: another host, a board or card the server isn't connected to or that doesn't exist, a channel the board
-/// isn't previewed in, or a used, revoked or expired invite.
+/// Decides what a link or readable id in a chat message previews as, for the chat bots (<see cref="DiscordGateway"/>),
+/// looking it up as the workspace's agent. Nothing for every source it won't preview, so silence never tells whether a
+/// board exists: another host, a board or card the workspace isn't connected to or that doesn't exist, a channel the
+/// board isn't previewed in, or a used, revoked or expired invite.
 /// </summary>
 public static partial class LinkPreviews
 {
@@ -86,16 +86,16 @@ public static partial class LinkPreviews
         return found.Take(MaxPerMessage).ToList();
     }
 
-    /// <summary>The preview of a source from <see cref="Sources"/>, found in <paramref name="channelId"/> of server <paramref name="guildId"/>.</summary>
+    /// <summary>The preview of a source from <see cref="Sources"/>, found in <paramref name="channelId"/> of workspace <paramref name="workspaceId"/>.</summary>
     public static async Task<LinkPreview?> FindAsync(
-        PrikBoardDbContext db, string guildId, string source, string channelId, string? publicUrl, CancellationToken ct)
+        PrikBoardDbContext db, ChatPlatform platform, string workspaceId, string source, string channelId, string? publicUrl, CancellationToken ct)
     {
-        var agentId = await db.DiscordGuilds.Where(g => g.GuildId == guildId).Select(g => (Guid?)g.AgentId).FirstOrDefaultAsync(ct);
+        var agentId = await AgentIdAsync(db, platform, workspaceId, ct);
         if (agentId is null) return null;
 
         if (ReadableIdPattern().Match(source) is { Success: true } id && id.Value == source)
         {
-            return await ReadableIdAsync(db, guildId, agentId.Value, id.Groups[1].Value, int.Parse(id.Groups[2].Value), channelId, ct);
+            return await ReadableIdAsync(db, platform, workspaceId, agentId.Value, id.Groups[1].Value, int.Parse(id.Groups[2].Value), channelId, ct);
         }
         if (AppPath(source, publicUrl) is not { } path) return null;
 
@@ -130,7 +130,7 @@ public static partial class LinkPreviews
             return null;
         }
 
-        if (board is null || !await PreviewsInAsync(db, guildId, agentId.Value, board.Id, channelId, ct)) return null;
+        if (board is null || !await PreviewsInAsync(db, platform, workspaceId, agentId.Value, board.Id, channelId, ct)) return null;
         return card is null
             ? new LinkPreview(LinkPreviewKind.Board, board.Name, Description: CardPreview.Describe(board), Path: CardLinks.BoardPath(board.ShortId), BoardId: board.Id)
             : await CardAsync(db, card, board, ct);
@@ -141,9 +141,9 @@ public static partial class LinkPreviews
     /// unique, so an id that could mean two boards previews nothing.
     /// </summary>
     private static async Task<LinkPreview?> ReadableIdAsync(
-        PrikBoardDbContext db, string guildId, Guid agentId, string key, int number, string channelId, CancellationToken ct)
+        PrikBoardDbContext db, ChatPlatform platform, string workspaceId, Guid agentId, string key, int number, string channelId, CancellationToken ct)
     {
-        var connected = (await db.DiscordBoardChannels.AsNoTracking().Where(c => c.GuildId == guildId).ToListAsync(ct))
+        var connected = (await db.ChatBoardChannels.AsNoTracking().Where(c => c.Platform == platform && c.WorkspaceId == workspaceId).ToListAsync(ct))
             .Where(c => c.Allows(channelId)).Select(c => c.BoardId).ToList();
         var boards = await db.Boards.AsNoTracking().Where(b => connected.Contains(b.Id) && b.Key == key).ToListAsync(ct);
         if (boards is not [var board] || await BoardAccess.RoleOnBoardAsync(db, board.Id, agentId, ct) is null) return null;
@@ -151,13 +151,19 @@ public static partial class LinkPreviews
         return card is null ? null : await CardAsync(db, card, board, ct);
     }
 
-    /// <summary>Whether the server's agent is still on the board and the board previews in this channel.</summary>
-    private static async Task<bool> PreviewsInAsync(PrikBoardDbContext db, string guildId, Guid agentId, Guid boardId, string channelId, CancellationToken ct)
+    /// <summary>Whether the workspace's agent is still on the board and the board previews in this channel.</summary>
+    private static async Task<bool> PreviewsInAsync(
+        PrikBoardDbContext db, ChatPlatform platform, string workspaceId, Guid agentId, Guid boardId, string channelId, CancellationToken ct)
     {
         if (await BoardAccess.RoleOnBoardAsync(db, boardId, agentId, ct) is null) return false;
-        var limit = await db.DiscordBoardChannels.AsNoTracking().FirstOrDefaultAsync(c => c.GuildId == guildId && c.BoardId == boardId, ct);
+        var limit = await db.ChatBoardChannels.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Platform == platform && c.WorkspaceId == workspaceId && c.BoardId == boardId, ct);
         return limit is not null && limit.Allows(channelId);
     }
+
+    /// <summary>The agent of a connected workspace; null for one that was never connected.</summary>
+    public static Task<Guid?> AgentIdAsync(PrikBoardDbContext db, ChatPlatform platform, string workspaceId, CancellationToken ct) =>
+        db.ChatWorkspaces.Where(w => w.Platform == platform && w.WorkspaceId == workspaceId).Select(w => (Guid?)w.AgentId).FirstOrDefaultAsync(ct);
 
     /// <summary>A card's preview, with its bucket, tags, people and progress.</summary>
     public static async Task<LinkPreview> CardAsync(PrikBoardDbContext db, Card card, Board board, CancellationToken ct)

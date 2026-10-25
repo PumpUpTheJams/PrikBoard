@@ -108,14 +108,14 @@ public static class BoardAccess
     /// <summary>
     /// Who can be assigned to cards on a board: its members (people and issuer agents). The agents of members' personal
     /// access tokens are not: they work for the token's owner, who is assigned instead (CardEndpoints.WorksForAsync), and
-    /// their avatar shows the agent at work. Connected Discord servers are members but only preview links, so they are
-    /// left out.
+    /// their avatar shows the agent at work. Connected chat workspaces (Discord servers, Slack workspaces) are members but
+    /// only preview links, so they are left out.
     /// </summary>
     public static IQueryable<Guid> AssignableIds(PrikBoardDbContext db, Guid boardId)
     {
         var members = db.BoardMembers.Where(m => m.BoardId == boardId).Select(m => m.PrincipalId);
-        var discord = db.Agents.Where(a => a.Issuer == Agent.DiscordIssuer).Select(a => a.Id);
-        return members.Where(id => !discord.Contains(id));
+        var chats = db.Agents.Where(a => a.Issuer == Agent.DiscordIssuer || a.Issuer == Agent.SlackIssuer).Select(a => a.Id);
+        return members.Where(id => !chats.Contains(id));
     }
 
     /// <summary>The principals behind <see cref="AssignableIds"/>.</summary>

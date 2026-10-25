@@ -5,10 +5,10 @@ Status: built. Part 1 (PRIK-142) is the meta tags in `src/web/index.html` and th
 - `Integrations/`:
   - `DiscordGateway`, the Discord connection itself
   - `DiscordBot`, its settings
-  - `LinkPreviews` and `DiscordPreviews`, what links and ids preview as
+  - `LinkPreviews` and `ChatPreviews`, what links and ids preview as
   - `DiscordActivity`, live previews and updates
-  - `DiscordSaves`, Save to PrikBoard
-  - `DiscordAccounts`, who a Discord user is
+  - `ChatSaves`, Save to PrikBoard
+  - `ChatAccounts`, who a Discord user is
   - `Embeds`, how all of it looks
 - `Endpoints/DiscordEndpoints.cs` and `Endpoints/DiscordBotEndpoints.cs`
 - In the web app:
@@ -30,7 +30,7 @@ A board connects to channels. Every connected channel does three things for its 
 A connection to the whole server previews everywhere. Updates and a save bucket need a channel picked as well, and both kinds of connection can exist side by side.
 
 Every action of the bot uses the same rules:
-- **Who someone is.** One rule, `DiscordAccounts.FindUserAsync`, says who a Discord user is in PrikBoard. Actions on someone's behalf run with that person's own role.
+- **Who someone is.** One rule, `ChatAccounts.FindUserAsync`, says who a Discord user is in PrikBoard. Actions on someone's behalf run with that person's own role.
 - **What changed.** The bot learns what changed from one source, the card history.
 - **How it looks.** Everything is drawn by one embed builder.
 
@@ -131,24 +131,26 @@ Each connected guild is an `Agent` (issuer `discord`, `ClientId` = the guild id)
 - The connection shows in the board's members list, with the guild's name and a Discord badge. Removing that member disconnects the board.
 - Discord servers are never assignees (`BoardAccess.AssignableIds`).
 
-A `DiscordGuild` row keeps what the agent can't hold:
+The tables are shared with Slack (`Domain/Chat.cs`, docs/slack.md): every row has a `Platform`, `Discord` here. The `ChatWorkspaces` migration moved the old Discord tables into them.
+
+A `ChatWorkspace` row keeps what the agent can't hold:
 
 | Field | Meaning |
 | --- | --- |
-| `GuildId` | Discord's id for the server (a snowflake, kept as text) |
+| `WorkspaceId` | Discord's id for the server (a snowflake, kept as text) |
 | `AgentId` | The guild's `Agent` |
 | `ConnectedById` | The board owner who made the latest connection |
 | `ConnectedAt` | When |
 
-There is also a `DiscordBoardChannels` row per connected board, saying where the board may be previewed and what each channel does:
+There is also a `ChatBoardChannels` row per connected board, saying where the board may be previewed and what each channel does:
 
 | Field | Meaning |
 | --- | --- |
-| `GuildId`, `BoardId` | The connection. The membership is the grant; this row only narrows it. |
-| `WholeServer` | Links preview in every channel of the server |
+| `WorkspaceId`, `BoardId` | The connection. The membership is the grant; this row only narrows it. |
+| `WholeWorkspace` | Links preview in every channel of the server |
 | `Channels` | The channels picked for the board (jsonb). Each has its id and name, the `Updates` it follows (flags, stored as a number) and its `SaveBucketId`. |
 
-The `DiscordActivity` migration turned the old "whole server" (a null list of channels) into `WholeServer`.
+The `DiscordActivity` migration turned the old "whole server" (a null list of channels) into `WholeServer` (now `WholeWorkspace`).
 
 Discord's own server, channel and message ids are not personal data about PrikBoard users, so storing them in plain text is fine. Discord *user* ids are only stored as keyed hashes (see Who is who).
 
@@ -162,7 +164,7 @@ In the board menu, *Integrations* (owners only) opens `IntegrationsDialog`. It l
 
 What the choices do:
 
-- **Another channel** adds to the list. A board takes at most 50 channels of one server (`DiscordBoardChannels.MaxChannels`), and a 51st is a 409.
+- **Another channel** adds to the list. A board takes at most 50 channels of one server (`ChatBoardChannels.MaxChannels`), and a 51st is a 409.
 - **Whole server** is added next to the channels, which keep their settings.
 - **The cross on a chip** takes that channel, or the whole server, away (removeDiscordChannel, removeDiscordWholeServer). When nothing is left, the server is disconnected; the dialog asks first.
 - **Clicking a channel's name** opens its settings (updateDiscordChannel, saved at once):
@@ -186,7 +188,7 @@ For every message, the bot works through these steps:
    - Then bare readable ids such as `PRIK-149` outside those links. Ids are uppercase, with no letters or digits run on.
 3. It looks each one up with `LinkPreviews.FindAsync` (guild, source, channel, public address). Each lookup counts against a limit per server (`RateLimits:LinkPreviewsPerMinute`, 60), so one busy server can't use up the others' previews.
 4. It posts one reply with an embed per source that got a preview (`Embeds`) and stays silent about the rest. Saying "no access" would confirm that the board exists.
-5. It remembers the reply (`DiscordPreviewMessage`: the sources, and the cards and boards shown) for a week, so it can keep the reply up to date.
+5. It remembers the reply (`ChatPreviewMessage`: the sources, and the cards and boards shown) for a week, so it can keep the reply up to date.
 6. With *Manage Messages*, it removes Discord's own anonymous preview from the message it answered (suppress embeds).
 
 A message in a thread counts as being in the thread's channel.
@@ -231,7 +233,7 @@ All embeds use the PrikBoard icon and name as author, so they read as one thing,
 
 `DiscordActivity`, a background service, looks at the card history (`CardChange`) every 5 seconds (`Discord:ActivitySeconds`). Every write path records history, so this one place sees every change without hooks in handlers. Each look reaches 30 seconds before the last change seen, for saves that commit late. Quick edits merged into an earlier change show again with a later time.
 
-- **Previews follow their cards.** For each changed card, the remembered replies showing it from the last week are edited to match (`DiscordPreviews.RefreshAsync`, `IDiscordGateway.EditAsync`). Disconnecting a board from a server or channel, or the bot leaving a server, queues the board's replies too (`RefreshBoard`). A source that previews nothing any more shows *No longer available*. A reply deleted in Discord is forgotten. Older replies are dropped every hour.
+- **Previews follow their cards.** For each changed card, the remembered replies showing it from the last week are edited to match (`ChatPreviews.RefreshAsync`, `IDiscordGateway.EditAsync`). Disconnecting a board from a server or channel, or the bot leaving a server, queues the board's replies too (`RefreshBoard`). A source that previews nothing any more shows *No longer available*. A reply deleted in Discord is forgotten. Older replies are dropped every hour.
 - **Updates.** A change's entries map to what channels can follow:
   - created, copied, moved here or restored → new cards
   - bucket → moves
@@ -246,24 +248,24 @@ All embeds use the PrikBoard icon and name as author, so they read as one thing,
 On any message, *Apps → Save to PrikBoard* (a message command the bot registers when it comes online):
 
 1. **Who it is.** If the bot doesn't know the person (see Who is who), it replies privately with a *Connect your PrikBoard account* button and stops.
-2. **Where it can go.** The boards the person can edit (Editor or Owner) that are connected to this server (`DiscordSaves.TargetsAsync`). Boards connected to this channel come first, each with the channel's save bucket or the board's first bucket. With no such board, the bot says so privately.
+2. **Where it can go.** The boards the person can edit (Editor or Owner) that are connected to this server (`ChatSaves.TargetsAsync`). Boards connected to this channel come first, each with the channel's save bucket or the board's first bucket. With no such board, the bot says so privately.
 3. **Choosing.** A private reply with a board menu (when there are several), a bucket menu, the title (the message's first line, editable in a small form) and *Save*. The choices wait for 15 minutes.
-4. **Saving.** `DiscordSaves.SaveAsync` creates the card through createCard as the person, with `CardHistory.ActingAs`, so their role decides and the card's history names them. The card gets:
+4. **Saving.** `ChatSaves.SaveAsync` creates the card through createCard as the person, with `CardHistory.ActingAs`, so their role decides and the card's history names them. The card gets:
    - the message quoted in a Text component, with "From **author** in #channel, time"
    - a link back to the message
    - up to four of its images, fetched from Discord's file hosts only (`cdn.discordapp.com`, `media.discordapp.net`)
 5. **Telling the channel.** The private reply then shows the new card's preview with an *Open in PrikBoard* button. The bot reacts 📌 on the message, which needs *Add Reactions* (in the invite's permissions, 93248), so the channel sees it was saved.
 
-`/prikboard board` shows the board connected to the channel (`DiscordPreviews.SnapshotAsync`), only to whoever asked.
+`/prikboard board` shows the board connected to the channel (`ChatPreviews.SnapshotAsync`), only to whoever asked.
 
 ### Who is who
 
-`DiscordAccounts.FindUserAsync` is the one rule for every action the bot takes for a person:
+`ChatAccounts.FindUserAsync` is the one rule for every action the bot takes for a person:
 
 - **A Discord sign-in.** Someone who signs in to PrikBoard with a Discord sign-in provider is known by that sign-in: their `UserIdentity` holds the keyed hash of their Discord id.
 - **A link.** Anyone else links once. The bot's button opens `#/connect/discord-account?code=…` with a code that works for 10 minutes, kept in memory.
   - The page shows the Discord name the code is for and warns to link only one's own account. It calls previewDiscordAccountLink, then linkDiscordAccount (session, `SameOrigin`).
-  - The link (`DiscordAccount`) keeps a keyed hash of the Discord id (`KeyedHasher.Subject("discord-bot", id)`), never the id.
+  - The link (`ChatAccount`) keeps a keyed hash of the Discord id (`KeyedHasher.Subject("discord-bot", id)`), never the id.
   - Account → *Discord* shows the link and unlinks it (getDiscordAccount, unlinkDiscordAccount).
 
 Linking only lets that Discord account save cards as the person, on boards they can edit anyway. The page's warning covers someone sending their own link to another person.

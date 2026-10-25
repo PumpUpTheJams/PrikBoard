@@ -9,9 +9,9 @@ namespace PrikBoard.Api.Integrations;
 /// What happens on boards, as the Discord bot passes it on. It follows the card history (<see cref="CardChange"/>, which
 /// every write path records) every few seconds, so there is one source of change and nothing to hook into handlers:
 /// <list type="bullet">
-/// <item>Replies with previews of changed cards (<see cref="DiscordPreviewMessage"/>) are edited to match, and say "no
+/// <item>Replies with previews of changed cards (<see cref="ChatPreviewMessage"/>) are edited to match, and say "no
 /// longer available" once a card is gone or its board is disconnected from the channel (<see cref="RefreshBoard"/>).</item>
-/// <item>Channels that follow a board's updates (<see cref="DiscordChannel.Updates"/>) get one post per board with what
+/// <item>Channels that follow a board's updates (<see cref="ChatChannel.Updates"/>) get one post per board with what
 /// happened, gathered for <c>Discord:UpdatesDelaySeconds</c> (30) so a drag or a burst of edits is one post.</item>
 /// </list>
 /// One instance only, like the bot itself. Tests turn the timer off (<c>Discord:ActivitySeconds</c> 0) and call <see cref="TickAsync"/>.
@@ -92,8 +92,8 @@ public sealed class DiscordActivity(
 
             if (now - _purgedAt > TimeSpan.FromHours(1))
             {
-                var cutoff = now - DiscordPreviewMessage.KeptFor;
-                await db.DiscordPreviewMessages.Where(m => m.PostedAt < cutoff).ExecuteDeleteAsync(ct);
+                var cutoff = now - ChatPreviewMessage.KeptFor;
+                await db.ChatPreviewMessages.Where(m => m.Platform == ChatPlatform.Discord && m.PostedAt < cutoff).ExecuteDeleteAsync(ct);
                 _purgedAt = now;
             }
         }
@@ -114,19 +114,19 @@ public sealed class DiscordActivity(
         }
         if (cardIds.Count == 0 && boardIds.Count == 0) return;
 
-        var cutoff = now - DiscordPreviewMessage.KeptFor;
+        var cutoff = now - ChatPreviewMessage.KeptFor;
         var cards = cardIds.ToList();
-        var messages = await db.DiscordPreviewMessages
-            .Where(m => m.PostedAt > cutoff && (m.CardIds.Any(id => cards.Contains(id)) || m.BoardIds.Any(id => boardIds.Contains(id))))
+        var messages = await db.ChatPreviewMessages
+            .Where(m => m.Platform == ChatPlatform.Discord && m.PostedAt > cutoff && (m.CardIds.Any(id => cards.Contains(id)) || m.BoardIds.Any(id => boardIds.Contains(id))))
             .ToListAsync(ct);
         foreach (var message in messages)
         {
-            var previews = await DiscordPreviews.RefreshAsync(db, message, site, ct);
+            var previews = await ChatPreviews.RefreshAsync(db, message, site, ct);
             var shown = previews.Select((p, i) => p is null ? embeds.Unavailable() : embeds.For(p, message.Sources[i])).ToList();
             if (!await gateway.EditAsync(message.ChannelId, message.MessageId, shown))
             {
                 // Deleted in Discord: nothing left to keep up to date.
-                db.DiscordPreviewMessages.Remove(message);
+                db.ChatPreviewMessages.Remove(message);
             }
         }
         await db.SaveChangesAsync(ct);
@@ -140,15 +140,15 @@ public sealed class DiscordActivity(
 
         var boardIds = events.Select(e => e.BoardId).Distinct().ToList();
         var connections = await (
-                from limit in db.DiscordBoardChannels
-                where boardIds.Contains(limit.BoardId)
-                join guild in db.DiscordGuilds on limit.GuildId equals guild.GuildId
+                from limit in db.ChatBoardChannels
+                where limit.Platform == ChatPlatform.Discord && boardIds.Contains(limit.BoardId)
+                join guild in db.ChatWorkspaces on new { limit.Platform, limit.WorkspaceId } equals new { guild.Platform, guild.WorkspaceId }
                 join member in db.BoardMembers on new { limit.BoardId, PrincipalId = guild.AgentId } equals new { member.BoardId, member.PrincipalId }
                 select limit)
             .AsNoTracking().ToListAsync(ct);
         foreach (var limit in connections)
         {
-            foreach (var channel in limit.Channels.Where(c => c.Updates != DiscordUpdates.None))
+            foreach (var channel in limit.Channels.Where(c => c.Updates != ChatUpdates.None))
             {
                 var follows = events.Where(e => e.BoardId == limit.BoardId && channel.Updates.HasFlag(e.Kind)).ToList();
                 if (follows.Count == 0) continue;
@@ -165,11 +165,11 @@ public sealed class DiscordActivity(
     private static Update? Event(CardChange change, CardChangeEntry entry) => entry.Kind switch
     {
         CardChangeKind.Created or CardChangeKind.Copied or CardChangeKind.Moved or CardChangeKind.Restored =>
-            new Update(DiscordUpdates.NewCards, change.BoardId, change.CardId, change.ById, change.At),
-        CardChangeKind.Bucket => new Update(DiscordUpdates.Moves, change.BoardId, change.CardId, change.ById, change.At, entry.Before, entry.After),
+            new Update(ChatUpdates.NewCards, change.BoardId, change.CardId, change.ById, change.At),
+        CardChangeKind.Bucket => new Update(ChatUpdates.Moves, change.BoardId, change.CardId, change.ById, change.At, entry.Before, entry.After),
         CardChangeKind.Assignees when entry.Added is { Count: > 0 } added =>
-            new Update(DiscordUpdates.Assignments, change.BoardId, change.CardId, change.ById, change.At, People: added),
-        CardChangeKind.AgentWorking => new Update(DiscordUpdates.AgentWork, change.BoardId, change.CardId, change.ById, change.At, After: entry.After),
+            new Update(ChatUpdates.Assignments, change.BoardId, change.CardId, change.ById, change.At, People: added),
+        CardChangeKind.AgentWorking => new Update(ChatUpdates.AgentWork, change.BoardId, change.CardId, change.ById, change.At, After: entry.After),
         _ => null,
     };
 
@@ -211,20 +211,20 @@ public sealed class DiscordActivity(
             var last = group.Last();
             switch (group.Key.Kind)
             {
-                case DiscordUpdates.NewCards:
+                case ChatUpdates.NewCards:
                     var into = card.BucketId is { } bucketId && buckets.TryGetValue(bucketId, out var bucketName) ? $" to **{Format.Sanitize(bucketName)}**" : "";
                     lines.Add($"🆕 {link} added{into} by {Name(first.ById)}");
                     break;
-                case DiscordUpdates.Moves:
+                case ChatUpdates.Moves:
                     if (first.Before == last.After) break;
                     lines.Add($"➡️ {link} {Bucket(first.Before)} → **{Bucket(last.After)}** · {Name(last.ById)}");
                     break;
-                case DiscordUpdates.Assignments:
+                case ChatUpdates.Assignments:
                     var assigned = group.SelectMany(e => e.People ?? []).Distinct()
                         .Select(p => Guid.TryParse(p, out var id) ? Name(id) : "someone").ToList();
                     lines.Add($"👤 {link} assigned to {string.Join(", ", assigned)} by {Name(last.ById)}");
                     break;
-                case DiscordUpdates.AgentWork:
+                case ChatUpdates.AgentWork:
                     lines.Add(last.After == "true"
                         ? $"🤖 {Name(last.ById)} started working on {link}"
                         : $"✅ {Name(last.ById)} stopped working on {link}");
@@ -238,7 +238,7 @@ public sealed class DiscordActivity(
 
     /// <summary>A change a channel can follow.</summary>
     private sealed record Update(
-        DiscordUpdates Kind, Guid BoardId, Guid CardId, Guid? ById, DateTimeOffset At,
+        ChatUpdates Kind, Guid BoardId, Guid CardId, Guid? ById, DateTimeOffset At,
         string? Before = null, string? After = null, IReadOnlyList<string>? People = null);
 
     private sealed class PendingUpdates(DateTimeOffset since)
