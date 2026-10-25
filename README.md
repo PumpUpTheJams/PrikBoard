@@ -30,6 +30,44 @@ docker pull ghcr.io/pumpupthejams/prikboard:latest   # GitHub Container Registry
 docker pull prikboard/prikboard:latest               # Docker Hub
 ```
 
+Without a checkout, this `compose.yaml` is enough (a trimmed [`infra/compose/compose.yaml`](infra/compose/compose.yaml), without the Caddy HTTPS profile). Change the database password, then run `docker compose up -d` next to it:
+
+```yaml
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: prikboard
+      POSTGRES_PASSWORD: change-me
+      POSTGRES_DB: prikboard
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prikboard -d prikboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    image: prikboard/prikboard:latest
+    environment:
+      ConnectionStrings__PrikBoard: Host=postgres;Database=prikboard;Username=prikboard;Password=change-me;GSS Encryption Mode=Disable
+    volumes:
+      - data:/data   # images, sign-in keys and the hash key: back it up with postgres-data
+    ports:
+      # Localhost only: the app trusts X-Forwarded-* headers. Reach it from elsewhere through a reverse proxy or tunnel.
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  data:
+```
+
 To preview PrikBoard links in chat, post board updates and save messages as cards, an admin can add a Discord bot or a Slack app under Admin → *Instance*: see [Discord](docs/discord.md) and [Slack](docs/slack.md#setting-it-up).
 
 ## Developing

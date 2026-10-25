@@ -31,7 +31,7 @@ services:
     restart: unless-stopped
 
   app:
-    image: ghcr.io/pumpupthejams/prikboard:${PRIKBOARD_VERSION:-latest}
+    image: prikboard/prikboard:${PRIKBOARD_VERSION:-latest}
     # Builds from this checkout when the image can't be pulled (or with docker compose build).
     build:
       context: ../..
