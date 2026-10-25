@@ -59,7 +59,7 @@ export function RemoteCursors({ cursors, viewers, drags, placeOf, near, zoom, fo
 }
 
 const styleOf = (viewer: LiveViewer, at: Point, zoom: number) =>
-  ({ left: at.x, top: at.y, '--who': presenceColor(viewer.principalId), '--unzoom': 1 / zoom }) as CSSProperties
+  ({ '--x': `${at.x}px`, '--y': `${at.y}px`, '--who': presenceColor(viewer.principalId), '--unzoom': 1 / zoom }) as CSSProperties
 
 /**
  * The pins of the others' selections. Memoized apart from the heads, as the selections stay the same object while

@@ -4420,27 +4420,32 @@ a.button.primary:hover {
  * has a pin pricked into its top (.peer-pin, at the needle's tip; several people's in a row), which drops in and pushes
  * through a hole when they select it, and pulls out when they don't any more.
  */
+/*
+ * Placed at (--x, --y) by transform, not left and top: moving a positioned element in a canvas of thousands of items
+ * makes the browser lay the canvas out again, and a pointer moves many times a second.
+ */
 .peer-pointer,
 .peer-pin {
   position: absolute;
+  top: 0;
+  left: 0;
   z-index: 30;
   width: 0;
   height: 0;
-  transform: scale(var(--unzoom));
+  transform: translate(var(--x), var(--y)) scale(var(--unzoom));
   transform-origin: 0 0;
   pointer-events: none;
 }
 
 /* Pins are drawn 1.4× (PIN_SPACING and HOLE_BELOW in board/peers.ts count on it). */
 .peer-pin {
-  transform: scale(calc(var(--unzoom) * 1.4));
+  transform: translate(var(--x), var(--y)) scale(calc(var(--unzoom) * 1.4));
 }
 
 .peer-pointer {
   z-index: 31;
   transition:
-    left 0.08s linear,
-    top 0.08s linear,
+    transform 0.08s linear,
     opacity 0.6s;
 }
 
