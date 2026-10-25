@@ -8,6 +8,18 @@
       "port": 5080
     },
     {
+      "name": "api-fake-slack",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "src/PrikBoard.Api", "--launch-profile", "http", "--", "--Slack:ApiUrl=http://localhost:5090/api/"],
+      "port": 5080
+    },
+    {
+      "name": "fake-slack",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "tools/FakeSlack"],
+      "port": 5090
+    },
+    {
       "name": "web",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "src/web"],

@@ -142,70 +142,10 @@ public static class DiscordEndpoints
             return Problems.Invalid("channelId", "A channel of that server where the bot may read and post (listDiscordServers).");
         }
 
-        var now = DateTimeOffset.UtcNow;
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await MemberEndpoints.LockBoard(db, boardId, ct);
-
-        var agent = await db.Agents.FirstOrDefaultAsync(a => a.Issuer == Agent.DiscordIssuer && a.ClientId == server.Id, ct);
-        if (agent is null)
+        if (!await ChatConnections.ConnectAsync(db, events, ChatPlatform.Discord, boardId, server.Id, server.Name, channel, principal.UserId(), ct))
         {
-            agent = new Agent { Issuer = Agent.DiscordIssuer, ClientId = server.Id };
-            db.Agents.Add(agent);
-        }
-        agent.DisplayName = AppSignInEndpoints.CleanName(server.Name);
-        agent.LastSeenAt = now;
-
-        var guild = await db.ChatWorkspaces.FirstOrDefaultAsync(g => g.Platform == ChatPlatform.Discord && g.WorkspaceId == server.Id, ct);
-        if (guild is null)
-        {
-            guild = new ChatWorkspace { Platform = ChatPlatform.Discord, WorkspaceId = server.Id, AgentId = agent.Id };
-            db.ChatWorkspaces.Add(guild);
-        }
-        guild.ConnectedById = principal.UserId();
-        guild.ConnectedAt = now;
-
-        var member = await db.BoardMembers.FirstOrDefaultAsync(m => m.BoardId == boardId && m.PrincipalId == agent.Id, ct);
-        if (member is null) db.BoardMembers.Add(new BoardMember { BoardId = boardId, PrincipalId = agent.Id, Role = BoardRole.Viewer });
-
-        var limit = await FindLimitAsync(db, server.Id, boardId, ct);
-        if (limit is null)
-        {
-            limit = new ChatBoardChannels { Platform = ChatPlatform.Discord, WorkspaceId = server.Id, BoardId = boardId };
-            db.ChatBoardChannels.Add(limit);
-        }
-        else if (member is null)
-        {
-            // Left behind by a removed membership: this connection starts afresh.
-            limit.WholeWorkspace = false;
-            limit.Channels = [];
-        }
-
-        if (channel is null)
-        {
-            limit.WholeWorkspace = true;
-        }
-        else if (limit.Channel(channel.Id) is { } known)
-        {
-            // The same channel again keeps its settings, under its current name.
-            limit.Channels = [.. limit.Channels.Select(c => c.Id == channel.Id ? known with { Name = channel.Name } : c)];
-        }
-        else
-        {
-            if (limit.Channels.Count >= ChatBoardChannels.MaxChannels)
-            {
-                return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Too many channels",
-                    detail: $"A board can be connected to at most {ChatBoardChannels.MaxChannels} channels of a server. Connect it to the whole server instead, or remove channels.");
-            }
-            limit.Channels = [.. limit.Channels, channel];
-        }
-
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
-
-        if (member is null)
-        {
-            await events.AccessChangedAsync(boardId, agent.Id, BoardRole.Viewer);
-            await events.BoardsChangedAsync([agent.Id]);
+            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Too many channels",
+                detail: $"A board can be connected to at most {ChatBoardChannels.MaxChannels} channels of a server. Connect it to the whole server instead, or remove channels.");
         }
         return TypedResults.Ok(await ConnectionsAsync(db, gateway, boardId, ct));
     }
@@ -220,7 +160,7 @@ public static class DiscordEndpoints
         }
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         await MemberEndpoints.LockBoard(db, boardId, ct);
-        var limit = await FindLimitAsync(db, guildId, boardId, ct);
+        var limit = await ChatConnections.FindLimitAsync(db, ChatPlatform.Discord, guildId, boardId, ct);
         if (limit?.Channel(channelId) is not { } channel) return TypedResults.NotFound();
 
         var changed = channel with { Updates = DiscordUpdateLists.Flags(request.Updates), SaveBucketId = request.SaveBucketId };
@@ -230,109 +170,30 @@ public static class DiscordEndpoints
         return TypedResults.Ok(await ConnectionsAsync(db, gateway, boardId, ct));
     }
 
-    private static async Task<Results<NoContent, NotFound>> RemoveDiscordConnection(
-        Guid boardId, string guildId, PrikBoardDbContext db, BoardEvents events, DiscordActivity activity, CancellationToken ct)
-    {
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await MemberEndpoints.LockBoard(db, boardId, ct);
-        var agentId = await DisconnectAsync(db, boardId, guildId, ct);
-        if (agentId is null) return TypedResults.NotFound();
-        await transaction.CommitAsync(ct);
-        await DisconnectedAsync(events, activity, boardId, agentId.Value);
-        return TypedResults.NoContent();
-    }
+    private static Task<Results<NoContent, NotFound>> RemoveDiscordConnection(
+        Guid boardId, string guildId, PrikBoardDbContext db, BoardEvents events, DiscordActivity activity, CancellationToken ct) =>
+        ChatConnections.RemoveAsync(db, events, ChatPlatform.Discord, boardId, guildId, activity.RefreshBoard, ct);
 
-    private static async Task<Results<NoContent, NotFound>> RemoveDiscordWholeServer(
-        Guid boardId, string guildId, PrikBoardDbContext db, BoardEvents events, DiscordActivity activity, CancellationToken ct)
-    {
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await MemberEndpoints.LockBoard(db, boardId, ct);
-        var limit = await FindLimitAsync(db, guildId, boardId, ct);
-        if (limit is not { WholeWorkspace: true }) return TypedResults.NotFound();
-        return await NarrowAsync(db, events, activity, transaction, limit, l => l.WholeWorkspace = false, ct);
-    }
+    private static Task<Results<NoContent, NotFound>> RemoveDiscordWholeServer(
+        Guid boardId, string guildId, PrikBoardDbContext db, BoardEvents events, DiscordActivity activity, CancellationToken ct) =>
+        ChatConnections.RemoveWholeWorkspaceAsync(db, events, ChatPlatform.Discord, boardId, guildId, activity.RefreshBoard, ct);
 
-    private static async Task<Results<NoContent, NotFound>> RemoveDiscordChannel(
-        Guid boardId, string guildId, string channelId, PrikBoardDbContext db, BoardEvents events, DiscordActivity activity, CancellationToken ct)
-    {
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await MemberEndpoints.LockBoard(db, boardId, ct);
-        var limit = await FindLimitAsync(db, guildId, boardId, ct);
-        if (limit?.Channel(channelId) is null) return TypedResults.NotFound();
-        return await NarrowAsync(db, events, activity, transaction, limit, l => l.Channels = [.. l.Channels.Where(c => c.Id != channelId)], ct);
-    }
-
-    /// <summary>Takes a channel or the whole server away; with nothing left, the server is disconnected from the board.</summary>
-    private static async Task<Results<NoContent, NotFound>> NarrowAsync(
-        PrikBoardDbContext db, BoardEvents events, DiscordActivity activity, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction,
-        ChatBoardChannels limit, Action<ChatBoardChannels> change, CancellationToken ct)
-    {
-        change(limit);
-        if (limit.WholeWorkspace || limit.Channels.Count > 0)
-        {
-            await db.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
-            activity.RefreshBoard(limit.BoardId);
-            return TypedResults.NoContent();
-        }
-
-        var agentId = await DisconnectAsync(db, limit.BoardId, limit.WorkspaceId, ct);
-        await transaction.CommitAsync(ct);
-        if (agentId is { } id) await DisconnectedAsync(events, activity, limit.BoardId, id);
-        return TypedResults.NoContent();
-    }
-
-    private static async Task DisconnectedAsync(BoardEvents events, DiscordActivity activity, Guid boardId, Guid agentId)
-    {
-        activity.RefreshBoard(boardId);
-        await events.AccessChangedAsync(boardId, agentId, null);
-        await events.BoardsChangedAsync([agentId]);
-    }
-
-    /// <summary>Removes the server's membership and channel limits from the board; its agent id, or null when it wasn't connected.</summary>
-    internal static async Task<Guid?> DisconnectAsync(PrikBoardDbContext db, Guid boardId, string guildId, CancellationToken ct)
-    {
-        var agentId = await LinkPreviews.AgentIdAsync(db, ChatPlatform.Discord, guildId, ct);
-        if (agentId is null) return null;
-        var removed = await db.BoardMembers.Where(m => m.BoardId == boardId && m.PrincipalId == agentId).ExecuteDeleteAsync(ct);
-        var limits = await db.ChatBoardChannels
-            .Where(c => c.Platform == ChatPlatform.Discord && c.WorkspaceId == guildId && c.BoardId == boardId).ExecuteDeleteAsync(ct);
-        return removed + limits > 0 ? agentId : null;
-    }
-
-    /// <summary>Where a Discord server previews a board; null when it doesn't.</summary>
-    private static Task<ChatBoardChannels?> FindLimitAsync(PrikBoardDbContext db, string guildId, Guid boardId, CancellationToken ct) =>
-        db.ChatBoardChannels.FirstOrDefaultAsync(c => c.Platform == ChatPlatform.Discord && c.WorkspaceId == guildId && c.BoardId == boardId, ct);
+    private static Task<Results<NoContent, NotFound>> RemoveDiscordChannel(
+        Guid boardId, string guildId, string channelId, PrikBoardDbContext db, BoardEvents events, DiscordActivity activity, CancellationToken ct) =>
+        ChatConnections.RemoveChannelAsync(db, events, ChatPlatform.Discord, boardId, guildId, channelId, activity.RefreshBoard, ct);
 
     /// <summary>The servers connected to a board, named as the bot sees them now where it can.</summary>
     private static async Task<List<DiscordConnection>> ConnectionsAsync(PrikBoardDbContext db, IDiscordGateway gateway, Guid boardId, CancellationToken ct)
     {
-        var rows = await (
-                from member in db.BoardMembers
-                where member.BoardId == boardId
-                join guild in db.ChatWorkspaces on member.PrincipalId equals guild.AgentId
-                where guild.Platform == ChatPlatform.Discord
-                select new { member.AddedAt, GuildId = guild.WorkspaceId, guild.AgentId, guild.Agent, guild.ConnectedById })
-            .AsNoTracking().ToListAsync(ct);
-        var guildIds = rows.Select(r => r.GuildId).ToList();
-        var limits = await db.ChatBoardChannels.AsNoTracking()
-            .Where(c => c.Platform == ChatPlatform.Discord && c.BoardId == boardId && guildIds.Contains(c.WorkspaceId))
-            .ToDictionaryAsync(c => c.WorkspaceId, ct);
-        var byIds = rows.Where(r => r.ConnectedById != null).Select(r => r.ConnectedById!.Value).Distinct().ToList();
-        var names = await db.Principals.AsNoTracking().Where(p => byIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, p => p.ShownName, ct);
         var servers = gateway.Servers.ToDictionary(s => s.Id);
-
-        return rows
+        return (await ChatConnections.RowsAsync(db, ChatPlatform.Discord, boardId, ct))
             .Select(r =>
             {
-                servers.TryGetValue(r.GuildId, out var server);
+                servers.TryGetValue(r.WorkspaceId, out var server);
                 // A server without its row previews nothing here; show it with no channels.
-                limits.TryGetValue(r.GuildId, out var limit);
-                var channels = (limit?.Channels ?? []).Select(c => server?.Channels.FirstOrDefault(now => now.Id == c.Id) is { } now ? c with { Name = now.Name } : c);
-                return new DiscordConnection(r.GuildId, server?.Name ?? r.Agent!.ShownName, r.AgentId, limit?.WholeWorkspace ?? false,
-                    DiscordChannelDetail.From(channels),
-                    r.AddedAt,
-                    r.ConnectedById is { } by && names.TryGetValue(by, out var name) ? name : null);
+                var channels = (r.Limit?.Channels ?? []).Select(c => server?.Channels.FirstOrDefault(now => now.Id == c.Id) is { } now ? c with { Name = now.Name } : c);
+                return new DiscordConnection(r.WorkspaceId, server?.Name ?? r.Name, r.AgentId, r.Limit?.WholeWorkspace ?? false,
+                    DiscordChannelDetail.From(channels), r.AddedAt, r.ConnectedBy);
             })
             .OrderBy(c => c.GuildName, StringComparer.OrdinalIgnoreCase)
             .ToList();

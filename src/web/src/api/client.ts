@@ -11,6 +11,9 @@ import type {
   DiscordConnection,
   DiscordServers,
   DiscordUpdate,
+  SlackAppDetail,
+  SlackConnection,
+  SlackWorkspaces,
   AuthProvider,
   BoardClip,
   CopyItemsRequest,
@@ -213,6 +216,15 @@ export const api = {
   previewDiscordAccountLink: (code: string) => request<DiscordAccountLinkPreview>('GET', `/me/discord-account/links/${encodeURIComponent(code)}`),
   linkDiscordAccount: (code: string) => request<DiscordAccountStatus>('POST', '/me/discord-account', { code }),
   unlinkDiscordAccount: () => request<void>('DELETE', '/me/discord-account'),
+  listSlackConnections: (boardId: string) => request<SlackConnection[]>('GET', `/boards/${boardId}/slack`),
+  listSlackWorkspaces: (boardId: string) => request<SlackWorkspaces>('GET', `/boards/${boardId}/slack/workspaces`),
+  /** A channel, or every channel of the workspace when channelId is null. */
+  connectSlackChannel: (boardId: string, teamId: string, channelId: string | null) =>
+    request<SlackConnection[]>('POST', `/boards/${boardId}/slack`, { teamId, channelId }),
+  removeSlackConnection: (boardId: string, teamId: string) => request<void>('DELETE', `/boards/${boardId}/slack/${teamId}`),
+  removeSlackChannel: (boardId: string, teamId: string, channelId: string) =>
+    request<void>('DELETE', `/boards/${boardId}/slack/${teamId}/channels/${channelId}`),
+  removeSlackWholeWorkspace: (boardId: string, teamId: string) => request<void>('DELETE', `/boards/${boardId}/slack/${teamId}/whole-workspace`),
 
   listBoards: () => request<BoardSummary[]>('GET', '/boards'),
   createBoard: (name: string, description?: string) =>
@@ -389,6 +401,11 @@ export const api = {
   setDiscordBot: (settings: { botToken?: string; publicUrl?: string }) => request<DiscordBotDetail>('PUT', '/admin/discord', settings),
   deleteDiscordBot: () => request<void>('DELETE', '/admin/discord'),
   leaveDiscordServer: (guildId: string) => request<void>('DELETE', `/admin/discord/servers/${guildId}`),
+  getSlackApp: () => request<SlackAppDetail>('GET', '/admin/slack'),
+  /** Fields left out stay as they are; the app (re)connects at once. Both tokens the first time. */
+  setSlackApp: (settings: { botToken?: string; appToken?: string; publicUrl?: string }) => request<SlackAppDetail>('PUT', '/admin/slack', settings),
+  deleteSlackApp: () => request<void>('DELETE', '/admin/slack'),
+  forgetSlackWorkspace: (teamId: string) => request<void>('DELETE', `/admin/slack/workspaces/${teamId}`),
 
   getSetupStatus: () => request<SetupStatus>('GET', '/setup'),
   unlockSetup: (key: string) => request<void>('POST', '/setup/unlock', { key }),

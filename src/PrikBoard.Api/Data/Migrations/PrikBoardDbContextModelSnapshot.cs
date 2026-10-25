@@ -902,6 +902,46 @@ namespace PrikBoard.Api.Data.Migrations
                     b.ToTable("SignInProviders");
                 });
 
+            modelBuilder.Entity("PrikBoard.Api.Domain.SlackAppSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("BotName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ProtectedAppToken")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProtectedBotToken")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PublicUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("TeamId")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("TeamName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UpdatedById");
+
+                    b.ToTable("SlackAppSettings");
+                });
+
             modelBuilder.Entity("PrikBoard.Api.Domain.StoredFile", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1312,6 +1352,14 @@ namespace PrikBoard.Api.Data.Migrations
                     b.HasOne("PrikBoard.Api.Domain.Board", null)
                         .WithMany()
                         .HasForeignKey("LastBoardId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.SlackAppSettings", b =>
+                {
+                    b.HasOne("PrikBoard.Api.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedById")
                         .OnDelete(DeleteBehavior.SetNull);
                 });
 

@@ -34,6 +34,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
     public DbSet<ChatAccount> ChatAccounts => Set<ChatAccount>();
     public DbSet<ChatPreviewMessage> ChatPreviewMessages => Set<ChatPreviewMessage>();
     public DbSet<DiscordBotSettings> DiscordBotSettings => Set<DiscordBotSettings>();
+    public DbSet<SlackAppSettings> SlackAppSettings => Set<SlackAppSettings>();
     public DbSet<SignInProvider> SignInProviders => Set<SignInProvider>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -261,6 +262,16 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             bot.Property(b => b.BotName).HasMaxLength(100);
             bot.Property(b => b.PublicUrl).HasMaxLength(Domain.DiscordBotSettings.PublicUrlMaxLength);
             bot.HasOne<User>().WithMany().HasForeignKey(b => b.UpdatedById).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<SlackAppSettings>(app =>
+        {
+            app.Property(a => a.Id).ValueGeneratedNever();
+            app.Property(a => a.TeamId).HasMaxLength(ChatPlatforms.IdMaxLength);
+            app.Property(a => a.TeamName).HasMaxLength(100);
+            app.Property(a => a.BotName).HasMaxLength(100);
+            app.Property(a => a.PublicUrl).HasMaxLength(Domain.SlackAppSettings.PublicUrlMaxLength);
+            app.HasOne<User>().WithMany().HasForeignKey(a => a.UpdatedById).OnDelete(DeleteBehavior.SetNull);
         });
 
         // Gone with its board, card, caller, member or token: an upload URL never outlives the access it was given for.

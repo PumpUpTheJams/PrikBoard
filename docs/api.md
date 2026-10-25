@@ -275,6 +275,12 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | previewDiscordAccountLink | `GET /api/me/discord-account/links/{code}` | The Discord name behind a code from the bot's "Connect your PrikBoard account" button (sessions only) |
 | linkDiscordAccount | `POST /api/me/discord-account` | Link the Discord account behind `code` to you; once, for 10 minutes (sessions from PrikBoard's own pages only) |
 | unlinkDiscordAccount | `DELETE /api/me/discord-account` | Remove the link you made (sessions only) |
+| listSlackConnections | `GET /api/boards/{boardId}/slack` | Slack workspaces connected to the board: `wholeWorkspace` and the `channels` picked (Owner) |
+| listSlackWorkspaces | `GET /api/boards/{boardId}/slack/workspaces` | The Slack app's `state` (`Off` until an admin sets it up) and its workspace, with the channels it was added to; never Slack Connect channels (Owner) |
+| connectSlackChannel | `POST /api/boards/{boardId}/slack` | Connect the board to a `teamId`'s `channelId`, or to the whole workspace without one (both may be set); returns the board's connections. The workspace becomes a Viewer. 409 past 50 channels (Owner, sessions only) |
+| removeSlackConnection | `DELETE /api/boards/{boardId}/slack/{teamId}` | Take a Slack workspace off the board; posted previews stay (Owner) |
+| removeSlackWholeWorkspace | `DELETE /api/boards/{boardId}/slack/{teamId}/whole-workspace` | Stop unfurling in every channel; with no channels left, the workspace is disconnected (Owner) |
+| removeSlackChannel | `DELETE /api/boards/{boardId}/slack/{teamId}/channels/{channelId}` | Disconnect one channel; with nothing left, the workspace is disconnected (Owner) |
 | adminListBoards | `GET /api/admin/boards` | Every board with its members and their roles, newest first (admins, sessions only) |
 | adminDeleteBoard | `DELETE /api/admin/boards/{boardId}` | Delete any board with everything on it (admins, sessions only) |
 | adminListUsers | `GET /api/admin/users` | Every user, with admin flag, board count and the boards they own alone (admins, sessions only) |
@@ -286,6 +292,10 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | setDiscordBot | `PUT /api/admin/discord` | Save the bot's `botToken` (checked with Discord: valid, with the Message Content intent; stored encrypted) and `publicUrl` (defaults to the request's address); the bot reconnects at once. 400 for values set in configuration (admins, sessions only) |
 | deleteDiscordBot | `DELETE /api/admin/discord` | Forget the saved token and address and log the bot out; boards stay connected (admins, sessions only) |
 | leaveDiscordServer | `DELETE /api/admin/discord/servers/{guildId}` | The bot leaves the server and its boards are disconnected (admins, sessions only) |
+| getSlackApp | `GET /api/admin/slack` | The Slack app's state, workspace, bot name, public address, the `manifest` to create it from (`createAppUrl` prefills it) and the workspace's boards; never the tokens (admins, sessions only) |
+| setSlackApp | `PUT /api/admin/slack` | Save the app's `botToken` (xoxb-, checked with `auth.test`) and `appToken` (xapp-, checked by opening a Socket Mode connection), both the first time, stored encrypted, and `publicUrl` (defaults to the request's address); the app reconnects at once. 400 for values set in configuration (admins, sessions only) |
+| deleteSlackApp | `DELETE /api/admin/slack` | Forget the saved tokens and address and disconnect; boards stay connected (admins, sessions only) |
+| forgetSlackWorkspace | `DELETE /api/admin/slack/workspaces/{teamId}` | Disconnect every board from the workspace; the app stays installed in Slack (admins, sessions only) |
 | getSetupStatus | `GET /api/setup` | Whether nobody has an account yet (`needed`), recovery mode, and whether this browser entered the setup key (public) |
 | unlockSetup | `POST /api/setup/unlock` | The setup key from the server's log: sets the setup cookie for an hour. 403 for a wrong key, 409 once set up (public, 10 a minute) |
 | listSignInProviders | `GET /api/setup/providers` | Every sign-in provider with its settings and number of sign-ins, the default first; secrets never come back (setup or admins) |

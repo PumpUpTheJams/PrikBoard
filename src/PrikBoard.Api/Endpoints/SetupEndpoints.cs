@@ -130,7 +130,7 @@ public static partial class SetupEndpoints
             .WithName("getSystemChecks")
             .WithSummary("Check how PrikBoard runs")
             .WithDescription("Setup or admins. The database and its migrations, the data folder, the sign-in keys and the hash key, " +
-                             "HTTPS, the sign-in providers, the Discord bot (once set up) and the version, each Ok, Warning or Failed.");
+                             "HTTPS, the sign-in providers, the Discord bot and Slack app (once set up) and the version, each Ok, Warning or Failed.");
 
         setup.MapGet("/recovery-kit", GetRecoveryKit)
             .RequireAdmin()
@@ -404,7 +404,7 @@ public static partial class SetupEndpoints
 
     private static async Task<Ok<List<SystemCheck>>> GetSystemChecks(
         HttpRequest http, PrikBoardDbContext db, FileStore files, KeyedHasher hasher, SignInProviders providers,
-        IDiscordGateway discord, IOptions<KeyManagementOptions> keyManagement, CancellationToken ct)
+        IDiscordGateway discord, ISlackGateway slack, IOptions<KeyManagementOptions> keyManagement, CancellationToken ct)
     {
         var checks = new List<SystemCheck>();
 
@@ -454,6 +454,15 @@ public static partial class SetupEndpoints
                 DiscordBotState.Online => new("discord", "Discord bot", CheckStatus.Ok, $"{discord.Application?.BotName ?? "Online"} in {discord.Servers.Count} server(s)"),
                 DiscordBotState.Connecting => new("discord", "Discord bot", CheckStatus.Warning, "Connecting to Discord"),
                 _ => new("discord", "Discord bot", CheckStatus.Failed, discord.Problem ?? "Discord refused the bot"),
+            });
+        }
+        if (slack.State != SlackAppState.Off)
+        {
+            checks.Add(slack.State switch
+            {
+                SlackAppState.Online => new("slack", "Slack app", CheckStatus.Ok, $"{slack.Identity?.BotName ?? "Online"} in {slack.Identity?.TeamName ?? "Slack"}"),
+                SlackAppState.Connecting => new("slack", "Slack app", CheckStatus.Warning, slack.Problem ?? "Connecting to Slack"),
+                _ => new("slack", "Slack app", CheckStatus.Failed, slack.Problem ?? "Slack refused the app"),
             });
         }
 

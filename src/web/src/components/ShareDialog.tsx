@@ -6,7 +6,7 @@ import { useCopy } from '../board/useCopy'
 import { CopyField } from './CopyField'
 import { Dialog } from './Dialog'
 import { Face } from './Avatar'
-import { DISCORD_ISSUER } from './discord'
+import { DISCORD_ISSUER, SLACK_ISSUER } from './discord'
 import { RoleSelect } from './RoleSelect'
 import { useAttempt, type Attempt } from './useAttempt'
 
@@ -71,6 +71,10 @@ export function ShareDialog({ board, onClose, onLeft, onChanged }: ShareDialogPr
                     {m.issuer === DISCORD_ISSUER ? (
                       <span className="badge discord" title={`Discord server ${m.clientId}: previews this board's links`}>
                         Discord
+                      </span>
+                    ) : m.issuer === SLACK_ISSUER ? (
+                      <span className="badge slack" title={`Slack workspace ${m.clientId}: unfurls this board's links`}>
+                        Slack
                       </span>
                     ) : (
                       m.kind === 'Agent' && <span className="badge agent" title={`${m.issuer} · ${m.clientId}`}>agent</span>

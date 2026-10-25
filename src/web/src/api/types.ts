@@ -1007,3 +1007,75 @@ export interface DiscordBotDetail {
   updatedAt: string | null
   servers: DiscordBotServer[]
 }
+
+/** Off: no admin set up the Slack app. Failed: Slack refused a token (problem says why). */
+export type SlackAppState = 'Off' | 'Connecting' | 'Online' | 'Failed'
+
+/** A Slack channel connected to a board. */
+export interface SlackChannel {
+  id: string
+  name: string
+}
+
+/** A Slack workspace where the app unfurls a board's links. */
+export interface SlackConnection {
+  teamId: string
+  teamName: string
+  /** The workspace's member on the board (a Viewer agent). */
+  agentId: string
+  wholeWorkspace: boolean
+  channels: SlackChannel[]
+  connectedAt: string
+  connectedBy: string | null
+}
+
+/** The workspace the Slack app is in, with the channels it was added to (not those shared with other organizations). */
+export interface SlackWorkspaceChoice {
+  teamId: string
+  name: string
+  channels: SlackChannel[]
+}
+
+/** Where the instance's Slack app can preview a board's links. */
+export interface SlackWorkspaces {
+  state: SlackAppState
+  workspaces: SlackWorkspaceChoice[]
+}
+
+/** A board a Slack workspace previews, with where. */
+export interface SlackBoardConnection {
+  boardId: string
+  shortId: string
+  boardName: string
+  wholeWorkspace: boolean
+  channels: SlackChannel[]
+}
+
+/** The workspace the Slack app is in, for admins. */
+export interface SlackAppWorkspace {
+  teamId: string
+  name: string
+  channelCount: number
+  boards: SlackBoardConnection[]
+}
+
+/** The instance's Slack app, for admins; never its tokens. */
+export interface SlackAppDetail {
+  state: SlackAppState
+  problem: string | null
+  /** Where the tokens come from: Configuration (Slack:BotToken and Slack:AppToken, read-only here) or Setup; null without them. */
+  source: 'Configuration' | 'Setup' | null
+  teamId: string | null
+  teamName: string | null
+  botName: string | null
+  /** The PrikBoard address pasted links are matched against; its host is the app's unfurl domain. */
+  publicUrl: string | null
+  /** Whether that comes from Slack:PublicUrl in the server's configuration (read-only here). */
+  publicUrlIsConfigured: boolean
+  updatedAt: string | null
+  /** The app manifest (JSON) to create the Slack app from. */
+  manifest: string
+  /** Slack's page for creating an app, with the manifest filled in. */
+  createAppUrl: string
+  workspaces: SlackAppWorkspace[]
+}

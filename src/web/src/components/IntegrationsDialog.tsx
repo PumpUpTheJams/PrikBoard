@@ -5,6 +5,7 @@ import { CloseIcon } from '../board/icons'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Dialog } from './Dialog'
 import { Select, type SelectOption } from './Select'
+import { SlackIntegration } from './SlackIntegration'
 
 /** The channel choice that previews the board in every channel of the server. */
 const WHOLE_SERVER = '*'
@@ -29,7 +30,7 @@ interface IntegrationsDialogProps {
 }
 
 /**
- * For owners: the apps this board is connected to. For now that is Discord. A board connects to channels of servers
+ * For owners: the apps this board is connected to, Discord and Slack ({@link SlackIntegration}). A board connects to channels of servers
  * the instance's bot is in, and/or to whole servers; links and readable ids preview there, and each connected channel
  * can also post the board's updates and decides where Save to PrikBoard puts cards. An admin sets the bot up under
  * Admin → Instance.
@@ -228,6 +229,7 @@ export function IntegrationsDialog({ board, buckets, isAdmin, onClose }: Integra
             </p>
           )}
         </section>
+        <SlackIntegration board={board} isAdmin={isAdmin} />
       </div>
 
       {removing && (

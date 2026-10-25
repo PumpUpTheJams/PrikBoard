@@ -81,6 +81,18 @@ builder.Services.AddSingleton<DiscordActivity>();
 builder.Services.AddHostedService(services => services.GetRequiredService<DiscordActivity>());
 // Images of messages saved from Discord, from Discord's own file hosts only (ChatSaves checks the URL).
 builder.Services.AddHttpClient(ChatSaves.AttachmentsClient, http => http.Timeout = TimeSpan.FromSeconds(15));
+// The Slack app runs in here too, over Socket Mode (Integrations/SlackGateway.cs); Slack:ApiUrl points it at the fake
+// Slack in tools/FakeSlack for local testing.
+builder.Services.AddHttpClient<SlackApi>(http =>
+{
+    http.BaseAddress = new Uri(builder.Configuration[SlackApi.ApiUrlSetting] is { Length: > 0 } slackApi ? slackApi.TrimEnd('/') + "/" : SlackApi.DefaultApiUrl);
+    http.Timeout = TimeSpan.FromSeconds(10);
+    http.DefaultRequestHeaders.UserAgent.ParseAdd($"PrikBoard/{AppVersion.Number}");
+});
+builder.Services.AddSingleton<SlackGateway>();
+builder.Services.AddSingleton<ISlackGateway>(services => services.GetRequiredService<SlackGateway>());
+builder.Services.AddHostedService(services => services.GetRequiredService<SlackGateway>());
+builder.Services.AddSingleton<SlackApp>();
 
 // MCP (Streamable HTTP, stateless): curated tools over the same handlers as the REST API; see Mcp/BoardTools.cs.
 builder.Services.AddHttpContextAccessor();
@@ -191,6 +203,8 @@ await using (var scope = app.Services.CreateAsyncScope())
     await app.Services.GetRequiredService<SignInProviders>().LoadAsync(db, CancellationToken.None);
     // The Discord bot, when configured or set up; it connects in the background.
     await app.Services.GetRequiredService<DiscordBot>().LoadAsync(db, CancellationToken.None);
+    // The Slack app likewise.
+    await app.Services.GetRequiredService<SlackApp>().LoadAsync(db, CancellationToken.None);
     // Without users (or in recovery mode) the setup key goes to the log.
     await app.Services.GetRequiredService<SetupKey>().OpenIfNeededAsync(db,
         app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(SetupKey)), CancellationToken.None);
@@ -266,6 +280,8 @@ api.MapAccessTokenEndpoints();
 api.MapAppSignInEndpoints();
 api.MapDiscordEndpoints();
 api.MapDiscordBotEndpoints();
+api.MapSlackEndpoints();
+api.MapSlackAppEndpoints();
 api.MapAdminEndpoints();
 api.MapSetupEndpoints();
 // MCP at /mcp, outside /api where MCP clients expect it; each tool checks board access itself.

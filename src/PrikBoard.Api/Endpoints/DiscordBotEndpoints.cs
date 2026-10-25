@@ -121,18 +121,9 @@ public static class DiscordBotEndpoints
         string guildId, IDiscordGateway gateway, PrikBoardDbContext db, BoardEvents events, DiscordActivity activity, CancellationToken ct)
     {
         var left = await gateway.LeaveAsync(guildId);
-        var agentId = await LinkPreviews.AgentIdAsync(db, ChatPlatform.Discord, guildId, ct);
-        if (agentId is null) return left ? TypedResults.NoContent() : TypedResults.NotFound();
-
-        // The server's agent goes, and with it its memberships, its ChatWorkspace row and its channel limits.
-        var boards = await db.BoardMembers.Where(m => m.PrincipalId == agentId).Select(m => m.BoardId).ToListAsync(ct);
-        await db.Agents.Where(a => a.Id == agentId).ExecuteDeleteAsync(ct);
-        foreach (var boardId in boards)
-        {
-            activity.RefreshBoard(boardId);
-            await events.AccessChangedAsync(boardId, agentId.Value, null);
-            await events.ChangedAsync(boardId, Guid.Empty);
-        }
+        var known = await LinkPreviews.AgentIdAsync(db, ChatPlatform.Discord, guildId, ct) is not null;
+        if (!known) return left ? TypedResults.NoContent() : TypedResults.NotFound();
+        await ChatConnections.ForgetWorkspaceAsync(db, events, ChatPlatform.Discord, guildId, activity.RefreshBoard, ct);
         return TypedResults.NoContent();
     }
 
@@ -141,14 +132,7 @@ public static class DiscordBotEndpoints
         var settings = bot.Current;
         var servers = gateway.Servers;
         var ids = servers.Select(s => s.Id).ToList();
-        var boards = await (
-                from guild in db.ChatWorkspaces
-                where guild.Platform == ChatPlatform.Discord && ids.Contains(guild.WorkspaceId)
-                join member in db.BoardMembers on guild.AgentId equals member.PrincipalId
-                select new { GuildId = guild.WorkspaceId, member.Board!.Id, member.Board.ShortId, member.Board.Name })
-            .AsNoTracking().ToListAsync(ct);
-        var limits = await db.ChatBoardChannels.AsNoTracking().Where(c => c.Platform == ChatPlatform.Discord && ids.Contains(c.WorkspaceId))
-            .ToDictionaryAsync(c => (c.WorkspaceId, c.BoardId), ct);
+        var boards = await ChatConnections.BoardsByWorkspaceAsync(db, ChatPlatform.Discord, ids, ct);
 
         var source = bot.TokenIsConfigured ? DiscordBotSource.Configuration : settings.HasStoredToken ? DiscordBotSource.Setup : (DiscordBotSource?)null;
         return new DiscordBotDetail(
@@ -162,12 +146,9 @@ public static class DiscordBotEndpoints
             settings.PublicUrl,
             bot.PublicUrlIsConfigured,
             settings.UpdatedAt,
-            servers.Select(s => new DiscordBotServer(s.Id, s.Name, s.Channels.Count, boards
-                    .Where(b => b.GuildId == s.Id)
-                    .OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase)
-                    .Select(b => limits.TryGetValue((s.Id, b.Id), out var limit)
-                        ? new DiscordBoardConnection(b.Id, b.ShortId, b.Name, limit.WholeWorkspace, DiscordChannelDetail.From(limit.Channels))
-                        : new DiscordBoardConnection(b.Id, b.ShortId, b.Name, false, []))
+            servers.Select(s => new DiscordBotServer(s.Id, s.Name, s.Channels.Count, boards[s.Id]
+                    .Select(b => new DiscordBoardConnection(b.Id, b.ShortId, b.Name, b.Limit?.WholeWorkspace ?? false,
+                        DiscordChannelDetail.From(b.Limit?.Channels ?? [])))
                     .ToList()))
                 .ToList());
     }

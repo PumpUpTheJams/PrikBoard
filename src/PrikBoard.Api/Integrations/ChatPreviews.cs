@@ -16,13 +16,21 @@ public static class ChatPreviews
     /// The sources in <paramref name="text"/> that preview here, each with its preview. <paramref name="allow"/> is asked
     /// before each lookup (the bot's rate limit per workspace); a refusal ends the list.
     /// </summary>
-    public static async Task<List<(string Source, LinkPreview Preview)>> ForMessageAsync(
+    public static Task<List<(string Source, LinkPreview Preview)>> ForMessageAsync(
         PrikBoardDbContext db, ChatPlatform platform, string workspaceId, string channelId, string text, LinkFinder links, string publicUrl,
-        CancellationToken ct,
-        Func<bool>? allow = null)
+        CancellationToken ct, Func<bool>? allow = null) =>
+        ForSourcesAsync(db, platform, workspaceId, channelId, LinkPreviews.Sources(text, links), publicUrl, ct, allow);
+
+    /// <summary>
+    /// The sources that preview here, each with its preview, at most <see cref="LinkPreviews.MaxPerMessage"/>: the links
+    /// Slack sends with <c>link_shared</c>, or what <see cref="ForMessageAsync"/> found in a Discord message.
+    /// </summary>
+    public static async Task<List<(string Source, LinkPreview Preview)>> ForSourcesAsync(
+        PrikBoardDbContext db, ChatPlatform platform, string workspaceId, string channelId, IEnumerable<string> sources, string publicUrl,
+        CancellationToken ct, Func<bool>? allow = null)
     {
         var shown = new List<(string, LinkPreview)>();
-        foreach (var source in LinkPreviews.Sources(text, links))
+        foreach (var source in sources.Distinct().Take(LinkPreviews.MaxPerMessage))
         {
             if (allow is not null && !allow()) break;
             if (await LinkPreviews.FindAsync(db, platform, workspaceId, source, channelId, publicUrl, ct) is { } preview) shown.Add((source, preview));
