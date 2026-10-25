@@ -63,6 +63,14 @@
   --fill-sky: #9ccbf5;
   --fill-coral: #f4a99a;
   --fill-lilac: #cdb8f5;
+  /* The fills as text or icons on a panel (the card tool, status labels); a scheme with pale fills makes them deeper. */
+  --tone-butter: var(--fill-butter);
+  --tone-mint: var(--fill-mint);
+  --tone-sky: var(--fill-sky);
+  --tone-coral: var(--fill-coral);
+  --tone-lilac: var(--fill-lilac);
+  /* A ghost button's own background; transparent where its outline shows well enough. */
+  --ghost-bg: transparent;
 
   /* Pen inks (InkColor): light ones for the dark board, dark ones for drawing over a card's fill. */
   --ink-chalk: #e6e8ec;
@@ -149,6 +157,12 @@
   --fill-sky: #dde7f3;
   --fill-coral: #edc8c4;
   --fill-lilac: #d7d1ec;
+  --tone-butter: #95690f;
+  --tone-mint: #2c7454;
+  --tone-sky: #3a66a3;
+  --tone-coral: #a8525e;
+  --tone-lilac: #64509f;
+  --ghost-bg: rgba(255, 255, 255, 0.4);
 
   --ink-chalk: #2b3a52;
   --ink-butter: #b8892a;
@@ -177,6 +191,7 @@
   --accent-ink: #1f2b40;
   --accent-bg: #44588a;
   --avatar-more-bg: #4a5d78;
+  --ghost-bg: transparent;
   color-scheme: dark;
   /* Inherited text resolves its color where it is set, so the bar sets it again with its own token. */
   color: var(--text);
@@ -365,7 +380,7 @@ input[aria-invalid='true'] {
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 7px;
-  background: transparent;
+  background: var(--ghost-bg);
 }
 
 .ghost:hover,
@@ -1554,11 +1569,11 @@ main {
   color: var(--accent);
 }
 
-.rail-button.tone-butter { color: var(--fill-butter); }
-.rail-button.tone-mint { color: var(--fill-mint); }
-.rail-button.tone-sky { color: var(--fill-sky); }
-.rail-button.tone-coral { color: var(--fill-coral); }
-.rail-button.tone-lilac { color: var(--fill-lilac); }
+.rail-button.tone-butter { color: var(--tone-butter); }
+.rail-button.tone-mint { color: var(--tone-mint); }
+.rail-button.tone-sky { color: var(--tone-sky); }
+.rail-button.tone-coral { color: var(--tone-coral); }
+.rail-button.tone-lilac { color: var(--tone-lilac); }
 
 /* The card button while a card is dragged: a trash can, lit up while the pointer is on it. */
 .rail-button.trash {
@@ -3082,15 +3097,15 @@ a.button.primary:hover {
   padding: 8px 12px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--fill-mint) 14%, var(--panel));
-  color: var(--fill-mint);
+  color: var(--tone-mint);
 }
 
 .sign-in-card .setup-result {
-  color: var(--fill-mint);
+  color: var(--tone-mint);
 }
 
 .setup-ok {
-  color: var(--fill-mint);
+  color: var(--tone-mint);
   font-size: 12px;
 }
 
@@ -3228,12 +3243,12 @@ a.button.primary:hover {
 
 .setup-check.ok .setup-check-status {
   background: color-mix(in srgb, var(--fill-mint) 16%, var(--panel));
-  color: var(--fill-mint);
+  color: var(--tone-mint);
 }
 
 .setup-check.warning .setup-check-status {
   background: color-mix(in srgb, var(--fill-butter) 16%, var(--panel));
-  color: var(--fill-butter);
+  color: var(--tone-butter);
 }
 
 .setup-check.failed .setup-check-status {
