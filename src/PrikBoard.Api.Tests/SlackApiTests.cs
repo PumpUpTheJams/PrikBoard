@@ -365,6 +365,88 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
     }
 
     [Fact]
+    public async Task Save_to_PrikBoard_links_the_account_and_saves_as_that_person()
+    {
+        await SetUpAppAsync(await Admin());
+        var owner = await factory.CreateSignedInClientAsync("slack-save@example.com");
+        var ownerId = (await owner.MeAsync()).Id;
+        var viewer = await factory.CreateSignedInClientAsync("slack-save-viewer@example.com");
+        var board = await owner.CreateBoardAsync("Inbox");
+        await owner.ShareAsync(board.Id, viewer, BoardRole.Viewer);
+        var doing = board.Buckets.Single(b => b.Name == "Doing");
+        await ConnectAsync(owner, board.Id, SlackApiFactory.Snapshot);
+        // Saved messages from this channel go to Doing first.
+        Assert.Equal(HttpStatusCode.BadRequest, (await owner.PutAsJsonAsync($"/api/boards/{board.Id}/slack/{Fake.TeamId}/channels/{SlackApiFactory.Snapshot}",
+            new { updates = Array.Empty<string>(), saveBucketId = Guid.NewGuid() })).StatusCode);
+        (await owner.PutAsJsonAsync($"/api/boards/{board.Id}/slack/{Fake.TeamId}/channels/{SlackApiFactory.Snapshot}",
+            new { updates = Array.Empty<string>(), saveBucketId = doing.Id })).EnsureSuccessStatusCode();
+        var image = factory.Workspace.Upload("screenshot.png", "image/png", TestImages.Png(3, 2));
+        var message = await factory.Workspace.PostAsync(SlackApiFactory.Snapshot, SlackApiFactory.Jimmy,
+            "Login breaks on *Safari* &amp; Edge, says <@U0ADMIN001>: <https://example.com/log|the log>\nSecond line", [image]);
+
+        // Not known yet: a link to connect, which the owner checks and accepts in PrikBoard.
+        var connect = await ShortcutAsync(message, SlackApiFactory.Jimmy);
+        Assert.Null(connect["callback_id"]);
+        var code = System.Text.RegularExpressions.Regex.Match(connect.ToJsonString(Plain), "connect/slack-account\\?code=([A-Za-z0-9_-]+)").Groups[1].Value;
+        Assert.NotEmpty(code);
+        Assert.Equal("Jimmy", (await owner.GetFromJsonAsync<SlackAccountLinkPreview>($"/api/me/slack-account/links/{code}"))!.SlackName);
+        Assert.Equal(HttpStatusCode.Forbidden, (await LinkAccount(owner, code, origin: "https://evil.example")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await LinkAccount(owner, code)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await LinkAccount(owner, code)).StatusCode);
+        Assert.True((await owner.GetFromJsonAsync<SlackAccountStatus>("/api/me/slack-account"))!.Linked);
+        // A Discord code isn't one: each platform redeems its own.
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.GetAsync($"/api/me/discord-account/links/{code}")).StatusCode);
+
+        // Known now: the modal offers the board's buckets, the first one picked, and the message's first line as title.
+        var save = await ShortcutAsync(message, SlackApiFactory.Jimmy);
+        Assert.Equal(SlackBlocks.SaveCallback, save["callback_id"]!.GetValue<string>());
+        var json = save.ToJsonString(Plain);
+        Assert.Contains("\"Inbox\"", json);
+        Assert.Equal(SlackBlocks.WhereValue(board.Id, doing.Id), save["blocks"]![0]!["element"]!["initial_option"]!["value"]!.GetValue<string>());
+        Assert.Contains("Login breaks on *Safari* & Edge, says @Ada (admin): [the log](https://example.com/log)", json);
+
+        var answer = await SubmitAsync(new() { ["where"] = SlackBlocks.WhereValue(board.Id, doing.Id), ["title"] = "Login on Safari" });
+        Assert.Equal(SlackApiFactory.Jimmy, answer.User);
+        Assert.Contains($"Saved as {board.Key}-1 on Inbox", answer.Body!.ToJsonString(Plain));
+        Assert.Contains("pushpin", Message(message).Reactions);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+            var card = await db.Cards.SingleAsync(c => c.BoardId == board.Id);
+            Assert.Equal(("Login on Safari", doing.Id, ownerId), (card.Title, card.BucketId, card.CreatedById));
+            var text = card.Components.Single(c => c.Kind == CardComponentKind.Text).Text!;
+            Assert.StartsWith("> Login breaks on *Safari* & Edge, says @Ada (admin): [the log](https://example.com/log)\n> Second line", text);
+            Assert.Contains("From **Jimmy** in #snapshot", text);
+            var link = Assert.Single(card.Components.Single(c => c.Kind == CardComponentKind.Links).Links);
+            Assert.Equal(("Message in Slack", factory.Workspace.Permalink(SlackApiFactory.Snapshot, message.Ts)), (link.Title, link.Url));
+            // The image came from the fake's file host, with the bot token.
+            Assert.Equal(1, await db.Images.CountAsync(i => i.CardId == card.Id));
+        }
+
+        // Someone who can only view the board has nowhere to save.
+        var viewerCode = (await ShortcutAsync(message, "U0ADMIN001")).ToJsonString(Plain);
+        Assert.Equal(HttpStatusCode.OK, (await LinkAccount(viewer,
+            System.Text.RegularExpressions.Regex.Match(viewerCode, "code=([A-Za-z0-9_-]+)").Groups[1].Value)).StatusCode);
+        Assert.Contains("There is no board here you can add cards to", (await ShortcutAsync(message, "U0ADMIN001")).ToJsonString(Plain));
+
+        // Unlinked, the next shortcut asks to connect again.
+        Assert.Equal(HttpStatusCode.NoContent, (await owner.DeleteAsync("/api/me/slack-account")).StatusCode);
+        Assert.False((await owner.GetFromJsonAsync<SlackAccountStatus>("/api/me/slack-account"))!.Linked);
+        Assert.Contains("connect/slack-account", (await ShortcutAsync(message, SlackApiFactory.Jimmy)).ToJsonString(Plain));
+    }
+
+    [Fact]
+    public void Slack_text_turns_into_names_and_markdown()
+    {
+        var names = new Dictionary<string, string?> { ["U1"] = "Ada" };
+        Assert.Equal("@Ada and @U2 in #general, see [docs](https://x.example) or https://y.example; @here &amp; <b>",
+            SlackText.Plain("<@U1> and <@U2> in <#C1|general>, see <https://x.example|docs> or <https://y.example>; <!here> &amp;amp; &lt;b&gt;",
+                id => names.GetValueOrDefault(id)));
+        Assert.Equal("@team", SlackText.Plain("<!subteam^S1|@team>", _ => null));
+    }
+
+    [Fact]
     public void Blocks_escape_what_people_typed()
     {
         var blocks = new SlackBlocks(SlackApiFactory.PublicUrl);
@@ -442,6 +524,36 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
 
     private List<FakeMessage> BotPosts(string channel) =>
         factory.Workspace.Messages.Where(m => m.Channel == channel && m.User == Fake.BotUserId).ToList();
+
+    /// <summary>Uses Save to PrikBoard on a message as someone, and waits for the modal the app opens.</summary>
+    private async Task<JsonNode> ShortcutAsync(FakeMessage message, string user)
+    {
+        var before = factory.Workspace.Views.Count;
+        Assert.True(await factory.Workspace.ShortcutAsync(message.Channel, message.Ts, user));
+        await Eventually(() => factory.Workspace.Views.Count > before);
+        var view = factory.Workspace.Views[before];
+        Assert.Equal(user, view.User);
+        _lastView = view.Id;
+        return view.View;
+    }
+
+    private string? _lastView;
+
+    /// <summary>Submits the last modal opened, and waits for the app's answer only the person sees.</summary>
+    private async Task<FakeResponse> SubmitAsync(Dictionary<string, string> values)
+    {
+        var before = factory.Workspace.Responses.Count;
+        Assert.True(await factory.Workspace.SubmitAsync(_lastView!, values));
+        await Eventually(() => factory.Workspace.Responses.Count > before);
+        return factory.Workspace.Responses[before];
+    }
+
+    private static Task<HttpResponseMessage> LinkAccount(HttpClient client, string code, string origin = "http://localhost")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/me/slack-account") { Content = JsonContent.Create(new { code }) };
+        request.Headers.Add("Origin", origin);
+        return client.SendAsync(request);
+    }
 
     /// <summary>Runs a slash command as Jimmy and waits for the app's answer.</summary>
     private async Task<FakeResponse> CommandAsync(string channel, string text)

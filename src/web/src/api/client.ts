@@ -11,6 +11,8 @@ import type {
   DiscordConnection,
   DiscordServers,
   ChatUpdate,
+  SlackAccountLinkPreview,
+  SlackAccountStatus,
   SlackAppDetail,
   SlackConnection,
   SlackWorkspaces,
@@ -221,11 +223,15 @@ export const api = {
   /** A channel, or every channel of the workspace when channelId is null. */
   connectSlackChannel: (boardId: string, teamId: string, channelId: string | null) =>
     request<SlackConnection[]>('POST', `/boards/${boardId}/slack`, { teamId, channelId }),
-  updateSlackChannel: (boardId: string, teamId: string, channelId: string, settings: { updates: ChatUpdate[] }) =>
+  updateSlackChannel: (boardId: string, teamId: string, channelId: string, settings: { updates: ChatUpdate[]; saveBucketId: string | null }) =>
     request<SlackConnection[]>('PUT', `/boards/${boardId}/slack/${teamId}/channels/${channelId}`, settings),
   removeSlackConnection: (boardId: string, teamId: string) => request<void>('DELETE', `/boards/${boardId}/slack/${teamId}`),
   removeSlackChannel: (boardId: string, teamId: string, channelId: string) =>
     request<void>('DELETE', `/boards/${boardId}/slack/${teamId}/channels/${channelId}`),
+  getSlackAccount: () => request<SlackAccountStatus>('GET', '/me/slack-account'),
+  previewSlackAccountLink: (code: string) => request<SlackAccountLinkPreview>('GET', `/me/slack-account/links/${encodeURIComponent(code)}`),
+  linkSlackAccount: (code: string) => request<SlackAccountStatus>('POST', '/me/slack-account', { code }),
+  unlinkSlackAccount: () => request<void>('DELETE', '/me/slack-account'),
   removeSlackWholeWorkspace: (boardId: string, teamId: string) => request<void>('DELETE', `/boards/${boardId}/slack/${teamId}/whole-workspace`),
 
   listBoards: () => request<BoardSummary[]>('GET', '/boards'),

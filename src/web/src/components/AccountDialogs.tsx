@@ -1,10 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { api, errorMessage, linkUrl } from '../api/client'
-import type { AuthProvider, BoardSummary, Caller, DiscordAccountStatus } from '../api/types'
+import type { AuthProvider, BoardSummary, Caller } from '../api/types'
 import { AccessTokens } from './AccessTokens'
 import { Face } from './Avatar'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Dialog } from './Dialog'
+import type { ChatPlatform } from './discord'
 
 /**
  * Asked once after signing in, while no name is chosen: the provider's name is only a suggestion and is not stored
@@ -186,7 +187,8 @@ export function AccountDialog({ user, boards, onChange, onClose }: AccountDialog
           )}
         </section>
 
-        <DiscordAccount />
+        <ChatAccount platform="Discord" />
+        <ChatAccount platform="Slack" />
         <AccessTokens boards={boards} />
         {error && <p className="widget-error">{error}</p>}
       </div>
@@ -204,32 +206,54 @@ export function AccountDialog({ user, boards, onChange, onClose }: AccountDialog
   )
 }
 
+/** How a chat app's bot knows you: a sign-in with that app (Discord only), or a link you made from the bot. */
+interface ChatAccountStatus {
+  source: 'SignIn' | 'Link' | null
+  linkedAt: string | null
+}
+
+const accounts: Record<ChatPlatform, { status: () => Promise<ChatAccountStatus>; unlink: () => Promise<void>; signedIn?: string }> = {
+  Discord: {
+    status: () => api.getDiscordAccount().then((s) => ({ source: s.source, linkedAt: s.linkedAt })),
+    unlink: () => api.unlinkDiscordAccount(),
+    signedIn: 'You sign in with Discord, so the PrikBoard bot knows you there: Save to PrikBoard works as you.',
+  },
+  Slack: {
+    status: () => api.getSlackAccount().then((s) => ({ source: s.linked ? 'Link' : null, linkedAt: s.linkedAt })),
+    unlink: () => api.unlinkSlackAccount(),
+  },
+}
+
 /**
- * Whether PrikBoard's Discord bot knows who you are there, for Save to PrikBoard: through a Discord sign-in, or a link
- * made from the bot's "Connect your PrikBoard account" button, which can be undone here.
+ * Whether a chat app's bot knows who you are there, for Save to PrikBoard: through a Discord sign-in, or a link made
+ * from the bot's "Connect your PrikBoard account", which can be undone here.
  */
-function DiscordAccount() {
-  const [status, setStatus] = useState<DiscordAccountStatus | null>(null)
+function ChatAccount({ platform }: { platform: ChatPlatform }) {
+  const [status, setStatus] = useState<ChatAccountStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api.getDiscordAccount().then(setStatus, (e) => setError(errorMessage(e)))
-  }, [])
+    accounts[platform].status().then(setStatus, (e) => setError(errorMessage(e)))
+  }, [platform])
 
   async function unlink() {
     setError(null)
     try {
-      await api.unlinkDiscordAccount()
-      setStatus(await api.getDiscordAccount())
+      await accounts[platform].unlink()
+      setStatus(await accounts[platform].status())
     } catch (e) {
       setError(errorMessage(e))
     }
   }
 
   if (status === null && error === null) return null
+  const notLinked =
+    platform === 'Slack'
+      ? 'Not linked. In Slack, use Save to PrikBoard under a message’s More actions; the app then offers to connect your account.'
+      : 'Not linked. In Discord, use Save to PrikBoard on a message; the bot then offers to connect your account.'
   return (
     <section className="dialog-section">
-      <h3>Discord</h3>
+      <h3>{platform}</h3>
       {status?.source === 'Link' ? (
         <ul className="row-list">
           <li>
@@ -241,11 +265,7 @@ function DiscordAccount() {
           </li>
         </ul>
       ) : (
-        <p className="dialog-hint">
-          {status?.source === 'SignIn'
-            ? 'You sign in with Discord, so the PrikBoard bot knows you there: Save to PrikBoard works as you.'
-            : 'Not linked. In Discord, use Save to PrikBoard on a message; the bot then offers to connect your account.'}
-        </p>
+        <p className="dialog-hint">{status?.source === 'SignIn' ? accounts[platform].signedIn : notLinked}</p>
       )}
       {error && <p className="widget-error">{error}</p>}
     </section>

@@ -9,15 +9,17 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Id">Slack's id for it (C… or G…).</param>
 /// <param name="Name">Its name, without the #.</param>
 /// <param name="Updates">What the app posts there as it happens on the board.</param>
-public sealed record SlackChannelDetail(string Id, string Name, List<ChatUpdate> Updates)
+/// <param name="SaveBucketId">Where Save to PrikBoard in this channel puts cards; null for the board's first bucket.</param>
+public sealed record SlackChannelDetail(string Id, string Name, List<ChatUpdate> Updates, Guid? SaveBucketId)
 {
     public static List<SlackChannelDetail> From(IEnumerable<ChatChannel> channels) =>
-        channels.Select(c => new SlackChannelDetail(c.Id, c.Name, ChatUpdateLists.From(c.Updates))).ToList();
+        channels.Select(c => new SlackChannelDetail(c.Id, c.Name, ChatUpdateLists.From(c.Updates), c.SaveBucketId)).ToList();
 }
 
-/// <summary>What a Slack channel connected to a board does for it.</summary>
-/// <param name="Updates">The board activity the app posts in the channel; empty for none. Replaces what was set.</param>
-public sealed record UpdateSlackChannelRequest([property: Required] List<ChatUpdate> Updates);
+/// <summary>What a Slack channel connected to a board does for it. Both fields replace what was set.</summary>
+/// <param name="Updates">The board activity the app posts in the channel; empty for none.</param>
+/// <param name="SaveBucketId">The bucket Save to PrikBoard in this channel puts cards in; null for the board's first bucket.</param>
+public sealed record UpdateSlackChannelRequest([property: Required] List<ChatUpdate> Updates, Guid? SaveBucketId = null);
 
 /// <summary>A Slack workspace connected to a board, for its owners.</summary>
 /// <param name="TeamId">Slack's id for the workspace (T…).</param>
@@ -114,3 +116,17 @@ public sealed record SetSlackAppRequest(
     [property: StringLength(300, MinimumLength = 1)] string? BotToken = null,
     [property: StringLength(300, MinimumLength = 1)] string? AppToken = null,
     [property: StringLength(SlackAppSettings.PublicUrlMaxLength, MinimumLength = 1)] string? PublicUrl = null);
+
+/// <summary>Whether the Slack app knows who you are in Slack, for Save to PrikBoard.</summary>
+/// <param name="Linked">Whether it does: a link you made from the app's "Connect your PrikBoard account".</param>
+/// <param name="LinkedAt">When you made the link.</param>
+public sealed record SlackAccountStatus(bool Linked, DateTimeOffset? LinkedAt);
+
+/// <summary>The Slack user behind a link code, so you can check it is you before linking.</summary>
+/// <param name="SlackName">Their name in Slack, as Slack gave it to the app.</param>
+/// <param name="ExpiresAt">When the code stops working (UTC).</param>
+public sealed record SlackAccountLinkPreview(string SlackName, DateTimeOffset ExpiresAt);
+
+/// <summary>Links the Slack account behind a code from the app to you.</summary>
+/// <param name="Code">The code from the app's "Connect your PrikBoard account" link.</param>
+public sealed record LinkSlackAccountRequest([property: Required, StringLength(100, MinimumLength = 1)] string Code);

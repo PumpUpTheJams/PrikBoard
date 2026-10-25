@@ -97,7 +97,7 @@ public class SlackApi(HttpClient http)
         }
     }
 
-    /// <summary>Attaches previews to a message's links: <paramref name="unfurls"/> maps each URL, as Slack sent it, to its attachment.</summary>
+    /// <summary>Attaches previews to a message's links (also again, to bring them up to date): <paramref name="unfurls"/> maps each URL, as Slack sent it, to its attachment.</summary>
     public async Task UnfurlAsync(string botToken, string channelId, string messageTs, IReadOnlyDictionary<string, object> unfurls, CancellationToken ct)
     {
         using var _ = await CallAsync("chat.unfurl", botToken,
@@ -110,6 +110,58 @@ public class SlackApi(HttpClient http)
         using var _ = await CallAsync("chat.postMessage", botToken,
             [new("channel", channelId), new("text", text), new("unfurl_links", "false"), new("unfurl_media", "false"),
              new("attachments", JsonSerializer.Serialize(new[] { attachment }, JsonSerializerOptions.Web))], ct);
+    }
+
+    /// <summary>Opens a modal for the person who used a shortcut; <paramref name="triggerId"/> works once, for 3 seconds.</summary>
+    public async Task OpenViewAsync(string botToken, string triggerId, object view, CancellationToken ct)
+    {
+        using var _ = await CallAsync("views.open", botToken,
+            [new("trigger_id", triggerId), new("view", JsonSerializer.Serialize(view, JsonSerializerOptions.Web))], ct);
+    }
+
+    /// <summary>A message in the channel only <paramref name="userId"/> sees.</summary>
+    public async Task PostEphemeralAsync(string botToken, string channelId, string userId, string text, object? attachment, CancellationToken ct)
+    {
+        List<KeyValuePair<string, string>> form = [new("channel", channelId), new("user", userId), new("text", text)];
+        if (attachment is not null) form.Add(new("attachments", JsonSerializer.Serialize(new[] { attachment }, JsonSerializerOptions.Web)));
+        using var _ = await CallAsync("chat.postEphemeral", botToken, form, ct);
+    }
+
+    /// <summary>Reacts to a message as the bot; a reaction that is there already counts as done.</summary>
+    public async Task AddReactionAsync(string botToken, string channelId, string messageTs, string emoji, CancellationToken ct)
+    {
+        try
+        {
+            using var _ = await CallAsync("reactions.add", botToken, [new("channel", channelId), new("timestamp", messageTs), new("name", emoji)], ct);
+        }
+        catch (SlackApiException error) when (error.Error == "already_reacted")
+        {
+            // Saved before.
+        }
+    }
+
+    /// <summary>The link that opens a message in Slack.</summary>
+    public async Task<string> PermalinkAsync(string botToken, string channelId, string messageTs, CancellationToken ct)
+    {
+        using var json = await CallAsync("chat.getPermalink", botToken, [new("channel", channelId), new("message_ts", messageTs)], ct);
+        return json.RootElement.GetProperty("permalink").GetString()!;
+    }
+
+    /// <summary>A person's name as Slack shows it (display name, else real name, else user name); null for one the bot can't see.</summary>
+    public async Task<string?> UserNameAsync(string botToken, string userId, CancellationToken ct)
+    {
+        try
+        {
+            using var json = await CallAsync("users.info", botToken, [new("user", userId)], ct);
+            var user = json.RootElement.GetProperty("user");
+            string? Text(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.GetString() is { Length: > 0 } s ? s : null;
+            return (user.TryGetProperty("profile", out var profile) ? Text(profile, "display_name") ?? Text(profile, "real_name") : null)
+                   ?? Text(user, "real_name") ?? Text(user, "name");
+        }
+        catch (SlackApiException error) when (error.Error is "user_not_found" or "user_not_visible")
+        {
+            return null;
+        }
     }
 
     /// <summary>

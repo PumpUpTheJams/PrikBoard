@@ -223,7 +223,7 @@ export function IntegrationsDialog({ board, buckets, isAdmin, onClose }: Integra
             </p>
           )}
         </section>
-        <SlackIntegration board={board} isAdmin={isAdmin} />
+        <SlackIntegration board={board} buckets={buckets} isAdmin={isAdmin} />
       </div>
 
       {removing && (

@@ -9,17 +9,19 @@ using PrikBoard.Api.Live;
 
 namespace PrikBoard.Api.Integrations;
 
-/// <summary>A Discord message to save as a card, as the bot read it.</summary>
-/// <param name="Text">Its text, with mentions as names (Discord's clean content).</param>
-/// <param name="AuthorName">Who wrote it, as Discord shows them.</param>
+/// <summary>A chat message to save as a card, as the bot read it.</summary>
+/// <param name="Text">Its text, with mentions as names (Discord's clean content, <see cref="SlackText.Plain"/> for Slack).</param>
+/// <param name="AuthorName">Who wrote it, as the chat app shows them.</param>
 /// <param name="ChannelName">The channel it was in, without the #.</param>
-/// <param name="JumpUrl">The link that opens it in Discord.</param>
+/// <param name="JumpUrl">The link that opens it in the chat app.</param>
 /// <param name="SentAt">When it was sent.</param>
 /// <param name="Attachments">Its files; images among them are attached to the card.</param>
+/// <param name="Platform">The chat app it is from, for the link's name and where its images may be fetched.</param>
 public sealed record SavedMessage(
-    string Text, string AuthorName, string ChannelName, string JumpUrl, DateTimeOffset SentAt, IReadOnlyList<SavedAttachment> Attachments);
+    string Text, string AuthorName, string ChannelName, string JumpUrl, DateTimeOffset SentAt, IReadOnlyList<SavedAttachment> Attachments,
+    ChatPlatform Platform = ChatPlatform.Discord);
 
-/// <summary>A file on a Discord message.</summary>
+/// <summary>A file on a chat message.</summary>
 public sealed record SavedAttachment(string Url, string FileName, string? ContentType, long Size);
 
 /// <summary>A board someone may save to from a chat workspace, with its buckets and the one picked first.</summary>
@@ -28,18 +30,20 @@ public sealed record SaveTarget(Guid BoardId, string Name, IReadOnlyList<(Guid I
 /// <summary>
 /// Save to PrikBoard, apart from the chat apps themselves so tests can run it: which boards a person may save to from a
 /// workspace, and the card a message becomes. The card is created through createCard as the person
-/// (<see cref="CardHistory.ActingAs"/>), so their role decides and the card's history names them. Only Discord messages
-/// are saved so far: the link back and the image hosts are Discord's (docs/slack.md, phase 4).
+/// (<see cref="CardHistory.ActingAs"/>), so their role decides and the card's history names them. Images come from the
+/// chat app's own file hosts only: Discord's CDN, or Slack's <c>files.slack.com</c> with the bot token (and the configured
+/// <c>Slack:ApiUrl</c>'s host, for the fake Slack).
 /// </summary>
-public sealed class ChatSaves(IHttpClientFactory http, FileStore files, BoardEvents events, ILogger<ChatSaves> logger)
+public sealed class ChatSaves(IHttpClientFactory http, FileStore files, BoardEvents events, IConfiguration config, ILogger<ChatSaves> logger)
 {
-    /// <summary>The HTTP client that fetches message images from Discord's file hosts.</summary>
-    public const string AttachmentsClient = "discord-attachments";
+    /// <summary>The HTTP client that fetches message images from the chat apps' file hosts.</summary>
+    public const string AttachmentsClient = "chat-attachments";
 
     /// <summary>Images taken from one message.</summary>
     public const int MaxImages = 4;
 
-    private static readonly string[] AttachmentHosts = ["cdn.discordapp.com", "media.discordapp.net"];
+    private static readonly string[] DiscordHosts = ["cdn.discordapp.com", "media.discordapp.net"];
+    private static readonly string[] SlackHosts = ["files.slack.com"];
 
     /// <summary>
     /// The boards <paramref name="userId"/> can edit that are connected to this workspace, the ones in this channel first,
@@ -82,8 +86,10 @@ public sealed class ChatSaves(IHttpClientFactory http, FileStore files, BoardEve
     /// Creates the card as <paramref name="userId"/>: the message as a Text component, a link back to it, and its images.
     /// Null with a reason when it couldn't be saved.
     /// </summary>
+    /// <remarks><paramref name="filesToken"/> is the bearer token Slack's file host wants (the bot token); Discord's needs none.</remarks>
     public async Task<(CardDetail? Card, string? Problem)> SaveAsync(
-        PrikBoardDbContext db, Guid userId, Guid boardId, Guid? bucketId, string title, SavedMessage message, CancellationToken ct)
+        PrikBoardDbContext db, Guid userId, Guid boardId, Guid? bucketId, string title, SavedMessage message, CancellationToken ct,
+        string? filesToken = null)
     {
         if (await BoardAccess.RoleOnBoardAsync(db, boardId, userId, ct) is not >= BoardRole.Editor)
         {
@@ -100,10 +106,10 @@ public sealed class ChatSaves(IHttpClientFactory http, FileStore files, BoardEve
             Components:
             [
                 new NewCardComponent(CardComponentKind.Text, Text: text),
-                new NewCardComponent(CardComponentKind.Links, Links: [new CardLink("Message in Discord", message.JumpUrl)]),
+                new NewCardComponent(CardComponentKind.Links, Links: [new CardLink($"Message in {message.Platform}", message.JumpUrl)]),
             ]);
 
-        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(UserPrincipal.IdClaim, userId.ToString())], "discord", UserPrincipal.IdClaim, null));
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(UserPrincipal.IdClaim, userId.ToString())], "chat", UserPrincipal.IdClaim, null));
         CardDetail card;
         using (CardHistory.ActingAs(userId))
         {
@@ -114,35 +120,46 @@ public sealed class ChatSaves(IHttpClientFactory http, FileStore files, BoardEve
             }
             card = value;
 
-            foreach (var attachment in message.Attachments.Where(IsImage).Take(MaxImages))
+            foreach (var attachment in message.Attachments.Where(a => IsImage(a, message.Platform)).Take(MaxImages))
             {
-                await AttachAsync(db, userId, boardId, card.Id, attachment, ct);
+                await AttachAsync(db, userId, boardId, card.Id, attachment, message.Platform == ChatPlatform.Slack ? filesToken : null, ct);
             }
         }
         await events.ChangedAsync(boardId, userId);
         return (card, null);
     }
 
-    private static bool IsImage(SavedAttachment attachment) =>
+    private bool IsImage(SavedAttachment attachment, ChatPlatform platform) =>
         attachment.ContentType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == true
         && attachment.Size <= ImageFormats.MaxBytes
         && Uri.TryCreate(attachment.Url, UriKind.Absolute, out var url)
-        && url.Scheme == Uri.UriSchemeHttps
-        && AttachmentHosts.Contains(url.Host, StringComparer.OrdinalIgnoreCase);
+        && (url.Scheme == Uri.UriSchemeHttps && (platform == ChatPlatform.Slack ? SlackHosts : DiscordHosts).Contains(url.Host, StringComparer.OrdinalIgnoreCase)
+            || platform == ChatPlatform.Slack && IsConfiguredSlackHost(url));
 
-    /// <summary>Fetches an image from Discord and attaches it to the card; one that fails is left out.</summary>
-    private async Task AttachAsync(PrikBoardDbContext db, Guid userId, Guid boardId, Guid cardId, SavedAttachment attachment, CancellationToken ct)
+    /// <summary>The configured Slack API's own host (the fake Slack in tools/FakeSlack serves its files there).</summary>
+    private bool IsConfiguredSlackHost(Uri url) =>
+        Uri.TryCreate(config[SlackApi.ApiUrlSetting], UriKind.Absolute, out var api)
+        && url.Scheme == api.Scheme && string.Equals(url.Authority, api.Authority, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Fetches an image from the chat app and attaches it to the card; one that fails is left out. HttpClient drops the
+    /// bearer token on redirects, so it never reaches another host.
+    /// </summary>
+    private async Task AttachAsync(
+        PrikBoardDbContext db, Guid userId, Guid boardId, Guid cardId, SavedAttachment attachment, string? bearer, CancellationToken ct)
     {
         try
         {
-            using var response = await http.CreateClient(AttachmentsClient).GetAsync(attachment.Url, HttpCompletionOption.ResponseHeadersRead, ct);
+            using var request = new HttpRequestMessage(HttpMethod.Get, attachment.Url);
+            if (bearer is not null) request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer);
+            using var response = await http.CreateClient(AttachmentsClient).SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             if (!response.IsSuccessStatusCode) return;
             await using var body = await response.Content.ReadAsStreamAsync(ct);
             await ImageEndpoints.AddImage(boardId, body, userId, db, files, ct, attachment.FileName, cardId);
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException)
         {
-            logger.LogInformation(error, "An image of a saved Discord message could not be fetched.");
+            logger.LogInformation(error, "An image of a saved chat message could not be fetched.");
         }
     }
 }

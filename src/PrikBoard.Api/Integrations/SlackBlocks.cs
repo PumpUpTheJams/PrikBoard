@@ -126,6 +126,92 @@ public sealed class SlackBlocks(string publicUrl)
         return Attachment(Brand, blocks);
     }
 
+    /// <summary>The modal's <c>callback_id</c> for Save to PrikBoard.</summary>
+    public const string SaveCallback = "save_to_prikboard";
+
+    /// <summary>Options a select takes in Slack, and characters in an option's text.</summary>
+    private const int MaxOptions = 100, MaxOptionText = 75;
+
+    /// <summary>
+    /// Save to PrikBoard's modal: where (one select with a group per board and its buckets, the one picked first already
+    /// chosen), the title, and whose message it is. <paramref name="draft"/> comes back with the submission
+    /// (<c>private_metadata</c>), to find the message again.
+    /// </summary>
+    public static Dictionary<string, object> SaveView(string draft, IReadOnlyList<SaveTarget> targets, string title, string authorName, string channelName)
+    {
+        var options = 0;
+        Dictionary<string, object>? initial = null;
+        var groups = new List<object>();
+        foreach (var target in targets)
+        {
+            List<(Guid? Id, string Name)> choices = target.Buckets.Count == 0
+                ? [(null, "On the board")]
+                : [.. target.Buckets.Select(b => ((Guid?)b.Id, b.Name))];
+            var group = new List<object>();
+            foreach (var (id, name) in choices)
+            {
+                if (options++ >= MaxOptions) break;
+                var option = Option(name, WhereValue(target.BoardId, id));
+                group.Add(option);
+                if (initial is null && target == targets[0] && id == target.DefaultBucketId) initial = option;
+            }
+            if (group.Count > 0) groups.Add(new Dictionary<string, object> { ["label"] = Plain(Cut(target.Name, MaxOptionText)), ["options"] = group });
+        }
+        var select = new Dictionary<string, object> { ["type"] = "static_select", ["action_id"] = "where", ["option_groups"] = groups };
+        if (initial is not null) select["initial_option"] = initial;
+
+        return Modal(SaveCallback, draft, "Save",
+        [
+            new Dictionary<string, object> { ["type"] = "input", ["block_id"] = "where", ["label"] = Plain("Board and bucket"), ["element"] = select },
+            new Dictionary<string, object>
+            {
+                ["type"] = "input",
+                ["block_id"] = "title",
+                ["label"] = Plain("Card title"),
+                ["element"] = new Dictionary<string, object>
+                {
+                    ["type"] = "plain_text_input", ["action_id"] = "title", ["initial_value"] = title, ["max_length"] = 200,
+                },
+            },
+            new Dictionary<string, object>
+            {
+                ["type"] = "context",
+                ["elements"] = new List<object> { Mrkdwn($"From *{Escape(authorName)}* in #{Escape(channelName)}, with up to {ChatSaves.MaxImages} of its images") },
+            },
+        ]);
+    }
+
+    /// <summary>A select option's value for a board and bucket (null: loose on the board), and back.</summary>
+    public static string WhereValue(Guid boardId, Guid? bucketId) => $"{boardId:N}:{bucketId:N}";
+
+    public static (Guid BoardId, Guid? BucketId)? ParseWhere(string? value) =>
+        value?.Split(':') is [var board, var bucket] && Guid.TryParse(board, out var boardId)
+            ? (boardId, Guid.TryParse(bucket, out var bucketId) ? bucketId : null)
+            : null;
+
+    /// <summary>A modal that only says something, with a Close button.</summary>
+    public static Dictionary<string, object> NoticeView(string mrkdwn) =>
+        Modal(null, null, null, [Section(mrkdwn)]);
+
+    private static Dictionary<string, object> Modal(string? callbackId, string? metadata, string? submit, List<object> blocks)
+    {
+        var view = new Dictionary<string, object>
+        {
+            ["type"] = "modal",
+            ["title"] = Plain("Save to PrikBoard"),
+            ["close"] = Plain(submit is null ? "Close" : "Cancel"),
+            ["blocks"] = blocks,
+        };
+        if (callbackId is not null) view["callback_id"] = callbackId;
+        if (metadata is not null) view["private_metadata"] = metadata;
+        if (submit is not null) view["submit"] = Plain(submit);
+        return view;
+    }
+
+    private static Dictionary<string, object> Option(string text, string value) => new() { ["text"] = Plain(Cut(text, MaxOptionText)), ["value"] = value };
+
+    private static Dictionary<string, object> Plain(string text) => new() { ["type"] = "plain_text", ["text"] = text };
+
     /// <summary>A card as a line in an update or the snapshot: its readable id linking to it, and its title.</summary>
     public string CardLine(string readableId, string path, string title) =>
         $"{Link(_site + path, readableId)} {Escape(Cut(title, 80))}";

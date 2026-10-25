@@ -1017,6 +1017,8 @@ export interface SlackChannel {
   name: string
   /** What the app posts there as it happens on the board. */
   updates: ChatUpdate[]
+  /** Where Save to PrikBoard in this channel puts cards; null for the board's first bucket. */
+  saveBucketId: string | null
 }
 
 /** A Slack workspace where the app unfurls a board's links. */
@@ -1080,4 +1082,16 @@ export interface SlackAppDetail {
   /** Slack's page for creating an app, with the manifest filled in. */
   createAppUrl: string
   workspaces: SlackAppWorkspace[]
+}
+
+/** Whether the Slack app knows who you are, for Save to PrikBoard: a link you made from the app. */
+export interface SlackAccountStatus {
+  linked: boolean
+  linkedAt: string | null
+}
+
+/** The Slack user behind a link code from the app, so you can check it is you. */
+export interface SlackAccountLinkPreview {
+  slackName: string
+  expiresAt: string
 }

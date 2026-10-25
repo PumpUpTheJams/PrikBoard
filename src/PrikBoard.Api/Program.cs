@@ -77,7 +77,7 @@ builder.Services.AddSingleton<DiscordBot>();
 builder.Services.TryAddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ChatAccounts>();
 builder.Services.AddSingleton<ChatSaves>();
-// Images of messages saved from Discord, from Discord's own file hosts only (ChatSaves checks the URL).
+// Images of messages saved from Discord or Slack, from their own file hosts only (ChatSaves checks the URL).
 builder.Services.AddHttpClient(ChatSaves.AttachmentsClient, http => http.Timeout = TimeSpan.FromSeconds(15));
 // The Slack app runs in here too, over Socket Mode (Integrations/SlackGateway.cs); Slack:ApiUrl points it at the fake
 // Slack in tools/FakeSlack for local testing.

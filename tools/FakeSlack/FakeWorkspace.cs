@@ -60,6 +60,12 @@ public sealed class FakeMessage(string channel, string ts, string user, string t
 
     /// <summary>A bot message's attachments (<c>chat.postMessage</c>), as the app sent them.</summary>
     public JsonNode? Attachments { get; init; }
+
+    /// <summary>The files posted with it.</summary>
+    public List<FakeFile> Files { get; } = [];
+
+    /// <summary>The bot's reactions on it, by emoji name.</summary>
+    public List<string> Reactions { get; } = [];
 }
 
 /// <summary>An answer to a slash command, which only the person who ran it sees (<c>response_type: ephemeral</c>).</summary>
@@ -137,9 +143,10 @@ public sealed partial class FakeWorkspace(FakeSlackOptions options)
     /// Posts a message as a person, as Slack would after they press Enter, and sends <c>link_shared</c> for its links on
     /// the unfurl domains.
     /// </summary>
-    public async Task<FakeMessage> PostAsync(string channel, string user, string text)
+    public async Task<FakeMessage> PostAsync(string channel, string user, string text, IEnumerable<FakeFile>? files = null)
     {
         var message = new FakeMessage(channel, NextTs(), user, text);
+        message.Files.AddRange(files ?? []);
         message.Links.AddRange(UnfurlLinks(text));
         lock (_lock) _messages.Add(message);
         if (message.Links.Count > 0)

@@ -18,8 +18,8 @@ import { ConfirmDialog } from './components/ConfirmDialog'
 import { NoticeDialog } from './components/NoticeDialog'
 import { ConnectPage } from './components/ConnectPage'
 import { connectFromHash } from './components/connect'
-import { DiscordAccountPage } from './components/DiscordAccountPage'
-import { discordAccountCodeFromHash } from './components/discord'
+import { ChatAccountPage } from './components/ChatAccountPage'
+import { chatAccountLinkFromHash } from './components/discord'
 import { IntegrationsDialog } from './components/IntegrationsDialog'
 import { InvitePage } from './components/InvitePage'
 import { NoAccess } from './components/NoAccess'
@@ -58,7 +58,7 @@ export default function App() {
   const [user, setUser] = useState<Caller | null | undefined>(undefined)
   const [invite, setInvite] = useState(inviteFromHash)
   const [connect, setConnect] = useState(connectFromHash)
-  const [discordCode, setDiscordCode] = useState(discordAccountCodeFromHash)
+  const [accountLink, setAccountLink] = useState(chatAccountLinkFromHash)
   // Signed out, a board link may be to a public board: shown to visitors unless it isn't public or they sign in.
   const [boardRef, setBoardRef] = useState(boardRefFromHash)
   const [notVisible, setNotVisible] = useState<string | null>(null)
@@ -77,7 +77,7 @@ export default function App() {
     const onHashChange = () => {
       setInvite(inviteFromHash())
       setConnect(connectFromHash())
-      setDiscordCode(discordAccountCodeFromHash())
+      setAccountLink(chatAccountLinkFromHash())
       setBoardRef(boardRefFromHash())
       setSetupHash(setupFromHash())
     }
@@ -128,10 +128,11 @@ export default function App() {
       />
     )
   }
-  if (discordCode !== null) {
+  if (accountLink !== null) {
     return (
-      <DiscordAccountPage
-        code={discordCode}
+      <ChatAccountPage
+        platform={accountLink.platform}
+        code={accountLink.code}
         user={user}
         onDone={() => {
           window.location.hash = ''

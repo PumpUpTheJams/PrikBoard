@@ -45,17 +45,27 @@ public static class FakeSlackApp
         }));
         fake.MapGet("/messages", (FakeWorkspace w, string? channel) => Results.Json(w.Messages
             .Where(m => channel is null || m.Channel == channel)
-            .Select(m => new { m.Channel, m.Ts, m.User, m.Text, m.Links, m.Unfurls, m.Attachments })));
+            .Select(m => new { m.Channel, m.Ts, m.User, m.Text, m.Links, m.Unfurls, m.Attachments, m.Reactions, files = m.Files.Select(f => f.Name) })));
         fake.MapDelete("/messages", (FakeWorkspace w, string channel, string ts) => w.Delete(channel, ts) ? Results.NoContent() : Results.NotFound());
         fake.MapPost("/messages", async (FakeWorkspace w, PostRequest request) =>
         {
             if (w.Options.Channels.All(c => c.Id != request.Channel)) return Results.BadRequest(new { error = "channel_not_found" });
-            var message = await w.PostAsync(request.Channel, request.User ?? w.Options.Users[0].Id, request.Text);
+            var files = (request.Files ?? []).Select(f => w.Upload(f.Name, f.Mimetype, Convert.FromBase64String(f.Base64))).ToList();
+            var message = await w.PostAsync(request.Channel, request.User ?? w.Options.Users[0].Id, request.Text, files);
             return Results.Json(new { message.Channel, message.Ts, message.Links });
         });
         fake.MapPost("/composer", async (FakeWorkspace w, PostRequest request) =>
             Results.Json(new { links = await w.ComposeAsync(request.User ?? w.Options.Users[0].Id, request.Text) }));
         fake.MapGet("/calls", (FakeWorkspace w) => Results.Json(w.Calls));
+        fake.MapPost("/shortcuts", async (FakeWorkspace w, ShortcutRequest request) =>
+            await w.ShortcutAsync(request.Channel, request.Ts, request.User ?? w.Options.Users[0].Id)
+                ? Results.Accepted()
+                : Results.Conflict(new { error = "PrikBoard isn't connected, or there is no such message" }));
+        fake.MapGet("/views", (FakeWorkspace w, string? user) =>
+            Results.Json(w.Views.Where(v => !v.Closed && (user is null || v.User == user)).Select(v => new { v.Id, v.User, v.View })));
+        fake.MapPost("/views/{id}/submit", async (FakeWorkspace w, string id, SubmitRequest request) =>
+            await w.SubmitAsync(id, request.Values ?? []) ? Results.Accepted() : Results.NotFound());
+        fake.MapPost("/views/{id}/close", (FakeWorkspace w, string id) => w.CloseView(id) ? Results.NoContent() : Results.NotFound());
         fake.MapPost("/commands", async (FakeWorkspace w, PostRequest request) =>
             await w.CommandAsync(request.Channel, request.User ?? w.Options.Users[0].Id, request.Text)
                 ? Results.Accepted()
@@ -67,12 +77,27 @@ public static class FakeSlackApp
             w.Respond(id, await JsonNode.ParseAsync(http.Body)) ? Results.Ok() : Results.NotFound());
         fake.MapPost("/disconnect", async (FakeWorkspace w) => Results.Json(new { disconnected = await w.DisconnectAllAsync() }));
 
+        // Files need the bot token, like Slack's url_private.
+        app.MapGet("/files/{id}/{name}", (FakeWorkspace w, string id, HttpRequest http) =>
+            http.Headers.Authorization.ToString() != $"Bearer {w.Options.BotToken}" ? Results.Unauthorized()
+            : w.File(id) is { } file ? Results.Bytes(file.Bytes, file.Mimetype)
+            : Results.NotFound());
+
         app.MapGet("/", () => Results.Content(Page.Html, "text/html; charset=utf-8"));
         return app;
     }
 
     /// <summary>A message to post: the channel, who posts it (the first user when left out) and its text.</summary>
-    public sealed record PostRequest(string Channel, string? User, string Text);
+    public sealed record PostRequest(string Channel, string? User, string Text, List<UploadRequest>? Files = null);
+
+    /// <summary>A file to post with a message: its name, type and bytes in base64.</summary>
+    public sealed record UploadRequest(string Name, string Mimetype, string Base64);
+
+    /// <summary>A shortcut used on a message: the message (channel and ts) and who used it (the first user when left out).</summary>
+    public sealed record ShortcutRequest(string Channel, string Ts, string? User);
+
+    /// <summary>What a modal is submitted with: block id to an option's value or the text typed; blocks left out keep their initial value.</summary>
+    public sealed record SubmitRequest(Dictionary<string, string>? Values);
 
     /// <summary>
     /// One Web API call. Like Slack: a bearer token, form fields, and 200 with <c>"ok": false</c> and an error code when
@@ -125,6 +150,17 @@ public static class FakeSlackApp
                 return w.Unfurl(fields.GetValueOrDefault("channel") ?? "", fields.GetValueOrDefault("ts") ?? "", unfurls) is { } error
                     ? Fail(error)
                     : Answer(new { ok = true });
+            case "views.open":
+                return w.OpenView(fields.GetValueOrDefault("trigger_id") ?? "", JsonNode.Parse(fields.GetValueOrDefault("view") ?? "null")) is { } viewError
+                    ? Fail(viewError)
+                    : Answer(new { ok = true });
+            case "reactions.add":
+                return w.React(fields.GetValueOrDefault("channel") ?? "", fields.GetValueOrDefault("timestamp") ?? "", fields.GetValueOrDefault("name") ?? "") is { } reactError
+                    ? Fail(reactError)
+                    : Answer(new { ok = true });
+            case "chat.getPermalink":
+                return Answer(new { ok = true, channel = fields.GetValueOrDefault("channel"),
+                    permalink = w.Permalink(fields.GetValueOrDefault("channel") ?? "", fields.GetValueOrDefault("message_ts") ?? "") });
             case "chat.postMessage":
                 if (o.Channels.FirstOrDefault(c => c.Id == fields.GetValueOrDefault("channel")) is not { } target) return Fail("channel_not_found");
                 if (!target.IsMember) return Fail("not_in_channel");

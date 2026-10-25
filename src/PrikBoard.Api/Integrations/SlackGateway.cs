@@ -3,6 +3,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using System.Threading.RateLimiting;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
@@ -78,6 +79,13 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
 
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(30);
 
+    /// <summary>How long Save to PrikBoard's modal waits to be submitted.</summary>
+    private static readonly TimeSpan DraftLifetime = TimeSpan.FromMinutes(15);
+
+    /// <summary>How long the modal waits for the message's names before opening anyway; Slack's trigger works for 3 seconds.</summary>
+    private static readonly TimeSpan ReadForTitle = TimeSpan.FromSeconds(1.5);
+
+    private readonly ConcurrentDictionary<string, SaveDraft> _drafts = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly ConcurrentDictionary<string, (SlackChannelInfo? Channel, DateTimeOffset At)> _channelInfo = new();
 
@@ -279,15 +287,19 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
             {
                 await socket.SendAsync(JsonSerializer.SerializeToUtf8Bytes(new { envelope_id = envelopeId }), WebSocketMessageType.Text, true, ct);
             }
-            if (type is "events_api" or "slash_commands" && envelope.TryGetProperty("payload", out var payload))
+            if (type is "events_api" or "slash_commands" or "interactive" && envelope.TryGetProperty("payload", out var payload))
             {
                 var copy = payload.Clone();
                 _ = Task.Run(async () =>
                 {
                     try
                     {
-                        if (type == "events_api") await HandleEventAsync(copy, botToken, ct);
-                        else await SlashCommandAsync(copy, botToken, ct);
+                        await (type switch
+                        {
+                            "events_api" => HandleEventAsync(copy, botToken, ct),
+                            "slash_commands" => SlashCommandAsync(copy, botToken, ct),
+                            _ => InteractiveAsync(copy, botToken, ct),
+                        });
                     }
                     catch (Exception error) when (error is not OperationCanceledException)
                     {
@@ -394,6 +406,191 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
 
         static object Ephemeral(string text) => new { response_type = "ephemeral", text };
     }
+
+    /// <summary>Shortcuts and modals: Save to PrikBoard on a message, and its modal being submitted. Everything else is ignored.</summary>
+    private Task InteractiveAsync(JsonElement payload, string botToken, CancellationToken ct) =>
+        (Text(payload, "type"), payload) switch
+        {
+            ("message_action", _) when Text(payload, "callback_id") == SlackBlocks.SaveCallback => SaveShortcutAsync(payload, botToken, ct),
+            ("view_submission", _) when payload.TryGetProperty("view", out var view) && Text(view, "callback_id") == SlackBlocks.SaveCallback =>
+                SaveSubmittedAsync(view, botToken, ct),
+            _ => Task.CompletedTask,
+        };
+
+    /// <summary>
+    /// Save to PrikBoard on a message: who you are (a link to connect your account if PrikBoard doesn't know you yet),
+    /// then a modal to pick the board and bucket and change the title. The modal opens first, since Slack's
+    /// <c>trigger_id</c> only works for 3 seconds; reading the message (names, permalink) goes on meanwhile.
+    /// </summary>
+    private async Task SaveShortcutAsync(JsonElement payload, string botToken, CancellationToken ct)
+    {
+        var teamId = Text(payload, "team", "id") ?? _identity?.TeamId;
+        var channelId = Text(payload, "channel", "id");
+        var slackUserId = Text(payload, "user", "id");
+        var triggerId = Text(payload, "trigger_id");
+        if (_site is not { } site || teamId is null || channelId is null || slackUserId is null || triggerId is null
+            || !payload.TryGetProperty("message", out var message)) return;
+
+        await using var scope = services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+        var accounts = scope.ServiceProvider.GetRequiredService<ChatAccounts>();
+        // Slack user ids are only unique within their workspace.
+        var accountId = $"{teamId}:{slackUserId}";
+        if (await accounts.FindUserAsync(db, ChatPlatform.Slack, accountId, ct) is not { } userId)
+        {
+            var code = accounts.StartLink(ChatPlatform.Slack, accountId, Text(payload, "user", "name") ?? Text(payload, "user", "username") ?? slackUserId);
+            await OpenAsync(botToken, triggerId, SlackBlocks.NoticeView(
+                $"PrikBoard doesn't know you yet. <{site.Url}/#/connect/slack-account?code={code}|Connect your PrikBoard account> once, " +
+                "then use Save to PrikBoard again."), ct);
+            return;
+        }
+
+        var targets = await ChatSaves.TargetsAsync(db, userId, ChatPlatform.Slack, teamId, channelId, ct);
+        if (targets.Count == 0)
+        {
+            await OpenAsync(botToken, triggerId, SlackBlocks.NoticeView(
+                "There is no board here you can add cards to. A board owner connects boards to this workspace under Integrations in PrikBoard."), ct);
+            return;
+        }
+
+        var raw = Text(message, "text") ?? "";
+        var ts = Text(message, "ts") ?? "";
+        var channelName = Text(payload, "channel", "name") ?? channelId;
+        var token = Guid.NewGuid().ToString("N");
+        foreach (var (key, old) in _drafts) if (old.ExpiresAt <= DateTimeOffset.UtcNow) _drafts.TryRemove(key, out _);
+        var draft = new SaveDraft(userId, channelId, ts, Text(payload, "response_url"), targets, DateTimeOffset.UtcNow + DraftLifetime,
+            ReadMessageAsync(botToken, channelId, channelName, message.Clone(), ct));
+        _drafts[token] = draft;
+
+        // The title is the message's first line with names, if reading it takes no longer than the trigger can wait.
+        var read = await Task.WhenAny(draft.Message, Task.Delay(ReadForTitle, ct)) == draft.Message && draft.Message.IsCompletedSuccessfully
+            ? draft.Message.Result
+            : new SavedMessage(SlackText.Plain(raw, _ => null), "someone", channelName, "", DateTimeOffset.UtcNow, [], ChatPlatform.Slack);
+        await OpenAsync(botToken, triggerId, SlackBlocks.SaveView(token, targets, ChatSaves.TitleFor(read), read.AuthorName, channelName), ct);
+    }
+
+    /// <summary>The message as the card takes it: mentions as names, its author, its link and its files.</summary>
+    private async Task<SavedMessage> ReadMessageAsync(string botToken, string channelId, string channelName, JsonElement message, CancellationToken ct)
+    {
+        var raw = Text(message, "text") ?? "";
+        var names = new Dictionary<string, string?>();
+        foreach (Match mention in Regex.Matches(raw, "<@([A-Z0-9]+)(?:\\|[^>]*)?>"))
+        {
+            var id = mention.Groups[1].Value;
+            if (!names.ContainsKey(id)) names[id] = await Api.UserNameAsync(botToken, id, ct);
+        }
+        var ts = Text(message, "ts") ?? "0";
+        string jumpUrl;
+        try
+        {
+            jumpUrl = await Api.PermalinkAsync(botToken, channelId, ts, ct);
+        }
+        catch (SlackApiException)
+        {
+            jumpUrl = $"https://slack.com/app_redirect?channel={channelId}";
+        }
+        var sentAt = double.TryParse(ts, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var seconds)
+            ? DateTimeOffset.FromUnixTimeMilliseconds((long)(seconds * 1000))
+            : DateTimeOffset.UtcNow;
+        var attachments = message.TryGetProperty("files", out var fileList) && fileList.ValueKind == JsonValueKind.Array
+            ? fileList.EnumerateArray()
+                .Where(f => Text(f, "url_private") is not null)
+                .Select(f => new SavedAttachment(Text(f, "url_private")!, Text(f, "name") ?? "image",
+                    Text(f, "mimetype"), f.TryGetProperty("size", out var size) && size.TryGetInt64(out var bytes) ? bytes : long.MaxValue))
+                .ToList()
+            : [];
+        return new SavedMessage(SlackText.Plain(raw, id => names.GetValueOrDefault(id)), await NameAsync(botToken, message, ct), channelName, jumpUrl,
+            sentAt, attachments, ChatPlatform.Slack);
+    }
+
+    /// <summary>Who wrote a message: a person's name, or a bot's.</summary>
+    private async Task<string> NameAsync(string botToken, JsonElement message, CancellationToken ct) =>
+        (Text(message, "user") is { } user ? await Api.UserNameAsync(botToken, user, ct) : null)
+        ?? Text(message, "username") ?? "someone";
+
+    /// <summary>The modal was submitted: the card is made as the person, who gets an answer only they see, and the message a 📌.</summary>
+    private async Task SaveSubmittedAsync(JsonElement view, string botToken, CancellationToken ct)
+    {
+        if (_site is not { } site || Text(view, "private_metadata") is not { } token || !_drafts.TryRemove(token, out var draft)) return;
+        var values = view.GetProperty("state").GetProperty("values");
+        var where = SlackBlocks.ParseWhere(Text(values, "where", "where", "selected_option", "value"));
+        var title = Text(values, "title", "title", "value") ?? "";
+        if (where is not var (boardId, bucketId) || draft.Targets.FirstOrDefault(t => t.BoardId == boardId) is not { } target
+            || (bucketId is { } picked ? target.Buckets.All(b => b.Id != picked) : target.Buckets.Count > 0))
+        {
+            await AnswerAsync(draft, "Not saved: that board or bucket isn't one you can save to here.", null, ct);
+            return;
+        }
+
+        await using var scope = services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+        var saves = scope.ServiceProvider.GetRequiredService<ChatSaves>();
+        SavedMessage message;
+        try
+        {
+            message = await draft.Message;
+        }
+        catch (SlackApiException error)
+        {
+            await AnswerAsync(draft, $"Not saved: Slack didn't let PrikBoard read the message ({error.Error}). Try again in a minute.", null, ct);
+            return;
+        }
+        var (card, problem) = await saves.SaveAsync(db, draft.UserId, boardId, bucketId, title, message, ct, filesToken: botToken);
+        if (card is null)
+        {
+            await AnswerAsync(draft, $"Not saved: {problem}", null, ct);
+            return;
+        }
+
+        var preview = await LinkPreviews.CardAsync(db, (await db.Cards.FindAsync([card.Id], ct))!, (await db.Boards.FindAsync([boardId], ct))!, ct);
+        await AnswerAsync(draft, $"Saved as {card.ReadableId} on {target.Name}.", site.Blocks.For(preview, site.Url + card.Path), ct);
+        // A pin on the message tells the channel it is on a board now.
+        try
+        {
+            await Api.AddReactionAsync(botToken, draft.ChannelId, draft.MessageTs, "pushpin", ct);
+        }
+        catch (SlackApiException error)
+        {
+            logger.LogInformation("The Slack app could not pin a saved message in {Channel}: {Error}", draft.ChannelId, error.Error);
+        }
+    }
+
+    /// <summary>An answer only the person who saved sees, through the shortcut's <c>response_url</c>.</summary>
+    private async Task AnswerAsync(SaveDraft draft, string text, object? attachment, CancellationToken ct)
+    {
+        if (draft.ResponseUrl is not { } url) return;
+        object answer = attachment is null
+            ? new { response_type = "ephemeral", text = SlackBlocks.Escape(text) }
+            : new { response_type = "ephemeral", text = SlackBlocks.Escape(text), attachments = new[] { attachment } };
+        if (!await Api.RespondAsync(url, answer, ct)) logger.LogInformation("Answering Save to PrikBoard in {Channel} failed.", draft.ChannelId);
+    }
+
+    private async Task OpenAsync(string botToken, string triggerId, object view, CancellationToken ct)
+    {
+        try
+        {
+            await Api.OpenViewAsync(botToken, triggerId, view, ct);
+        }
+        catch (SlackApiException error)
+        {
+            logger.LogInformation("The Slack app could not open a modal: {Error}", error.Error);
+        }
+    }
+
+    /// <summary>A string at a path of properties, or null where any is missing.</summary>
+    private static string? Text(JsonElement element, params string[] path)
+    {
+        foreach (var name in path)
+        {
+            if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(name, out element)) return null;
+        }
+        return element.ValueKind == JsonValueKind.String ? element.GetString() : null;
+    }
+
+    /// <summary>A message being saved: who saves it and where it is, the boards offered, and the message as it is being read.</summary>
+    private sealed record SaveDraft(
+        Guid UserId, string ChannelId, string MessageTs, string? ResponseUrl, IReadOnlyList<SaveTarget> Targets, DateTimeOffset ExpiresAt,
+        Task<SavedMessage> Message);
 
     public async Task<bool> RefreshUnfurlsAsync(
         string channelId, string messageTs, IReadOnlyDictionary<string, object> unfurls, IReadOnlyDictionary<string, object> whenShared, CancellationToken ct)

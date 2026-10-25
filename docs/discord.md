@@ -14,7 +14,7 @@ Status: built. Part 1 (PRIK-142) is the meta tags in `src/web/index.html` and th
 - In the web app:
   - `components/IntegrationsDialog.tsx` (board menu → *Integrations*)
   - `components/DiscordBotSettings.tsx` (Admin → *Instance*)
-  - `components/DiscordAccountPage.tsx` (`#/connect/discord-account`)
+  - `components/ChatAccountPage.tsx` (`#/connect/discord-account`, shared with Slack's `#/connect/slack-account`)
   - The Discord section of Account
 
 ### One setup for everything
