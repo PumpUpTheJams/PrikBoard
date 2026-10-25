@@ -531,7 +531,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     }
     if (!gesture || gesture.done) return
     const current = toCanvas(e)
-    const next = { ...gesture, current, away: gesture.away || (!!gesture.home && !contains(gesture.home, current)) }
+    const next = { ...gesture, current, away: gesture.away || (!!gesture.home && !contains(gesture.home, current)), dragged: isDrag({ ...gesture, current }) }
     const client = { x: e.clientX, y: e.clientY }
     if (next.kind === 'select') {
       setGesture(next)
