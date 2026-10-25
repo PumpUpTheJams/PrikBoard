@@ -14,7 +14,7 @@ const FIRST_BUCKET = '*'
 
 interface SlackIntegrationProps {
   board: BoardSummary
-  /** The board's buckets, for where Save to PrikBoard puts cards. */
+  /** The board's buckets, for where Save as card puts cards. */
   buckets: BucketDetail[]
   /** Admins are pointed at the admin page to set the Slack app up. */
   isAdmin: boolean
@@ -23,7 +23,7 @@ interface SlackIntegrationProps {
 /**
  * The Slack part of Integrations: the board connects to channels of the workspace the instance's Slack app is in, or
  * to the whole workspace, and links to it unfurl there. A channel's chip opens its settings: the board's updates it
- * posts, and where Save to PrikBoard there puts cards.
+ * posts, and where Save as card there puts cards.
  */
 export function SlackIntegration({ board, buckets, isAdmin }: SlackIntegrationProps) {
   const [connections, setConnections] = useState<SlackConnection[] | null>(null)
@@ -214,7 +214,7 @@ export function SlackIntegration({ board, buckets, isAdmin }: SlackIntegrationPr
             <p className="dialog-hint discord-how">
               A channel shows up here once the app is in it: in Slack, type <code>/invite @PrikBoard</code> in that channel. Click a
               connected channel to have it post this board's updates; <code>/prikboard board</code> there shows what is on the board, and
-              people who can edit this board save a message as a card with More actions → Save to PrikBoard.
+              people who can edit this board save a message with More actions → Save as card.
             </p>
           )}
         </>
@@ -249,7 +249,7 @@ interface SlackChannelSettingsProps {
   onChange: (settings: { updates: ChatUpdate[]; saveBucketId: string | null }) => void
 }
 
-/** What one connected Slack channel does for the board: the updates it posts, and where Save to PrikBoard puts cards. */
+/** What one connected Slack channel does for the board: the updates it posts, and where Save as card puts cards. */
 function SlackChannelSettings({ channel, buckets, busy, onChange }: SlackChannelSettingsProps) {
   const bucketOptions: SelectOption<string>[] = [
     { value: FIRST_BUCKET, label: buckets[0] ? `${buckets[0].name} (first bucket)` : 'First bucket' },
@@ -277,7 +277,7 @@ function SlackChannelSettings({ channel, buckets, busy, onChange }: SlackChannel
         </label>
       ))}
       <div className="discord-save-bucket">
-        <span>Save to PrikBoard puts cards in</span>
+        <span>Save as card puts cards in</span>
         <Select
           label="Bucket for saved messages"
           value={saveBucket}

@@ -9,7 +9,7 @@ using PrikBoard.Api.Domain;
 namespace PrikBoard.Api.Integrations;
 
 /// <summary>
-/// Who a chat user is in PrikBoard, for what a bot does on their behalf (Save to PrikBoard). One rule for every action:
+/// Who a chat user is in PrikBoard, for what a bot does on their behalf (Save as card). One rule for every action:
 /// someone who signs in with the platform's sign-in provider (Discord, or Sign in with Slack) is known by that sign-in;
 /// anyone else links once, from the bot's "Connect your PrikBoard account", which opens <c>#/connect/discord-account</c>
 /// or <c>#/connect/slack-account</c> with a code. Chat user ids

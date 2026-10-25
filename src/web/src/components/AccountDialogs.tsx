@@ -216,17 +216,17 @@ const accounts: Record<ChatPlatform, { status: () => Promise<ChatAccountStatus>;
   Discord: {
     status: () => api.getDiscordAccount().then((s) => ({ source: s.source, linkedAt: s.linkedAt })),
     unlink: () => api.unlinkDiscordAccount(),
-    signedIn: 'You sign in with Discord, so the PrikBoard bot knows you there: Save to PrikBoard works as you.',
+    signedIn: 'You sign in with Discord, so the PrikBoard bot knows you there: Save as card works as you.',
   },
   Slack: {
     status: () => api.getSlackAccount().then((s) => ({ source: s.source, linkedAt: s.linkedAt })),
     unlink: () => api.unlinkSlackAccount(),
-    signedIn: 'You sign in with Slack, so the PrikBoard Slack app knows you there: Save to PrikBoard works as you.',
+    signedIn: 'You sign in with Slack, so the PrikBoard Slack app knows you there: Save as card works as you.',
   },
 }
 
 /**
- * Whether a chat app's bot knows who you are there, for Save to PrikBoard: through a Discord sign-in, or a link made
+ * Whether a chat app's bot knows who you are there, for Save as card: through a Discord sign-in, or a link made
  * from the bot's "Connect your PrikBoard account", which can be undone here.
  */
 function ChatAccount({ platform }: { platform: ChatPlatform }) {
@@ -250,15 +250,15 @@ function ChatAccount({ platform }: { platform: ChatPlatform }) {
   if (status === null && error === null) return null
   const notLinked =
     platform === 'Slack'
-      ? 'Not linked. In Slack, use Save to PrikBoard under a message’s More actions; the app then offers to connect your account.'
-      : 'Not linked. In Discord, use Save to PrikBoard on a message; the bot then offers to connect your account.'
+      ? 'Not linked. In Slack, use Save as card under a message’s More actions; the app then offers to connect your account.'
+      : 'Not linked. In Discord, use Save as card on a message; the bot then offers to connect your account.'
   return (
     <section className="dialog-section">
       <h3>{platform}</h3>
       {status?.source === 'Link' ? (
         <ul className="row-list">
           <li>
-            <span className="row-main">Linked for Save to PrikBoard</span>
+            <span className="row-main">Linked for Save as card</span>
             {status.linkedAt && <span className="row-meta">since {new Date(status.linkedAt).toLocaleDateString()}</span>}
             <button type="button" className="ghost small" onClick={() => void unlink()}>
               Unlink

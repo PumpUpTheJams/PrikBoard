@@ -4,7 +4,7 @@ export const DISCORD_ISSUER = 'discord'
 /** Agents of this issuer are Slack workspaces connected for link previews (docs/slack.md). */
 export const SLACK_ISSUER = 'slack'
 
-/** The chat apps whose bots link a chat account to a PrikBoard user, for Save to PrikBoard. */
+/** The chat apps whose bots link a chat account to a PrikBoard user, for Save as card. */
 export type ChatPlatform = 'Discord' | 'Slack'
 
 /**

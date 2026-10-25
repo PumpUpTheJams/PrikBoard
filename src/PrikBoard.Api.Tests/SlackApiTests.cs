@@ -590,7 +590,7 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
     private List<FakeMessage> BotPosts(string channel) =>
         factory.Workspace.Messages.Where(m => m.Channel == channel && m.User == Fake.BotUserId).ToList();
 
-    /// <summary>Uses Save to PrikBoard on a message as someone, and waits for the modal the app opens.</summary>
+    /// <summary>Uses Save as card on a message as someone, and waits for the modal the app opens.</summary>
     private async Task<JsonNode> ShortcutAsync(FakeMessage message, string user)
     {
         var before = factory.Workspace.Views.Count;

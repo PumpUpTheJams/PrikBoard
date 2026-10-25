@@ -1,6 +1,6 @@
 # Design: Slack integration
 
-Status: built, and tried in a real workspace (2026-10-25): link previews that follow their cards, board updates, `/prikboard board`, Save to PrikBoard, and Sign in with Slack. It follows the Discord integration (docs/discord.md: the bot inside the API, *Integrations* per board, live previews, updates, Save to PrikBoard). Wherever Slack allows it, Slack does the same things in the same places.
+Status: built, and tried in a real workspace (2026-10-25): link previews that follow their cards, board updates, `/prikboard board`, Save as card, and Sign in with Slack. It follows the Discord integration (docs/discord.md: the bot inside the API, *Integrations* per board, live previews, updates, Save as card). Wherever Slack allows it, Slack does the same things in the same places.
 
 ## Setting it up
 
@@ -16,12 +16,12 @@ PrikBoard needs an https address that people (and their browsers) can reach, suc
 **Board owners**, per board:
 1. In Slack, add the app to a channel: `/invite @PrikBoard`.
 2. In PrikBoard, board menu → **Integrations** → *Slack*: pick the channel (or the whole workspace) and click **Connect**.
-3. Click the channel to have it post the board's updates, and to pick the bucket *Save to PrikBoard* uses.
+3. Click the channel to have it post the board's updates, and to pick the bucket *Save as card* uses.
 
 **Everyone** in a connected channel:
 - Post a link to a card, board or invite: it gets a preview that keeps up with the card for a week.
 - `/prikboard board` shows what is on the channel's board, only to you.
-- *More actions → Save to PrikBoard* on a message turns it into a card made by you. The first time, the app asks you to connect your PrikBoard account (not when you sign in with Slack).
+- *More actions → Save as card* on a message turns it into a card made by you. The first time, the app asks you to connect your PrikBoard account (not when you sign in with Slack).
 
 **If links don't get a preview**, but `/prikboard` and saving work: Slack sends no events to the app. In the Slack app, *Event Subscriptions* must be on, with `link_shared` under bot events and PrikBoard's host as unfurl domain; reinstall after changing it. More pitfalls are under *Tried in a real workspace* below.
 
@@ -33,7 +33,7 @@ The same three things Discord does, for each connected Slack channel, set up by 
 | --- | --- | --- |
 | Previews | Card, board and invite links unfurl into a preview that keeps up with the card for a week | Always on |
 | Updates | Posts the board activity the channel follows | Off |
-| Save here | The *Save to PrikBoard* message shortcut saves to this board, in a bucket of the owner's choice | The first bucket |
+| Save here | The *Save as card* message shortcut saves to this board, in a bucket of the owner's choice | The first bucket |
 
 The constraints stay the same:
 - **Links stay as they are** (everything behind the `#`).
@@ -45,7 +45,7 @@ The constraints stay the same:
 | --- | --- | --- |
 | Linear, Jira, GitHub, Asana | Rich unfurls: Slack sends `link_shared`, the app answers with `chat.unfurl`. Lately they use Slack *Work Objects* too. | Phase 2 uses Block Kit. Work Objects come later. |
 | GitHub (`/github subscribe org/repo issues`), Linear, Jira | A channel subscribes to a project and gets posts per change, with filters | Phase 3. These are Discord's *Updates*, set in *Integrations* rather than by slash command, so a board owner decides. |
-| Linear (*Create issue* message shortcut), Jira, Asana, Trello | Turn a Slack message into an item, with a link back | Phase 4: *Save to PrikBoard* as a message shortcut with a modal |
+| Linear (*Create issue* message shortcut), Jira, Asana, Trello | Turn a Slack message into an item, with a link back | Phase 4: *Save as card* as a message shortcut with a modal |
 | Linear, Jira | Per-user actions need a Slack user linked to an account. A *Connect account* button covers the first time. | Phase 4: the same link flow as Discord's *Who is who* |
 | Linear, Jira | Buttons on unfurls (assign, change status), DMs for your own assignments, an App Home tab | Later |
 
@@ -56,7 +56,7 @@ The constraints stay the same:
 - **No bare ids at first.** A plain `PRIK-149` isn't a link, so Slack never sends `link_shared` for it. Previewing bare ids would need the `message.channels` event and `channels:history` (reading every message in the channels the bot is in). That is left for later (open question 3).
 - **One workspace per install.** A Socket Mode app made for one instance is installed in that workspace (or a whole Enterprise Grid org). The model still keys everything by team id, so later more workspaces (an OAuth "Add to Slack" app) don't need a new model.
 - **Slack Connect.** In channels shared with other organizations (`is_ext_shared`), unfurls and updates are seen by people outside the workspace. Such channels aren't offered in *Integrations*. If one becomes shared later, nothing is unfurled or posted there (`conversations.info`, cached).
-- **Files need the bot token.** Save to PrikBoard fetches message images from `files.slack.com` with `Authorization: Bearer xoxb-…` (scope `files:read`), and only from that host.
+- **Files need the bot token.** Save as card fetches message images from `files.slack.com` with `Authorization: Bearer xoxb-…` (scope `files:read`), and only from that host.
 
 ## Shared model (phase 1, built)
 
@@ -105,11 +105,11 @@ Admin → *Instance* → *Slack app* (`components/SlackAppSettings`), next to *D
    - the unfurl domain set to the public address's host;
    - the event `link_shared`;
    - the slash command `/prikboard` (phase 3);
-   - the message shortcut *Save to PrikBoard* (`callback_id` `save_to_prikboard`), with interactivity on and no request URL (phase 4);
+   - the message shortcut *Save as card* (`callback_id` `save_to_prikboard`), with interactivity on and no request URL (phase 4);
    - bot scopes `links:read links:write channels:read groups:read chat:write commands users:read reactions:write files:read`;
    - Sign in with Slack's redirect URL, for a `Slack` sign-in provider with the id `slack` (no user scopes: Slack refuses to install an app that lists the sign-in's own).
 
-   The address can be saved before the tokens (**Save address**), so the manifest names the right domain from the start. The page also shows the manifest to copy, in case the prefilled link doesn't work (phase 0, question 3). An app created from an older manifest needs what was added since (the command, the shortcut, interactivity, *Event Subscriptions* and the newer scopes) and reinstalling.
+   The address can be saved before the tokens (**Save address**), so the manifest names the right domain from the start. The page also shows the manifest to copy, in case the prefilled link doesn't work (phase 0, question 3). An app created from an older manifest needs what was added since (the command, the shortcut, interactivity, *Event Subscriptions* and the newer scopes) and reinstalling. One made before the shortcut was renamed to *Save as card* still shows *Save to PrikBoard* until its manifest is updated (the `callback_id` stays `save_to_prikboard`, so it keeps working).
 2. Install the app in the workspace and copy the *Bot User OAuth Token* (`xoxb-`).
 3. Under *Basic Information* → *App-Level Tokens*, create one with `connections:write` (`xapp-`).
 4. Paste both and click *Connect*. Then add the app to channels (`/invite @PrikBoard`): only those show up for board owners.
@@ -170,9 +170,9 @@ Each bot takes part through an `IChatActivityTarget` while it is online:
 
 `/prikboard board` (Socket Mode `slash_commands` envelopes) shows the board connected to the channel, only to whoever asked: `SlackBlocks.Snapshot`, a field per bucket with its first cards, agents at work, and the last 24 hours. It is posted to the command's `response_url` as an ephemeral message. A channel without a board, a channel shared with other organizations, and any other text each get a one-line answer instead.
 
-## Save to PrikBoard and who is who (phase 4, built)
+## Save as card and who is who (phase 4, built)
 
-Under a message's *More actions*, *Save to PrikBoard* is a message shortcut. Slack sends it as an `interactive` envelope (`message_action`) with a `trigger_id` for one modal, which works for 3 seconds, and a `response_url` for answers only that person sees.
+Under a message's *More actions*, *Save as card* is a message shortcut. Slack sends it as an `interactive` envelope (`message_action`) with a `trigger_id` for one modal, which works for 3 seconds, and a `response_url` for answers only that person sees.
 
 1. **Who it is.** `ChatAccounts.FindUserAsync(Slack, "{team}:{user}")`: Slack user ids are only unique within a workspace. The link holds only the keyed hash (`slack-bot`).
    - **Not known yet:** a modal (`SlackBlocks.NoticeView`) links to `#/connect/slack-account?code=…`, a code that works for 10 minutes.
@@ -198,7 +198,7 @@ Drafts wait 15 minutes, in memory (one instance, like the rest).
 
 ## Web (phases 2 to 4, built)
 
-- `IntegrationsDialog` has a *Slack* section under *Discord* (`components/SlackIntegration`): the connected workspaces with a chip per channel and *Whole workspace*, *Disconnect* (with `ConfirmDialog`), and a channel picker that lists only channels the app is in and never Slack Connect ones. Clicking a channel's chip opens the updates it posts (`components/chatUpdates.ts` holds the choices both apps offer); a 🔔 shows it posts some. The same panel picks the bucket Save to PrikBoard puts cards in.
+- `IntegrationsDialog` has a *Slack* section under *Discord* (`components/SlackIntegration`): the connected workspaces with a chip per channel and *Whole workspace*, *Disconnect* (with `ConfirmDialog`), and a channel picker that lists only channels the app is in and never Slack Connect ones. Clicking a channel's chip opens the updates it posts (`components/chatUpdates.ts` holds the choices both apps offer); a 🔔 shows it posts some. The same panel picks the bucket Save as card puts cards in.
 - Admin → *Instance* has *Slack app* (`components/SlackAppSettings`) under *Discord bot*: the steps, the manifest to copy, both tokens, the public address, the workspace with its boards.
 - The members list shows a Slack badge for the `slack` issuer.
 - Account has a *Slack* section next to *Discord* (`ChatAccount` in `components/AccountDialogs`), and `#/connect/slack-account` opens `components/ChatAccountPage` (`chatAccountLinkFromHash` in `components/discord.ts` reads both apps' links).
@@ -213,7 +213,7 @@ Drafts wait 15 minutes, in memory (one instance, like the rest).
 1. **Shared chat model** (built). A refactor and migration, with Discord unchanged and its tests green.
 2. **Slack app setup, gateway, previews, Integrations UI**, plus the fake Slack (built).
 3. **Live previews and updates**, and `/prikboard board` (built).
-4. **Save to PrikBoard and account linking** (built).
+4. **Save as card and account linking** (built).
 5. **Later:** bare ids (opt-in `channels:history`), buttons on unfurls (Assign me, Move to…, Mark done), DMs for your own assignments, an App Home tab with your cards, a daily digest, "Add to Slack" for several workspaces (OAuth, a public events URL), Work Objects.
 
 ## Testing (without a running Slack)
@@ -231,7 +231,7 @@ Slack can't run locally: there is no self-hosted or open-source Slack that runs 
    - previews unfurled again as their card changes, *No longer available* once disconnected, forgotten once deleted;
    - updates posted only for what a channel follows;
    - `/prikboard board` answered only to whoever asked, and the answers for a channel without a board, a Slack Connect channel and other text;
-   - Save to PrikBoard: connecting the account (and only from PrikBoard's own pages), the modal with the channel's save bucket, the card made as the person with the quoted message, names for mentions, the link back and the image, the 📌, nowhere to save for a viewer, and asking again once unlinked;
+   - Save as card: connecting the account (and only from PrikBoard's own pages), the modal with the channel's save bucket, the card made as the person with the quoted message, names for mentions, the link back and the image, the 📌, nowhere to save for a viewer, and asking again once unlinked;
    - `SlackText.Plain` on mentions, channels, links and escapes.
 
    The Discord tests still cover the shared lookups.
@@ -254,13 +254,13 @@ Slack can't run locally: there is no self-hosted or open-source Slack that runs 
    - Create a free workspace (slack.com/get-started), or a free sandbox through the Slack Developer Program.
    - Give PrikBoard a public https address: a Cloudflare quick tunnel needs no account (`cloudflared tunnel --url http://localhost:5173`). Start the API and web app with the `api-tunnel` and `web-tunnel` launch configs, so sign-in callbacks through the tunnel are https and Vite accepts the tunnel's host. Its address changes with every start, and so would the app's unfurl domain and redirect URL.
    - Follow *Setting it up* above with the tunnel's address.
-   - Connect a channel and try: a card link, a board link, an invite, a board you didn't connect (nothing), another channel (nothing), a Slack Connect channel (nothing), a change to the card (does the preview follow?), an update post, `/prikboard board`, and Save to PrikBoard on a message with an image, once before linking your account and once after.
+   - Connect a channel and try: a card link, a board link, an invite, a board you didn't connect (nothing), another channel (nothing), a Slack Connect channel (nothing), a change to the card (does the preview follow?), an update post, `/prikboard board`, and Save as card on a message with an image, once before linking your account and once after.
 
    The fake can't answer phase 0's questions. It answers them the way we code it to. Only real Slack can. The same goes for anything else the docs leave open; the fake follows Slack's documentation.
 
 ## Tried in a real workspace (2026-10-25)
 
-Everything worked against real Slack once the app was set up right: previews, `/prikboard board`, Save to PrikBoard (the card, the 📌, the answer only the saver sees) and Sign in with Slack. What tripped the setup up, for whoever does it next:
+Everything worked against real Slack once the app was set up right: previews, `/prikboard board`, Save as card (the card, the 📌, the answer only the saver sees) and Sign in with Slack. What tripped the setup up, for whoever does it next:
 
 - **Event Subscriptions must be on.** Commands and shortcuts come over Socket Mode without it, but no events do, so links never unfurl while everything else works. With Socket Mode on, *Enable Events* asks for no Request URL; when it does, Socket Mode is off, and saving hangs waiting for a URL check. Subscribe to `link_shared` and list the unfurl domain there, then reinstall.
 - **No user scopes for Sign in with Slack.** Listing `openid`, `profile` and `email` as *User Token Scopes* makes Slack refuse the install ("Invalid permissions requested"). The sign-in asks for them itself. The manifest no longer lists them.

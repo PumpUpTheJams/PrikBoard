@@ -16,7 +16,7 @@ const FIRST_BUCKET = '*'
 
 interface IntegrationsDialogProps {
   board: BoardSummary
-  /** The board's buckets, for where Save to PrikBoard puts cards. */
+  /** The board's buckets, for where Save as card puts cards. */
   buckets: BucketDetail[]
   /** Admins are pointed at the admin page to set the Discord bot up. */
   isAdmin: boolean
@@ -26,7 +26,7 @@ interface IntegrationsDialogProps {
 /**
  * For owners: the apps this board is connected to, Discord and Slack ({@link SlackIntegration}). A board connects to channels of servers
  * the instance's bot is in, and/or to whole servers; links and readable ids preview there, and each connected channel
- * can also post the board's updates and decides where Save to PrikBoard puts cards. An admin sets the bot up under
+ * can also post the board's updates and decides where Save as card puts cards. An admin sets the bot up under
  * Admin → Instance.
  */
 export function IntegrationsDialog({ board, buckets, isAdmin, onClose }: IntegrationsDialogProps) {
@@ -212,7 +212,7 @@ export function IntegrationsDialog({ board, buckets, isAdmin, onClose }: Integra
               {connections.length > 0 && (
                 <p className="dialog-hint discord-how">
                   Click a channel to have it post this board's updates. In Discord, people who can edit this board save a message as a
-                  card with right-click → Apps → Save to PrikBoard, and /prikboard board shows what is on it.
+                  card with right-click → Apps → Save as card, and /prikboard board shows what is on it.
                 </p>
               )}
             </>
@@ -280,7 +280,7 @@ interface ChannelSettingsProps {
   onChange: (settings: { updates: ChatUpdate[]; saveBucketId: string | null }) => void
 }
 
-/** What one connected channel does for the board: the updates it posts, and where Save to PrikBoard puts cards. */
+/** What one connected channel does for the board: the updates it posts, and where Save as card puts cards. */
 function ChannelSettings({ channel, buckets, busy, onChange }: ChannelSettingsProps) {
   const bucketOptions: SelectOption<string>[] = [
     { value: FIRST_BUCKET, label: buckets[0] ? `${buckets[0].name} (first bucket)` : 'First bucket' },
@@ -309,7 +309,7 @@ function ChannelSettings({ channel, buckets, busy, onChange }: ChannelSettingsPr
         </label>
       ))}
       <div className="discord-save-bucket">
-        <span>Save to PrikBoard puts cards in</span>
+        <span>Save as card puts cards in</span>
         <Select
           label="Bucket for saved messages"
           value={saveBucket}

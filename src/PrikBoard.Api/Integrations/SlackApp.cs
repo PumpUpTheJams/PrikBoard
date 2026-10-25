@@ -24,15 +24,15 @@ public sealed class SlackApp(IConfiguration config, IDataProtectionProvider prot
     /// <summary>
     /// The bot scopes the app asks for: unfurling links (<c>links:read</c>, <c>links:write</c>), listing channels for board
     /// owners and checking for Slack Connect (<c>channels:read</c>, <c>groups:read</c>), posting a
-    /// board's updates and Save to PrikBoard's answers (<c>chat:write</c>), <c>/prikboard</c> (<c>commands</c>), and for
-    /// Save to PrikBoard: the author's name (<c>users:read</c>), the 📌 on saved messages (<c>reactions:write</c>) and their
+    /// board's updates and Save as card's answers (<c>chat:write</c>), <c>/prikboard</c> (<c>commands</c>), and for
+    /// Save as card: the author's name (<c>users:read</c>), the 📌 on saved messages (<c>reactions:write</c>) and their
     /// images (<c>files:read</c>). An app created from an older manifest needs the new ones added and reinstalling.
     /// </summary>
     public static readonly string[] Scopes =
         ["links:read", "links:write", "channels:read", "groups:read", "chat:write", "commands", "users:read", "reactions:write", "files:read"];
 
     /// <summary>The message shortcut's name, as Slack lists it under a message's More actions.</summary>
-    public const string SaveShortcut = "Save to PrikBoard";
+    public const string SaveShortcut = "Save as card";
 
     /// <summary>The sign-in provider id the manifest's redirect URL is for, when the same app does Sign in with Slack.</summary>
     public const string SignInProviderId = "slack";

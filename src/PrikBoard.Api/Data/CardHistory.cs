@@ -42,7 +42,7 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
 
     /// <summary>
     /// Records the saves made until the result is disposed as <paramref name="principalId"/>'s, for work done for a person
-    /// outside a request of theirs (the Discord bot's Save to PrikBoard).
+    /// outside a request of theirs (the Discord bot's Save as card).
     /// </summary>
     public static IDisposable ActingAs(Guid principalId)
     {

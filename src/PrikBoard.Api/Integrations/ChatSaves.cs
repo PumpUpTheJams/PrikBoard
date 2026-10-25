@@ -28,7 +28,7 @@ public sealed record SavedAttachment(string Url, string FileName, string? Conten
 public sealed record SaveTarget(Guid BoardId, string Name, IReadOnlyList<(Guid Id, string Name)> Buckets, Guid? DefaultBucketId);
 
 /// <summary>
-/// Save to PrikBoard, apart from the chat apps themselves so tests can run it: which boards a person may save to from a
+/// Save as card, apart from the chat apps themselves so tests can run it: which boards a person may save to from a
 /// workspace, and the card a message becomes. The card is created through createCard as the person
 /// (<see cref="CardHistory.ActingAs"/>), so their role decides and the card's history names them. Images come from the
 /// chat app's own file hosts only: Discord's CDN, or Slack's <c>files.slack.com</c> with the bot token (and the configured
