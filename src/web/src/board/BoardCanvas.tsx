@@ -257,14 +257,17 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const serverLayers = layersBackToFront(board.buckets, board.drawings)
   const top = serverLayers.at(-1)?.id
   const pick = picked?.over === top ? picked?.id : undefined
-  /** Buckets and loose drawings as they are drawn, back to front: as they stack, with the one picked here on top. */
-  const layers = pick ? [...serverLayers.filter((l) => l.id !== pick), ...serverLayers.filter((l) => l.id === pick)] : serverLayers
+  /** Raised above the rest here: one picked, or the bucket selected cards are being dragged into, so you see it grow. */
+  const raised = arrangeDrop?.bucket.id ?? pick
   /**
-   * The bucket drawn above the others with what is in it, so a bucket over others isn't a tangle of cards: the topmost
-   * open one, or one picked here. While selected cards are dragged into a bucket, that one, so you see it grow.
+   * Buckets and loose drawings as they are drawn, back to front: as they stack, with the one raised here on top. Each
+   * bucket is drawn with what is in it, so it covers the ones below and everything in them.
    */
-  const wanted = arrangeDrop?.bucket.id ?? pick
-  const front = board.buckets.find((b) => b.id === wanted && !b.collapsed)?.id ?? stacked.findLast((b) => !b.collapsed)?.id ?? null
+  const layers = raised ? [...serverLayers.filter((l) => l.id !== raised), ...serverLayers.filter((l) => l.id === raised)] : serverLayers
+  /** The buckets as they are drawn, back to front. */
+  const drawnBuckets = layers.flatMap((l) => (l.kind === 'bucket' ? [l.bucket] : []))
+  /** The topmost open bucket as drawn here. */
+  const front = drawnBuckets.findLast((b) => !b.collapsed)?.id ?? null
   /**
    * Brings a bucket or loose drawing to the front: here at once, and for everyone unless `server` says the server does
    * that itself.
@@ -277,8 +280,6 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     const drawing = board.drawings.some((d) => d.id === id)
     void run(() => (drawing ? api.bringDrawingToFront(id) : api.bringBucketToFront(id)))
   }
-  /** Whether an item is drawn in front, with its bucket. */
-  const inFront = (item: { bucketId: string | null }) => front !== null && item.bucketId === front
   /** Cards in a collapsed bucket are folded away with it: not on the board until it opens again. */
   const { collapsedIds, visibleCards } = useMemo(() => {
     const collapsedIds = new Set(board.buckets.filter((b) => b.collapsed).map((b) => b.id))
@@ -323,7 +324,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     return bucketUnderCard(shown, at, null, front)?.id === front ? { ...at, bucketId: front } : at
   }
   /** The bucket shown under the pointer at a canvas point, which what is let go there joins (`bucketAtPointer`). */
-  const bucketAt = (pointer: Point) => bucketAtPointer(stacked.map((b) => ({ ...b, ...bucketRect(b) })), pointer, front)
+  const bucketAt = (pointer: Point) => bucketAtPointer(drawnBuckets.map((b) => ({ ...b, ...bucketRect(b) })), pointer)
   /**
    * What a drop with the pointer at a canvas point tells the server about an item landing at `item`: that bucket, or
    * loose (`DropBucket`). An item that doesn't reach into the bucket (one of a group, away from the pointer) stays loose.
@@ -332,10 +333,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     const bucket = bucketAt(pointer)
     return bucket && (!item || intersects(bucketRect(bucket), item)) ? { bucketId: bucket.id } : { loose: true }
   }
-  /** The cards on the board in the order they are drawn: the front bucket's above the rest, the most recently updated on top. */
-  const drawn = drawOrder(visibleCards, front)
+  /** The cards on the board in the order they are drawn: bucket by bucket as the buckets are, loose ones last. */
+  const drawn = drawOrder(visibleCards, drawnBuckets)
   const geometry = { bucketRect, cardPoint, imageRect, drawingRect }
-  const probe = useDropProbe({ board, expanded, cardHandle: expandedRef, trash, railTrash: trashRef, toCanvas, drawn, stacked, front, ...geometry })
+  const probe = useDropProbe({ board, expanded, cardHandle: expandedRef, trash, railTrash: trashRef, toCanvas, drawn, drawnBuckets, ...geometry })
   const { onTrash, cardAt } = probe
   const moves = useBoardMoves({ board, selected, setSelected, expanded, closeCard: () => setExpanded(null), settle, cardPlace, dropBucket, ...geometry })
   const { deleteSelected, moveGroup, putItems } = moves
@@ -623,12 +624,6 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const drawings = board.drawings.filter((d) => !hidden(d)).map((drawing) => ({ drawing, rect: drawingRect(drawing) }))
   const bucketsById = new Map(buckets.map((b) => [b.bucket.id, b]))
   const drawingsById = new Map(drawings.map((d) => [d.drawing.id, d]))
-  /**
-   * Where the front bucket is in the stack: loose drawings below it are drawn among the buckets, those above it over it
-   * and what is in it (all of them when no bucket is open).
-   */
-  const frontLayer = layers.findIndex((l) => l.id === front)
-  const looseAbove = layers.slice(frontLayer + 1).flatMap((l) => (l.kind === 'drawing' ? (drawingsById.get(l.id) ?? []) : []))
   /** What the board's items call back; the same functions every render, so the memoized items don't render again for them. */
   const itemHandlers = useStableHandlers<BoardItemHandlers>({
     pointerDown: (e, kind, id, options) => onItemPointerDown(e, kind, id, options),
@@ -654,14 +649,13 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     },
     openCard: expand,
   })
-  const drawingView = ({ drawing, rect }: (typeof drawings)[number], front: boolean) => (
+  const drawingView = ({ drawing, rect }: (typeof drawings)[number]) => (
     <BoardDrawing
       key={drawing.id}
       drawing={drawing}
       rect={rect}
       selected={isSelected('drawing', drawing.id)}
       lifted={lifting(drawing.id)}
-      front={front}
       reshapeZoom={readOnly || selection?.id !== drawing.id ? undefined : zoom}
       handlers={itemHandlers}
     />
@@ -676,8 +670,24 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }, [board.images])
   /** How many cards, images and drawings each bucket holds. */
   const counts = useMemo(() => bucketCounts(board.cards, board.images, board.drawings), [board.cards, board.images, board.drawings])
-  // The front bucket's cards above the rest, most recently updated on top.
+  // Bucket by bucket as they are drawn, loose ones last, most recently updated on top.
   const cards = drawn.filter((n) => !binned.includes(n.id)).map((card) => ({ card, point: cardPoint(card) }))
+  /**
+   * The cards, images and drawings drawn right above each bucket, by its id, so a bucket drawn above covers them; under
+   * null the loose cards and images (and what is in a bucket that isn't shown), drawn above every bucket.
+   */
+  const inBucket = new Map<string | null, { cards: typeof cards; images: typeof images; drawings: typeof drawings }>()
+  const groupOf = (bucketId: string | null) => {
+    const key = bucketId !== null && bucketsById.has(bucketId) ? bucketId : null
+    let group = inBucket.get(key)
+    if (!group) inBucket.set(key, (group = { cards: [], images: [], drawings: [] }))
+    return group
+  }
+  for (const shown of images) groupOf(shown.image.bucketId).images.push(shown)
+  for (const shown of cards) groupOf(shown.card.bucketId).cards.push(shown)
+  for (const shown of drawings) if (!isLooseDrawing(shown.drawing)) groupOf(shown.drawing.bucketId).drawings.push(shown)
+  /** The topmost bucket's layer: loose cards and images are drawn right above it, below loose drawings stacked higher. */
+  const lastBucketLayer = layers.findLastIndex((l) => l.kind === 'bucket' && bucketsById.has(l.id))
   const canvas = useCanvasExtent(boardView, [
     ...buckets.map((b) => b.rect),
     ...cards.map((n) => cardBox(n.point)),
@@ -825,6 +835,54 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const history: HistoryButtons | undefined = readOnly
     ? undefined
     : { undo: { label: undo.nextUndo, disabled: historyBusy, onClick: undo.undo }, redo: { label: undo.nextRedo, disabled: historyBusy, onClick: undo.redo } }
+  /** What is drawn with a bucket, near the screen: its images, cards and drawings; for null the loose cards and images. */
+  function itemViews(bucketId: string | null) {
+    const group = inBucket.get(bucketId)
+    if (!group) return []
+    return [
+      ...group.images
+        .filter(({ image, rect }) => onPage(image.id, rect))
+        .map(({ image, rect }) => (
+          <BoardImage
+            key={image.id}
+            image={image}
+            rect={rect}
+            selected={isSelected('image', image.id)}
+            lifted={lifting(image.id)}
+            resizable={!readOnly && selectedImage?.id === image.id}
+            readOnly={readOnly}
+            handlers={itemHandlers}
+          />
+        )),
+      ...group.cards
+        .filter(({ card, point }) => onPage(card.id, cardBox(point)))
+        .map(({ card, point }) => (
+          <BoardCard
+            key={card.id}
+            card={card}
+            point={point}
+            images={attached.get(card.id)}
+            tagColors={tagColors}
+            selected={isSelected('card', card.id)}
+            lifted={lifting(card.id) || remoteMoving(card.id)}
+            dimmed={dimmed(card)}
+            highlight={matches.has(card.id) ? terms : undefined}
+            current={card.id === current}
+            dropTarget={
+              imageTarget?.id === card.id ||
+              (linkDrop?.window === false && linkDrop.card.id === card.id) ||
+              (attachDrop?.window === false && attachDrop.card.id === card.id)
+            }
+            editingTitle={titleEdit?.id === card.id}
+            titleCaret={titleEdit?.id === card.id ? titleEdit.caret : undefined}
+            readOnly={readOnly}
+            far={far}
+            handlers={itemHandlers}
+          />
+        )),
+      ...group.drawings.filter(({ drawing, rect }) => onPage(drawing.id, rect)).map(drawingView),
+    ]
+  }
   const hint = edits.uploads > 0 ? 'Uploading…' : fileDrop.over ? 'Drop to add the image here' : readOnly ? undefined : hints[tool]
 
   return (
@@ -879,41 +937,45 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               setDrops(released)
             }}
           >
-            {layers.map((layer, i) => {
+            {lastBucketLayer < 0 && itemViews(null)}
+            {layers.flatMap((layer, i) => {
               if (layer.kind === 'drawing') {
-                const below = i < frontLayer ? drawingsById.get(layer.id) : undefined
-                return below && onPage(below.drawing.id, below.rect) ? drawingView(below, false) : null
+                const shown = drawingsById.get(layer.id)
+                return shown && onPage(shown.drawing.id, shown.rect) ? [drawingView(shown)] : []
               }
               const shown = bucketsById.get(layer.id)
-              if (!shown) return null
+              if (!shown) return []
               const { bucket, rect } = shown
-              return bucket.collapsed ? (
-                <BoardCollapsedBucket
-                  key={bucket.id}
-                  bucket={bucket}
-                  rect={rect}
-                  count={countIn(bucket.id)}
-                  dropTarget={foldDrop === bucket.id}
-                  hits={search.hits.get(bucket.id) ?? 0}
-                  selected={isSelected('bucket', bucket.id)}
-                  readOnly={readOnly}
-                  handlers={itemHandlers}
-                />
-              ) : (
-                <BoardBucket
-                  key={bucket.id}
-                  bucket={bucket}
-                  rect={rect}
-                  count={countIn(bucket.id)}
-                  front={front === bucket.id}
-                  dropTarget={dropTarget?.id === bucket.id || arrangingInto === bucket.id}
-                  searchHit={search.hits.has(bucket.id)}
-                  selected={isSelected('bucket', bucket.id)}
-                  readOnly={readOnly}
-                  resizable={selectedBucket?.id === bucket.id}
-                  handlers={itemHandlers}
-                />
-              )
+              const own = bucket.collapsed
+                ? [
+                    <BoardCollapsedBucket
+                      key={bucket.id}
+                      bucket={bucket}
+                      rect={rect}
+                      count={countIn(bucket.id)}
+                      dropTarget={foldDrop === bucket.id}
+                      hits={search.hits.get(bucket.id) ?? 0}
+                      selected={isSelected('bucket', bucket.id)}
+                      readOnly={readOnly}
+                      handlers={itemHandlers}
+                    />,
+                  ]
+                : [
+                    <BoardBucket
+                      key={bucket.id}
+                      bucket={bucket}
+                      rect={rect}
+                      count={countIn(bucket.id)}
+                      dropTarget={dropTarget?.id === bucket.id || arrangingInto === bucket.id}
+                      searchHit={search.hits.has(bucket.id)}
+                      selected={isSelected('bucket', bucket.id)}
+                      readOnly={readOnly}
+                      resizable={selectedBucket?.id === bucket.id}
+                      handlers={itemHandlers}
+                    />,
+                    ...itemViews(bucket.id),
+                  ]
+              return i === lastBucketLayer ? [...own, ...itemViews(null)] : own
             })}
 
             {draft && (
@@ -923,54 +985,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               />
             )}
 
-            {images.filter(({ image, rect }) => onPage(image.id, rect)).map(({ image, rect }) => (
-              <BoardImage
-                key={image.id}
-                image={image}
-                rect={rect}
-                selected={isSelected('image', image.id)}
-                lifted={lifting(image.id)}
-                front={inFront(image)}
-                resizable={!readOnly && selectedImage?.id === image.id}
-                readOnly={readOnly}
-                handlers={itemHandlers}
-              />
-            ))}
-
             {newCard.spot && <Slot rect={cardBox(newCard.spot)} />}
             {outgoingPlace && <Slot rect={cardBox(outgoingPlace)} />}
             {draggedItem && <Slot rect={draggedItem.home} />}
-
-            {cards.filter(({ card, point }) => onPage(card.id, cardBox(point))).map(({ card, point }) => (
-              <BoardCard
-                key={card.id}
-                card={card}
-                point={point}
-                images={attached.get(card.id)}
-                tagColors={tagColors}
-                selected={isSelected('card', card.id)}
-                lifted={lifting(card.id) || remoteMoving(card.id)}
-                front={inFront(card)}
-                dimmed={dimmed(card)}
-                highlight={matches.has(card.id) ? terms : undefined}
-                current={card.id === current}
-                dropTarget={
-                  imageTarget?.id === card.id ||
-                  (linkDrop?.window === false && linkDrop.card.id === card.id) ||
-                  (attachDrop?.window === false && attachDrop.card.id === card.id)
-                }
-                editingTitle={titleEdit?.id === card.id}
-                titleCaret={titleEdit?.id === card.id ? titleEdit.caret : undefined}
-                readOnly={readOnly}
-                far={far}
-                handlers={itemHandlers}
-              />
-            ))}
-
-            {drawings
-              .filter(({ drawing, rect }) => !isLooseDrawing(drawing) && onPage(drawing.id, rect))
-              .map((shown) => drawingView(shown, inFront(shown.drawing)))}
-            {looseAbove.filter(({ drawing, rect }) => onPage(drawing.id, rect)).map((shown) => drawingView(shown, true))}
 
             {/* Above everything while it is drawn; once saved, the drawing takes its place in the stack. */}
             <div className="pen-strokes">

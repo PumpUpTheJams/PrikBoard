@@ -47,8 +47,6 @@ interface DrawingViewProps {
   rect: Rect
   selected: boolean
   lifted: boolean
-  /** Drawn above the rest, with the front bucket it sits in. */
-  front?: boolean
   onPointerDown: (e: PointerEvent<Element>) => void
   /** The canvas's zoom, to turn pointer travel into canvas pixels. */
   zoom?: number
@@ -110,7 +108,7 @@ function reshapeOf(g: ReshapeGesture, rect: Rect, zoom: number): Reshape {
 const unchanged = (r: Reshape) => r.scaleX === 1 && r.scaleY === 1 && r.rotation === 0
 
 /** A drawing on a canvas; pressing any of its lines selects and moves all of it. Selected, its handles scale and turn it. */
-export function DrawingView({ drawing, rect, selected, lifted, front, onPointerDown, zoom = 1, onReshape }: DrawingViewProps) {
+export function DrawingView({ drawing, rect, selected, lifted, onPointerDown, zoom = 1, onReshape }: DrawingViewProps) {
   const loaded = useDrawingStrokes(drawing)
   const [held, setGesture] = useState<ReshapeGesture | null>(null)
   // Once the drawing has a new content URL, its saved strokes replace the preview.
@@ -122,7 +120,6 @@ export function DrawingView({ drawing, rect, selected, lifted, front, onPointerD
   const classes = ['drawing']
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
-  if (front) classes.push('in-front')
   if (gesture) classes.push('reshaping')
 
   function begin(e: PointerEvent<HTMLElement>, kind: 'rotate' | Corner) {

@@ -153,27 +153,26 @@ interface DropProbeOptions {
   toCanvas: (e: { clientX: number; clientY: number }) => Point
   /** The cards on the board, in the order they are drawn (the last on top). */
   drawn: CardDetail[]
-  /** Buckets back to front. */
-  stacked: BucketDetail[]
-  /** The bucket drawn in front, with what is in it. */
-  front: string | null
+  /** Buckets as they are drawn, back to front, each with what is in it. */
+  drawnBuckets: BucketDetail[]
   bucketRect: (bucket: BucketDetail) => Rect
 }
 
 /** What the board can tell about the places a drag could be dropped on (a DropProbe), and the card under a point. */
 export function useDropProbe(options: DropProbeOptions) {
-  const { board, expanded, cardHandle, trash, railTrash, toCanvas, drawn, stacked, front, bucketRect } = options
+  const { board, expanded, cardHandle, trash, railTrash, toCanvas, drawn, drawnBuckets: stacked, bucketRect } = options
   /** The last place a group was arranged in a bucket: a drag asks on every move, and the answer seldom changes. */
   const arranged = useRef<ArrangeMemo | null>(null)
 
   /**
-   * Whether the front bucket covers canvas point `p` for an item outside it (`bucketId`: the item's bucket, or a
-   * collapsed bucket's own id): its fill hides what is under it, so a drop there doesn't reach it.
+   * Whether an open bucket drawn above an item's bucket covers canvas point `p` (`bucketId`: the item's bucket, or a
+   * collapsed bucket's own id): its fill hides what is under it, so a drop there doesn't reach it. Loose cards and
+   * images are drawn above every bucket.
    */
   function coveredAt(p: Point, bucketId: string | null): boolean {
-    const bucket = front !== null && bucketId !== front ? board.buckets.find((b) => b.id === front) : undefined
-    if (!bucket) return false
-    return contains(bucketRect(bucket), p)
+    if (bucketId === null) return false
+    const below = stacked.findIndex((b) => b.id === bucketId)
+    return stacked.slice(below + 1).some((b) => !b.collapsed && contains(bucketRect(b), p))
   }
 
   /** The topmost card on the board under a canvas point, other than `except` (one id, or the ids of a group), and not covered. */
@@ -199,7 +198,7 @@ export function useDropProbe(options: DropProbeOptions) {
     onTrash,
     inDeleted,
     overWindow,
-    // Not a collapsed bucket behind the front bucket.
+    // Not a collapsed bucket covered by a bucket drawn above it.
     foldAt: (p) => stacked.findLast((b) => b.collapsed && !coveredAt(p, b.id) && contains(collapsedRect(bucketRect(b)), p)),
     // A card, or several selected cards, link to the open card (anywhere over its window) or to the card under the
     // pointer that isn't one of them.
@@ -214,7 +213,7 @@ export function useDropProbe(options: DropProbeOptions) {
       const under = cardUnder(client, ids)
       return under ? { card: under, window: false, client } : null
     },
-    arrangeFor: (g) => arrangeFor(g, board, stacked, front, arranged),
+    arrangeFor: (g) => arrangeFor(g, board, stacked, arranged),
     // Only a group of images and drawings: to the open card (over its canvas) or to the card under the pointer.
     attachDropFor(g, client) {
       if (g.kind !== 'group' || !g.members.every((m) => m.kind === 'image' || m.kind === 'drawing')) return null
@@ -262,10 +261,10 @@ function draggedCards(g: Gesture): Set<string> | null {
  * all in it already: its free spots, growing towards the edge nearest the pointer. Null for a group with buckets or
  * without cards: images and drawings stay where they are let go.
  */
-function arrangeFor(g: Gesture, board: BoardDetail, stacked: BucketDetail[], front: string | null, memo: RefObject<ArrangeMemo | null>): ArrangeDrop | null {
+function arrangeFor(g: Gesture, board: BoardDetail, stacked: BucketDetail[], memo: RefObject<ArrangeMemo | null>): ArrangeDrop | null {
   if (g.kind !== 'group' || g.members.some((m) => m.kind === 'bucket') || !g.members.some((m) => m.kind === 'card')) return null
   const p = g.current
-  const bucket = bucketAtPointer(stacked, p, front)
+  const bucket = bucketAtPointer(stacked, p)
   if (!bucket) return null
   const edges: [GrowSide, number][] = [
     ['Left', p.x - bucket.x],

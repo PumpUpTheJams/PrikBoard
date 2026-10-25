@@ -1268,7 +1268,7 @@ main {
 .edge.e { right: -10px; }
 .edge.w { left: -10px; }
 
-/* Where a dragged item was or lands: above the front bucket's fill (`.in-front`), below lifted items. */
+/* Where a dragged item was or lands: above every bucket's fill (buckets are drawn in order, each with its items), below lifted items. */
 .item-slot {
   position: absolute;
   z-index: 1;
@@ -5769,14 +5769,6 @@ button.picker-color:hover,
 .bucket-collapsed.search-hit {
   border-color: var(--accent);
   color: var(--accent);
-}
-
-/* The topmost open bucket and what is in it are drawn above the rest, and so are loose drawings stacked above it. Lifted items stay above them. */
-.bucket.in-front,
-.card.in-front:not(.lifted, .link-copied),
-.board-image.in-front:not(.lifted),
-.drawing.in-front:not(.lifted) {
-  z-index: 1;
 }
 
 .bucket-collapsed-counts {
