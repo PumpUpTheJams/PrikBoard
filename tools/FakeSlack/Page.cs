@@ -35,6 +35,7 @@ internal static class Page
   .message { padding: 8px 0; }
   .message .who { font-weight: 700; } .message .ts { color: var(--muted); font-size: 12px; margin-left: 8px; }
   .message .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .message.ephemeral { border-left: 3px solid var(--muted); padding-left: 10px; }
   .unfurl { display: flex; margin-top: 6px; max-width: 640px; }
   .unfurl .bar { width: 4px; border-radius: 4px; flex: none; }
   .unfurl .body { padding: 2px 12px; min-width: 0; }
@@ -67,7 +68,7 @@ internal static class Page
   <div id="messages"></div>
   <form id="compose">
     <select id="user" aria-label="Post as"></select>
-    <input id="text" autocomplete="off" placeholder="Paste a PrikBoard link…" aria-label="Message">
+    <input id="text" autocomplete="off" placeholder="Paste a PrikBoard link, or /prikboard board…" aria-label="Message">
     <button type="button" class="secondary" id="type" title="Sends link_shared with source composer, as Slack does while you type">Type only</button>
     <button>Send</button>
   </form>
@@ -109,16 +110,25 @@ function unfurl(url, u) {
 
 async function refresh() {
   const messages = await (await fetch('/_fake/messages?channel=' + channel)).json();
+  const responses = await (await fetch('/_fake/responses?channel=' + channel)).json();
   const users = Object.fromEntries((state?.users || []).map(u => [u.id, u.name]));
+  users[state?.botUserId] = 'PrikBoard (app)';
   const atBottom = $('messages').scrollTop + $('messages').clientHeight >= $('messages').scrollHeight - 20;
-  $('messages').innerHTML = messages.map(m => {
+  const posted = messages.map(m => {
     const shown = Object.entries(m.unfurls);
     const waiting = m.links.filter(l => !(l in m.unfurls));
     return `<div class="message"><span class="who">${esc(users[m.user] || m.user)}</span><span class="ts">${m.ts}</span>
       <div class="text">${esc(m.text)}</div>
       ${shown.map(([url, u]) => unfurl(url, u)).join('')}
+      ${(m.attachments || []).map(a => unfurl('', a)).join('')}
       ${waiting.length ? `<div class="pending">${waiting.length} link(s) without a preview (yet)</div>` : ''}</div>`;
-  }).join('') || '<div class="pending">No messages yet.</div>';
+  });
+  // Answers to slash commands come last, as in Slack, where they stay at the bottom until you reload.
+  const answers = responses.map(r => `<div class="message ephemeral"><span class="who">PrikBoard (app)</span>
+      <span class="ts">Only visible to ${esc(users[r.user] || r.user)} · ${esc(r.command)}</span>
+      <div class="text">${r.body?.attachments ? '' : mrkdwn(esc(r.body?.text || ''))}</div>
+      ${(r.body?.attachments || []).map(a => unfurl('', a)).join('')}</div>`);
+  $('messages').innerHTML = [...posted, ...answers].join('') || '<div class="pending">No messages yet.</div>';
   if (atBottom) $('messages').scrollTop = $('messages').scrollHeight;
   state = await (await fetch('/_fake/state')).json();
   $('status').innerHTML = state.connections ? '<b class="on">●</b> PrikBoard connected' : '<b class="off">●</b> PrikBoard not connected';
@@ -145,8 +155,11 @@ function pick() {
 $('compose').onsubmit = async e => {
   e.preventDefault();
   if (!$('text').value.trim()) return;
-  await fetch('/_fake/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+  // Like Slack, a message that starts with a slash is a command, not a message.
+  const command = $('text').value.trim().startsWith('/');
+  const r = await fetch(command ? '/_fake/commands' : '/_fake/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ channel, user: $('user').value, text: $('text').value }) });
+  if (command && !r.ok) alert('PrikBoard isn\'t connected, so the command went nowhere.');
   $('text').value = '';
   refresh();
 };

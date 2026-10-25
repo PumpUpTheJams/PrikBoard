@@ -17,9 +17,6 @@ namespace PrikBoard.Api.Endpoints;
 /// </summary>
 public static class SlackEndpoints
 {
-    /// <summary>Slack previews don't follow their cards yet (docs/slack.md, phase 3), so there is nothing to refresh.</summary>
-    private static readonly Action<Guid> NoRefresh = _ => { };
-
     public static RouteGroupBuilder MapSlackEndpoints(this RouteGroupBuilder api)
     {
         var board = api.MapGroup("/boards/{boardId:guid}/slack").WithTags("Slack");
@@ -52,12 +49,20 @@ public static class SlackEndpoints
             .Produces(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        board.MapPut("/{teamId}/channels/{channelId}", UpdateSlackChannel)
+            .RequireBoardRole(BoardRole.Owner)
+            .WithName("updateSlackChannel")
+            .WithSummary("Set what a Slack channel does for a board")
+            .WithDescription("Sets the board activity the Slack app posts in the channel (new cards, moves between buckets, " +
+                             "assignments, agents at work; none by default). Returns the board's Slack connections.")
+            .ProducesValidationProblem();
+
         board.MapDelete("/{teamId}", RemoveSlackConnection)
             .RequireBoardRole(BoardRole.Owner)
             .WithName("removeSlackConnection")
             .WithSummary("Disconnect a Slack workspace from a board")
-            .WithDescription("Removes the workspace from the board's members, so its links no longer unfurl there. Previews already " +
-                             "posted stay in Slack.");
+            .WithDescription("Removes the workspace from the board's members, so its links no longer unfurl there. Previews posted " +
+                             "in the last week say the board is no longer available.");
 
         board.MapDelete("/{teamId}/whole-workspace", RemoveSlackWholeWorkspace)
             .RequireBoardRole(BoardRole.Owner)
@@ -111,17 +116,26 @@ public static class SlackEndpoints
         return TypedResults.Ok(await ConnectionsAsync(db, gateway, boardId, ct));
     }
 
+    private static async Task<Results<Ok<List<SlackConnection>>, NotFound>> UpdateSlackChannel(
+        Guid boardId, string teamId, string channelId, UpdateSlackChannelRequest request, PrikBoardDbContext db, ISlackGateway gateway,
+        CancellationToken ct)
+    {
+        var found = await ChatConnections.UpdateChannelAsync(db, ChatPlatform.Slack, boardId, teamId, channelId,
+            channel => channel with { Updates = ChatUpdateLists.Flags(request.Updates) }, ct);
+        return found ? TypedResults.Ok(await ConnectionsAsync(db, gateway, boardId, ct)) : TypedResults.NotFound();
+    }
+
     private static Task<Results<NoContent, NotFound>> RemoveSlackConnection(
-        Guid boardId, string teamId, PrikBoardDbContext db, BoardEvents events, CancellationToken ct) =>
-        ChatConnections.RemoveAsync(db, events, ChatPlatform.Slack, boardId, teamId, NoRefresh, ct);
+        Guid boardId, string teamId, PrikBoardDbContext db, BoardEvents events, ChatActivity activity, CancellationToken ct) =>
+        ChatConnections.RemoveAsync(db, events, ChatPlatform.Slack, boardId, teamId, activity.RefreshBoard, ct);
 
     private static Task<Results<NoContent, NotFound>> RemoveSlackWholeWorkspace(
-        Guid boardId, string teamId, PrikBoardDbContext db, BoardEvents events, CancellationToken ct) =>
-        ChatConnections.RemoveWholeWorkspaceAsync(db, events, ChatPlatform.Slack, boardId, teamId, NoRefresh, ct);
+        Guid boardId, string teamId, PrikBoardDbContext db, BoardEvents events, ChatActivity activity, CancellationToken ct) =>
+        ChatConnections.RemoveWholeWorkspaceAsync(db, events, ChatPlatform.Slack, boardId, teamId, activity.RefreshBoard, ct);
 
     private static Task<Results<NoContent, NotFound>> RemoveSlackChannel(
-        Guid boardId, string teamId, string channelId, PrikBoardDbContext db, BoardEvents events, CancellationToken ct) =>
-        ChatConnections.RemoveChannelAsync(db, events, ChatPlatform.Slack, boardId, teamId, channelId, NoRefresh, ct);
+        Guid boardId, string teamId, string channelId, PrikBoardDbContext db, BoardEvents events, ChatActivity activity, CancellationToken ct) =>
+        ChatConnections.RemoveChannelAsync(db, events, ChatPlatform.Slack, boardId, teamId, channelId, activity.RefreshBoard, ct);
 
     /// <summary>The workspaces connected to a board, named as the app sees them now where it can.</summary>
     private static async Task<List<SlackConnection>> ConnectionsAsync(PrikBoardDbContext db, ISlackGateway gateway, Guid boardId, CancellationToken ct)

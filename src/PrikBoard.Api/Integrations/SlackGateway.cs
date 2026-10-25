@@ -47,14 +47,28 @@ public interface ISlackGateway
     /// disconnects when they are null. Links on <paramref name="publicUrl"/> are unfurled.
     /// </summary>
     Task ApplyAsync(string? botToken, string? appToken, string? publicUrl);
+
+    /// <summary>
+    /// Unfurls a message's links again, for <see cref="ChatActivity"/> (each URL to its attachment). A message in a channel
+    /// that has since been shared with other organizations gets <paramref name="whenShared"/> instead. False when the
+    /// message or its channel is gone, so it needn't be followed any longer.
+    /// </summary>
+    Task<bool> RefreshUnfurlsAsync(
+        string channelId, string messageTs, IReadOnlyDictionary<string, object> unfurls, IReadOnlyDictionary<string, object> whenShared, CancellationToken ct);
+
+    /// <summary>Posts a message as the bot; nothing in a channel shared with other organizations, or while the app is offline.</summary>
+    Task PostAsync(string channelId, string text, object attachment, CancellationToken ct);
 }
 
 /// <summary>
 /// The Slack app itself, inside the API (docs/slack.md). It keeps a Socket Mode connection, a WebSocket it opens out to
 /// Slack, so PrikBoard needs no public address for Slack to call; Slack sends events over it and the app acks each one.
-/// For now it answers <c>link_shared</c>: the links on the public address in a posted message get previews
+/// It answers <c>link_shared</c>: the links on the public address in a posted message get previews
 /// (<see cref="ChatPreviews"/>, drawn by <see cref="SlackBlocks"/>) where the workspace may see them, through
-/// <c>chat.unfurl</c>. <see cref="SlackApp"/> gives it its tokens and public URL. One instance only, like the Discord bot.
+/// <c>chat.unfurl</c>, and the message is remembered so <see cref="ChatActivity"/> can unfurl it again as its cards change
+/// (<see cref="SlackActivityTarget"/>), and post the updates channels follow. <c>/prikboard board</c> shows the board
+/// connected to the channel, only to whoever asked. <see cref="SlackApp"/> gives it its tokens and public URL. One
+/// instance only, like the Discord bot.
 /// </summary>
 public sealed class SlackGateway(IServiceProvider services, IConfiguration config, ILogger<SlackGateway> logger)
     : ISlackGateway, IHostedService
@@ -265,14 +279,15 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
             {
                 await socket.SendAsync(JsonSerializer.SerializeToUtf8Bytes(new { envelope_id = envelopeId }), WebSocketMessageType.Text, true, ct);
             }
-            if (type == "events_api" && envelope.TryGetProperty("payload", out var payload))
+            if (type is "events_api" or "slash_commands" && envelope.TryGetProperty("payload", out var payload))
             {
                 var copy = payload.Clone();
                 _ = Task.Run(async () =>
                 {
                     try
                     {
-                        await HandleEventAsync(copy, botToken, ct);
+                        if (type == "events_api") await HandleEventAsync(copy, botToken, ct);
+                        else await SlashCommandAsync(copy, botToken, ct);
                     }
                     catch (Exception error) when (error is not OperationCanceledException)
                     {
@@ -333,6 +348,87 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
         catch (SlackApiException error)
         {
             logger.LogInformation("Slack refused an unfurl in {Channel}: {Error}", channelId, error.Error);
+            return;
+        }
+        // Followed for a week, so the previews keep up with their cards. Slack's message timestamp is its id in the channel.
+        await ChatPreviews.RememberAsync(db, ChatPlatform.Slack, ts, teamId, channelId, shown, ct);
+    }
+
+    /// <summary>
+    /// <c>/prikboard board</c>: the board connected to this channel, only for whoever asked (an ephemeral answer through
+    /// the command's <c>response_url</c>). Anything else gets a short help.
+    /// </summary>
+    private async Task SlashCommandAsync(JsonElement payload, string botToken, CancellationToken ct)
+    {
+        string? Field(string name) => payload.TryGetProperty(name, out var value) ? value.GetString() : null;
+        if (Field("command") != SlackApp.Command || Field("response_url") is not { } responseUrl) return;
+        var teamId = Field("team_id") ?? _identity?.TeamId;
+        var channelId = Field("channel_id");
+        if (_site is not { } site || teamId is null || channelId is null) return;
+
+        object answer;
+        if (!string.Equals(Field("text")?.Trim(), "board", StringComparison.OrdinalIgnoreCase))
+        {
+            answer = Ephemeral("Try `/prikboard board`: what is on the PrikBoard board connected to this channel, only for you.");
+        }
+        else if (await ChannelAsync(botToken, channelId, ct) is not { IsExtShared: false })
+        {
+            answer = Ephemeral("PrikBoard doesn't show boards in channels shared with other organizations.");
+        }
+        else
+        {
+            await using var scope = services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+            var boards = await ChatPreviews.BoardsInChannelAsync(db, ChatPlatform.Slack, teamId, channelId, ct);
+            if (boards.Count == 0)
+            {
+                answer = Ephemeral("No PrikBoard board is connected to this channel. A board owner connects one under Integrations in the board menu.");
+            }
+            else
+            {
+                var snapshot = await ChatPreviews.SnapshotAsync(db, boards[0], DateTimeOffset.UtcNow, ct);
+                answer = new { response_type = "ephemeral", text = snapshot.Name, attachments = new[] { site.Blocks.Snapshot(snapshot) } };
+            }
+        }
+        if (!await Api.RespondAsync(responseUrl, answer, ct)) logger.LogInformation("Answering /prikboard in {Channel} failed.", channelId);
+
+        static object Ephemeral(string text) => new { response_type = "ephemeral", text };
+    }
+
+    public async Task<bool> RefreshUnfurlsAsync(
+        string channelId, string messageTs, IReadOnlyDictionary<string, object> unfurls, IReadOnlyDictionary<string, object> whenShared, CancellationToken ct)
+    {
+        // Offline: kept, and looked at again with the next change.
+        if (_state != SlackAppState.Online || _tokens is not { } tokens) return true;
+        try
+        {
+            var channel = await ChannelAsync(tokens.Bot, channelId, ct);
+            if (channel is null) return false;
+            await Api.UnfurlAsync(tokens.Bot, channelId, messageTs, channel.IsExtShared ? whenShared : unfurls, ct);
+            return true;
+        }
+        catch (SlackApiException error) when (error.Error is "cannot_find_message" or "message_not_found" or "channel_not_found" or "is_archived")
+        {
+            return false;
+        }
+        catch (SlackApiException error)
+        {
+            logger.LogInformation("Slack refused to unfurl a message again in {Channel}: {Error}", channelId, error.Error);
+            return true;
+        }
+    }
+
+    public async Task PostAsync(string channelId, string text, object attachment, CancellationToken ct)
+    {
+        if (_state != SlackAppState.Online || _tokens is not { } tokens) return;
+        try
+        {
+            if (await ChannelAsync(tokens.Bot, channelId, ct) is not { IsExtShared: false }) return;
+            await Api.PostMessageAsync(tokens.Bot, channelId, text, attachment, ct);
+        }
+        catch (SlackApiException error)
+        {
+            logger.LogInformation("The Slack app could not post in {Channel}: {Error}", channelId, error.Error);
         }
     }
 

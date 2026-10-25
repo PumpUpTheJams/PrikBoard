@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, errorMessage } from '../api/client'
-import type { BoardSummary, SlackConnection, SlackWorkspaces } from '../api/types'
+import type { BoardSummary, ChatUpdate, SlackChannel, SlackConnection, SlackWorkspaces } from '../api/types'
 import { CloseIcon } from '../board/icons'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Select, type SelectOption } from './Select'
+import { updateChoices } from './chatUpdates'
 
 /** The channel choice that previews the board in every channel of the workspace. */
 const WHOLE_WORKSPACE = '*'
@@ -16,8 +17,8 @@ interface SlackIntegrationProps {
 
 /**
  * The Slack part of Integrations: the board connects to channels of the workspace the instance's Slack app is in, or
- * to the whole workspace, and links to it unfurl there. Unlike Discord, channels have no settings yet (updates and Save
- * to PrikBoard come later, docs/slack.md), so a channel is just a chip.
+ * to the whole workspace, and links to it unfurl there. A channel's chip opens its settings: the board's updates it
+ * posts. (Save to PrikBoard, and so a save bucket, comes later; docs/slack.md.)
  */
 export function SlackIntegration({ board, isAdmin }: SlackIntegrationProps) {
   const [connections, setConnections] = useState<SlackConnection[] | null>(null)
@@ -26,6 +27,7 @@ export function SlackIntegration({ board, isAdmin }: SlackIntegrationProps) {
   const [channelId, setChannelId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [removing, setRemoving] = useState<SlackConnection | null>(null)
+  const [editing, setEditing] = useState<{ teamId: string; channelId: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const reload = useCallback(
@@ -70,12 +72,15 @@ export function SlackIntegration({ board, isAdmin }: SlackIntegrationProps) {
     : []
   const channel = channelOptions.find((o) => o.value === channelId) ?? channelOptions.find((o) => o.value !== WHOLE_WORKSPACE) ?? channelOptions[0]
 
+  const editedConnection = editing && connections?.find((c) => c.teamId === editing.teamId)
+  const edited = editedConnection?.channels.find((c) => c.id === editing?.channelId)
+
   return (
     <section className="dialog-section">
       <h3>Slack</h3>
       <p className="dialog-hint">
         Links to this board and its cards unfurl into a preview in these channels, for everyone there, with titles, descriptions,
-        tags and the people on cards. Never in channels shared with other organizations.
+        tags and the people on cards. Previews keep up with the cards for a week. Never in channels shared with other organizations.
       </p>
       {connections === null || slack === null ? (
         <p className="dialog-hint">Loading…</p>
@@ -104,20 +109,33 @@ export function SlackIntegration({ board, isAdmin }: SlackIntegrationProps) {
                           </button>
                         </span>
                       )}
-                      {c.channels.map((ch) => (
-                        <span key={ch.id} className="discord-channel">
-                          <span className="discord-channel-name">#{ch.name}</span>
-                          <button
-                            type="button"
-                            className="icon-button"
-                            aria-label={`Disconnect #${ch.name}`}
-                            title="Stop unfurling here"
-                            onClick={() => (isLast(c) ? setRemoving(c) : void attempt(() => api.removeSlackChannel(board.id, c.teamId, ch.id)))}
-                          >
-                            <CloseIcon size={12} />
-                          </button>
-                        </span>
-                      ))}
+                      {c.channels.map((ch) => {
+                        const open = editing?.teamId === c.teamId && editing.channelId === ch.id
+                        const posts = ch.updates.length > 0
+                        return (
+                          <span key={ch.id} className={`discord-channel${open ? ' open' : ''}`}>
+                            <button
+                              type="button"
+                              className="discord-channel-name"
+                              aria-expanded={open}
+                              title={posts ? 'Posts this board’s updates. Click for settings' : 'Click for settings'}
+                              onClick={() => setEditing(open ? null : { teamId: c.teamId, channelId: ch.id })}
+                            >
+                              #{ch.name}
+                              {posts && <span aria-label="posts updates"> 🔔</span>}
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-button"
+                              aria-label={`Disconnect #${ch.name}`}
+                              title="Stop unfurling here"
+                              onClick={() => (isLast(c) ? setRemoving(c) : void attempt(() => api.removeSlackChannel(board.id, c.teamId, ch.id)))}
+                            >
+                              <CloseIcon size={12} />
+                            </button>
+                          </span>
+                        )
+                      })}
                     </span>
                     <span className="row-meta">
                       Connected {new Date(c.connectedAt).toLocaleDateString()}
@@ -130,6 +148,15 @@ export function SlackIntegration({ board, isAdmin }: SlackIntegrationProps) {
                 </li>
               ))}
             </ul>
+          )}
+
+          {editedConnection && edited && (
+            <SlackChannelSettings
+              key={`${editedConnection.teamId}:${edited.id}`}
+              channel={edited}
+              busy={busy}
+              onChange={(updates) => void attempt(() => api.updateSlackChannel(board.id, editedConnection.teamId, edited.id, { updates }))}
+            />
           )}
 
           {slack.state === 'Off' ? (
@@ -179,7 +206,8 @@ export function SlackIntegration({ board, isAdmin }: SlackIntegrationProps) {
 
           {slack.state !== 'Off' && workspace && (
             <p className="dialog-hint discord-how">
-              A channel shows up here once the app is in it: in Slack, type <code>/invite @PrikBoard</code> in that channel.
+              A channel shows up here once the app is in it: in Slack, type <code>/invite @PrikBoard</code> in that channel. Click a
+              connected channel to have it post this board's updates; <code>/prikboard board</code> there shows what is on the board.
             </p>
           )}
         </>
@@ -193,7 +221,7 @@ export function SlackIntegration({ board, isAdmin }: SlackIntegrationProps) {
       {removing && (
         <ConfirmDialog
           title={`Disconnect "${removing.teamName}"?`}
-          message="Links to this board stop unfurling there. Previews already posted stay in Slack."
+          message="Links to this board stop unfurling there, and its updates stop. Previews posted in the last week say the board is no longer available."
           confirmLabel="Disconnect"
           onConfirm={() => {
             const target = removing
@@ -204,5 +232,32 @@ export function SlackIntegration({ board, isAdmin }: SlackIntegrationProps) {
         />
       )}
     </section>
+  )
+}
+
+interface SlackChannelSettingsProps {
+  channel: SlackChannel
+  busy: boolean
+  onChange: (updates: ChatUpdate[]) => void
+}
+
+/** What one connected Slack channel does for the board: the updates it posts. */
+function SlackChannelSettings({ channel, busy, onChange }: SlackChannelSettingsProps) {
+  return (
+    <div className="discord-channel-settings">
+      <h4>#{channel.name}</h4>
+      <p className="dialog-hint">Post here as it happens on the board (gathered for half a minute, one post per board):</p>
+      {updateChoices.map((u) => (
+        <label key={u.value} className="check-row">
+          <input
+            type="checkbox"
+            checked={channel.updates.includes(u.value)}
+            disabled={busy}
+            onChange={(e) => onChange(e.target.checked ? [...channel.updates, u.value] : channel.updates.filter((x) => x !== u.value))}
+          />
+          {u.label}
+        </label>
+      ))}
+    </div>
   )
 }

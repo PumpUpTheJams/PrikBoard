@@ -29,7 +29,7 @@ public class DiscordApiFactory : PrikBoardApiFactory
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         base.ConfigureWebHost(builder);
-        // Tests tick the activity themselves (DiscordActivity.TickAsync), and updates are posted at once.
+        // Tests tick the activity themselves (ChatActivity.TickAsync), and updates are posted at once.
         builder.UseSetting("Discord:ActivitySeconds", "0");
         builder.UseSetting("Discord:UpdatesDelaySeconds", "0");
         builder.ConfigureTestServices(services =>
@@ -548,7 +548,7 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         var set = await owner.PutAsJsonAsync($"/api/boards/{board.Id}/discord/{guildId}/channels/{OtherChannel}",
             new { updates = new[] { "NewCards", "Moves" } });
         Assert.Equal(HttpStatusCode.OK, set.StatusCode);
-        Assert.Equal([DiscordUpdate.NewCards, DiscordUpdate.Moves], Assert.Single((await set.Content.ReadFromJsonAsync<List<DiscordConnection>>())!).Channels[0].Updates);
+        Assert.Equal([ChatUpdate.NewCards, ChatUpdate.Moves], Assert.Single((await set.Content.ReadFromJsonAsync<List<DiscordConnection>>())!).Channels[0].Updates);
         Assert.Equal(HttpStatusCode.BadRequest, (await owner.PutAsJsonAsync($"/api/boards/{board.Id}/discord/{guildId}/channels/{OtherChannel}",
             new { updates = Array.Empty<string>(), saveBucketId = other.Buckets[0].Id })).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await owner.PutAsJsonAsync($"/api/boards/{board.Id}/discord/{guildId}/channels/{Channel}",
@@ -668,7 +668,7 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         Assert.Empty(await ChatPreviews.BoardsInChannelAsync(db, ChatPlatform.Discord, BotJoinsServer(), Channel, CancellationToken.None));
     }
 
-    private Task TickAsync() => factory.Services.GetRequiredService<DiscordActivity>().TickAsync(CancellationToken.None);
+    private Task TickAsync() => factory.Services.GetRequiredService<ChatActivity>().TickAsync(CancellationToken.None);
 
     private static Task<HttpResponseMessage> LinkAccount(HttpClient client, string code, string origin = "http://localhost")
     {

@@ -63,7 +63,7 @@ public interface IDiscordGateway
 /// The Discord bot itself, inside the API (docs/discord.md). It connects out to Discord's gateway, so it needs no inbound
 /// port. It answers messages with previews of links and readable ids (<see cref="ChatPreviews"/>), offers Save to
 /// PrikBoard on messages (<see cref="ChatSaves"/>) and /prikboard board, and posts and edits what
-/// <see cref="DiscordActivity"/> passes on. <see cref="DiscordBot"/> gives it its token and public URL, at startup and
+/// <see cref="ChatActivity"/> passes on. <see cref="DiscordBot"/> gives it its token and public URL, at startup and
 /// whenever an admin changes them. One instance only, like the rest of PrikBoard: two would answer every message twice.
 /// </summary>
 public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration config, ILogger<DiscordGateway> logger)

@@ -118,7 +118,7 @@ public static class DiscordBotEndpoints
     }
 
     private static async Task<Results<NoContent, NotFound>> LeaveDiscordServer(
-        string guildId, IDiscordGateway gateway, PrikBoardDbContext db, BoardEvents events, DiscordActivity activity, CancellationToken ct)
+        string guildId, IDiscordGateway gateway, PrikBoardDbContext db, BoardEvents events, ChatActivity activity, CancellationToken ct)
     {
         var left = await gateway.LeaveAsync(guildId);
         var known = await LinkPreviews.AgentIdAsync(db, ChatPlatform.Discord, guildId, ct) is not null;

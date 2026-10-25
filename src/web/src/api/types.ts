@@ -915,15 +915,15 @@ export interface DiscordChannelChoice {
   name: string
 }
 
-/** Board activity a Discord channel can follow. */
-export type DiscordUpdate = 'NewCards' | 'Moves' | 'Assignments' | 'AgentWork'
+/** Board activity a chat channel (Discord or Slack) can follow. */
+export type ChatUpdate = 'NewCards' | 'Moves' | 'Assignments' | 'AgentWork'
 
 /** A Discord channel connected to a board, with what it does there. */
 export interface DiscordChannel {
   id: string
   name: string
   /** What the bot posts there as it happens on the board. */
-  updates: DiscordUpdate[]
+  updates: ChatUpdate[]
   /** Where Save to PrikBoard in this channel puts cards; null for the board's first bucket. */
   saveBucketId: string | null
 }
@@ -1015,6 +1015,8 @@ export type SlackAppState = 'Off' | 'Connecting' | 'Online' | 'Failed'
 export interface SlackChannel {
   id: string
   name: string
+  /** What the app posts there as it happens on the board. */
+  updates: ChatUpdate[]
 }
 
 /** A Slack workspace where the app unfurls a board's links. */
@@ -1033,7 +1035,7 @@ export interface SlackConnection {
 export interface SlackWorkspaceChoice {
   teamId: string
   name: string
-  channels: SlackChannel[]
+  channels: { id: string; name: string }[]
 }
 
 /** Where the instance's Slack app can preview a board's links. */

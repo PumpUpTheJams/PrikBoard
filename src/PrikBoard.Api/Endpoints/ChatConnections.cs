@@ -98,6 +98,23 @@ internal static class ChatConnections
         return true;
     }
 
+    /// <summary>Changes what one channel picked for the board does (the updates it posts, its save bucket); false when it isn't picked.</summary>
+    internal static async Task<bool> UpdateChannelAsync(
+        PrikBoardDbContext db, ChatPlatform platform, Guid boardId, string workspaceId, string channelId, Func<ChatChannel, ChatChannel> change,
+        CancellationToken ct)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await MemberEndpoints.LockBoard(db, boardId, ct);
+        var limit = await FindLimitAsync(db, platform, workspaceId, boardId, ct);
+        if (limit?.Channel(channelId) is not { } channel) return false;
+
+        var changed = change(channel);
+        limit.Channels = [.. limit.Channels.Select(c => c.Id == channelId ? changed : c)];
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return true;
+    }
+
     /// <summary>Disconnects the workspace from the board altogether.</summary>
     internal static async Task<Results<NoContent, NotFound>> RemoveAsync(
         PrikBoardDbContext db, BoardEvents events, ChatPlatform platform, Guid boardId, string workspaceId, Action<Guid> refresh, CancellationToken ct)

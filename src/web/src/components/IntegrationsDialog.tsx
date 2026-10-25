@@ -1,24 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, errorMessage } from '../api/client'
-import type { BoardSummary, BucketDetail, DiscordChannel, DiscordConnection, DiscordServers, DiscordUpdate } from '../api/types'
+import type { BoardSummary, BucketDetail, DiscordChannel, DiscordConnection, DiscordServers, ChatUpdate } from '../api/types'
 import { CloseIcon } from '../board/icons'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Dialog } from './Dialog'
 import { Select, type SelectOption } from './Select'
 import { SlackIntegration } from './SlackIntegration'
+import { updateChoices } from './chatUpdates'
 
 /** The channel choice that previews the board in every channel of the server. */
 const WHOLE_SERVER = '*'
 
 /** The save bucket choice that means the board's first bucket. */
 const FIRST_BUCKET = '*'
-
-const updateChoices: { value: DiscordUpdate; label: string }[] = [
-  { value: 'NewCards', label: 'New cards' },
-  { value: 'Moves', label: 'Cards moving between buckets' },
-  { value: 'Assignments', label: 'People being assigned' },
-  { value: 'AgentWork', label: 'Agents starting and stopping work' },
-]
 
 interface IntegrationsDialogProps {
   board: BoardSummary
@@ -283,7 +277,7 @@ interface ChannelSettingsProps {
   channel: DiscordChannel
   buckets: BucketDetail[]
   busy: boolean
-  onChange: (settings: { updates: DiscordUpdate[]; saveBucketId: string | null }) => void
+  onChange: (settings: { updates: ChatUpdate[]; saveBucketId: string | null }) => void
 }
 
 /** What one connected channel does for the board: the updates it posts, and where Save to PrikBoard puts cards. */

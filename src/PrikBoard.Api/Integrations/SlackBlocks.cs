@@ -13,8 +13,14 @@ public sealed class SlackBlocks(string publicUrl)
     /// <summary>The logo's yellow, also the anonymous preview's theme-color.</summary>
     public const string Brand = "#ffd54f";
 
+    /// <summary>For what is gone.</summary>
+    private const string Muted = "#5c6370";
+
     /// <summary>Fields a section takes in Slack.</summary>
     private const int MaxFields = 10;
+
+    /// <summary>Characters Slack takes in a section's text, and in one of its fields.</summary>
+    private const int MaxSectionText = 3000, MaxFieldText = 2000;
 
     private readonly string _site = publicUrl.TrimEnd('/');
 
@@ -58,6 +64,71 @@ public sealed class SlackBlocks(string publicUrl)
             Context(null),
         ]);
     }
+
+    /// <summary>A posted preview whose card or board this channel can't see any more (deleted, or disconnected).</summary>
+    public Dictionary<string, object> Unavailable() => Attachment(Muted,
+    [
+        Section("*No longer available*\nThis card or board was deleted, or is no longer previewed here."),
+        Context(null),
+    ]);
+
+    /// <summary>What happened on a board, one line per card, for a channel that follows its updates.</summary>
+    public Dictionary<string, object> Updates(string boardName, string boardPath, IReadOnlyList<ChatUpdateLine> lines)
+    {
+        var shown = lines.Take(Embeds.MaxUpdateLines).Select(UpdateLine).ToList();
+        if (lines.Count > shown.Count) shown.Add($"…and {lines.Count - shown.Count} more");
+        return Attachment(Brand,
+        [
+            Section($"*{Link(_site + boardPath, boardName)}*"),
+            Section(Cut(string.Join('\n', shown), MaxSectionText)),
+            Context(null),
+        ]);
+    }
+
+    /// <summary>One line of a board's updates, the same words as the Discord bot's.</summary>
+    public string UpdateLine(ChatUpdateLine line)
+    {
+        var link = CardLine(line.ReadableId, line.Path, line.Title);
+        var by = Escape(line.By);
+        return line.Kind switch
+        {
+            ChatUpdates.NewCards => $"🆕 {link} added{(line.Into is { } into ? $" to *{Escape(into)}*" : "")} by {by}",
+            ChatUpdates.Moves => $"➡️ {link} {Bucket(line.From)} → *{Bucket(line.To)}* · {by}",
+            ChatUpdates.Assignments => $"👤 {link} assigned to {string.Join(", ", (line.People ?? []).Select(Escape))} by {by}",
+            _ => line.Started ? $"🤖 {by} started working on {link}" : $"✅ {by} stopped working on {link}",
+        };
+
+        static string Bucket(string? name) => name is null ? "loose" : Escape(name);
+    }
+
+    /// <summary>The board's snapshot for /prikboard board: a field per bucket with its first cards, and who is at work.</summary>
+    public Dictionary<string, object> Snapshot(BoardSnapshot board)
+    {
+        var fields = board.Buckets.Take(MaxFields).Select(bucket =>
+        {
+            var lines = bucket.Cards.Take(5).Select(c => CardLine(c.ReadableId, c.Path, c.Title)).ToList();
+            if (bucket.Count > lines.Count) lines.Add($"…and {bucket.Count - lines.Count} more");
+            return (object)Mrkdwn(Cut($"*{Escape(bucket.Name)} ({bucket.Count})*\n{(lines.Count == 0 ? "Empty" : string.Join('\n', lines))}", MaxFieldText));
+        }).ToList();
+
+        List<object> blocks = [Section($"*{Link(_site + board.Path, board.Name)}*")];
+        if (fields.Count > 0) blocks.Add(new Dictionary<string, object> { ["type"] = "section", ["fields"] = fields });
+        if (board.Working.Count > 0)
+        {
+            blocks.Add(Section(Cut("*🤖 Agents at work*\n" + string.Join('\n', board.Working.Select(w =>
+                $"{CardLine(w.ReadableId, w.Path, w.Title)}{(w.For is { Length: > 0 } name ? $" · for {Escape(name)}" : "")}")), MaxSectionText)));
+        }
+        blocks.Add(new Dictionary<string, object>
+        {
+            ["type"] = "context",
+            ["elements"] = new List<object> { Mrkdwn($"Last 24 hours: {board.AddedToday} added, {board.MovedToday} moved") },
+        });
+        return Attachment(Brand, blocks);
+    }
+
+    /// <summary>A card as a line in an update or the snapshot: its readable id linking to it, and its title.</summary>
+    public string CardLine(string readableId, string path, string title) =>
+        $"{Link(_site + path, readableId)} {Escape(Cut(title, 80))}";
 
     private static Dictionary<string, object> Attachment(string color, List<object> blocks) =>
         new() { ["color"] = color, ["blocks"] = blocks };

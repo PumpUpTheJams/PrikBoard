@@ -93,6 +93,22 @@ public sealed class Embeds(string publicUrl)
     public string CardLine(string readableId, string path, string title) =>
         $"[{readableId}]({_site}{path}) {Format.Sanitize(Cut(title, 80))}";
 
+    /// <summary>One line of a board's updates, for <see cref="Updates"/>.</summary>
+    public string UpdateLine(ChatUpdateLine line)
+    {
+        var link = CardLine(line.ReadableId, line.Path, line.Title);
+        var by = Format.Sanitize(line.By);
+        return line.Kind switch
+        {
+            ChatUpdates.NewCards => $"🆕 {link} added{(line.Into is { } into ? $" to **{Format.Sanitize(into)}**" : "")} by {by}",
+            ChatUpdates.Moves => $"➡️ {link} {Bucket(line.From)} → **{Bucket(line.To)}** · {by}",
+            ChatUpdates.Assignments => $"👤 {link} assigned to {string.Join(", ", (line.People ?? []).Select(Format.Sanitize))} by {by}",
+            _ => line.Started ? $"🤖 {by} started working on {link}" : $"✅ {by} stopped working on {link}",
+        };
+
+        static string Bucket(string? name) => name is null ? "loose" : Format.Sanitize(name);
+    }
+
     /// <summary>The board's snapshot for /prikboard board.</summary>
     public Embed Snapshot(BoardSnapshot board)
     {

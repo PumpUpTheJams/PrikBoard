@@ -5,9 +5,9 @@ using PrikBoard.Api.Integrations;
 
 namespace PrikBoard.Api.Contracts;
 
-/// <summary>Board activity a Discord channel can follow.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<DiscordUpdate>))]
-public enum DiscordUpdate
+/// <summary>Board activity a chat channel (Discord or Slack) can follow.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ChatUpdate>))]
+public enum ChatUpdate
 {
     /// <summary>A card was added (created, pasted, restored, or moved here from another board).</summary>
     NewCards,
@@ -23,19 +23,19 @@ public enum DiscordUpdate
 }
 
 /// <summary>Converts between the API's list of updates and the stored flags.</summary>
-public static class DiscordUpdateLists
+public static class ChatUpdateLists
 {
-    private static readonly (DiscordUpdate Update, ChatUpdates Flag)[] Pairs =
+    private static readonly (ChatUpdate Update, ChatUpdates Flag)[] Pairs =
     [
-        (DiscordUpdate.NewCards, ChatUpdates.NewCards),
-        (DiscordUpdate.Moves, ChatUpdates.Moves),
-        (DiscordUpdate.Assignments, ChatUpdates.Assignments),
-        (DiscordUpdate.AgentWork, ChatUpdates.AgentWork),
+        (ChatUpdate.NewCards, ChatUpdates.NewCards),
+        (ChatUpdate.Moves, ChatUpdates.Moves),
+        (ChatUpdate.Assignments, ChatUpdates.Assignments),
+        (ChatUpdate.AgentWork, ChatUpdates.AgentWork),
     ];
 
-    public static List<DiscordUpdate> From(ChatUpdates flags) => Pairs.Where(p => flags.HasFlag(p.Flag)).Select(p => p.Update).ToList();
+    public static List<ChatUpdate> From(ChatUpdates flags) => Pairs.Where(p => flags.HasFlag(p.Flag)).Select(p => p.Update).ToList();
 
-    public static ChatUpdates Flags(IEnumerable<DiscordUpdate> updates) =>
+    public static ChatUpdates Flags(IEnumerable<ChatUpdate> updates) =>
         updates.Aggregate(ChatUpdates.None, (all, u) => all | Pairs.First(p => p.Update == u).Flag);
 }
 
@@ -44,10 +44,10 @@ public static class DiscordUpdateLists
 /// <param name="Name">Its name, without the #.</param>
 /// <param name="Updates">What the bot posts there as it happens on the board.</param>
 /// <param name="SaveBucketId">Where Save to PrikBoard in this channel puts cards; null for the board's first bucket.</param>
-public sealed record DiscordChannelDetail(string Id, string Name, List<DiscordUpdate> Updates, Guid? SaveBucketId)
+public sealed record DiscordChannelDetail(string Id, string Name, List<ChatUpdate> Updates, Guid? SaveBucketId)
 {
     public static List<DiscordChannelDetail> From(IEnumerable<ChatChannel> channels) =>
-        channels.Select(c => new DiscordChannelDetail(c.Id, c.Name, DiscordUpdateLists.From(c.Updates), c.SaveBucketId)).ToList();
+        channels.Select(c => new DiscordChannelDetail(c.Id, c.Name, ChatUpdateLists.From(c.Updates), c.SaveBucketId)).ToList();
 }
 
 /// <summary>A board a Discord server is connected to.</summary>
@@ -96,7 +96,7 @@ public sealed record ConnectDiscordRequest(
 /// <param name="Updates">The board activity the bot posts in the channel; empty for none.</param>
 /// <param name="SaveBucketId">The bucket Save to PrikBoard in this channel puts cards in; null for the board's first bucket.</param>
 public sealed record UpdateDiscordChannelRequest(
-    [property: Required] List<DiscordUpdate> Updates,
+    [property: Required] List<ChatUpdate> Updates,
     Guid? SaveBucketId = null);
 
 /// <summary>Where your Discord account is linked from.</summary>

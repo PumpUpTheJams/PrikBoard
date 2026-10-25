@@ -23,9 +23,14 @@ public sealed class SlackApp(IConfiguration config, IDataProtectionProvider prot
 
     /// <summary>
     /// The bot scopes the app asks for: unfurling links (<c>links:read</c>, <c>links:write</c>), listing channels for board
-    /// owners and checking for Slack Connect (<c>channels:read</c>, <c>groups:read</c>), and the workspace's name.
+    /// owners and checking for Slack Connect (<c>channels:read</c>, <c>groups:read</c>), the workspace's name, posting a
+    /// board's updates (<c>chat:write</c>) and <c>/prikboard</c> (<c>commands</c>). An app created before the last two
+    /// were added needs them added and reinstalling.
     /// </summary>
-    public static readonly string[] Scopes = ["links:read", "links:write", "channels:read", "groups:read", "team:read"];
+    public static readonly string[] Scopes = ["links:read", "links:write", "channels:read", "groups:read", "team:read", "chat:write", "commands"];
+
+    /// <summary>The slash command the app answers.</summary>
+    public const string Command = "/prikboard";
 
     private readonly IDataProtector _tokens = protection.CreateProtector(TokenPurpose);
 
@@ -70,7 +75,7 @@ public sealed class SlackApp(IConfiguration config, IDataProtectionProvider prot
     }
 
     /// <summary>
-    /// The manifest to create the Slack app from: Socket Mode, the <c>link_shared</c> event, <see cref="Scopes"/>, and the
+    /// The manifest to create the Slack app from: Socket Mode, the <c>link_shared</c> event, <see cref="Command"/>, <see cref="Scopes"/>, and the
     /// public address's host as its unfurl domain (Slack only sends links on those domains).
     /// </summary>
     public static string Manifest(string? publicUrl)
@@ -88,6 +93,16 @@ public sealed class SlackApp(IConfiguration config, IDataProtectionProvider prot
             {
                 ["bot_user"] = new Dictionary<string, object> { ["display_name"] = "PrikBoard", ["always_online"] = true },
                 ["unfurl_domains"] = new[] { host },
+                ["slash_commands"] = new[]
+                {
+                    new Dictionary<string, object>
+                    {
+                        ["command"] = Command,
+                        ["description"] = "What is on the PrikBoard board connected to this channel, only for you",
+                        ["usage_hint"] = "board",
+                        ["should_escape"] = false,
+                    },
+                },
             },
             ["oauth_config"] = new Dictionary<string, object>
             {

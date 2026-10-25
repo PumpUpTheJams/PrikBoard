@@ -31,18 +31,24 @@ public class SlackApiFactory : PrikBoardApiFactory
     public const string Partners = "C0PARTNER1";
     public const string Jimmy = "U0JIMMY001";
 
+    /// <summary>A channel of the tests' own, for the one test that needs a board to be the only one there.</summary>
+    public const string Snapshot = "C0SNAPSHT1";
+
     public WebApplication FakeSlack { get; }
     public FakeWorkspace Workspace => FakeSlack.Services.GetRequiredService<FakeWorkspace>();
 
     public SlackApiFactory()
     {
-        FakeSlack = FakeSlackApp.Build(["--urls", "http://127.0.0.1:0"]);
+        FakeSlack = FakeSlackApp.Build(["--urls", "http://127.0.0.1:0"], o => o.Channels.Add(new FakeChannel(Snapshot, "snapshot")));
         FakeSlack.StartAsync().GetAwaiter().GetResult();
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         base.ConfigureWebHost(builder);
+        // Tests tick the activity themselves (ChatActivity.TickAsync), and updates are posted at once.
+        builder.UseSetting("Chat:ActivitySeconds", "0");
+        builder.UseSetting("Chat:UpdatesDelaySeconds", "0");
         builder.UseSetting(SlackApi.ApiUrlSetting, FakeSlack.Urls.First() + "/api/");
     }
 
@@ -106,7 +112,7 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
         // Online over Socket Mode, in the fake workspace, with the channels it was added to.
         var online = await OnlineAsync(admin);
         var workspace = Assert.Single(online.Workspaces);
-        Assert.Equal((Fake.TeamId, Fake.TeamName, 2), (workspace.TeamId, workspace.Name, workspace.ChannelCount));
+        Assert.Equal((Fake.TeamId, Fake.TeamName, 3), (workspace.TeamId, workspace.Name, workspace.ChannelCount));
         Assert.Equal(1, factory.Workspace.Connections);
         var json = await (await admin.GetAsync("/api/admin/slack")).Content.ReadAsStringAsync();
         Assert.DoesNotContain(Fake.BotToken, json);
@@ -163,7 +169,8 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
         var workspaces = (await owner.GetFromJsonAsync<SlackWorkspaces>($"/api/boards/{board.Id}/slack/workspaces"))!;
         Assert.Equal(SlackAppState.Online, workspaces.State);
         var workspace = Assert.Single(workspaces.Workspaces);
-        Assert.Equal([(SlackApiFactory.Dev, "dev"), (SlackApiFactory.General, "general")], workspace.Channels.Select(c => (c.Id, c.Name)));
+        Assert.Equal([(SlackApiFactory.Dev, "dev"), (SlackApiFactory.General, "general"), (SlackApiFactory.Snapshot, "snapshot")],
+            workspace.Channels.Select(c => (c.Id, c.Name)));
 
         var connection = Assert.Single(await ConnectAsync(owner, board.Id, SlackApiFactory.General));
         Assert.Equal((Fake.TeamId, Fake.TeamName, false), (connection.TeamId, connection.TeamName, connection.WholeWorkspace));
@@ -262,6 +269,102 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
     }
 
     [Fact]
+    public async Task Unfurled_previews_follow_their_cards()
+    {
+        await SetUpAppAsync(await Admin());
+        var owner = await factory.CreateSignedInClientAsync("slack-live@example.com");
+        var board = await owner.CreateBoardAsync("Live previews");
+        var card = await owner.CreateCardAsync(board.Id, "Follow me");
+        await ConnectAsync(owner, board.Id, SlackApiFactory.General);
+        await TickAsync();
+        var link = SlackApiFactory.PublicUrl + card.Path;
+
+        // Unfurled, and remembered so it can be unfurled again.
+        var posted = await factory.Workspace.PostAsync(SlackApiFactory.General, SlackApiFactory.Jimmy, link);
+        await UnfurlsAsync(posted);
+        await Eventually(() => RememberedAsync(posted));
+
+        (await owner.PatchAsJsonAsync($"/api/cards/{card.Id}", new { tags = new[] { "urgent" } })).EnsureSuccessStatusCode();
+        await TickAsync();
+        Assert.Contains("urgent", Message(posted).Unfurls[link]!.ToJsonString(Plain));
+
+        // Disconnected: the preview says so instead of showing a stale card.
+        Assert.Equal(HttpStatusCode.NoContent, (await owner.DeleteAsync($"/api/boards/{board.Id}/slack/{Fake.TeamId}")).StatusCode);
+        await TickAsync();
+        var gone = Message(posted).Unfurls[link]!.ToJsonString(Plain);
+        Assert.Contains("No longer available", gone);
+        Assert.DoesNotContain("Follow me", gone);
+
+        // A message deleted in Slack is forgotten.
+        Assert.True(factory.Workspace.Delete(SlackApiFactory.General, posted.Ts));
+        await ConnectAsync(owner, board.Id, SlackApiFactory.General);
+        (await owner.PatchAsJsonAsync($"/api/cards/{card.Id}", new { tags = new[] { "later" } })).EnsureSuccessStatusCode();
+        await TickAsync();
+        Assert.False(await RememberedAsync(posted));
+    }
+
+    [Fact]
+    public async Task Channels_post_the_updates_they_follow()
+    {
+        await SetUpAppAsync(await Admin());
+        var owner = await factory.CreateSignedInClientAsync("slack-updates@example.com");
+        await owner.RenameAsync("Jimmy");
+        var board = await owner.CreateBoardAsync("Slack updates");
+        var other = await owner.CreateBoardAsync("Not followed");
+        var done = board.Buckets.Single(b => b.Name == "Done");
+        await ConnectAsync(owner, board.Id, SlackApiFactory.Dev);
+
+        var set = await owner.PutAsJsonAsync($"/api/boards/{board.Id}/slack/{Fake.TeamId}/channels/{SlackApiFactory.Dev}",
+            new { updates = new[] { "NewCards", "Moves" } });
+        Assert.Equal(HttpStatusCode.OK, set.StatusCode);
+        Assert.Equal([ChatUpdate.NewCards, ChatUpdate.Moves], Assert.Single((await set.Content.ReadFromJsonAsync<List<SlackConnection>>())!).Channels[0].Updates);
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.PutAsJsonAsync($"/api/boards/{board.Id}/slack/{Fake.TeamId}/channels/{SlackApiFactory.General}",
+            new { updates = Array.Empty<string>() })).StatusCode);
+        await TickAsync();
+        var before = BotPosts(SlackApiFactory.Dev).Count;
+
+        var card = await owner.CreateCardAsync(board.Id, "Fix <login>");
+        (await owner.PostAsJsonAsync($"/api/cards/{card.Id}/move", new { bucketId = done.Id })).EnsureSuccessStatusCode();
+        (await owner.PatchAsJsonAsync($"/api/cards/{card.Id}", new { tags = new[] { "not-followed" } })).EnsureSuccessStatusCode();
+        await owner.CreateCardAsync(other.Id, "Elsewhere");
+        await TickAsync();
+
+        var post = Assert.Single(BotPosts(SlackApiFactory.Dev).Skip(before));
+        Assert.Equal("Updates on Slack updates", post.Text);
+        var json = post.Attachments!.ToJsonString(Plain);
+        Assert.Contains($"|{card.ReadableId}> Fix &lt;login&gt; added to *Done* by Jimmy", json);
+        Assert.Contains("To do → *Done* · Jimmy", json);
+        Assert.DoesNotContain("not-followed", json);
+        Assert.DoesNotContain("Elsewhere", json);
+
+        // Nothing new, nothing posted.
+        await TickAsync();
+        Assert.Equal(before + 1, BotPosts(SlackApiFactory.Dev).Count);
+    }
+
+    [Fact]
+    public async Task Slash_command_shows_the_board_only_to_whoever_asked()
+    {
+        await SetUpAppAsync(await Admin());
+        var owner = await factory.CreateSignedInClientAsync("slack-snapshot@example.com");
+        var board = await owner.CreateBoardAsync("Snapshot board");
+        await owner.CreateCardAsync(board.Id, "First thing");
+        await ConnectAsync(owner, board.Id, SlackApiFactory.Snapshot);
+
+        var answer = await CommandAsync(SlackApiFactory.Snapshot, "/prikboard board");
+        Assert.Equal(SlackApiFactory.Jimmy, answer.User);
+        Assert.Equal("ephemeral", answer.Body!["response_type"]!.GetValue<string>());
+        var json = answer.Body.ToJsonString(Plain);
+        Assert.Contains("Snapshot board", json);
+        Assert.Contains("To do (1)", json);
+        Assert.Contains("First thing", json);
+
+        Assert.Contains("No PrikBoard board is connected", (await CommandAsync(SlackApiFactory.Random, "/prikboard board")).Body!.ToJsonString(Plain));
+        Assert.Contains("shared with other organizations", (await CommandAsync(SlackApiFactory.Partners, "/prikboard board")).Body!.ToJsonString(Plain));
+        Assert.Contains("Try `/prikboard board`", (await CommandAsync(SlackApiFactory.Snapshot, "/prikboard")).Body!.ToJsonString(Plain));
+    }
+
+    [Fact]
     public void Blocks_escape_what_people_typed()
     {
         var blocks = new SlackBlocks(SlackApiFactory.PublicUrl);
@@ -326,6 +429,27 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
         }
         await Eventually(() => Message(posted).Unfurls.Count > 0);
         return Message(posted).Unfurls;
+    }
+
+    private Task TickAsync() => factory.Services.GetRequiredService<ChatActivity>().TickAsync(CancellationToken.None);
+
+    private async Task<bool> RememberedAsync(FakeMessage posted)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+        return await db.ChatPreviewMessages.AnyAsync(m => m.Platform == ChatPlatform.Slack && m.ChannelId == posted.Channel && m.MessageId == posted.Ts);
+    }
+
+    private List<FakeMessage> BotPosts(string channel) =>
+        factory.Workspace.Messages.Where(m => m.Channel == channel && m.User == Fake.BotUserId).ToList();
+
+    /// <summary>Runs a slash command as Jimmy and waits for the app's answer.</summary>
+    private async Task<FakeResponse> CommandAsync(string channel, string text)
+    {
+        var before = factory.Workspace.Responses.Count;
+        Assert.True(await factory.Workspace.CommandAsync(channel, SlackApiFactory.Jimmy, text));
+        await Eventually(() => factory.Workspace.Responses.Count > before);
+        return factory.Workspace.Responses[before];
     }
 
     private static Task Eventually(Func<bool> done) => Eventually(() => Task.FromResult(done()));

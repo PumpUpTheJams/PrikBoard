@@ -5,13 +5,19 @@ using PrikBoard.Api.Integrations;
 
 namespace PrikBoard.Api.Contracts;
 
-/// <summary>A Slack channel connected to a board.</summary>
+/// <summary>A Slack channel connected to a board, with what it does there.</summary>
 /// <param name="Id">Slack's id for it (C… or G…).</param>
 /// <param name="Name">Its name, without the #.</param>
-public sealed record SlackChannelDetail(string Id, string Name)
+/// <param name="Updates">What the app posts there as it happens on the board.</param>
+public sealed record SlackChannelDetail(string Id, string Name, List<ChatUpdate> Updates)
 {
-    public static List<SlackChannelDetail> From(IEnumerable<ChatChannel> channels) => channels.Select(c => new SlackChannelDetail(c.Id, c.Name)).ToList();
+    public static List<SlackChannelDetail> From(IEnumerable<ChatChannel> channels) =>
+        channels.Select(c => new SlackChannelDetail(c.Id, c.Name, ChatUpdateLists.From(c.Updates))).ToList();
 }
+
+/// <summary>What a Slack channel connected to a board does for it.</summary>
+/// <param name="Updates">The board activity the app posts in the channel; empty for none. Replaces what was set.</param>
+public sealed record UpdateSlackChannelRequest([property: Required] List<ChatUpdate> Updates);
 
 /// <summary>A Slack workspace connected to a board, for its owners.</summary>
 /// <param name="TeamId">Slack's id for the workspace (T…).</param>

@@ -278,7 +278,8 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | listSlackConnections | `GET /api/boards/{boardId}/slack` | Slack workspaces connected to the board: `wholeWorkspace` and the `channels` picked (Owner) |
 | listSlackWorkspaces | `GET /api/boards/{boardId}/slack/workspaces` | The Slack app's `state` (`Off` until an admin sets it up) and its workspace, with the channels it was added to; never Slack Connect channels (Owner) |
 | connectSlackChannel | `POST /api/boards/{boardId}/slack` | Connect the board to a `teamId`'s `channelId`, or to the whole workspace without one (both may be set); returns the board's connections. The workspace becomes a Viewer. 409 past 50 channels (Owner, sessions only) |
-| removeSlackConnection | `DELETE /api/boards/{boardId}/slack/{teamId}` | Take a Slack workspace off the board; posted previews stay (Owner) |
+| updateSlackChannel | `PUT /api/boards/{boardId}/slack/{teamId}/channels/{channelId}` | The `updates` a connected channel posts (`NewCards`, `Moves`, `Assignments`, `AgentWork`); returns the board's connections (Owner) |
+| removeSlackConnection | `DELETE /api/boards/{boardId}/slack/{teamId}` | Take a Slack workspace off the board; previews posted in the last week say "no longer available" (Owner) |
 | removeSlackWholeWorkspace | `DELETE /api/boards/{boardId}/slack/{teamId}/whole-workspace` | Stop unfurling in every channel; with no channels left, the workspace is disconnected (Owner) |
 | removeSlackChannel | `DELETE /api/boards/{boardId}/slack/{teamId}/channels/{channelId}` | Disconnect one channel; with nothing left, the workspace is disconnected (Owner) |
 | adminListBoards | `GET /api/admin/boards` | Every board with its members and their roles, newest first (admins, sessions only) |

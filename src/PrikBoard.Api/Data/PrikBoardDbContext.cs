@@ -105,7 +105,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             change.HasOne<Card>().WithMany().HasForeignKey(c => c.CardId).OnDelete(DeleteBehavior.Cascade);
             change.HasOne(c => c.By).WithMany().HasForeignKey(c => c.ById).OnDelete(DeleteBehavior.SetNull);
             change.HasIndex(c => new { c.CardId, c.At });
-            // The Discord bot follows the latest changes (Integrations/DiscordActivity).
+            // The chat bots follow the latest changes (Integrations/ChatActivity).
             change.HasIndex(c => c.At);
         });
 
@@ -240,7 +240,7 @@ public class PrikBoardDbContext(DbContextOptions<PrikBoardDbContext> options) : 
             account.HasIndex(a => a.UserId);
         });
 
-        // The chat apps' ids, not personal data; dropped after ChatPreviewMessage.KeptFor (DiscordActivity).
+        // The chat apps' ids, not personal data; dropped after ChatPreviewMessage.KeptFor (ChatActivity).
         modelBuilder.Entity<ChatPreviewMessage>(message =>
         {
             // Slack's message timestamps are only unique within their channel.

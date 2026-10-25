@@ -572,7 +572,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
                 "getDiscordBot", "setDiscordBot", "deleteDiscordBot", "leaveDiscordServer", "getDiscordAccount", "previewDiscordAccountLink", "linkDiscordAccount", "unlinkDiscordAccount",
                 "listDiscordConnections", "listDiscordServers", "connectDiscordChannel", "updateDiscordChannel", "removeDiscordConnection", "removeDiscordWholeServer", "removeDiscordChannel",
                 "getSlackApp", "setSlackApp", "deleteSlackApp", "forgetSlackWorkspace",
-                "listSlackConnections", "listSlackWorkspaces", "connectSlackChannel", "removeSlackConnection", "removeSlackWholeWorkspace", "removeSlackChannel",
+                "listSlackConnections", "listSlackWorkspaces", "connectSlackChannel", "updateSlackChannel", "removeSlackConnection", "removeSlackWholeWorkspace", "removeSlackChannel",
                 "getSetupStatus", "unlockSetup", "listSignInProviders", "createSignInProvider", "updateSignInProvider",
                 "deleteSignInProvider", "checkOpenIdAuthority", "beginGitHubApp", "getSystemChecks", "getRecoveryKit",
             },

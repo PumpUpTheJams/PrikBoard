@@ -50,7 +50,7 @@ public static class SlackAppEndpoints
             .WithName("forgetSlackWorkspace")
             .WithSummary("Disconnect every board from a Slack workspace")
             .WithDescription("Admins only. Every board connected to the workspace is disconnected. The app stays installed in Slack; " +
-                             "uninstall it there. Previews already posted stay in Slack.");
+                             "uninstall it there. Previews posted in the last week say the boards are no longer available.");
 
         return api;
     }
@@ -164,10 +164,10 @@ public static class SlackAppEndpoints
     }
 
     private static async Task<Results<NoContent, NotFound>> ForgetSlackWorkspace(
-        string teamId, PrikBoardDbContext db, BoardEvents events, CancellationToken ct)
+        string teamId, PrikBoardDbContext db, BoardEvents events, ChatActivity activity, CancellationToken ct)
     {
         if (await LinkPreviews.AgentIdAsync(db, ChatPlatform.Slack, teamId, ct) is null) return TypedResults.NotFound();
-        await ChatConnections.ForgetWorkspaceAsync(db, events, ChatPlatform.Slack, teamId, _ => { }, ct);
+        await ChatConnections.ForgetWorkspaceAsync(db, events, ChatPlatform.Slack, teamId, activity.RefreshBoard, ct);
         return TypedResults.NoContent();
     }
 

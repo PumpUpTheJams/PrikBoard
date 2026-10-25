@@ -104,6 +104,39 @@ public class SlackApi(HttpClient http)
             [new("channel", channelId), new("ts", messageTs), new("unfurls", JsonSerializer.Serialize(unfurls, JsonSerializerOptions.Web))], ct);
     }
 
+    /// <summary>Posts a message as the bot: <paramref name="text"/> is what notifications show, the attachment what the channel does.</summary>
+    public async Task PostMessageAsync(string botToken, string channelId, string text, object attachment, CancellationToken ct)
+    {
+        using var _ = await CallAsync("chat.postMessage", botToken,
+            [new("channel", channelId), new("text", text), new("unfurl_links", "false"), new("unfurl_media", "false"),
+             new("attachments", JsonSerializer.Serialize(new[] { attachment }, JsonSerializerOptions.Web))], ct);
+    }
+
+    /// <summary>
+    /// Answers a slash command through the <c>response_url</c> Slack sent with it, which needs no token: it only works for
+    /// that command, for half an hour. Only Slack's own address is used (or the configured API's host, for the fake Slack),
+    /// so an envelope can't make PrikBoard post elsewhere. False when it is refused.
+    /// </summary>
+    public async Task<bool> RespondAsync(string responseUrl, object message, CancellationToken ct)
+    {
+        if (!IsResponseUrl(responseUrl)) return false;
+        try
+        {
+            using var response = await http.PostAsync(responseUrl,
+                new StringContent(JsonSerializer.Serialize(message, JsonSerializerOptions.Web), System.Text.Encoding.UTF8, "application/json"), ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception error) when (error is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            return false;
+        }
+    }
+
+    private bool IsResponseUrl(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri)
+        && ((uri.Scheme == Uri.UriSchemeHttps && uri.Host == "hooks.slack.com")
+            || (http.BaseAddress is { } api && uri.Scheme == api.Scheme && string.Equals(uri.Authority, api.Authority, StringComparison.OrdinalIgnoreCase)));
+
     private static SlackChannelInfo Channel(JsonElement c) => new(
         c.GetProperty("id").GetString()!,
         c.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "",

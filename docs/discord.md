@@ -6,7 +6,7 @@ Status: built. Part 1 (PRIK-142) is the meta tags in `src/web/index.html` and th
   - `DiscordGateway`, the Discord connection itself
   - `DiscordBot`, its settings
   - `LinkPreviews` and `ChatPreviews`, what links and ids preview as
-  - `DiscordActivity`, live previews and updates
+  - `ChatActivity` and `DiscordActivityTarget`, live previews and updates (shared with Slack)
   - `ChatSaves`, Save to PrikBoard
   - `ChatAccounts`, who a Discord user is
   - `Embeds`, how all of it looks
@@ -231,7 +231,7 @@ All embeds use the PrikBoard icon and name as author, so they read as one thing,
 
 ### Live previews and updates
 
-`DiscordActivity`, a background service, looks at the card history (`CardChange`) every 5 seconds (`Discord:ActivitySeconds`). Every write path records history, so this one place sees every change without hooks in handlers. Each look reaches 30 seconds before the last change seen, for saves that commit late. Quick edits merged into an earlier change show again with a later time.
+`ChatActivity`, a background service shared with the Slack app (docs/slack.md), looks at the card history (`CardChange`) every 5 seconds (`Chat:ActivitySeconds`, or the older `Discord:ActivitySeconds`). Every write path records history, so this one place sees every change without hooks in handlers. Each look reaches 30 seconds before the last change seen, for saves that commit late. Quick edits merged into an earlier change show again with a later time.
 
 - **Previews follow their cards.** For each changed card, the remembered replies showing it from the last week are edited to match (`ChatPreviews.RefreshAsync`, `IDiscordGateway.EditAsync`). Disconnecting a board from a server or channel, or the bot leaving a server, queues the board's replies too (`RefreshBoard`). A source that previews nothing any more shows *No longer available*. A reply deleted in Discord is forgotten. Older replies are dropped every hour.
 - **Updates.** A change's entries map to what channels can follow:
@@ -240,7 +240,7 @@ All embeds use the PrikBoard icon and name as author, so they read as one thing,
   - assignees added → assignments
   - agent working on or off → agent work
 
-  Each channel picked for the board collects what it follows, if the server's agent is still on the board. After `Discord:UpdatesDelaySeconds` (30), it gets one post per board. Moves of the same card become one, from the first bucket to the last. A move back to where the card started is left out.
+  Each channel picked for the board collects what it follows, if the server's agent is still on the board. After `Chat:UpdatesDelaySeconds` (30; the older `Discord:UpdatesDelaySeconds` still works), it gets one post per board. Moves of the same card become one, from the first bucket to the last. A move back to where the card started is left out.
 - While the bot is offline nothing is saved up, so coming back online doesn't flood channels.
 
 ### Save to PrikBoard

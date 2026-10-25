@@ -158,28 +158,21 @@ public static class DiscordEndpoints
         {
             return Problems.Invalid("saveBucketId", "A bucket of this board.");
         }
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await MemberEndpoints.LockBoard(db, boardId, ct);
-        var limit = await ChatConnections.FindLimitAsync(db, ChatPlatform.Discord, guildId, boardId, ct);
-        if (limit?.Channel(channelId) is not { } channel) return TypedResults.NotFound();
-
-        var changed = channel with { Updates = DiscordUpdateLists.Flags(request.Updates), SaveBucketId = request.SaveBucketId };
-        limit.Channels = [.. limit.Channels.Select(c => c.Id == channelId ? changed : c)];
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
-        return TypedResults.Ok(await ConnectionsAsync(db, gateway, boardId, ct));
+        var found = await ChatConnections.UpdateChannelAsync(db, ChatPlatform.Discord, boardId, guildId, channelId,
+            channel => channel with { Updates = ChatUpdateLists.Flags(request.Updates), SaveBucketId = request.SaveBucketId }, ct);
+        return found ? TypedResults.Ok(await ConnectionsAsync(db, gateway, boardId, ct)) : TypedResults.NotFound();
     }
 
     private static Task<Results<NoContent, NotFound>> RemoveDiscordConnection(
-        Guid boardId, string guildId, PrikBoardDbContext db, BoardEvents events, DiscordActivity activity, CancellationToken ct) =>
+        Guid boardId, string guildId, PrikBoardDbContext db, BoardEvents events, ChatActivity activity, CancellationToken ct) =>
         ChatConnections.RemoveAsync(db, events, ChatPlatform.Discord, boardId, guildId, activity.RefreshBoard, ct);
 
     private static Task<Results<NoContent, NotFound>> RemoveDiscordWholeServer(
-        Guid boardId, string guildId, PrikBoardDbContext db, BoardEvents events, DiscordActivity activity, CancellationToken ct) =>
+        Guid boardId, string guildId, PrikBoardDbContext db, BoardEvents events, ChatActivity activity, CancellationToken ct) =>
         ChatConnections.RemoveWholeWorkspaceAsync(db, events, ChatPlatform.Discord, boardId, guildId, activity.RefreshBoard, ct);
 
     private static Task<Results<NoContent, NotFound>> RemoveDiscordChannel(
-        Guid boardId, string guildId, string channelId, PrikBoardDbContext db, BoardEvents events, DiscordActivity activity, CancellationToken ct) =>
+        Guid boardId, string guildId, string channelId, PrikBoardDbContext db, BoardEvents events, ChatActivity activity, CancellationToken ct) =>
         ChatConnections.RemoveChannelAsync(db, events, ChatPlatform.Discord, boardId, guildId, channelId, activity.RefreshBoard, ct);
 
     /// <summary>The servers connected to a board, named as the bot sees them now where it can.</summary>

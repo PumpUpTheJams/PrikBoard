@@ -57,7 +57,17 @@ public sealed class FakeMessage(string channel, string ts, string user, string t
 
     /// <summary>What <c>chat.unfurl</c> attached, per URL.</summary>
     public Dictionary<string, JsonNode?> Unfurls { get; } = [];
+
+    /// <summary>A bot message's attachments (<c>chat.postMessage</c>), as the app sent them.</summary>
+    public JsonNode? Attachments { get; init; }
 }
+
+/// <summary>An answer to a slash command, which only the person who ran it sees (<c>response_type: ephemeral</c>).</summary>
+/// <param name="Channel">Where the command was run.</param>
+/// <param name="User">Who ran it, and who sees the answer.</param>
+/// <param name="Command">The command as typed.</param>
+/// <param name="Body">What the app sent to the command's <c>response_url</c>.</param>
+public sealed record FakeResponse(string Channel, string User, string Command, JsonNode? Body);
 
 /// <summary>A Web API call the app made, for tests and the page: the method and its fields, without the token.</summary>
 public sealed record FakeCall(string Method, DateTimeOffset At, Dictionary<string, string> Fields, string? Error);
@@ -73,6 +83,9 @@ public sealed partial class FakeWorkspace(FakeSlackOptions options)
     private readonly List<FakeCall> _calls = [];
     private readonly ConcurrentDictionary<string, bool> _tickets = new();
     private readonly ConcurrentDictionary<Guid, Connection> _connections = new();
+    private readonly ConcurrentDictionary<string, (string Channel, string User, string Text)> _pendingCommands = new();
+    private readonly List<FakeResponse> _responses = [];
+    private volatile string? _baseUrl;
     private long _clock = DateTimeOffset.UtcNow.ToUnixTimeSeconds() * 1_000_000;
 
     public FakeSlackOptions Options { get; } = options;
@@ -148,11 +161,69 @@ public sealed partial class FakeWorkspace(FakeSlackOptions options)
     }
 
     /// <summary>A message the bot posted (<c>chat.postMessage</c>).</summary>
-    public FakeMessage PostAsBot(string channel, string text)
+    public FakeMessage PostAsBot(string channel, string text, JsonNode? attachments)
     {
-        var message = new FakeMessage(channel, NextTs(), Options.BotUserId, text);
+        var message = new FakeMessage(channel, NextTs(), Options.BotUserId, text) { Attachments = attachments };
         lock (_lock) _messages.Add(message);
         return message;
+    }
+
+    /// <summary>Deletes a message, as someone in Slack would; unfurling it again then fails like Slack's.</summary>
+    public bool Delete(string channel, string ts)
+    {
+        lock (_lock) return _messages.RemoveAll(m => m.Channel == channel && m.Ts == ts) > 0;
+    }
+
+    /// <summary>The answers to slash commands, in order.</summary>
+    public IReadOnlyList<FakeResponse> Responses
+    {
+        get
+        {
+            lock (_lock) return [.. _responses];
+        }
+    }
+
+    /// <summary>
+    /// Runs a slash command as a person, as Slack does when they press Enter on <c>/prikboard …</c>: a
+    /// <c>slash_commands</c> envelope whose <c>response_url</c> points back here. False without a connection.
+    /// </summary>
+    public async Task<bool> CommandAsync(string channel, string user, string text)
+    {
+        var parts = text.Trim().Split(' ', 2);
+        var id = Guid.NewGuid().ToString("N");
+        _pendingCommands[id] = (channel, user, text.Trim());
+        var connection = _connections.Values.FirstOrDefault();
+        if (connection is null || _baseUrl is null) return false;
+        await connection.SendAsync(new
+        {
+            envelope_id = Guid.NewGuid().ToString(),
+            type = "slash_commands",
+            accepts_response_payload = true,
+            payload = new
+            {
+                token = "fake-verification-token",
+                team_id = Options.TeamId,
+                team_domain = Options.TeamName.Replace(' ', '-').ToLowerInvariant(),
+                channel_id = channel,
+                channel_name = Options.Channels.FirstOrDefault(c => c.Id == channel)?.Name ?? channel,
+                user_id = user,
+                user_name = Options.Users.FirstOrDefault(u => u.Id == user)?.Name ?? user,
+                command = parts[0],
+                text = parts.Length > 1 ? parts[1] : "",
+                api_app_id = "A0FAKEAPP1",
+                response_url = $"{_baseUrl}/_fake/responses/{id}",
+                trigger_id = Guid.NewGuid().ToString("N"),
+            },
+        });
+        return true;
+    }
+
+    /// <summary>Takes an answer for a command's <c>response_url</c>; false for one that isn't known.</summary>
+    public bool Respond(string id, JsonNode? body)
+    {
+        if (!_pendingCommands.TryGetValue(id, out var command)) return false;
+        lock (_lock) _responses.Add(new FakeResponse(command.Channel, command.User, command.Text, body));
+        return true;
     }
 
     /// <summary>Attaches unfurls to a message, as <c>chat.unfurl</c> does; the error Slack would give, or null.</summary>
@@ -227,8 +298,10 @@ public sealed partial class FakeWorkspace(FakeSlackOptions options)
     }
 
     /// <summary>Runs one Socket Mode connection: hello, then the app's acks until it closes.</summary>
-    public async Task RunConnectionAsync(WebSocket socket, CancellationToken ct)
+    public async Task RunConnectionAsync(WebSocket socket, string baseUrl, CancellationToken ct)
     {
+        // Where the app reaches the fake, for the response_url of commands.
+        _baseUrl = baseUrl;
         var id = Guid.NewGuid();
         var connection = new Connection(socket);
         _connections[id] = connection;

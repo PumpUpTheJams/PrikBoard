@@ -7,7 +7,7 @@ namespace PrikBoard.Api.Integrations;
 
 /// <summary>
 /// The chat bots' read-only side, apart from the chat apps themselves so tests can run it: what a message previews,
-/// remembering the message so <see cref="DiscordActivity"/> can bring it up to date, and the snapshot of /prikboard board.
+/// remembering the message so <see cref="ChatActivity"/> can bring it up to date, and the snapshot of /prikboard board.
 /// Everything is looked up as the workspace's agent, in the channel the message is in.
 /// </summary>
 public static class ChatPreviews
@@ -43,6 +43,10 @@ public static class ChatPreviews
         PrikBoardDbContext db, ChatPlatform platform, string messageId, string workspaceId, string channelId,
         IReadOnlyList<(string Source, LinkPreview Preview)> shown, CancellationToken ct)
     {
+        // A Slack message edited to hold other links is unfurled again: the newer previews replace the older ones.
+        await db.ChatPreviewMessages
+            .Where(m => m.Platform == platform && m.ChannelId == channelId && m.MessageId == messageId)
+            .ExecuteDeleteAsync(ct);
         db.ChatPreviewMessages.Add(new ChatPreviewMessage
         {
             Platform = platform,

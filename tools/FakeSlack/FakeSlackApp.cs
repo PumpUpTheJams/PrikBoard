@@ -36,6 +36,7 @@ public static class FakeSlackApp
         {
             team = new { id = w.Options.TeamId, name = w.Options.TeamName },
             botToken = w.Options.BotToken,
+            botUserId = w.Options.BotUserId,
             appToken = w.Options.AppToken,
             unfurlDomains = w.Options.UnfurlDomains,
             channels = w.Options.Channels,
@@ -44,7 +45,8 @@ public static class FakeSlackApp
         }));
         fake.MapGet("/messages", (FakeWorkspace w, string? channel) => Results.Json(w.Messages
             .Where(m => channel is null || m.Channel == channel)
-            .Select(m => new { m.Channel, m.Ts, m.User, m.Text, m.Links, m.Unfurls })));
+            .Select(m => new { m.Channel, m.Ts, m.User, m.Text, m.Links, m.Unfurls, m.Attachments })));
+        fake.MapDelete("/messages", (FakeWorkspace w, string channel, string ts) => w.Delete(channel, ts) ? Results.NoContent() : Results.NotFound());
         fake.MapPost("/messages", async (FakeWorkspace w, PostRequest request) =>
         {
             if (w.Options.Channels.All(c => c.Id != request.Channel)) return Results.BadRequest(new { error = "channel_not_found" });
@@ -54,6 +56,15 @@ public static class FakeSlackApp
         fake.MapPost("/composer", async (FakeWorkspace w, PostRequest request) =>
             Results.Json(new { links = await w.ComposeAsync(request.User ?? w.Options.Users[0].Id, request.Text) }));
         fake.MapGet("/calls", (FakeWorkspace w) => Results.Json(w.Calls));
+        fake.MapPost("/commands", async (FakeWorkspace w, PostRequest request) =>
+            await w.CommandAsync(request.Channel, request.User ?? w.Options.Users[0].Id, request.Text)
+                ? Results.Accepted()
+                : Results.Conflict(new { error = "PrikBoard isn't connected" }));
+        fake.MapGet("/responses", (FakeWorkspace w, string? channel) =>
+            Results.Json(w.Responses.Where(r => channel is null || r.Channel == channel)));
+        // A command's response_url: Slack takes the answer without a token, since the URL is the key.
+        fake.MapPost("/responses/{id}", async (FakeWorkspace w, string id, HttpRequest http) =>
+            w.Respond(id, await JsonNode.ParseAsync(http.Body)) ? Results.Ok() : Results.NotFound());
         fake.MapPost("/disconnect", async (FakeWorkspace w) => Results.Json(new { disconnected = await w.DisconnectAllAsync() }));
 
         app.MapGet("/", () => Results.Content(Page.Html, "text/html; charset=utf-8"));
@@ -117,7 +128,8 @@ public static class FakeSlackApp
             case "chat.postMessage":
                 if (o.Channels.FirstOrDefault(c => c.Id == fields.GetValueOrDefault("channel")) is not { } target) return Fail("channel_not_found");
                 if (!target.IsMember) return Fail("not_in_channel");
-                var posted = w.PostAsBot(target.Id, fields.GetValueOrDefault("text") ?? "");
+                var posted = w.PostAsBot(target.Id, fields.GetValueOrDefault("text") ?? "",
+                    fields.GetValueOrDefault("attachments") is { } attachments ? JsonNode.Parse(attachments) : null);
                 return Answer(new { ok = true, channel = target.Id, ts = posted.Ts });
             default:
                 return Fail("unknown_method");
@@ -135,7 +147,7 @@ public static class FakeSlackApp
         if (!http.WebSockets.IsWebSocketRequest) return TypedResults.BadRequest("A WebSocket, from apps.connections.open.");
         if (!w.UseTicket(http.Request.Query["ticket"].ToString())) return TypedResults.Unauthorized();
         using var socket = await http.WebSockets.AcceptWebSocketAsync();
-        await w.RunConnectionAsync(socket, http.RequestAborted);
+        await w.RunConnectionAsync(socket, $"{http.Request.Scheme}://{http.Request.Host}", http.RequestAborted);
         return TypedResults.Empty;
     }
 }
