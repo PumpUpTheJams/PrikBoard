@@ -24,18 +24,6 @@ public static class ChatPlatforms
         ChatPlatform.Slack => Agent.SlackIssuer,
         _ => throw new ArgumentOutOfRangeException(nameof(platform)),
     };
-
-    /// <summary>
-    /// A workspace, channel or user id as the platform writes it: Discord's are 1 to 20 digits, Slack's are an uppercase
-    /// letter and then uppercase letters and digits (T…, C…, G…, U…).
-    /// </summary>
-    public static bool IsId(ChatPlatform platform, string? value) => platform switch
-    {
-        ChatPlatform.Discord => value is { Length: > 0 and <= DiscordIds.MaxLength } && !value.AsSpan().ContainsAnyExceptInRange('0', '9'),
-        ChatPlatform.Slack => value is { Length: >= 2 and <= IdMaxLength } && char.IsAsciiLetterUpper(value[0])
-                              && value.All(c => char.IsAsciiLetterUpper(c) || char.IsAsciiDigit(c)),
-        _ => false,
-    };
 }
 
 /// <summary>

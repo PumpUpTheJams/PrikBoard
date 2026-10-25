@@ -177,12 +177,15 @@ public static class SlackAppEndpoints
     private static async Task<SlackAppDetail> DetailAsync(SlackApp app, ISlackGateway gateway, PrikBoardDbContext db, CancellationToken ct)
     {
         var settings = app.Current;
+        // The state before the workspaces: read the other way round, an app coming online in between would show Online
+        // without its workspace.
+        var (state, problem) = (gateway.State, gateway.Problem);
         var workspaces = await gateway.WorkspacesAsync(ct);
         var boards = await ChatConnections.BoardsByWorkspaceAsync(db, ChatPlatform.Slack, workspaces.Select(w => w.Id).ToList(), ct);
         var source = app.TokensAreConfigured ? SlackAppSource.Configuration : settings.HasStoredTokens ? SlackAppSource.Setup : (SlackAppSource?)null;
         return new SlackAppDetail(
-            gateway.State,
-            gateway.Problem,
+            state,
+            problem,
             source,
             gateway.Identity?.TeamId ?? settings.TeamId,
             gateway.Identity?.TeamName ?? settings.TeamName,

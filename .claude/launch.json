@@ -10,7 +10,7 @@
     {
       "name": "api-tunnel",
       "runtimeExecutable": "powershell",
-      "runtimeArgs": ["-NoProfile", "-Command", "$env:ASPNETCORE_FORWARDEDHEADERS_ENABLED = 'true'; dotnet run --project src/PrikBoard.Api --launch-profile http -- --ConnectionStrings:PrikBoard='Host=localhost;Port=5432;Username=prikboard;Password=prikboard;Database=prikboard_slack'"],
+      "runtimeArgs": ["-NoProfile", "-Command", "$env:ASPNETCORE_FORWARDEDHEADERS_ENABLED = 'true'; dotnet run --project src/PrikBoard.Api --launch-profile http"],
       "port": 5080
     },
     {

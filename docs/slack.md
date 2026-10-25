@@ -1,6 +1,29 @@
 # Design: Slack integration
 
-Status: phases 1 to 4 built: the shared chat model, the Slack app's setup and link unfurls, previews that follow their cards, updates and `/prikboard board`, and Save to PrikBoard with account linking. What is left is the phase 0 check in a real workspace, and the later ideas. It follows the Discord integration as it is on main (docs/discord.md: the bot inside the API, *Integrations* per board, live previews, updates, Save to PrikBoard). Wherever Slack allows it, Slack does the same things in the same places.
+Status: built, and tried in a real workspace (2026-10-25): link previews that follow their cards, board updates, `/prikboard board`, Save to PrikBoard, and Sign in with Slack. It follows the Discord integration (docs/discord.md: the bot inside the API, *Integrations* per board, live previews, updates, Save to PrikBoard). Wherever Slack allows it, Slack does the same things in the same places.
+
+## Setting it up
+
+PrikBoard needs an https address that people (and their browsers) can reach, such as `https://board.example.com`. Slack itself never calls PrikBoard: the app connects out to Slack.
+
+**Admin, once** (Admin → *Instance* → *Slack app*):
+1. Check *Address people paste links from* and click **Save address**. The manifest takes the app's link domain and sign-in redirect from it.
+2. Click **Create the Slack app**, pick your workspace and create it. If that link doesn't open Slack's form, copy the manifest from the page and use *Create New App → From a manifest* at api.slack.com/apps.
+3. In the new Slack app: *Basic Information → App-Level Tokens → Generate Token and Scopes* with the scope `connections:write`, and copy the token (`xapp-…`). Then *Install App → Install to Workspace → Allow*, and copy the *Bot User OAuth Token* (`xoxb-…`).
+4. Paste both tokens into PrikBoard and click **Connect**. The page should say **Online** within a few seconds.
+5. Optional: *Sign in with Slack*. Admin → *Instance* → *Sign-in providers* → **Slack**, id `slack`, with the client id and secret from the Slack app's *Basic Information → App Credentials*. The manifest already has its redirect URL.
+
+**Board owners**, per board:
+1. In Slack, add the app to a channel: `/invite @PrikBoard`.
+2. In PrikBoard, board menu → **Integrations** → *Slack*: pick the channel (or the whole workspace) and click **Connect**.
+3. Click the channel to have it post the board's updates, and to pick the bucket *Save to PrikBoard* uses.
+
+**Everyone** in a connected channel:
+- Post a link to a card, board or invite: it gets a preview that keeps up with the card for a week.
+- `/prikboard board` shows what is on the channel's board, only to you.
+- *More actions → Save to PrikBoard* on a message turns it into a card made by you. The first time, the app asks you to connect your PrikBoard account (not when you sign in with Slack).
+
+**If links don't get a preview**, but `/prikboard` and saving work: Slack sends no events to the app. In the Slack app, *Event Subscriptions* must be on, with `link_shared` under bot events and PrikBoard's host as unfurl domain; reinstall after changing it. More pitfalls are under *Tried in a real workspace* below.
 
 ## Goal
 
@@ -32,7 +55,6 @@ The constraints stay the same:
 - **Unfurls instead of replies.** Slack sends `link_shared` only for the app's registered unfurl domains (up to five), and only the URLs. The app never reads messages: no `channels:history` and nothing like Discord's privileged Message Content intent. The preview is attached to the person's own message with `chat.unfurl`. There is no bot reply and no native embed to hide. Slack also sends the event while a link is being typed (`source: composer`), but without the channel, so PrikBoard leaves those alone (see Previews).
 - **No bare ids at first.** A plain `PRIK-149` isn't a link, so Slack never sends `link_shared` for it. Previewing bare ids would need the `message.channels` event and `channels:history` (reading every message in the channels the bot is in). That is left for later (open question 3).
 - **One workspace per install.** A Socket Mode app made for one instance is installed in that workspace (or a whole Enterprise Grid org). The model still keys everything by team id, so later more workspaces (an OAuth "Add to Slack" app) don't need a new model.
-- **Admin rights are in the API, not the payload.** Slash commands don't say whether someone is an admin, so where it matters the bot checks `users.info` (`is_admin`, `is_owner`).
 - **Slack Connect.** In channels shared with other organizations (`is_ext_shared`), unfurls and updates are seen by people outside the workspace. Such channels aren't offered in *Integrations*. If one becomes shared later, nothing is unfurled or posted there (`conversations.info`, cached).
 - **Files need the bot token.** Save to PrikBoard fetches message images from `files.slack.com` with `Authorization: Bearer xoxb-…` (scope `files:read`), and only from that host.
 
@@ -44,7 +66,7 @@ Most of what the Discord code does isn't specific to Discord. Phase 1 separated 
   - `ChatWorkspace`, `ChatBoardChannels` (with `WholeWorkspace`), `ChatChannel`, `ChatUpdates`, `ChatAccount` and `ChatPreviewMessage` replace the Discord types. Each one has a `ChatPlatform` (`Discord`, `Slack`), stored as text.
   - Ids are `WorkspaceId`: a guild id, or a Slack team id.
   - The keys include the platform. A preview message is keyed by platform, channel and message, because Slack's message timestamps are only unique within a channel.
-  - `ChatPlatforms` has the per-platform rules: `Issuer`, `IsId` and `IdMaxLength` (32).
+  - `ChatPlatforms` has the per-platform rules: `Issuer` and `IdMaxLength` (32).
   - `Agent.SlackIssuer = "slack"` exists, is reserved as a token issuer id, and is left out of assignees like `discord`.
   - `Domain/Discord.cs` keeps only `DiscordBotSettings` and `DiscordIds`.
 - **Migration `ChatWorkspaces`.**
@@ -84,9 +106,10 @@ Admin → *Instance* → *Slack app* (`components/SlackAppSettings`), next to *D
    - the event `link_shared`;
    - the slash command `/prikboard` (phase 3);
    - the message shortcut *Save to PrikBoard* (`callback_id` `save_to_prikboard`), with interactivity on and no request URL (phase 4);
-   - bot scopes `links:read links:write channels:read groups:read team:read chat:write commands users:read reactions:write files:read`.
+   - bot scopes `links:read links:write channels:read groups:read chat:write commands users:read reactions:write files:read`;
+   - Sign in with Slack's redirect URL, for a `Slack` sign-in provider with the id `slack` (no user scopes: Slack refuses to install an app that lists the sign-in's own).
 
-   The page also shows the manifest to copy, in case the prefilled link doesn't work (phase 0, question 3). An app created from an older manifest needs what was added since (the command, the shortcut, interactivity and the newer scopes) and reinstalling.
+   The address can be saved before the tokens (**Save address**), so the manifest names the right domain from the start. The page also shows the manifest to copy, in case the prefilled link doesn't work (phase 0, question 3). An app created from an older manifest needs what was added since (the command, the shortcut, interactivity, *Event Subscriptions* and the newer scopes) and reinstalling.
 2. Install the app in the workspace and copy the *Bot User OAuth Token* (`xoxb-`).
 3. Under *Basic Information* → *App-Level Tokens*, create one with `connections:write` (`xapp-`).
 4. Paste both and click *Connect*. Then add the app to channels (`/invite @PrikBoard`): only those show up for board owners.
@@ -139,7 +162,7 @@ Each bot takes part through an `IChatActivityTarget` while it is online:
 - **`SlackActivityTarget`** calls `chat.unfurl` again on the remembered message with the previews as they are now, or *No longer available* (`SlackBlocks.Unavailable`).
   - A message whose channel has since been shared with other organizations only gets *No longer available*.
   - A deleted message (`cannot_find_message`) is forgotten.
-  - Whether real Slack replaces an existing unfurl is still phase 0, question 2. The fake does; if Slack doesn't, Slack previews are snapshots.
+  - Real Slack replaces an existing unfurl when it is sent again (phase 0, question 2).
 - **Updates** go out with `chat.postMessage`: one post per board after `Chat:UpdatesDelaySeconds` (30), with *Updates on &lt;board&gt;* as the notification text. The lines are the Discord bot's, in Slack's markup (`SlackBlocks.UpdateLine`).
   - Never into a channel shared with other organizations.
   - Owners pick what a channel follows by clicking its chip in *Integrations* (updateSlackChannel).
@@ -183,7 +206,7 @@ Drafts wait 15 minutes, in memory (one instance, like the rest).
 ## Phases
 
 0. **Spike** (done in a real workspace on 2026-10-25, see *Tried in a real workspace* below). The questions:
-   1. Does `link_shared` give the URL with its `#/boards/…` part? **Yes**: Slack sent `https://…/#/boards/zht8s5/cards/2` in full, so no share links without a fragment are needed.
+   1. Does `link_shared` give the URL with its `#/boards/…` part? **Yes**: Slack sent `https://…/#/boards/{shortId}/cards/2` in full, so no share links without a fragment are needed.
    2. Does a second `chat.unfurl` on the same message replace the unfurl? **Yes**: renaming a card changed its preview in Slack, so previews follow their cards for a week, as in Discord.
    3. Does the manifest prefill link work? Not tried: the app was made from the copied manifest.
    4. Which unfurl domain works for local testing? A Cloudflare quick tunnel (`cloudflared tunnel --url http://localhost:5173`, no account): Slack takes its `….trycloudflare.com` host as unfurl domain. Its address changes with every start.
@@ -229,8 +252,8 @@ Slack can't run locally: there is no self-hosted or open-source Slack that runs 
 3. **See the messages.** Paste blocks JSON into Slack's Block Kit Builder (app.slack.com/block-kit-builder). It needs a free Slack account, not an app.
 4. **Real Slack, free** (once for phase 0, and before release).
    - Create a free workspace (slack.com/get-started), or a free sandbox through the Slack Developer Program.
-   - Give PrikBoard a public address for the unfurl domain: a free ngrok static domain pointing at Vite (`ngrok http --url=<name>.ngrok-free.app 5173`). Use it as the public address in Admin → *Instance*, so links open when clicked too. Sign-in through the tunnel needs the sign-in provider's callback for that host.
-   - Create the app from the manifest, install it, and paste both tokens.
+   - Give PrikBoard a public https address: a Cloudflare quick tunnel needs no account (`cloudflared tunnel --url http://localhost:5173`). Start the API and web app with the `api-tunnel` and `web-tunnel` launch configs, so sign-in callbacks through the tunnel are https and Vite accepts the tunnel's host. Its address changes with every start, and so would the app's unfurl domain and redirect URL.
+   - Follow *Setting it up* above with the tunnel's address.
    - Connect a channel and try: a card link, a board link, an invite, a board you didn't connect (nothing), another channel (nothing), a Slack Connect channel (nothing), a change to the card (does the preview follow?), an update post, `/prikboard board`, and Save to PrikBoard on a message with an image, once before linking your account and once after.
 
    The fake can't answer phase 0's questions. It answers them the way we code it to. Only real Slack can. The same goes for anything else the docs leave open; the fake follows Slack's documentation.
@@ -244,7 +267,7 @@ Everything worked against real Slack once the app was set up right: previews, `/
 - **Sign-in through a tunnel needs forwarded headers**, or the API builds `http://` callbacks that GitHub and Slack refuse (`api-tunnel` launch config, [authentication.md](authentication.md#behind-a-proxy-or-tunnel)).
 - **A VPN's DNS filter can block tunnel services** (`trycloudflare.com` and `loca.lt` resolved to `0.0.0.0`).
 - **A Slack sign-in that PrikBoard doesn't know needs an invite**, or linking from an account that is already signed in.
-- **The `link_shared` log line** (`Slack link_shared in … : <links>`) tells at once whether Slack sent anything.
+- **The `link_shared` log line** (`Slack link_shared in …: 1 link(s) on <host>`) tells at once whether Slack sent anything.
 
 ## Open questions
 

@@ -21,7 +21,9 @@ PrikBoard runs as one container next to PostgreSQL. With Docker on the machine:
 cd infra/compose && docker compose up -d
 ```
 
-Open http://localhost:8080 and follow the setup. It asks for the setup key that PrikBoard prints in its log (`docker compose logs app`), then lets you add sign-in providers (GitHub in one click, Google, Discord, Steam or any OpenID Connect provider), sign in as the admin and download the recovery kit. For HTTPS on your own domain, see [`infra/README.md`](infra/README.md).
+Open http://localhost:8080 and follow the setup. It asks for the setup key that PrikBoard prints in its log (`docker compose logs app`), then lets you add sign-in providers (GitHub in one click, Google, Discord, Slack, Steam or any OpenID Connect provider), sign in as the admin and download the recovery kit. For HTTPS on your own domain, see [`infra/README.md`](infra/README.md).
+
+To preview PrikBoard links in chat, post board updates and save messages as cards, an admin can add a Discord bot or a Slack app under Admin → *Instance*: see [Discord](docs/discord.md) and [Slack](docs/slack.md#setting-it-up).
 
 ## Developing
 

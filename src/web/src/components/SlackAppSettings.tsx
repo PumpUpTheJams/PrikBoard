@@ -86,6 +86,9 @@ export function SlackAppSettings() {
 
   const tokensFixed = app.source === 'Configuration'
   const firstTime = app.source === null
+  // Before the app exists, the address can be saved on its own: the manifest takes its unfurl domain and redirect from it.
+  const addressChanged = publicUrl !== null && publicUrl.trim() !== '' && publicUrl.trim() !== (app.publicUrl ?? '')
+  const tokensGiven = botToken.trim() !== '' && appToken.trim() !== ''
   return (
     <div className="discord-bot">
       <p className="dialog-hint">
@@ -107,10 +110,14 @@ export function SlackAppSettings() {
       {firstTime && (
         <ol className="dialog-hint discord-bot-steps">
           <li>
+            Check the address below, the one people open PrikBoard at (https, reachable from the internet), and save it: the manifest
+            takes the app's link domain and sign-in redirect from it.
+          </li>
+          <li>
             <a href={app.createAppUrl} target="_blank" rel="noreferrer">
               Create the Slack app
             </a>{' '}
-            from PrikBoard's manifest (or create one from a manifest yourself and paste it).
+            from PrikBoard's manifest (or create one from a manifest yourself and paste the manifest below).
           </li>
           <li>Install it in your workspace, then copy the Bot User OAuth Token (xoxb-…) from OAuth &amp; Permissions.</li>
           <li>Under Basic Information → App-Level Tokens, create one with connections:write and copy it (xapp-…).</li>
@@ -175,8 +182,8 @@ export function SlackAppSettings() {
               Remove app
             </button>
           )}
-          <button type="submit" className="primary" disabled={saving || (firstTime && (!botToken.trim() || !appToken.trim()))}>
-            {app.state === 'Off' ? 'Connect' : 'Save'}
+          <button type="submit" className="primary" disabled={saving || (firstTime && !tokensGiven && !addressChanged)}>
+            {firstTime && !tokensGiven ? 'Save address' : app.state === 'Off' ? 'Connect' : 'Save'}
           </button>
         </div>
       </form>

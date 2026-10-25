@@ -35,12 +35,19 @@ public class SlackApiFactory : PrikBoardApiFactory
     /// <summary>A channel of the tests' own, for the one test that needs a board to be the only one there.</summary>
     public const string Snapshot = "C0SNAPSHT1";
 
+    /// <summary>A person of the tests' own, for the test that signs in with Slack, so no other test's link to Jimmy is in the way.</summary>
+    public const string Sam = "U0SAMSIGN1";
+
     public WebApplication FakeSlack { get; }
     public FakeWorkspace Workspace => FakeSlack.Services.GetRequiredService<FakeWorkspace>();
 
     public SlackApiFactory()
     {
-        FakeSlack = FakeSlackApp.Build(["--urls", "http://127.0.0.1:0"], o => o.Channels.Add(new FakeChannel(Snapshot, "snapshot")));
+        FakeSlack = FakeSlackApp.Build(["--urls", "http://127.0.0.1:0"], o =>
+        {
+            o.Channels.Add(new FakeChannel(Snapshot, "snapshot"));
+            o.Users.Add(new FakeUser(Sam, "Sam"));
+        });
         FakeSlack.StartAsync().GetAwaiter().GetResult();
     }
 
@@ -415,7 +422,8 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
         var json = save.ToJsonString(Plain);
         Assert.Contains("\"Inbox\"", json);
         Assert.Equal(SlackBlocks.WhereValue(board.Id, doing.Id), save["blocks"]![0]!["element"]!["initial_option"]!["value"]!.GetValue<string>());
-        Assert.Contains("Login breaks on *Safari* & Edge, says @Ada (admin): [the log](https://example.com/log)", json);
+        // The title has names when Slack answered within the trigger's wait; the card always has them (checked below).
+        Assert.Contains("Login breaks on *Safari* &", json);
 
         var answer = await SubmitAsync(new() { ["where"] = SlackBlocks.WhereValue(board.Id, doing.Id), ["title"] = "Login on Safari" });
         Assert.Equal(SlackApiFactory.Jimmy, answer.User);
@@ -458,18 +466,18 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
             new { id = SlackApp.SignInProviderId, type = "Slack", clientId = "123.456", clientSecret = "secret" });
         Assert.Equal(HttpStatusCode.Created, provider.StatusCode);
 
-        // Signed in as Jimmy of the fake workspace: the same key the app knows people by.
+        // Signed in as Sam of the fake workspace: the same key the app knows people by.
         var jimmy = await factory.CreateSignedInClientAsync("slack-signin@example.com",
-            subject: AuthSetup.SlackSubject(Fake.TeamId, SlackApiFactory.Jimmy), provider: SlackApp.SignInProviderId);
+            subject: AuthSetup.SlackSubject(Fake.TeamId, SlackApiFactory.Sam), provider: SlackApp.SignInProviderId);
         var status = (await jimmy.GetFromJsonAsync<SlackAccountStatus>("/api/me/slack-account"))!;
         Assert.Equal((true, SlackAccountSource.SignIn), (status.Linked, status.Source));
 
         var board = await jimmy.CreateBoardAsync("Signed in with Slack");
         await ConnectAsync(jimmy, board.Id, SlackApiFactory.Snapshot);
-        var message = await factory.Workspace.PostAsync(SlackApiFactory.Snapshot, SlackApiFactory.Jimmy, "Straight to a card");
+        var message = await factory.Workspace.PostAsync(SlackApiFactory.Snapshot, SlackApiFactory.Sam, "Straight to a card");
 
         // No connect link: the modal to save opens at once.
-        var save = await ShortcutAsync(message, SlackApiFactory.Jimmy);
+        var save = await ShortcutAsync(message, SlackApiFactory.Sam);
         Assert.Equal(SlackBlocks.SaveCallback, save["callback_id"]!.GetValue<string>());
         Assert.Contains("Signed in with Slack", save.ToJsonString(Plain));
         var answer = await SubmitAsync(new() { ["where"] = SlackBlocks.WhereValue(board.Id, board.Buckets[0].Id) });
@@ -477,16 +485,16 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
 
         // Someone of another workspace with the same user id is somebody else.
         var other = await factory.CreateSignedInClientAsync("slack-other-team@example.com",
-            subject: AuthSetup.SlackSubject("T0OTHER001", SlackApiFactory.Jimmy), provider: SlackApp.SignInProviderId);
+            subject: AuthSetup.SlackSubject("T0OTHER001", SlackApiFactory.Sam), provider: SlackApp.SignInProviderId);
         var otherStatus = (await other.GetFromJsonAsync<SlackAccountStatus>("/api/me/slack-account"))!;
         Assert.Equal((true, SlackAccountSource.SignIn), (otherStatus.Linked, otherStatus.Source));
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
         var accounts = factory.Services.GetRequiredService<ChatAccounts>();
         Assert.Equal((await jimmy.MeAsync()).Id,
-            await accounts.FindUserAsync(db, ChatPlatform.Slack, AuthSetup.SlackSubject(Fake.TeamId, SlackApiFactory.Jimmy), CancellationToken.None));
+            await accounts.FindUserAsync(db, ChatPlatform.Slack, AuthSetup.SlackSubject(Fake.TeamId, SlackApiFactory.Sam), CancellationToken.None));
         Assert.Equal((await other.MeAsync()).Id,
-            await accounts.FindUserAsync(db, ChatPlatform.Slack, AuthSetup.SlackSubject("T0OTHER001", SlackApiFactory.Jimmy), CancellationToken.None));
+            await accounts.FindUserAsync(db, ChatPlatform.Slack, AuthSetup.SlackSubject("T0OTHER001", SlackApiFactory.Sam), CancellationToken.None));
     }
 
     [Fact]

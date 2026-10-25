@@ -119,14 +119,6 @@ public class SlackApi(HttpClient http)
             [new("trigger_id", triggerId), new("view", JsonSerializer.Serialize(view, JsonSerializerOptions.Web))], ct);
     }
 
-    /// <summary>A message in the channel only <paramref name="userId"/> sees.</summary>
-    public async Task PostEphemeralAsync(string botToken, string channelId, string userId, string text, object? attachment, CancellationToken ct)
-    {
-        List<KeyValuePair<string, string>> form = [new("channel", channelId), new("user", userId), new("text", text)];
-        if (attachment is not null) form.Add(new("attachments", JsonSerializer.Serialize(new[] { attachment }, JsonSerializerOptions.Web)));
-        using var _ = await CallAsync("chat.postEphemeral", botToken, form, ct);
-    }
-
     /// <summary>Reacts to a message as the bot; a reaction that is there already counts as done.</summary>
     public async Task AddReactionAsync(string botToken, string channelId, string messageTs, string emoji, CancellationToken ct)
     {

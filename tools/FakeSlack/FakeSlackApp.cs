@@ -133,8 +133,6 @@ public static class FakeSlackApp
             case "apps.connections.open":
                 var socket = $"{(http.IsHttps ? "wss" : "ws")}://{http.Host}/ws?ticket={w.NewTicket()}";
                 return Answer(new { ok = true, url = socket });
-            case "team.info":
-                return Answer(new { ok = true, team = new { id = o.TeamId, name = o.TeamName } });
             case "conversations.list":
                 return Answer(new { ok = true, channels = o.Channels.Select(Channel), response_metadata = new { next_cursor = "" } });
             case "conversations.info":

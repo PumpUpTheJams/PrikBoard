@@ -343,8 +343,10 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
         var urls = e.TryGetProperty("links", out var links)
             ? links.EnumerateArray().Select(l => l.TryGetProperty("url", out var url) ? url.GetString() : null).OfType<string>().ToList()
             : [];
-        // What Slack sent, so a link that previews nothing can be told from one that never arrived (invite tokens masked).
-        logger.LogInformation("Slack link_shared in {Channel} ({Source}): {Links}", channelId, source, string.Join(" ", urls.Select(Masked)));
+        // That Slack sent something, so a link that previews nothing can be told from one that never arrived. Hosts only:
+        // the links themselves name boards and cards, and invites carry their key.
+        logger.LogInformation("Slack link_shared in {Channel} ({Source}): {Count} link(s) on {Hosts}", channelId, source, urls.Count,
+            string.Join(", ", urls.Select(u => Uri.TryCreate(u, UriKind.Absolute, out var uri) ? uri.Host : "?").Distinct()));
         if (channelId is null or "COMPOSER" || ts is null || source == "composer") return;
         if (urls.Count == 0) return;
         if (await ChannelAsync(botToken, channelId, ct) is not { IsExtShared: false } channel)
@@ -641,10 +643,6 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
             logger.LogInformation("The Slack app could not post in {Channel}: {Error}", channelId, error.Error);
         }
     }
-
-    /// <summary>A link for the log: an invite's token is the key to the board, so it is left out.</summary>
-    private static string Masked(string url) =>
-        url.IndexOf("#/invite/", StringComparison.Ordinal) is var at and >= 0 ? url[..(at + "#/invite/".Length)] + "…" : url;
 
     /// <summary>A channel as Slack describes it, kept for a minute; null when the bot can't see it.</summary>
     private async Task<SlackChannelInfo?> ChannelAsync(string botToken, string channelId, CancellationToken ct)
