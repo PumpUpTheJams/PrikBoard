@@ -69,12 +69,6 @@
     "tone-coral": "#c84a33",
     "tone-lilac": "#6a47c8",
     "ghost-bg": "rgba(255, 255, 255, 0.6)",
-    "ink-chalk": "#2f3570",
-    "ink-butter": "#c79a00",
-    "ink-mint": "#2f9a66",
-    "ink-sky": "#3f6fe0",
-    "ink-coral": "#e0573f",
-    "ink-lilac": "#7a55e0",
     "font": "Quicksand, ui-rounded, system-ui, sans-serif"
   },
   "bar": {

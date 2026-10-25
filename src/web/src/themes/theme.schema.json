@@ -107,7 +107,7 @@
         "tone-coral": { "$ref": "#/$defs/color", "description": "Coral as text or an icon on a panel." },
         "tone-lilac": { "$ref": "#/$defs/color", "description": "Lilac as text or an icon on a panel." },
         "ghost-bg": { "$ref": "#/$defs/color", "description": "A ghost button's own background; transparent where its outline shows well enough." },
-        "ink-chalk": { "$ref": "#/$defs/color", "description": "The Chalk pen: light on a dark board, dark on a light one." },
+        "ink-chalk": { "$ref": "#/$defs/color", "description": "The Chalk pen, a near-white. Light themes keep the pastel pens as they are; the dark row (Ink to Violet) is for strokes that need contrast." },
         "ink-butter": { "$ref": "#/$defs/color", "description": "The Butter pen." },
         "ink-mint": { "$ref": "#/$defs/color", "description": "The Mint pen." },
         "ink-sky": { "$ref": "#/$defs/color", "description": "The Sky pen." },

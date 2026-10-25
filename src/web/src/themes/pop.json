@@ -69,12 +69,6 @@
     "tone-coral": "#d63a26",
     "tone-lilac": "#7a3fd0",
     "ghost-bg": "#ffffff",
-    "ink-chalk": "#111111",
-    "ink-butter": "#d9a400",
-    "ink-mint": "#10a066",
-    "ink-sky": "#1f73e0",
-    "ink-coral": "#e5402c",
-    "ink-lilac": "#8a4fe0",
     "font": "'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif"
   },
   "bar": {

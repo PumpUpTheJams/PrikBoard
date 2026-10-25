@@ -69,12 +69,6 @@
     "tone-coral": "#c7303c",
     "tone-lilac": "#8f3a9c",
     "ghost-bg": "rgba(255, 255, 255, 0.5)",
-    "ink-chalk": "#5a1835",
-    "ink-butter": "#c98a00",
-    "ink-mint": "#2e8b5e",
-    "ink-sky": "#4b5bc9",
-    "ink-coral": "#e8416f",
-    "ink-lilac": "#a43fb0",
     "font": "Fredoka, ui-rounded, system-ui, sans-serif"
   },
   "bar": {
