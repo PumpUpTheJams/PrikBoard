@@ -84,7 +84,7 @@ public class TrashAndCollapseApiTests(PrikBoardApiFactory factory) : IClassFixtu
     }
 
     [Fact]
-    public async Task Emptying_the_trash_deletes_only_this_boards_deleted_cards_and_needs_an_editor()
+    public async Task Emptying_the_trash_deletes_only_this_boards_deleted_cards_and_needs_an_editor_while_viewers_read_it()
     {
         var board = await _client.CreateBoardAsync("Empty trash");
         var other = await _client.CreateBoardAsync("Keeps its trash");
@@ -99,26 +99,17 @@ public class TrashAndCollapseApiTests(PrikBoardApiFactory factory) : IClassFixtu
         var elsewhere = await _client.CreateCardAsync(other.Id, "Other board");
         (await _client.DeleteAsync($"/api/cards/{elsewhere.Id}")).EnsureSuccessStatusCode();
 
+        // Strangers don't see it at all (MembershipApiTests.Visitors_only_read_the_board_its_images_and_drawings).
+        var read = await viewer.GetAsync($"/api/boards/{board.Id}/trash");
         var forbidden = await viewer.DeleteAsync($"/api/boards/{board.Id}/trash");
         var result = await Ok<EmptyTrashResult>(await _client.DeleteAsync($"/api/boards/{board.Id}/trash"));
 
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
         Assert.Equal(2, result.Purged);
         Assert.Empty((await Trash(board.Id)).Cards);
         Assert.Equal(elsewhere.Id, Assert.Single((await Trash(other.Id)).Cards).Id);
         Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/cards/{live.Id}")).StatusCode);
-    }
-
-    [Fact]
-    public async Task Viewers_read_the_trash_and_strangers_see_nothing()
-    {
-        var board = await _client.CreateBoardAsync("Trash roles");
-        var viewer = await factory.CreateSignedInClientAsync("trash-viewer@example.com");
-        var stranger = await factory.CreateSignedInClientAsync("trash-stranger@example.com");
-        await _client.ShareAsync(board.Id, viewer, BoardRole.Viewer);
-
-        Assert.Equal(HttpStatusCode.OK, (await viewer.GetAsync($"/api/boards/{board.Id}/trash")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await stranger.GetAsync($"/api/boards/{board.Id}/trash")).StatusCode);
     }
 
     [Fact]

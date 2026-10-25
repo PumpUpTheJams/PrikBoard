@@ -113,12 +113,13 @@ public class McpCardTests(PrikBoardApiFactory factory) : McpTestBase, IClassFixt
     }
 
     [Fact]
-    public async Task Agents_manage_tags_by_name()
+    public async Task Agents_manage_tags_by_name_and_restore_deleted_tags_and_cards()
     {
         var owner = await factory.CreateSignedInClientAsync("mcp-tags@example.com");
         var board = await owner.CreateBoardAsync("MCP tags");
         var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor));
         var card = await CallAsync(mcp, "create_card", new() { ["board"] = board.Id, ["title"] = "Tagged", ["tags"] = new[] { "ui" } });
+        var cardId = card.GetProperty("id").GetGuid();
 
         var later = await CallAsync(mcp, "create_tag", new() { ["board"] = board.Id, ["name"] = "Later", ["color"] = "Ink" });
         Assert.Equal("Ink", later.GetProperty("color").GetString());
@@ -132,22 +133,38 @@ public class McpCardTests(PrikBoardApiFactory factory) : McpTestBase, IClassFixt
 
         var overview = await CallAsync(mcp, "get_board", new() { ["board"] = board.Id });
         Assert.Equal(["front-end"], overview.GetProperty("tags").EnumerateArray().Select(t => t.GetProperty("name").GetString()));
-        var saved = (await owner.GetFromJsonAsync<CardDetail>($"/api/cards/{card.GetProperty("id").GetGuid()}"))!;
+        var saved = (await owner.GetFromJsonAsync<CardDetail>($"/api/cards/{cardId}"))!;
         Assert.Equal(["front-end"], saved.Tags);
 
         var missing = await CallRawAsync(mcp, "delete_tag", new() { ["board"] = board.Id, ["tag"] = "nope" });
         Assert.True(missing.IsError);
         Assert.Contains("\"front-end\"", Text(missing));
+
+        // Deleting says how to undo it, and both come back, the tag by name in any case.
+        Assert.Contains("restore_tag", Text(await CallRawAsync(mcp, "delete_tag", new() { ["board"] = board.Id, ["tag"] = "front-end" })));
+        Assert.Contains("restore_card", Text(await CallRawAsync(mcp, "delete_card", new() { ["card"] = cardId })));
+        var restoredTag = await CallAsync(mcp, "restore_tag", new() { ["board"] = board.Id, ["tag"] = "Front-End" });
+        var restoredCard = await CallAsync(mcp, "restore_card", new() { ["card"] = cardId });
+
+        Assert.Equal("front-end", restoredTag.GetProperty("name").GetString());
+        Assert.Equal(cardId, restoredCard.GetProperty("id").GetGuid());
+        Assert.Equal(["front-end"], restoredCard.GetProperty("tags").EnumerateArray().Select(t => t.GetString()));
+        var again = await CallRawAsync(mcp, "restore_tag", new() { ["board"] = board.Id, ["tag"] = "front-end" });
+        Assert.True(again.IsError);
+        Assert.Contains("No deleted tag", Text(again));
     }
 
     [Fact]
-    public async Task Agents_list_deleted_cards_put_one_back_elsewhere_and_collapse_buckets()
+    public async Task Agents_search_restore_and_purge_deleted_cards_and_collapse_buckets()
     {
         var owner = await factory.CreateSignedInClientAsync("mcp-trash@example.com");
         var board = await owner.CreateBoardAsync("MCP trash");
         var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor));
         var card = await owner.CreateCardAsync(board.Id, "An idea we dropped");
-        await CallRawAsync(mcp, "delete_card", new() { ["card"] = card.Id });
+        var first = await owner.CreateCardAsync(board.Id, "First");
+        var second = await owner.CreateCardAsync(board.Id, "Second");
+        var third = await owner.CreateCardAsync(board.Id, "Third");
+        foreach (var deleted in new[] { card, first, second, third }) await CallRawAsync(mcp, "delete_card", new() { ["card"] = deleted.Id });
 
         var found = await CallAsync(mcp, "list_deleted_cards", new() { ["board"] = board.Id, ["text"] = "IDEA" });
         var back = await CallAsync(mcp, "restore_card", new() { ["card"] = card.Id, ["x"] = 2000, ["y"] = 2000 });
@@ -160,19 +177,8 @@ public class McpCardTests(PrikBoardApiFactory factory) : McpTestBase, IClassFixt
         Assert.Equal((2000, 2000), (restored.X, restored.Y));
         Assert.True(collapsed.GetProperty("collapsed").GetBoolean());
         Assert.True(overview.GetProperty("buckets")[0].GetProperty("collapsed").GetBoolean());
-    }
 
-    [Fact]
-    public async Task Agents_delete_cards_in_the_trash_for_good()
-    {
-        var owner = await factory.CreateSignedInClientAsync("mcp-purge@example.com");
-        var board = await owner.CreateBoardAsync("MCP purge");
-        var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor));
-        var first = await owner.CreateCardAsync(board.Id, "First");
-        var second = await owner.CreateCardAsync(board.Id, "Second");
-        var third = await owner.CreateCardAsync(board.Id, "Third");
-        foreach (var card in new[] { first, second, third }) await CallRawAsync(mcp, "delete_card", new() { ["card"] = card.Id });
-
+        // The rest goes for good: one by its readable id, then the whole trash.
         await CallRawAsync(mcp, "purge_card", new() { ["card"] = first.ReadableId });
         var left = await CallAsync(mcp, "list_deleted_cards", new() { ["board"] = board.Id });
         var emptied = await CallAsync(mcp, "empty_trash", new() { ["board"] = board.ShortId });
@@ -180,28 +186,6 @@ public class McpCardTests(PrikBoardApiFactory factory) : McpTestBase, IClassFixt
         Assert.Equal(2, left.GetArrayLength());
         Assert.Equal(2, emptied.GetProperty("purged").GetInt32());
         Assert.Equal(0, (await CallAsync(mcp, "list_deleted_cards", new() { ["board"] = board.Id })).GetArrayLength());
-    }
-
-    [Fact]
-    public async Task Agents_restore_deleted_cards_and_tags()
-    {
-        var owner = await factory.CreateSignedInClientAsync("mcp-restore@example.com");
-        var board = await owner.CreateBoardAsync("MCP restore");
-        var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor));
-        var card = await CallAsync(mcp, "create_card", new() { ["board"] = board.Id, ["title"] = "Oops", ["tags"] = new[] { "keep" } });
-        var cardId = card.GetProperty("id").GetGuid();
-
-        Assert.Contains("restore_tag", Text(await CallRawAsync(mcp, "delete_tag", new() { ["board"] = board.Id, ["tag"] = "keep" })));
-        Assert.Contains("restore_card", Text(await CallRawAsync(mcp, "delete_card", new() { ["card"] = cardId })));
-        var restoredTag = await CallAsync(mcp, "restore_tag", new() { ["board"] = board.Id, ["tag"] = "Keep" });
-        var restoredCard = await CallAsync(mcp, "restore_card", new() { ["card"] = cardId });
-
-        Assert.Equal("keep", restoredTag.GetProperty("name").GetString());
-        Assert.Equal(cardId, restoredCard.GetProperty("id").GetGuid());
-        Assert.Equal(["keep"], restoredCard.GetProperty("tags").EnumerateArray().Select(t => t.GetString()));
-        var again = await CallRawAsync(mcp, "restore_tag", new() { ["board"] = board.Id, ["tag"] = "keep" });
-        Assert.True(again.IsError);
-        Assert.Contains("No deleted tag", Text(again));
     }
 
     [Fact]
@@ -332,11 +316,11 @@ public class McpCardTests(PrikBoardApiFactory factory) : McpTestBase, IClassFixt
     }
 
     [Fact]
-    public async Task Create_card_with_working_assigns_the_owner_and_shows_the_halo()
+    public async Task Agents_start_work_as_they_create_or_move_a_card()
     {
         var owner = await factory.CreateSignedInClientAsync("mcp-working-create@example.com");
         await owner.RenameAsync("Rosa");
-        var board = await owner.CreateBoardAsync("MCP working create");
+        var board = await owner.CreateBoardAsync("MCP working");
         var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor, "Claude Code"));
 
         var created = await CallAsync(mcp, "create_card", new()
@@ -352,6 +336,18 @@ public class McpCardTests(PrikBoardApiFactory factory) : McpTestBase, IClassFixt
         var plain = await CallAsync(mcp, "create_card", new() { ["board"] = board.ShortId, ["title"] = "Later" });
         Assert.False(plain.TryGetProperty("agentWorking", out _));
         Assert.False(plain.TryGetProperty("assignees", out _));
+
+        // Moving a card can start and stop work in the same call.
+        var cardId = plain.GetProperty("id").GetGuid();
+        var started = await CallAsync(mcp, "move_card", new() { ["card"] = cardId, ["bucket"] = "Doing", ["working"] = true });
+        Assert.Equal("Doing", started.GetProperty("bucket").GetString());
+        Assert.True(started.GetProperty("agentWorking").GetBoolean());
+        Assert.Equal(["Rosa"], started.GetProperty("assignees").EnumerateArray().Select(a => a.GetString()));
+
+        var done = await CallAsync(mcp, "move_card", new() { ["card"] = cardId, ["bucket"] = "Done", ["working"] = false });
+        Assert.Equal("Done", done.GetProperty("bucket").GetString());
+        Assert.False(done.TryGetProperty("agentWorking", out _));
+        Assert.True(done.TryGetProperty("assignees", out _));
     }
 
     [Fact]
@@ -422,25 +418,5 @@ public class McpCardTests(PrikBoardApiFactory factory) : McpTestBase, IClassFixt
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Contains("cards[1].bucketId", await response.Content.ReadAsStringAsync());
         Assert.Equal(3, (await owner.GetFromJsonAsync<List<CardDetail>>($"/api/boards/{board.Id}/cards"))!.Count);
-    }
-
-    [Fact]
-    public async Task Move_card_can_start_and_stop_work_in_the_same_call()
-    {
-        var owner = await factory.CreateSignedInClientAsync("mcp-move-working@example.com");
-        await owner.RenameAsync("Owen");
-        var board = await owner.CreateBoardAsync("MCP move working");
-        var card = await owner.CreateCardAsync(board.Id, "Task");
-        var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor, "Claude Code"));
-
-        var started = await CallAsync(mcp, "move_card", new() { ["card"] = card.Id, ["bucket"] = "Doing", ["working"] = true });
-        Assert.Equal("Doing", started.GetProperty("bucket").GetString());
-        Assert.True(started.GetProperty("agentWorking").GetBoolean());
-        Assert.Equal(["Owen"], started.GetProperty("assignees").EnumerateArray().Select(a => a.GetString()));
-
-        var done = await CallAsync(mcp, "move_card", new() { ["card"] = card.Id, ["bucket"] = "Done", ["working"] = false });
-        Assert.Equal("Done", done.GetProperty("bucket").GetString());
-        Assert.False(done.TryGetProperty("agentWorking", out _));
-        Assert.True(done.TryGetProperty("assignees", out _));
     }
 }

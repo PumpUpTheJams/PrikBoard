@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using PrikBoard.Api.Contracts;
@@ -103,17 +104,15 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         Assert.Equal(copy.Id, Assert.Single(boards).Id);
     }
 
-    [Theory]
-    [InlineData(1)]
-    [InlineData(2)]
-    public async Task A_file_from_before_cards_is_refused_with_a_clear_message(int version)
+    [Fact]
+    public async Task A_file_from_before_cards_is_refused_with_a_clear_message()
     {
-        var client = await factory.CreateSignedInClientAsync($"export-version{version}@example.com");
-        // As exportBoard wrote them then: notes with blocks, images by noteId.
+        var client = await factory.CreateSignedInClientAsync("export-version2@example.com");
+        // As exportBoard wrote them then: notes with blocks, images by noteId. Versions 1 and 2 go through the same check.
         var file = new
         {
             format = "prikboard-board",
-            version,
+            version = 2,
             exportedAt = DateTimeOffset.UtcNow,
             name = "Old export",
             buckets = Array.Empty<object>(),
@@ -131,22 +130,6 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         Assert.Equal("version", key, ignoreCase: true);
         Assert.Equal(BoardExport.TooOldMessage, messages![0]!.GetValue<string>());
         Assert.Equal(before, await BoardCount(client));
-    }
-
-    [Fact]
-    public async Task Importing_the_same_file_twice_makes_two_boards()
-    {
-        var client = await factory.CreateSignedInClientAsync("export-twice@example.com");
-        var board = await client.CreateBoardAsync("Twice");
-        await client.CreateCardAsync(board.Id);
-        var file = await (await client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync();
-
-        var first = (await (await Import(client, file)).Content.ReadFromJsonAsync<BoardDetail>())!;
-        var second = (await (await Import(client, file)).Content.ReadFromJsonAsync<BoardDetail>())!;
-
-        Assert.NotEqual(first.Id, second.Id);
-        Assert.NotEqual(first.Cards.Single().Id, second.Cards.Single().Id);
-        Assert.Equal(3, (await client.GetFromJsonAsync<List<BoardSummary>>("/api/boards"))!.Count);
     }
 
     [Fact]
@@ -177,8 +160,6 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
 
     [Theory]
     [InlineData("format", "something-else", "format")]
-    [InlineData("version", 99, "version")]
-    [InlineData("version", 2, "version")]
     [InlineData("name", "", "Name")]
     public async Task A_file_that_is_not_a_valid_export_is_refused(string property, object value, string errorKey)
     {
@@ -221,18 +202,21 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
     }
 
     [Fact]
-    public async Task A_file_with_fields_this_server_does_not_know_is_refused_naming_them_and_the_versions()
+    public async Task A_newer_file_version_or_fields_this_server_does_not_know_are_refused_naming_them_and_the_app_version()
     {
         var client = await factory.CreateSignedInClientAsync("export-unknown@example.com");
         var board = await client.CreateBoardAsync("Newer");
         await client.CreateCardAsync(board.Id);
         var file = JsonNode.Parse(await (await client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync())!;
         file["appVersion"] = "9.1.0";
+        var newer = file.DeepClone();
+        newer["version"] = BoardExport.CurrentVersion + 1;
         file["stickers"] = new JsonArray();
         file["cards"]![0]!["priority"] = "high";
         var before = await BoardCount(client);
 
         var response = await Import(client, file.ToJsonString());
+        var newerResponse = await Import(client, newer.ToJsonString());
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var (key, messages) = (await response.Content.ReadFromJsonAsync<JsonObject>())!["errors"]!.AsObject().First();
@@ -242,23 +226,11 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         Assert.Contains("cards[0].priority", message);
         Assert.Contains("PrikBoard 9.1.0", message);
         Assert.Equal(before, await BoardCount(client));
-    }
 
-    [Fact]
-    public async Task A_newer_file_version_names_the_app_version_it_came_from()
-    {
-        var client = await factory.CreateSignedInClientAsync("export-newer@example.com");
-        var board = await client.CreateBoardAsync("Future");
-        var file = JsonNode.Parse(await (await client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync())!;
-        file["version"] = BoardExport.CurrentVersion + 1;
-        file["appVersion"] = "9.1.0";
-
-        var response = await Import(client, file.ToJsonString());
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var (key, messages) = (await response.Content.ReadFromJsonAsync<JsonObject>())!["errors"]!.AsObject().First();
-        Assert.Equal("version", key);
-        Assert.Contains("PrikBoard 9.1.0", messages![0]!.GetValue<string>());
+        Assert.Equal(HttpStatusCode.BadRequest, newerResponse.StatusCode);
+        var (newerKey, newerMessages) = (await newerResponse.Content.ReadFromJsonAsync<JsonObject>())!["errors"]!.AsObject().First();
+        Assert.Equal("version", newerKey);
+        Assert.Contains("PrikBoard 9.1.0", newerMessages![0]!.GetValue<string>());
     }
 
     [Fact]
@@ -282,7 +254,7 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
     }
 
     [Fact]
-    public async Task An_untitled_card_survives_export_and_import()
+    public async Task An_untitled_card_survives_export_and_import_and_importing_the_same_file_twice_makes_two_boards()
     {
         var client = await factory.CreateSignedInClientAsync("export-untitled@example.com");
         var board = await client.CreateBoardAsync("Untitled");
@@ -290,10 +262,151 @@ public class BoardTransferApiTests(PrikBoardApiFactory factory) : IClassFixture<
         var file = await (await client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync();
 
         var response = await Import(client, file);
+        var second = (await (await Import(client, file)).Content.ReadFromJsonAsync<BoardDetail>())!;
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var copy = (await response.Content.ReadFromJsonAsync<BoardDetail>())!;
         Assert.Equal("", Assert.Single(copy.Cards).Title);
+        Assert.NotEqual(copy.Id, second.Id);
+        Assert.NotEqual(copy.Cards.Single().Id, second.Cards.Single().Id);
+        Assert.Equal(3, (await client.GetFromJsonAsync<List<BoardSummary>>("/api/boards"))!.Count);
+    }
+
+    // Short board ids, board keys and card numbers: the parts of a card's path and readable id (MPCT-415).
+    [Theory]
+    [InlineData("MCP me some tickets", "MMST")]
+    [InlineData("PrikBoard", "PRIK")]
+    [InlineData("2026 plans", "PLAN")]
+    [InlineData("Café & co", "CC")]
+    [InlineData("!!", "PB")]
+    public void A_key_comes_from_the_board_name(string name, string key) => Assert.Equal(key, Board.KeyFrom(name));
+
+    [Fact]
+    public async Task Boards_get_a_short_id_that_never_changes_and_a_key_owners_can_change()
+    {
+        var owner = await factory.CreateSignedInClientAsync("ids-owner@example.com");
+        var board = await owner.CreateBoardAsync("MCP me some tickets");
+        var other = await owner.CreateBoardAsync("MCP me some tickets");
+        Assert.Equal("MMST", board.Key);
+        Assert.Matches("^[0-9a-hjkmnp-tv-z]{6}$", board.ShortId);
+        Assert.NotEqual(board.ShortId, other.ShortId);
+        var card = await owner.CreateCardAsync(board.Id);
+        Assert.Equal("MMST-1", card.ReadableId);
+
+        var renamed = await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { name = "PrikBoard", key = "mpct" });
+        renamed.EnsureSuccessStatusCode();
+        var summary = (await renamed.Content.ReadFromJsonAsync<BoardSummary>())!;
+        Assert.Equal((board.ShortId, "MPCT", "PrikBoard"), (summary.ShortId, summary.Key, summary.Name));
+        var after = (await owner.GetFromJsonAsync<CardDetail>($"/api/cards/{card.Id}"))!;
+        Assert.Equal(("MPCT-1", card.Path), (after.ReadableId, after.Path));
+
+        foreach (var key in new[] { "1AB", "A", "TOOLONGAKEY", "MP-CT", "" })
+        {
+            var response = await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { key });
+            Assert.True(response.StatusCode == HttpStatusCode.BadRequest, key);
+        }
+        var editor = await factory.CreateSignedInClientAsync("ids-editor@example.com");
+        await owner.ShareAsync(board.Id, editor, BoardRole.Editor);
+        Assert.Equal(HttpStatusCode.Forbidden, (await editor.PatchAsJsonAsync($"/api/boards/{board.Id}", new { key = "EDIT" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Cards_are_numbered_per_board_and_a_number_is_never_used_twice()
+    {
+        var owner = await factory.CreateSignedInClientAsync("ids-numbers@example.com");
+        var board = await owner.CreateBoardAsync("Numbers");
+        var other = await owner.CreateBoardAsync("Other numbers");
+
+        var cards = new List<CardDetail>();
+        for (var i = 0; i < 3; i++) cards.Add(await owner.CreateCardAsync(board.Id));
+        Assert.Equal([1, 2, 3], cards.Select(n => n.Number));
+        Assert.Equal(1, (await owner.CreateCardAsync(other.Id)).Number);
+
+        (await owner.DeleteAsync($"/api/cards/{cards[2].Id}")).EnsureSuccessStatusCode();
+        Assert.Equal(4, (await owner.CreateCardAsync(board.Id)).Number);
+        var restored = await owner.PostAsJsonAsync($"/api/cards/{cards[2].Id}/restore", new { });
+        restored.EnsureSuccessStatusCode();
+        Assert.Equal(3, (await restored.Content.ReadFromJsonAsync<CardDetail>())!.Number);
+
+        var together = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => owner.CreateCardAsync(board.Id)));
+        Assert.Equal(Enumerable.Range(5, 10), together.Select(n => n.Number).Order());
+    }
+
+    [Fact]
+    public async Task A_card_is_found_by_the_short_id_and_number_in_its_path()
+    {
+        var owner = await factory.CreateSignedInClientAsync("ids-lookup@example.com");
+        var board = await owner.CreateBoardAsync("Lookup");
+        var first = await owner.CreateCardAsync(board.Id, "First");
+        var second = await owner.CreateCardAsync(board.Id, "Second");
+
+        var found = (await owner.GetFromJsonAsync<CardDetail>($"/api/boards/{board.ShortId}/cards/2"))!;
+        Assert.Equal((second.Id, $"/#/boards/{board.ShortId}/cards/2"), (found.Id, found.Path));
+
+        var stranger = await factory.CreateSignedInClientAsync("ids-stranger@example.com");
+        (await owner.DeleteAsync($"/api/cards/{first.Id}")).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.GetAsync($"/api/boards/{board.ShortId}/cards/1")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.GetAsync($"/api/boards/{board.ShortId}/cards/9")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.GetAsync("/api/boards/zzzzzz/cards/1")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await stranger.GetAsync($"/api/boards/{board.ShortId}/cards/2")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Links_in_the_older_form_to_cards_on_the_board_are_stored_as_paths()
+    {
+        var owner = await factory.CreateSignedInClientAsync("ids-links@example.com");
+        var board = await owner.CreateBoardAsync("Links");
+        var elsewhere = await owner.CreateBoardAsync("Elsewhere");
+        var target = await owner.CreateCardAsync(board.Id, "Target");
+        var away = await owner.CreateCardAsync(elsewhere.Id, "Away");
+        var old = $"/#/boards/{board.Id}/cards/{target.Id}";
+        var oldAway = $"/#/boards/{elsewhere.Id}/cards/{away.Id}";
+
+        var response = await owner.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new
+        {
+            title = "Linking",
+            components = new[] { new { kind = "Links", links = new[] { new { title = "Target", url = old }, new { title = "Away", url = oldAway } } } },
+        });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var linking = (await response.Content.ReadFromJsonAsync<CardDetail>())!;
+        // A link to another board stays as it was, so it reveals nothing new about that board (such as its short id).
+        Assert.Equal([target.Path, oldAway], linking.Components.Single().Links!.Select(l => l.Url));
+
+        var added = await owner.PostAsJsonAsync($"/api/cards/{linking.Id}/components", new { kind = "Links", links = new[] { new { title = "Again", url = old } } });
+        Assert.Equal(target.Path, (await added.Content.ReadFromJsonAsync<CardComponentDetail>())!.Links!.Single().Url);
+        var component = linking.Components.Single();
+        var updated = await owner.PatchAsJsonAsync($"/api/cards/{linking.Id}/components/{component.Id}", new { links = new[] { new { title = "Target", url = $"  {old}  " } } });
+        Assert.Equal(target.Path, (await updated.Content.ReadFromJsonAsync<CardComponentDetail>())!.Links!.Single().Url);
+    }
+
+    [Fact]
+    public async Task An_imported_board_keeps_the_key_and_the_card_numbers()
+    {
+        var owner = await factory.CreateSignedInClientAsync("ids-export@example.com");
+        var board = await owner.CreateBoardAsync("Exported");
+        (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { key = "EXP" })).EnsureSuccessStatusCode();
+        var first = await owner.CreateCardAsync(board.Id, "First");
+        var gone = await owner.CreateCardAsync(board.Id, "Gone");
+        (await owner.DeleteAsync($"/api/cards/{gone.Id}")).EnsureSuccessStatusCode();
+        var linking = await owner.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new
+        {
+            title = "Third",
+            components = new[] { new { kind = "Links", links = new[] { new { title = "First", url = first.Path } } } },
+        });
+        linking.EnsureSuccessStatusCode();
+
+        var file = await owner.GetStringAsync($"/api/boards/{board.Id}/export");
+        var imported = await owner.PostAsync("/api/boards/import", new StringContent(file, Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.Created, imported.StatusCode);
+        var copy = (await imported.Content.ReadFromJsonAsync<BoardDetail>())!;
+
+        Assert.Equal("EXP", copy.Key);
+        Assert.NotEqual(board.ShortId, copy.ShortId);
+        Assert.Equal([("First", 1), ("Third", 3)], copy.Cards.Select(n => (n.Title, n.Number)).Order());
+        var copiedFirst = copy.Cards.Single(n => n.Title == "First");
+        Assert.Equal($"/#/boards/{copy.ShortId}/cards/1", copiedFirst.Path);
+        Assert.Equal(copiedFirst.Path, copy.Cards.Single(n => n.Title == "Third").Components.Single().Links!.Single().Url);
+        Assert.Equal(4, (await owner.CreateCardAsync(copy.Id)).Number);
     }
 
     private static async Task<int> BoardCount(HttpClient client) =>

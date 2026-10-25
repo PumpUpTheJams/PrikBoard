@@ -272,17 +272,12 @@ public class McpTests(PrikBoardApiFactory factory) : McpTestBase, IClassFixture<
     }
 
     [Fact]
-    public async Task The_session_cookie_alone_does_not_open_mcp()
-    {
-        var person = await factory.CreateSignedInClientAsync("mcp-cookie@example.com");
-        var response = await person.SendAsync(Initialize());
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task A_foreign_origin_is_refused()
+    public async Task Mcp_takes_only_bearer_tokens_from_its_own_origin()
     {
         var owner = await factory.CreateSignedInClientAsync("mcp-origin@example.com");
+        // The session cookie alone does not open it.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await owner.SendAsync(Initialize())).StatusCode);
+
         var token = await TokenAsync(owner, BoardRole.Editor);
         var client = factory.CreateAnonymousClient();
 
@@ -298,7 +293,7 @@ public class McpTests(PrikBoardApiFactory factory) : McpTestBase, IClassFixture<
     }
 
     [Fact]
-    public async Task Get_board_is_compact_and_only_counts_the_cards_of_collapsed_buckets()
+    public async Task Get_board_is_compact_and_counts_the_cards_it_leaves_out()
     {
         var owner = await factory.CreateSignedInClientAsync("mcp-compact@example.com");
         await owner.RenameAsync("Owen");
@@ -334,6 +329,14 @@ public class McpTests(PrikBoardApiFactory factory) : McpTestBase, IClassFixture<
         var shipped = await CallAsync(mcp, "search_cards", new() { ["board"] = board.Id, ["bucket"] = "Done" });
         Assert.Equal("Shipped", Assert.Single(shipped.EnumerateArray()).GetProperty("title").GetString());
 
+        // It can leave out all the cards, still counting them.
+        var bare = await CallAsync(mcp, "get_board", new() { ["board"] = board.Id, ["cards"] = false });
+        var bareTodo = bare.GetProperty("buckets")[0];
+        Assert.Equal(2, bareTodo.GetProperty("cardCount").GetInt32());
+        Assert.False(bareTodo.TryGetProperty("cards", out _));
+        Assert.False(bare.TryGetProperty("looseCards", out _));
+        Assert.True(bare.TryGetProperty("people", out _));
+
         // You are the person you work for, as whom you are assigned.
         var me = overview.GetProperty("people").EnumerateArray().Single(p => p.TryGetProperty("isYou", out _));
         Assert.Equal("Owen", me.GetProperty("name").GetString());
@@ -341,24 +344,34 @@ public class McpTests(PrikBoardApiFactory factory) : McpTestBase, IClassFixture<
     }
 
     [Fact]
-    public async Task Agents_are_told_which_board_they_used_last()
+    public async Task A_new_connection_is_told_about_the_last_board_used_with_its_buckets_tags_and_rules()
     {
         var owner = await factory.CreateSignedInClientAsync("mcp-last-board@example.com");
         var older = await owner.CreateBoardAsync("Launch \"Q4\"");
         var newer = await owner.CreateBoardAsync("MCP newer");
+        (await owner.PatchAsJsonAsync($"/api/boards/{older.Id}", new { rules = "Keep titles short." })).EnsureSuccessStatusCode();
         var token = await TokenAsync(owner, BoardRole.Editor);
 
         var first = await ConnectAsync(token);
         Assert.DoesNotContain("last used", first.ServerInstructions);
-        await CallAsync(first, "get_board", new() { ["board"] = older.ShortId });
+        await CallAsync(first, "create_card", new() { ["board"] = older.ShortId, ["title"] = "Tagged", ["tags"] = new[] { "ui" } });
 
-        // A new connection is told about it (the name in quotes, without its own), and list_boards puts it first.
+        // A new connection is told about it (the name in quotes, without its own, then its buckets, tags and rules),
+        // and list_boards puts it first.
         var next = await ConnectAsync(token);
-        Assert.Contains($"You last used the board \"Launch Q4\" (short id {older.ShortId}, your role Editor)", next.ServerInstructions);
+        var instructions = next.ServerInstructions!;
+        Assert.Contains($"You last used the board \"Launch Q4\" (short id {older.ShortId}, your role Editor)", instructions);
+        Assert.Contains("Its buckets, in order: \"To do\", \"Doing\", \"Done\".", instructions);
+        Assert.Contains("Its tags: \"ui\".", instructions);
+        Assert.Contains("<board-rules>\nKeep titles short.\n</board-rules>", instructions);
         var boards = (await CallAsync(next, "list_boards")).EnumerateArray().ToList();
         Assert.Equal(older.Id, boards[0].GetProperty("id").GetGuid());
         Assert.True(boards[0].GetProperty("lastUsed").GetBoolean());
         Assert.Contains(boards, b => b.GetProperty("id").GetGuid() == newer.Id && !b.TryGetProperty("lastUsed", out _));
+
+        // New rules show at once.
+        (await owner.PatchAsJsonAsync($"/api/boards/{older.Id}", new { rules = "Ask before deleting." })).EnsureSuccessStatusCode();
+        Assert.Contains("Ask before deleting.", (await ConnectAsync(token)).ServerInstructions);
 
         // Another token is another agent, with a last board of its own.
         Assert.DoesNotContain("last used", (await ConnectAsync(await TokenAsync(owner, BoardRole.Editor, "Other"))).ServerInstructions);
@@ -385,41 +398,5 @@ public class McpTests(PrikBoardApiFactory factory) : McpTestBase, IClassFixture<
         var refused = await CallRawAsync(any, "create_card", new() { ["title"] = "Where?" });
         Assert.True(refused.IsError);
         Assert.Contains("Give the board", Text(refused));
-    }
-
-    [Fact]
-    public async Task Get_board_can_leave_out_the_cards()
-    {
-        var owner = await factory.CreateSignedInClientAsync("mcp-no-cards@example.com");
-        var board = await owner.CreateBoardAsync("MCP no cards");
-        await owner.CreateCardAsync(board.Id, "Hidden");
-        var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor));
-
-        var overview = await CallAsync(mcp, "get_board", new() { ["board"] = board.Id, ["cards"] = false });
-        var todo = overview.GetProperty("buckets")[0];
-        Assert.Equal(1, todo.GetProperty("cardCount").GetInt32());
-        Assert.False(todo.TryGetProperty("cards", out _));
-        Assert.False(overview.TryGetProperty("looseCards", out _));
-        Assert.True(overview.TryGetProperty("people", out _));
-    }
-
-    [Fact]
-    public async Task The_connect_note_carries_the_buckets_tags_and_rules()
-    {
-        var owner = await factory.CreateSignedInClientAsync("mcp-brief@example.com");
-        var board = await owner.CreateBoardAsync("MCP brief");
-        (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { rules = "Keep titles short." })).EnsureSuccessStatusCode();
-        var token = await TokenAsync(owner, BoardRole.Editor);
-        var first = await ConnectAsync(token);
-        await CallAsync(first, "create_card", new() { ["board"] = board.ShortId, ["title"] = "Tagged", ["tags"] = new[] { "ui" } });
-
-        var next = (await ConnectAsync(token)).ServerInstructions!;
-        Assert.Contains("Its buckets, in order: \"To do\", \"Doing\", \"Done\".", next);
-        Assert.Contains("Its tags: \"ui\".", next);
-        Assert.Contains("<board-rules>\nKeep titles short.\n</board-rules>", next);
-
-        // New rules show at once.
-        (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { rules = "Ask before deleting." })).EnsureSuccessStatusCode();
-        Assert.Contains("Ask before deleting.", (await ConnectAsync(token)).ServerInstructions);
     }
 }
