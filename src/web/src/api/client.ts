@@ -32,6 +32,7 @@ import type {
   EmptyTrashResult,
   UserMatch,
   DrawingChanges,
+  DropBucket,
   DrawingContent,
   DrawingDetail,
   DrawingStrokesChange,
@@ -266,7 +267,7 @@ export const api = {
 
   createCard: (
     boardId: string,
-    card: Omit<CardChanges, 'title'> & { title: string; components?: NewCardComponent[] } & ({ bucketId?: string } | (Point & { bucketId?: string })),
+    card: Omit<CardChanges, 'title'> & { title: string; components?: NewCardComponent[] } & ({ bucketId?: string } | (Point & DropBucket)),
   ) => request<CardDetail>('POST', `/boards/${boardId}/cards`, card),
   /** Several cards at once, in order; all are created or none. */
   createCards: (
@@ -277,18 +278,18 @@ export const api = {
   getCardByNumber: (shortId: string, number: number) => request<CardDetail>('GET', `/boards/${shortId}/cards/${number}`),
   updateCard: (cardId: string, changes: CardChanges) => request<CardDetail>('PATCH', `/cards/${cardId}`, changes),
   /**
-   * Moves a card into a free spot in a bucket, or exactly to a point. With a point alone the server works out the bucket;
-   * with a `bucketId` too, the card joins that bucket, which must contain the card's center (the web app sends the bucket
-   * shown in front where buckets overlap).
+   * Moves a card into a free spot in a bucket, or exactly to a point. With a point alone the server works out the bucket
+   * from its center; with a `bucketId` too, the card joins that bucket, which it must overlap, and with `loose` none
+   * (the web app's drops go by the pointer).
    */
-  moveCard: (cardId: string, to: { bucketId: string } | (Point & { bucketId?: string })) =>
+  moveCard: (cardId: string, to: { bucketId: string } | (Point & DropBucket)) =>
     request<CardDetail>('POST', `/cards/${cardId}/move`, to),
   deleteCard: (cardId: string) => request<void>('DELETE', `/cards/${cardId}`),
   /**
    * Brings back a card deleted in the last 7 days, with the same id and the images and drawings deleted along with it:
-   * where it was, or at `at` (dragged out of the trash).
+   * where it was, or at `at` (dragged out of the trash, into the bucket the pointer was in).
    */
-  restoreCard: (cardId: string, at?: Point) => request<CardDetail>('POST', `/cards/${cardId}/restore`, at),
+  restoreCard: (cardId: string, at?: Point & DropBucket) => request<CardDetail>('POST', `/cards/${cardId}/restore`, at),
   /** Who changed what on a card and when, newest first; also for cards in the trash (members only). */
   listCardHistory: (cardId: string) => request<CardChange[]>('GET', `/cards/${cardId}/history`),
   /** The cards deleted in the last 7 days, most recently deleted first, with the images deleted with them. */

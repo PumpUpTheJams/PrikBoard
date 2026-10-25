@@ -1,4 +1,4 @@
-import { memo, useSyncExternalStore, type PointerEvent } from 'react'
+import { memo, useSyncExternalStore, type PointerEvent, type ReactNode } from 'react'
 import type { BucketDetail, ImageDetail, CardDetail, Point, Rect } from '../api/types'
 import type { ScrollView } from './canvasHooks'
 import { RedoIcon, UndoIcon } from './icons'
@@ -16,6 +16,18 @@ interface HistoryButton {
   onClick: () => void
 }
 
+/** The board's undo and redo buttons, also shown in the open card. */
+export interface HistoryButtons {
+  undo: HistoryButton
+  redo: HistoryButton
+}
+
+/**
+ * What the map shows, drawn where `left` and `top` (canvas pixels) is the map's corner, at `scale` map pixels per canvas
+ * pixel. It is called again as the view scrolls, so it should return a memoized component (BoardMapItems, CardMapItems).
+ */
+type MapItems = (left: number, top: number, scale: number) => ReactNode
+
 interface ViewControlsProps {
   /** Undo and redo buttons; left out for viewers. */
   undo?: HistoryButton
@@ -25,20 +37,15 @@ interface ViewControlsProps {
   onZoomReset: () => void
   /** The whole canvas, in canvas pixels: it can start left of and above 0,0. */
   extent: Rect
-  /** The board's scroll viewport, which the map follows (screen pixels). */
+  /** The canvas's scroll viewport, which the map follows (screen pixels). */
   view: ScrollView
   /** Turns the scroll viewport into the visible part of the canvas, in canvas pixels. */
   viewport: (view: Rect) => Rect
-  buckets: BucketDetail[]
-  cards: CardDetail[]
-  /** Cards faded by the filters or the search. */
-  dimmed?: (card: CardDetail) => boolean
-  /** The search result being looked at. */
-  current?: string | null
-  /** Images on the canvas (not the ones attached to cards). */
-  images: ImageDetail[]
+  items: MapItems
   /** Scroll so that this canvas point is in the middle of the view. */
   onNavigate: (center: Point) => void
+  /** Another place than the board's bottom-right corner (`card-view-controls` in the open card). */
+  className?: string
 }
 
 const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
@@ -52,11 +59,9 @@ const toMap = (r: Rect, left: number, top: number, scale: number) => ({
   height: Math.max(2, r.height * scale),
 })
 
-/** Undo and redo, and the minimap above the zoom buttons, in the bottom-right corner of the board. */
+/** Undo and redo, and the minimap above the zoom buttons, in the bottom-right corner of the board or the open card. */
 export function ViewControls(props: ViewControlsProps) {
-  const { undo, redo, zoom, onZoom, onZoomReset, dimmed, cards, ...map } = props
-  // Which cards are faded, as one string, so the map's cards only render again when that changes.
-  const dimmedKey = dimmed ? cards.flatMap((n) => (dimmed(n) ? [n.id] : [])).join(' ') : ''
+  const { undo, redo, zoom, onZoom, onZoomReset, className, ...map } = props
 
   /** "Undo move card (Ctrl+Z)", or just "Undo" when there is nothing to undo. */
   const title = (kind: 'undo' | 'redo', button: HistoryButton) =>
@@ -67,7 +72,7 @@ export function ViewControls(props: ViewControlsProps) {
         : 'Nothing to redo'
 
   return (
-    <div className="view-controls">
+    <div className={`view-controls${className ? ` ${className}` : ''}`}>
       {undo && redo && (
         <div className="zoom-controls history-controls">
           <button
@@ -93,20 +98,17 @@ export function ViewControls(props: ViewControlsProps) {
         </div>
       )}
       <div className="view-stack">
-        <Minimap {...map} cards={cards} dimmedKey={dimmedKey} />
+        <Minimap {...map} />
         <ZoomButtons zoom={zoom} onStep={onZoom} onReset={onZoomReset} />
       </div>
     </div>
   )
 }
 
-type MinimapProps = Pick<ViewControlsProps, 'extent' | 'view' | 'viewport' | 'buckets' | 'cards' | 'current' | 'images' | 'onNavigate'> & {
-  /** The ids of the faded cards, separated by spaces. */
-  dimmedKey: string
-}
+type MinimapProps = Pick<ViewControlsProps, 'extent' | 'view' | 'viewport' | 'items' | 'onNavigate'>
 
-/** The board in small, with the part on screen outlined; it follows the scrolling by itself. Pressing it goes there. */
-function Minimap({ extent, view, viewport, buckets, cards, current, images, onNavigate, dimmedKey }: MinimapProps) {
+/** The canvas in small, with the part on screen outlined; it follows the scrolling by itself. Pressing it goes there. */
+function Minimap({ extent, view, viewport, items, onNavigate }: MinimapProps) {
   const shown = viewport(useSyncExternalStore(view.subscribe, view.get))
   // The map shows the canvas and the view, which can reach into the empty margin around it.
   const left = Math.min(extent.x, shown.x)
@@ -130,16 +132,32 @@ function Minimap({ extent, view, viewport, buckets, cards, current, images, onNa
       }}
       onPointerMove={(e) => e.buttons === 1 && navigate(e)}
     >
-      <MinimapItems left={left} top={top} scale={scale} buckets={buckets} cards={cards} images={images} dimmedKey={dimmedKey} current={current} />
+      {items(left, top, scale)}
       <span className="minimap-viewport" style={toMap(shown, left, top, scale)} />
     </div>
   )
 }
 
-type MinimapItemsProps = Pick<MinimapProps, 'buckets' | 'cards' | 'images' | 'current' | 'dimmedKey'> & { left: number; top: number; scale: number }
+/** Where the map's items are drawn, from MapItems. */
+interface MapPlace {
+  left: number
+  top: number
+  scale: number
+}
 
-/** The map's buckets, images and cards: they only render again when they or the map's scale change, not as the view scrolls. */
-const MinimapItems = memo(function MinimapItems({ left, top, scale, buckets, cards, images, current, dimmedKey }: MinimapItemsProps) {
+interface BoardMapItemsProps extends MapPlace {
+  buckets: BucketDetail[]
+  cards: CardDetail[]
+  /** Images on the canvas (not the ones attached to cards). */
+  images: ImageDetail[]
+  /** The search result being looked at. */
+  current?: string | null
+  /** The ids of the cards faded by the filters or the search, separated by spaces. */
+  dimmedKey: string
+}
+
+/** The board's buckets, images and cards: they only render again when they or the map's scale change, not as the view scrolls. */
+export const BoardMapItems = memo(function BoardMapItems({ left, top, scale, buckets, cards, images, current, dimmedKey }: BoardMapItemsProps) {
   const dimmed = new Set(dimmedKey.split(' '))
   return (
     <>
@@ -155,6 +173,29 @@ const MinimapItems = memo(function MinimapItems({ left, top, scale, buckets, car
           className={`minimap-card fill-${n.color.toLowerCase()}${dimmed.has(n.id) ? ' dimmed' : ''}${n.id === current ? ' current' : ''}`}
           style={toMap({ x: n.x, y: n.y, width: CARD_WIDTH, height: CARD_HEIGHT }, left, top, scale)}
         />
+      ))}
+    </>
+  )
+})
+
+interface CardMapItemsProps extends MapPlace {
+  components: Rect[]
+  images: Rect[]
+  drawings: Rect[]
+}
+
+/** The open card's components, images and drawings, where they are (a drag in progress shows on the map too). */
+export const CardMapItems = memo(function CardMapItems({ left, top, scale, components, images, drawings }: CardMapItemsProps) {
+  return (
+    <>
+      {images.map((r, i) => (
+        <span key={`i${i}`} className="minimap-image" style={toMap(r, left, top, scale)} />
+      ))}
+      {components.map((r, i) => (
+        <span key={`c${i}`} className="minimap-component" style={toMap(r, left, top, scale)} />
+      ))}
+      {drawings.map((r, i) => (
+        <span key={`d${i}`} className="minimap-drawing" style={toMap(r, left, top, scale)} />
       ))}
     </>
   )

@@ -203,7 +203,7 @@ public class ClipApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var imageOut = await UploadAsync(owner, from.Id, TestImages.Png(200, 100), "?fileName=out.png&x=3400&y=100&width=200");
         (await owner.PostAsJsonAsync($"/api/boards/{from.Id}/drawings", new { x = 2040, y = 300, points = Squiggle })).EnsureSuccessStatusCode();
         (await owner.PatchAsJsonAsync($"/api/buckets/{folded.Id}", new { collapsed = true })).EnsureSuccessStatusCode();
-        // Loose items on the target board: one under where Sprint lands is taken by it, one under Later is not.
+        // Loose items on the target board stay loose under the pasted buckets: only a bucket drawn around items takes them.
         var underSprint = await CreateRichCardAsync(owner, to.Id, new { title = "Under the sprint", x = 300, y = 3200 });
         var underFolded = await CreateRichCardAsync(owner, to.Id, new { title = "Under later", x = 840, y = 3040 });
 
@@ -235,7 +235,7 @@ public class ClipApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         Assert.Equal((40, 3300), (drawing.X, drawing.Y));
 
         var board = (await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{to.Id}"))!;
-        Assert.Equal(newSprint.Id, board.Cards.Single(n => n.Id == underSprint.Id).BucketId);
+        Assert.Null(board.Cards.Single(n => n.Id == underSprint.Id).BucketId);
         Assert.Null(board.Cards.Single(n => n.Id == underFolded.Id).BucketId);
         // Pasted buckets are on top of the board's own.
         Assert.True(board.Buckets.Where(b => b.Id != newSprint.Id && b.Id != newFolded.Id).All(b => b.StackedAt < newSprint.StackedAt));

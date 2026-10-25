@@ -104,8 +104,12 @@ export function bucketCounts(cards: CardDetail[], images: ImageDetail[], drawing
   return counts
 }
 
-/** Cards in the order the board draws them: those in the `front` bucket above the rest, the most recently updated on top. */
-export function drawOrder(cards: CardDetail[], front: string | null): CardDetail[] {
-  const above = (card: CardDetail) => Number(front !== null && card.bucketId === front)
-  return cards.toSorted((a, b) => above(a) - above(b) || a.updatedAt.localeCompare(b.updatedAt))
+/**
+ * Cards in the order the board draws them: bucket by bucket as the `buckets` are drawn (back to front), loose ones above
+ * them all, and in each the most recently updated on top.
+ */
+export function drawOrder(cards: CardDetail[], buckets: BucketDetail[]): CardDetail[] {
+  const rank = new Map(buckets.map((b, i) => [b.id, i]))
+  const layer = (card: CardDetail) => (card.bucketId === null ? buckets.length : (rank.get(card.bucketId) ?? buckets.length))
+  return cards.toSorted((a, b) => layer(a) - layer(b) || a.updatedAt.localeCompare(b.updatedAt))
 }

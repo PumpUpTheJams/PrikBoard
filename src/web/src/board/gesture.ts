@@ -5,7 +5,12 @@ export const DRAG_THRESHOLD = 4
 
 export const delta = (g: { start: Point; current: Point }): Point => ({ x: g.current.x - g.start.x, y: g.current.y - g.start.y })
 
-export function isDrag(g: { start: Point; current: Point }) {
+/**
+ * Whether a press has become a drag: the pointer is past the threshold, or was once (`dragged`), so a drag brought back
+ * close to where it began (shaken into a grid there, say) doesn't turn back into a click.
+ */
+export function isDrag(g: { start: Point; current: Point; dragged?: boolean }) {
+  if (g.dragged) return true
   const d = delta(g)
   return Math.abs(d.x) >= DRAG_THRESHOLD || Math.abs(d.y) >= DRAG_THRESHOLD
 }

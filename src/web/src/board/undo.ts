@@ -6,6 +6,7 @@ import type {
   DrawingChanges,
   DrawingDetail,
   DrawingStroke,
+  DropBucket,
   ImageChanges,
   NewDrawingStroke,
   ImageDetail,
@@ -122,8 +123,8 @@ export const snap = {
     height: b.height,
   }),
   bucket: (b: BucketDetail): Snapshot => ({ name: b.name, x: b.x, y: b.y, width: b.width, height: b.height, collapsed: b.collapsed }),
-  image: (i: ImageDetail): Snapshot => ({ cardId: i.cardId, x: i.x, y: i.y, width: i.width, caption: i.caption }),
-  drawing: (d: DrawingDetail): Snapshot => ({ cardId: d.cardId, x: d.x, y: d.y, colors: d.colors }),
+  image: (i: ImageDetail): Snapshot => ({ cardId: i.cardId, x: i.x, y: i.y, bucketId: i.bucketId, width: i.width, caption: i.caption }),
+  drawing: (d: DrawingDetail): Snapshot => ({ cardId: d.cardId, x: d.x, y: d.y, bucketId: d.bucketId, colors: d.colors }),
   /** A drawing's corner and strokes as loaded here (strokes null when they aren't loaded, as after someone else changed them). */
   shape: (d: DrawingDetail, strokes = loadedStrokes(d)): Snapshot => ({ x: d.x, y: d.y, strokes }),
   /** A stroke, if the drawing has it: whether it is still the drawing's last one (undo only takes off the last). */
@@ -145,8 +146,9 @@ export const deleted = (t: UndoTarget, before: Snapshot): UndoChange => ({ targe
 /** A change of some fields; nothing (null) when none of them changed. A position keeps x and y together. */
 export function patched(t: UndoTarget, before: Snapshot, after: Snapshot, keys: string[], implied = false): UndoChange | null {
   let changed = keys.filter((k) => !same(before[k], after[k]))
-  // A card's bucket goes with its place: where buckets overlap, the place alone doesn't say which one it was in.
-  const place: string[] = [...keys.filter((k) => k === 'x' || k === 'y'), ...(t.kind === 'card' ? ['bucketId'] : [])]
+  // An item's bucket goes with its place: where buckets overlap, or after a drop that went by the pointer, the place
+  // alone doesn't say which one it was in.
+  const place: string[] = [...keys.filter((k) => k === 'x' || k === 'y'), ...(t.kind === 'card' || t.kind === 'image' || t.kind === 'drawing' ? ['bucketId'] : [])]
   if (changed.includes('x') || changed.includes('y')) changed = [...new Set([...changed, ...place])]
   return changed.length === 0 ? null : { target: t, before: pick(before, changed), after: pick(after, changed), implied }
 }
@@ -296,6 +298,14 @@ export async function apply(entry: UndoEntry, direction: UndoDirection, home: Bo
 /** Text fields are cleared with an empty string. */
 const text = (value: unknown) => (value ?? '') as string
 
+/** The bucket a recorded place had, sent back as it was (a drop by the pointer may have been loose over a bucket). */
+const dropBucket = (bucketId: unknown): DropBucket =>
+  typeof bucketId === 'string' ? { bucketId } : bucketId === null ? { loose: true } : {}
+
+/** Whether an image or drawing ends up on the board, not on a card: as `to` puts it, or else as it is now. */
+const endsOnBoard = (id: string, items: { id: string; cardId: string | null }[], to: Snapshot) =>
+  ('cardId' in to ? to.cardId : items.find((i) => i.id === id)?.cardId) == null
+
 async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, board: BoardDetail) {
   const boardId = board.id
   if (t.kind === 'stroke') {
@@ -338,7 +348,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
   switch (t.kind) {
     case 'card': {
       const { x, y, bucketId, components: _components, ...rest } = to
-      if (x !== undefined) await api.moveCard(t.id, { x: x as number, y: y as number, ...(bucketId ? { bucketId: bucketId as string } : {}) })
+      if (x !== undefined) await api.moveCard(t.id, { x: x as number, y: y as number, ...dropBucket(bucketId) })
       if (Object.keys(rest).length > 0) await api.updateCard(t.id, rest as CardChanges)
       return
     }
@@ -373,7 +383,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
         if (to.cardId) changes.cardId = to.cardId as string
         else changes.detach = true
       }
-      if ('x' in to) Object.assign(changes, { x: to.x, y: to.y })
+      if ('x' in to) Object.assign(changes, { x: to.x, y: to.y }, endsOnBoard(t.id, board.images, to) ? dropBucket(to.bucketId) : {})
       if ('width' in to) changes.width = to.width as number
       if ('caption' in to) changes.caption = text(to.caption)
       await api.updateImage(t.id, changes)
@@ -385,7 +395,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
         if (to.cardId) changes.cardId = to.cardId as string
         else changes.detach = true
       }
-      if ('x' in to) Object.assign(changes, { x: to.x, y: to.y })
+      if ('x' in to) Object.assign(changes, { x: to.x, y: to.y }, endsOnBoard(t.id, board.drawings, to) ? dropBucket(to.bucketId) : {})
       if ('colors' in to) changes.colors = to.colors as DrawingChanges['colors']
       await api.updateDrawing(t.id, changes)
       return

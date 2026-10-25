@@ -40,7 +40,6 @@ interface BoardCardProps {
   tagColors: TagColors
   selected: boolean
   lifted: boolean
-  front: boolean
   dimmed: boolean
   highlight: SearchTerm[] | undefined
   current: boolean
@@ -70,7 +69,7 @@ export const BoardCard = memo(function BoardCard({ card, readOnly, far, handlers
   )
 })
 
-type FarCardProps = Pick<BoardCardProps, 'card' | 'point' | 'tagColors' | 'selected' | 'lifted' | 'front' | 'dimmed' | 'current' | 'dropTarget'> & {
+type FarCardProps = Pick<BoardCardProps, 'card' | 'point' | 'tagColors' | 'selected' | 'lifted' | 'dimmed' | 'current' | 'dropTarget'> & {
   onPointerDown: (e: PointerEvent<HTMLDivElement>) => void
   onExpand: () => void
 }
@@ -80,12 +79,11 @@ type FarCardProps = Pick<BoardCardProps, 'card' | 'point' | 'tagColors' | 'selec
  * words (too small to read there), without buttons, avatars or shadows, so a whole board of them stays light. It is pressed, dragged and opened like any card; its title can't be
  * edited in place, as it is too small there to aim at.
  */
-function FarCard({ card, point, tagColors, selected, lifted, front, dimmed, current, dropTarget, onPointerDown, onExpand }: FarCardProps) {
+function FarCard({ card, point, tagColors, selected, lifted, dimmed, current, dropTarget, onPointerDown, onExpand }: FarCardProps) {
   const name = cardLabel(card)
   const classes = ['card', 'far', `fill-${card.color.toLowerCase()}`]
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
-  if (front) classes.push('in-front')
   if (card.agentWorking) classes.push('agent-working')
   if (dimmed) classes.push('dimmed')
   if (current) classes.push('search-current')
@@ -123,7 +121,6 @@ interface BoardImageProps {
   rect: Rect
   selected: boolean
   lifted: boolean
-  front: boolean
   /** It is the one item selected, so it shows its resize handles (not for viewers). */
   resizable: boolean
   readOnly: boolean
@@ -131,14 +128,13 @@ interface BoardImageProps {
 }
 
 /** An image on the board. */
-export const BoardImage = memo(function BoardImage({ image, rect, selected, lifted, front, resizable, readOnly, handlers: h }: BoardImageProps) {
+export const BoardImage = memo(function BoardImage({ image, rect, selected, lifted, resizable, readOnly, handlers: h }: BoardImageProps) {
   return (
     <BoardImageView
       image={image}
       rect={rect}
       selected={selected}
       lifted={lifted}
-      front={front}
       onPointerDown={(e) => h.pointerDown(e, 'image', image.id)}
       // One of several selected has no handles: they move together, but resize one at a time.
       onResizePointerDown={resizable ? (e, handle) => h.pointerDown(e, 'image-resize', image.id, { handle }) : undefined}
@@ -152,21 +148,19 @@ interface BoardDrawingProps {
   rect: Rect
   selected: boolean
   lifted: boolean
-  front: boolean
   /** The board's zoom, while it is the one item selected and can be reshaped (its handles need it); else undefined. */
   reshapeZoom: number | undefined
   handlers: BoardItemHandlers
 }
 
 /** A drawing on the board. */
-export const BoardDrawing = memo(function BoardDrawing({ drawing, rect, selected, lifted, front, reshapeZoom, handlers: h }: BoardDrawingProps) {
+export const BoardDrawing = memo(function BoardDrawing({ drawing, rect, selected, lifted, reshapeZoom, handlers: h }: BoardDrawingProps) {
   return (
     <DrawingView
       drawing={drawing}
       rect={rect}
       selected={selected}
       lifted={lifted}
-      front={front}
       onPointerDown={(e) => h.pointerDown(e as PointerEvent<HTMLElement>, 'drawing', drawing.id)}
       zoom={reshapeZoom}
       onReshape={reshapeZoom === undefined ? undefined : (reshape) => h.reshapeDrawing(drawing, reshape)}
@@ -178,7 +172,6 @@ interface BoardBucketProps {
   bucket: BucketDetail
   rect: Rect
   count: BucketCount
-  front: boolean
   dropTarget: boolean
   searchHit: boolean
   selected: boolean

@@ -1,8 +1,8 @@
 import type { RefObject } from 'react'
 import { api } from '../api/client'
-import type { BoardDetail, BucketDetail, CardDetail, DrawingDetail, GrowSide, ImageDetail, Point, Rect } from '../api/types'
+import type { BoardDetail, BucketDetail, CardDetail, DrawingDetail, DropBucket, GrowSide, ImageDetail, Point, Rect } from '../api/types'
 import type { Gesture, GroupGesture, ItemDrag } from './boardGesture'
-import { bucketItemsOf, count, itemsOf, type BucketItems, type Selection } from './boardItems'
+import { bucketItemsOf, cardBox, count, itemsOf, type BucketItems, type Selection } from './boardItems'
 import { linkCards, NO_DROPS, released, type ArrangeDrop, type AttachDrop, type DropProbeState, type DropTargets, type LinkDrop } from './dropTargets'
 import type { ExpandedCardHandle } from './ExpandedCard'
 import { CARD_HEIGHT, CARD_WIDTH, GRID, onCardCanvas } from './layout'
@@ -11,6 +11,7 @@ import { pop, reducedMotion } from './motion'
 import { bucketMove, ops, runAll } from './ops'
 import { bounds } from './selection'
 import type { TrashWindowHandle } from './TrashWindow'
+import type { GroupDrop } from './useBoardMoves'
 import { patched, snap, step, target, type RecordingRun } from './undo'
 import type { Notify } from './useToast'
 
@@ -39,8 +40,8 @@ interface BoardDropsOptions {
   settle: RecordingRun
   notify: Notify
   toCanvas: (e: { clientX: number; clientY: number }) => Point
-  /** A card put at a point, naming the front bucket when it holds it there (`cardPlace`). */
-  cardPlace: (at: Point) => Point & { bucketId?: string }
+  /** The bucket a drop with the pointer at a canvas point goes into, or loose (`dropBucket`). */
+  dropBucket: (pointer: Point, item?: Rect) => DropBucket
   toFront: (id: string, server?: boolean) => void
   /** Where items are shown right now (liveGeometry). */
   bucketRect: (bucket: BucketDetail) => Rect
@@ -50,13 +51,13 @@ interface BoardDropsOptions {
   deleteCard: (id: string) => Promise<boolean>
   deleteSelected: () => Promise<boolean>
   putItems: (bucket: BucketDetail, items: BucketItems, grow: GrowSide) => Promise<boolean>
-  moveGroup: (members: Selection[], label?: string) => void
+  moveGroup: (members: Selection[], label?: string, by?: Point, drop?: GroupDrop) => void
 }
 
 /** What a drag on the board does when it is released, on what dropTargetsFor found under it. */
 export function useBoardDrops(options: BoardDropsOptions) {
   const { board, expanded, cardHandle, trashHandle, canvasRef, drops, arrangeDrop, setDrops, probe, setGesture } = options
-  const { selected, setSelected, setSelection, setBinned, runRec, settle, notify, toCanvas, cardPlace, toFront } = options
+  const { selected, setSelected, setSelection, setBinned, runRec, settle, notify, toCanvas, dropBucket, toFront } = options
   const { bucketRect, cardPoint, imageRect, drawingRect, deleteCard, deleteSelected, putItems, moveGroup } = options
 
   const cardElement = (id: string) => canvasRef.current?.querySelector(`[data-card="${id}"]`)
@@ -185,18 +186,20 @@ export function useBoardDrops(options: BoardDropsOptions) {
     } else if (g.kind === 'card') {
       const card = board.cards.find((n) => n.id === id)!
       void settle(
-        () => api.moveCard(id, cardPlace(cardPoint(card))),
+        () => api.moveCard(id, { ...cardPoint(card), ...dropBucket(g.current, cardBox(cardPoint(card))) }),
         (moved) => step('Move card', [patched(target.card(id), snap.card(card), snap.card(moved), ['x', 'y'])]),
       )
     } else if (g.kind === 'image' || g.kind === 'image-resize') {
       const image = board.images.find((i) => i.id === id)!
       const { x, y, width } = imageRect(image)
       const moving = g.kind === 'image'
-      void settle(...ops.editImage(image, moving ? { x, y } : { x, y, width }, moving ? 'Move image' : 'Resize image', ['x', 'y', 'width']))
+      // A resize keeps going by its center: the pointer is at its edge, not where it was put.
+      const changes = moving ? { x, y, ...dropBucket(g.current, imageRect(image)) } : { x, y, width }
+      void settle(...ops.editImage(image, changes, moving ? 'Move image' : 'Resize image', ['x', 'y', 'width']))
     } else if (g.kind === 'drawing') {
       const drawing = board.drawings.find((d) => d.id === id)!
       const { x, y } = drawingRect(drawing)
-      void settle(...ops.editDrawing(drawing, { x, y }, 'Move drawing', ['x', 'y']))
+      void settle(...ops.editDrawing(drawing, { x, y, ...dropBucket(g.current, drawingRect(drawing)) }, 'Move drawing', ['x', 'y']))
     } else if (g.kind === 'bucket') {
       // Undoing the move takes exactly the items it carried back.
       const bucket = board.buckets.find((b) => b.id === id)!
@@ -241,11 +244,11 @@ export function useBoardDrops(options: BoardDropsOptions) {
         return
       }
       if (arrange) {
-        // In the spots shown while dragging (the same order as there). When they don't fit, the bucket grows over its
-        // neighbors too, so the server puts it on top.
+        // The cards in the spots shown while dragging (the same order as there), the images and drawings where they are
+        // let go. When the cards don't fit, the bucket grows over its neighbors too, so the server puts it on top.
         setGesture({ ...g, done: true })
         toFront(arrange.bucket.id, false)
-        void putItems(arrange.bucket, bucketItemsOf(board, g.members), arrange.side)
+        moveGroup(g.members, undefined, undefined, { pointer: g.current, into: { bucket: arrange.bucket, side: arrange.side } })
         return
       }
       const link = probe.linkDropFor(g, client)
@@ -253,7 +256,7 @@ export function useBoardDrops(options: BoardDropsOptions) {
       const attach = probe.attachDropFor(g, client)
       if (attach) return attachGroup(g, attach, client)
       setGesture({ ...g, done: true })
-      moveGroup(g.members, g.grid ? 'Line up cards' : undefined)
+      moveGroup(g.members, g.grid ? 'Line up cards' : undefined, undefined, { pointer: g.current })
     },
 
     /** Drops one item dragged by itself; anywhere else than on a drop target it moves (or keeps its new size). */

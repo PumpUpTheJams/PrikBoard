@@ -103,7 +103,7 @@ export function BoardSearch(props: BoardSearchProps) {
           aria-expanded={showList}
           aria-controls="board-search-results"
           aria-activedescendant={showList && current ? `search-result-${current}` : undefined}
-          placeholder="Search titles, tags, content, people…"
+          placeholder="Search titles, tags, content, people, #numbers…"
           title="Keep a word to one field with a prefix: tag:ui, assignee:name, creator:name or color:red"
           autoComplete="off"
           spellCheck={false}

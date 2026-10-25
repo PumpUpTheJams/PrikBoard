@@ -35,6 +35,104 @@ public class PlaceItemsApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
         Assert.Equal((todo.X, todo.Y, todo.Width, todo.Height), (placed.Bucket.X, placed.Bucket.Y, placed.Bucket.Width, placed.Bucket.Height));
     }
 
+    [Fact]
+    public async Task With_only_cards_taking_room_cards_go_over_images_and_drawings()
+    {
+        var board = await _client.CreateBoardAsync("Cards only");
+        var todo = board.Buckets[0];
+        await CreateCard(board.Id, new { title = "There", bucketId = todo.Id });
+        await Upload(board.Id, "?x=60&y=200&width=160");
+        await Draw(board.Id, 60, 340);
+        var first = await CreateCard(board.Id, new { title = "First", x = 1000, y = 1000 });
+        var second = await CreateCard(board.Id, new { title = "Second", x = 1300, y = 1000 });
+
+        var placed = await Place(todo.Id, new { cardIds = new[] { first.Id, second.Id }, onlyCardsTakeRoom = true });
+
+        // A grid step below the card, over the image and the drawing.
+        Assert.Equal([(60, 200), (60, 340)], placed.Cards.Select(n => (n.X, n.Y)));
+    }
+
+    [Fact]
+    public async Task Items_dropped_by_the_pointer_join_the_bucket_named_or_stay_loose()
+    {
+        var board = await _client.CreateBoardAsync("Pointer");
+        var (todo, doing) = (board.Buckets[0], board.Buckets[1]);
+        var card = await CreateCard(board.Id, new { title = "Card", x = 1000, y = 1000 });
+        var image = await Upload(board.Id, "?x=1000&y=1400&width=160");
+        var drawing = await Draw(board.Id, 1000, 1800);
+        // Over To do's right edge, with the center in Doing.
+        var edge = (x: todo.X + todo.Width - 40, y: todo.Y + 60);
+
+        var byCenter = await Ok<CardDetail>(await _client.PostAsJsonAsync($"/api/cards/{card.Id}/move", new { edge.x, edge.y }));
+        var named = await Ok<CardDetail>(await _client.PostAsJsonAsync($"/api/cards/{card.Id}/move", new { edge.x, edge.y, bucketId = todo.Id }));
+        var loose = await Ok<CardDetail>(await _client.PostAsJsonAsync($"/api/cards/{card.Id}/move", new { x = todo.X + 20, y = todo.Y + 20, loose = true }));
+        var created = await CreateCard(board.Id, new { title = "New", x = todo.X + 20, y = todo.Y + 200, loose = true });
+        var imageIn = await Ok<ImageDetail>(await _client.PatchAsJsonAsync($"/api/images/{image.Id}", new { edge.x, y = todo.Y + 300, bucketId = todo.Id }));
+        var imageLoose = await Ok<ImageDetail>(await _client.PatchAsJsonAsync($"/api/images/{image.Id}", new { x = todo.X + 20, y = todo.Y + 300, loose = true }));
+        var drawingIn = await Ok<DrawingDetail>(await _client.PatchAsJsonAsync($"/api/drawings/{drawing.Id}", new { edge.x, y = todo.Y + 460, bucketId = todo.Id }));
+        var drawingLoose = await Ok<DrawingDetail>(await _client.PatchAsJsonAsync($"/api/drawings/{drawing.Id}", new { x = todo.X + 20, y = todo.Y + 460, loose = true }));
+        (await _client.DeleteAsync($"/api/cards/{card.Id}")).EnsureSuccessStatusCode();
+        var restored = await Ok<CardDetail>(await _client.PostAsJsonAsync($"/api/cards/{card.Id}/restore", new { edge.x, edge.y, bucketId = todo.Id }));
+
+        Assert.Equal(doing.Id, byCenter.BucketId);
+        Assert.Equal((edge.x, edge.y, todo.Id), (named.X, named.Y, named.BucketId));
+        Assert.Null(loose.BucketId);
+        Assert.Null(created.BucketId);
+        Assert.Equal(todo.Id, imageIn.BucketId);
+        Assert.Null(imageLoose.BucketId);
+        Assert.Equal(todo.Id, drawingIn.BucketId);
+        Assert.Null(drawingLoose.BucketId);
+        Assert.Equal(todo.Id, restored.BucketId);
+    }
+
+    [Fact]
+    public async Task Items_hanging_over_a_buckets_edge_stay_in_it_when_it_moves()
+    {
+        var board = await _client.CreateBoardAsync("Hanging over");
+        var (todo, doing) = (board.Buckets[0], board.Buckets[1]);
+        var card = await CreateCard(board.Id, new { title = "Card", x = 1000, y = 1000 });
+        var image = await Upload(board.Id, "?x=1000&y=1400&width=160");
+        // Over To do's right edge, with the centers in Doing.
+        var x = todo.X + todo.Width - 40;
+        await Ok<CardDetail>(await _client.PostAsJsonAsync($"/api/cards/{card.Id}/move", new { x, y = todo.Y + 60, bucketId = todo.Id }));
+        await Ok<ImageDetail>(await _client.PatchAsJsonAsync($"/api/images/{image.Id}", new { x, y = todo.Y + 300, bucketId = todo.Id }));
+
+        // Folded, then moved down along Doing: the items go with it, whatever their centers now lie over.
+        await Ok<BucketDetail>(await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { collapsed = true }));
+        await Ok<BucketDetail>(await _client.PatchAsJsonAsync($"/api/buckets/{doing.Id}", new { y = doing.Y + 400 }));
+        await Ok<BucketDetail>(await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { y = todo.Y + 400 }));
+
+        var snapshot = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
+        Assert.Equal((todo.Id, todo.Y + 460), (snapshot.Cards.Single(n => n.Id == card.Id).BucketId, snapshot.Cards.Single(n => n.Id == card.Id).Y));
+        Assert.Equal(todo.Id, snapshot.Images.Single(i => i.Id == image.Id).BucketId);
+    }
+
+    [Fact]
+    public async Task A_drop_names_a_bucket_it_overlaps_or_loose_with_a_place()
+    {
+        var board = await _client.CreateBoardAsync("Pointer checks");
+        var todo = board.Buckets[0];
+        var card = await CreateCard(board.Id, new { title = "Card", x = 1000, y = 1000 });
+        var image = await Upload(board.Id, "?x=1000&y=1400&width=160");
+
+        var both = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/move", new { x = 60, y = 60, bucketId = todo.Id, loose = true });
+        var noPlace = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/move", new { loose = true });
+        var away = await _client.PatchAsJsonAsync($"/api/images/{image.Id}", new { x = 3000, y = 3000, bucketId = todo.Id });
+        var imageNoPlace = await _client.PatchAsJsonAsync($"/api/images/{image.Id}", new { bucketId = todo.Id });
+
+        Assert.Equal(HttpStatusCode.BadRequest, both.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, noPlace.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, away.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, imageNoPlace.StatusCode);
+        Assert.Equal(1400, (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Images.Single(i => i.Id == image.Id).Y);
+    }
+
+    private static async Task<T> Ok<T>(HttpResponseMessage response)
+    {
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<T>())!;
+    }
+
     // To do grows left, up and down; Done, with nothing to its right, grows right.
     [Theory]
     [InlineData("Down", 0, 40, 40, 240, 720)]
@@ -193,7 +291,7 @@ public class PlaceItemsApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
     }
 
     [Fact]
-    public async Task A_loose_card_the_grown_bucket_covers_joins_it_and_its_history_says_so()
+    public async Task A_loose_card_the_grown_bucket_covers_stays_loose()
     {
         var board = await _client.CreateBoardAsync("Covered");
         var todo = board.Buckets[0];
@@ -205,13 +303,11 @@ public class PlaceItemsApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
 
         var placed = await Place(todo.Id, new { cardIds = new[] { extra.Id } });
 
-        // The bucket grows down past the loose card, which stays put and joins it.
+        // The bucket grows down past the loose card, which stays put and loose: only a bucket drawn around it takes it.
         Assert.True(placed.Bucket.Y + placed.Bucket.Height > below.Y + Layout.CardHeight);
         var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
         var now = snapshot!.Cards.Single(n => n.Id == below.Id);
-        Assert.Equal((todo.Id, below.X, below.Y), (now.BucketId, now.X, now.Y));
-        var history = await _client.GetFromJsonAsync<List<CardChangeDetail>>($"/api/cards/{below.Id}/history");
-        Assert.Equal(CardChangeKind.Bucket, Assert.Single(history![0].Entries).Kind);
+        Assert.Equal((null, below.X, below.Y), (now.BucketId, now.X, now.Y));
     }
 
     [Fact]

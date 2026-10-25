@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
@@ -21,7 +22,9 @@ public static class CardEndpoints
             .WithDescription("Returns cards bucket by bucket (loose cards last), each group top to bottom and left to right. " +
                              "Optionally filter by bucket, by tags (repeat tag for several; a card matches when it has any of them), " +
                              "by assignee (a principal id, or a current display name, case-insensitive) " +
-                             "and/or a case-insensitive text search on the title and all of the card's content (text, checklist items and links).");
+                             "and/or a case-insensitive text search on the title and all of the card's content (text, checklist items and links). " +
+                             "A search that is a card's number (224) also finds that card, listed first; #224 or its readable id " +
+                             "(PRIK-224) finds only that card.");
 
         cards.MapPost("/boards/{boardId:guid}/cards", CreateCard)
             .RequireBoardRole(BoardRole.Editor)
@@ -29,7 +32,7 @@ public static class CardEndpoints
             .WithSummary("Create a card")
             .WithDescription("Creates a card in a free spot inside bucketId (default: the board's first bucket; a full bucket grows " +
                              "downwards), or exactly at x and y. With all three, the card goes at x and y and joins that bucket, which " +
-                             "must contain its center (400 otherwise). Optionally with its first components. " +
+                             "it must overlap (400 otherwise); with x, y and loose it joins no bucket. Optionally with its first components. " +
                              "Tags the board does not have yet are added to it (see listBoardTags).")
             .ProducesValidationProblem();
 
@@ -82,7 +85,8 @@ public static class CardEndpoints
             .WithSummary("Move a card")
             .WithDescription("Moves the card into a free spot in a bucket on the same board (e.g. from \"Doing\" to \"Done\"; " +
                              "a full bucket grows downwards), or to exact x and y, where it joins the topmost bucket containing its " +
-                             "center. With all three, it goes at x and y and joins that bucket, which must contain its center (400 otherwise).")
+                             "center. With all three, it goes at x and y and joins that bucket, which it must overlap (400 otherwise); " +
+                             "with x, y and loose it joins no bucket.")
             .ProducesValidationProblem();
 
         cards.MapDelete("/cards/{cardId:guid}", DeleteCard)
@@ -118,7 +122,7 @@ public static class CardEndpoints
             .WithSummary("List the cards in the trash")
             .WithDescription($"Returns the cards deleted in the last {Tombstones.RetentionText} (deletedAt set), most recently " +
                              "deleted first, with the images deleted along with them. Optionally only cards whose title or content " +
-                             "contains search (case-insensitive). restoreCard brings one back.");
+                             "contains search (case-insensitive), or the card it names by its number, as in listCards. restoreCard brings one back.");
 
         cards.MapDelete("/boards/{boardId:guid}/trash/{cardId:guid}", PurgeCard)
             .RequireBoardRole(BoardRole.Editor)
@@ -153,10 +157,10 @@ public static class CardEndpoints
         var cards = await query.ToListAsync(ct);
         var principals = await PrincipalsOnAsync(db, cards, ct);
         // Boards are small, so text, tags and assignees are filtered in memory.
+        Card? numbered = null;
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var text = search.Trim();
-            cards = cards.Where(n => ContainsText(n, text)).ToList();
+            (cards, numbered) = Search(cards, search, board.Key);
         }
         if (tag is not null && CardTags.Normalize(tag) is { Count: > 0 } wanted)
         {
@@ -170,7 +174,7 @@ public static class CardEndpoints
                 || (principals.TryGetValue(a, out var p) && p.ShownName.Equals(name, StringComparison.OrdinalIgnoreCase)))).ToList();
         }
         var buckets = await db.Buckets.AsNoTracking().Where(b => b.BoardId == boardId).ToListAsync(ct);
-        return TypedResults.Ok(Layout.ReadingOrder(cards, buckets).Select(n => CardDetail.From(n, board, principals)).ToList());
+        return TypedResults.Ok(NumberedFirst(Layout.ReadingOrder(cards, buckets), numbered).Select(n => CardDetail.From(n, board, principals)).ToList());
     }
 
     internal static Task<Results<Created<CardDetail>, NotFound, ValidationProblem>> CreateCard(
@@ -253,7 +257,7 @@ public static class CardEndpoints
         {
             var request = requests[i];
             var bucketId = request.BucketId ?? (request.X is null && request.Y is null ? first : null);
-            if (Place(cards[i], bucketId, request.X, request.Y, buckets, others) is { } problem) return Keyed(problem, i);
+            if (Place(cards[i], bucketId, request.X, request.Y, request.Loose, buckets, others) is { } problem) return Keyed(problem, i);
             // The next card makes room for this one.
             others.Add(cards[i]);
         }
@@ -431,7 +435,7 @@ public static class CardEndpoints
         var buckets = await db.Buckets.Where(b => b.BoardId == card.BoardId).ToListAsync(ct);
         var others = await PlacedCardsAsync(db, card.BoardId, cardId, ct);
         var placed = others.ToDictionary(n => n.Id, n => n.BucketId);
-        if (Place(card, request.BucketId, request.X, request.Y, buckets, others) is { } problem) return problem;
+        if (Place(card, request.BucketId, request.X, request.Y, request.Loose, buckets, others) is { } problem) return problem;
         TrackMoved(db, others, placed);
 
         card.UpdatedAt = DateTimeOffset.UtcNow;
@@ -492,6 +496,28 @@ public static class CardEndpoints
         card.Title.Contains(text, StringComparison.OrdinalIgnoreCase)
         || card.Components.Any(b => b.SearchText().Any(t => t.Contains(text, StringComparison.OrdinalIgnoreCase)));
 
+    /// <summary>
+    /// The cards a search finds, as listCards and listDeletedCards search, and the one it names by its number. A number
+    /// (<c>224</c>, leading zeros aside) finds that card and the cards with that text; <c>#224</c> or the readable id
+    /// (<c>PRIK-224</c>, any case) finds only that card; anything else is looked for in the title and content.
+    /// </summary>
+    internal static (List<Card> Found, Card? Numbered) Search(List<Card> cards, string search, string boardKey)
+    {
+        var text = search.Trim();
+        var only = text.StartsWith('#') || text.StartsWith($"{boardKey}-", StringComparison.OrdinalIgnoreCase);
+        var digits = text.StartsWith('#') ? text[1..] : only ? text[(boardKey.Length + 1)..] : text;
+        int? number = digits.Length > 0 && digits.All(char.IsAsciiDigit) && int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var n)
+            ? n
+            : null;
+        var numbered = number is null ? null : cards.FirstOrDefault(c => c.Number == number);
+        if (number is not null && only) return (numbered is null ? [] : [numbered], numbered);
+        return (cards.Where(c => c == numbered || ContainsText(c, text)).ToList(), numbered);
+    }
+
+    /// <summary>The cards with the one a search named by its number (Search) first, when it is among them.</summary>
+    private static List<Card> NumberedFirst(List<Card> cards, Card? numbered) =>
+        numbered is not null && cards.Remove(numbered) ? [numbered, .. cards] : cards;
+
     internal static async Task<Results<Ok<TrashContents>, NotFound>> ListDeletedCards(
         Guid boardId, string? search, PrikBoardDbContext db, CancellationToken ct)
     {
@@ -501,12 +527,12 @@ public static class CardEndpoints
             .Where(n => n.BoardId == boardId && n.DeletedAt != null)
             .ToListAsync(ct);
         // Boards are small, so the search runs in memory, like listCards.
+        Card? numbered = null;
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var text = search.Trim();
-            cards = cards.Where(n => ContainsText(n, text)).ToList();
+            (cards, numbered) = Search(cards, search, board.Key);
         }
-        cards = cards.OrderByDescending(n => n.DeletedAt).ThenByDescending(n => n.Id).ToList();
+        cards = NumberedFirst(cards.OrderByDescending(n => n.DeletedAt).ThenByDescending(n => n.Id).ToList(), numbered);
 
         // The images that come back with them: deleted at the same moment.
         var stamps = cards.ToDictionary(n => n.Id, n => n.DeletedAt);
@@ -527,6 +553,7 @@ public static class CardEndpoints
         Guid cardId, RestoreCardRequest? request, PrikBoardDbContext db, CancellationToken ct)
     {
         if (Problems.XWithoutY(request?.X, request?.Y) is { } apart) return apart;
+        if (Problems.Drop(request?.BucketId, request?.Loose, request?.X is not null) is { } drop) return drop;
         var boardId = await db.Cards.WithDeleted().Where(n => n.Id == cardId).Select(n => (Guid?)n.BoardId).FirstOrDefaultAsync(ct);
         if (boardId is null) return TypedResults.NotFound();
 
@@ -545,15 +572,23 @@ public static class CardEndpoints
         var stacked = await BucketEndpoints.StackAsync(db, card.BoardId, ct);
         if (request is { X: { } x, Y: { } y })
         {
-            // Dropped somewhere else (out of the trash): like a move, so it comes out on top, in whatever bucket it lands in.
+            // Dropped somewhere else (out of the trash): like a move, so it comes out on top, in whatever bucket it lands in
+            // (by the pointer when it names one or loose).
             (card.X, card.Y) = (Layout.Snap(x), Layout.Snap(y));
             card.UpdatedAt = DateTimeOffset.UtcNow;
-            Layout.Place(card, stacked);
+            if (request.BucketId is not null || request.Loose == true)
+            {
+                if (BucketEndpoints.DropIn(card, request.BucketId, stacked) is { } outside) return outside;
+            }
+            else
+            {
+                Layout.Place(card, stacked);
+            }
         }
         else
         {
             // UpdatedAt stays, so the card goes back to its place in the stacking order too.
-            // Back in its bucket if that is still around it, or wherever it now lands.
+            // Back in its bucket if that still reaches it, else loose (never into another bucket).
             Layout.Recheck(card, stacked);
         }
         await db.SaveChangesAsync(ct);
@@ -610,14 +645,16 @@ public static class CardEndpoints
     private sealed record CardWithBoard(Card Card, BoardRef Board);
 
     /// <summary>
-    /// Positions <paramref name="card"/> exactly at X and Y (joining the named bucket, or else the topmost one there), in a
-    /// free spot inside the named bucket (joining it), or, with neither, in a free spot outside the buckets. Other cards keep
-    /// their bucket, except loose ones that a bucket grown to make room now covers. Returns a problem for an invalid combination.
+    /// Positions <paramref name="card"/> exactly at X and Y (joining the named bucket, which it must overlap, or staying
+    /// <paramref name="loose"/>, or else joining the topmost one containing its center), in a free spot inside the named
+    /// bucket (joining it), or, with neither, in a free spot outside the buckets. Other cards keep their bucket, except
+    /// loose ones that a bucket grown to make room now covers. Returns a problem for an invalid combination.
     /// </summary>
     private static ValidationProblem? Place(
-        Card card, Guid? bucketId, int? x, int? y, List<Bucket> buckets, List<Card> others)
+        Card card, Guid? bucketId, int? x, int? y, bool? loose, List<Bucket> buckets, List<Card> others)
     {
         if (Problems.XWithoutY(x, y) is { } apart) return apart;
+        if (Problems.Drop(bucketId, loose, x is not null, bucketAlone: true) is { } drop) return drop;
         var bucket = bucketId is { } id ? buckets.Find(b => b.Id == id) : null;
         if (bucketId is not null && bucket is null)
         {
@@ -628,20 +665,16 @@ public static class CardEndpoints
         if (x is { } exactX && y is { } exactY)
         {
             (card.X, card.Y) = (Layout.Snap(exactX), Layout.Snap(exactY));
-            // Dropped where buckets overlap, it joins the one named (shown in front), not the topmost.
-            if (bucket is null) Layout.Place(card, stacked);
-            else if (!Layout.PlaceIn(card, bucket))
-            {
-                return Problems.Invalid("bucketId", "With X and Y, the bucket must contain the card's centre.");
-            }
+            // Dropped in the web app, it goes by the pointer: into the bucket named (shown in front there), or loose.
+            if (bucket is not null || loose == true) return BucketEndpoints.DropIn(card, bucket?.Id, stacked);
+            Layout.Place(card, stacked);
         }
         else if (bucket is not null)
         {
             (card.X, card.Y) = Layout.MakeRoomIn(bucket, others, buckets);
-            // Put in this bucket on purpose, so it joins it even when it is collapsed (which other cards don't).
+            // Put in this bucket on purpose, so it joins it even when it is collapsed (which other cards don't). A bucket
+            // that grew to make room takes no loose cards it now covers.
             card.BucketId = bucket.Id;
-            // A bucket that grew to make room can now cover loose cards too.
-            Layout.Adopt(bucket, stacked, others, [], looseOnly: true);
         }
         else
         {

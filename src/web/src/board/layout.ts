@@ -64,11 +64,12 @@ export const layersBackToFront = (buckets: BucketDetail[], drawings: DrawingDeta
 const stackedAtOf = (layer: Layer) => (layer.kind === 'bucket' ? layer.bucket.stackedAt : layer.drawing.stackedAt)
 
 /**
- * The bucket a card, image or drawing dropped at `item` joins: the topmost one containing its center (Layout.Place on
- * the server). The item then stays in it while buckets move around it. `buckets` is back to front (`backToFront`). A
- * collapsed bucket takes no new items, as on the server; it only counts for its own item (`own`). `front`, the bucket
- * this screen shows in front, wins wherever it contains the center: a card's drop names it (`bucketId` with `x` and
- * `y`), so the card joins it; for images and drawings it is the topmost open bucket the server picks anyway.
+ * The bucket a card, image or drawing put at `item` without a pointer joins (a sort, a cut pasted here): the topmost
+ * one containing its center (Layout.Place on the server). The item then stays in it while buckets move around it.
+ * `buckets` is back to front (`backToFront`). A collapsed bucket takes no new items, as on the server; it only counts
+ * for its own item (`own`). `front`, the bucket this screen shows in front, wins wherever it contains the center: a
+ * card put there names it (`bucketId` with `x` and `y`), so the card joins it. Drags go by the pointer instead
+ * (`bucketAtPointer`).
  */
 export function bucketUnder(buckets: BucketDetail[], item: Rect, own?: string | null, front?: string | null): BucketDetail | undefined {
   const cx = item.x + item.width / 2
@@ -80,6 +81,17 @@ export function bucketUnder(buckets: BucketDetail[], item: Rect, own?: string | 
 /** The bucket a card dropped at `card` joins (`bucketUnder`). */
 export const bucketUnderCard = (buckets: BucketDetail[], card: Point, own?: string | null, front?: string | null) =>
   bucketUnder(buckets, { ...card, width: CARD_WIDTH, height: CARD_HEIGHT }, own, front)
+
+/**
+ * The bucket anything dragged on this screen joins when it is let go with the pointer at `p`, wherever the item itself
+ * lies (it may hang over the edge, or lie over a bucket the pointer is outside of): `front` where it covers `p`, else
+ * the topmost open bucket there. The drop names it (`DropBucket`), so the server doesn't go by the item's center.
+ * `buckets` is back to front, where this screen shows them.
+ */
+export function bucketAtPointer(buckets: BucketDetail[], p: Point, front?: string | null): BucketDetail | undefined {
+  const under = buckets.filter((b) => !b.collapsed && p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height)
+  return under.find((b) => b.id === front) ?? under.at(-1)
+}
 
 const COLUMN_STEP = CARD_WIDTH + GRID
 const ROW_STEP = CARD_HEIGHT + GRID
