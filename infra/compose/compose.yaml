@@ -21,9 +21,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prikboard}
       POSTGRES_DB: prikboard
     # No ports: only the app reaches the database, over the compose network.
-    # From 18 on, the image keeps its data in a folder per major version under /var/lib/postgresql. On a volume that
-    # still holds the data of 17 it refuses to start, leaving that data alone: see "Upgrading from PostgreSQL 17" in
-    # infra/README.md.
+    # From 18 on, the image keeps its data in a folder per major version under /var/lib/postgresql.
     volumes:
       - postgres-data:/var/lib/postgresql
     healthcheck:
