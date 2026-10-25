@@ -1,10 +1,11 @@
-# Local development database. Start with `docker compose up -d`; data lives in the `postgres-data` volume and
+# Local development database. Start with `docker compose up -d`; data lives in the `postgres18-data` volume and
 # survives `docker compose down` (only `docker compose down -v` deletes it). The fixed project name makes every
-# checkout and worktree share this one database instead of starting another on the same port.
+# checkout and worktree share this one database instead of starting another on the same port. PostgreSQL 18 can't
+# open the data of 17, which was in `postgres-data` (left alone, so `docker volume rm prikboard_postgres-data` removes it).
 name: prikboard
 services:
   postgres:
-    image: postgres:17
+    image: postgres:18
     environment:
       POSTGRES_USER: prikboard
       POSTGRES_PASSWORD: prikboard
@@ -12,8 +13,9 @@ services:
     # Only this machine can reach it: the password is the same in every checkout.
     ports:
       - "127.0.0.1:5432:5432"
+    # From 18 on, the image keeps its data in a folder per major version under /var/lib/postgresql.
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres18-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U prikboard -d prikboard"]
       interval: 5s
@@ -22,4 +24,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres-data:
+  postgres18-data:

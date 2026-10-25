@@ -23,6 +23,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Four test classes per core: they spend much of their time waiting on PostgreSQL. -->
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\PrikBoard.Api\PrikBoard.Api.csproj" />
   </ItemGroup>
 
