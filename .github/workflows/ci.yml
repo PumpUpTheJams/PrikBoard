@@ -31,7 +31,13 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
-      - run: dotnet test PrikBoard.slnx
+      # The NuGet packages, until a project's package references change. setup-dotnet's own cache needs lock files.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('src/**/*.csproj', 'global.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - run: dotnet test --solution PrikBoard.slnx
 
   web:
     name: Web lint and build

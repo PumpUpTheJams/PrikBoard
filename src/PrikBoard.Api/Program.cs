@@ -273,4 +273,6 @@ app.MapMcp("/mcp").RequireAuthorization(AuthSetup.McpPolicy).ExcludeFromDescript
 // Live updates (SignalR): the hub checks board access itself, per board joined.
 api.MapHub<BoardHub>("/live").RequireAuthorization(AuthSetup.LivePolicy).NoBoardScope();
 
-app.Run();
+// Awaited: after the awaits above this runs on a thread-pool thread, which Run() would block for as long as the app runs
+// (in the tests, one per test class, until the pool ran short of threads).
+await app.RunAsync();

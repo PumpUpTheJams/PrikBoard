@@ -18,7 +18,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
     private readonly List<HubConnection> connections = [];
 
     [Fact]
-    public async Task Members_hear_about_changes_others_save()
+    public async Task Members_hear_about_changes_others_save_restores_and_new_rules_included()
     {
         var owner = await SessionAsync("live-owner@example.com");
         var editor = await SessionAsync("live-editor@example.com");
@@ -30,36 +30,31 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var joined = await live.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
         Assert.Equal(BoardRole.Owner, joined.Role);
 
-        await editor.Http.CreateCardAsync(board.Id);
+        var card = await editor.Http.CreateCardAsync(board.Id);
 
         var change = await changes.NextAsync();
         Assert.Equal(board.Id, change.BoardId);
         Assert.Equal((await editor.Http.MeAsync()).Id, change.By);
-    }
 
-    [Fact]
-    public async Task Members_hear_about_restores()
-    {
-        var owner = await SessionAsync("live-restore-owner@example.com");
-        var editor = await SessionAsync("live-restore-editor@example.com");
-        var board = await owner.Http.CreateBoardAsync();
-        await owner.Http.ShareAsync(board.Id, editor.Http, BoardRole.Editor);
-        var card = await editor.Http.CreateCardAsync(board.Id);
+        // A restore finds the board through the deleted card.
         (await editor.Http.DeleteAsync($"/api/cards/{card.Id}")).EnsureSuccessStatusCode();
-
-        var live = await ConnectAsync(owner);
-        var changes = live.Inbox<BoardChange>("BoardChanged");
-        await live.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+        await changes.DrainAsync();
         (await editor.Http.PostAsync($"/api/cards/{card.Id}/restore", null)).EnsureSuccessStatusCode();
+        Assert.Equal(board.Id, (await changes.NextAsync()).BoardId);
 
+        // New agent rules tell open boards too.
+        await changes.DrainAsync();
+        (await owner.Http.PatchAsJsonAsync($"/api/boards/{board.Id}", new { rules = "Keep cards short." })).EnsureSuccessStatusCode();
         Assert.Equal(board.Id, (await changes.NextAsync()).BoardId);
     }
 
     [Fact]
-    public async Task The_tab_that_saved_is_not_told_again_but_the_other_tabs_are()
+    public async Task Only_the_tab_that_saved_is_not_told_again_and_nobody_silences_someone_else()
     {
         var owner = await SessionAsync("live-tabs@example.com");
+        var editor = await SessionAsync("live-silence-editor@example.com");
         var board = await owner.Http.CreateBoardAsync();
+        await owner.Http.ShareAsync(board.Id, editor.Http, BoardRole.Editor);
         var tab1 = await ConnectAsync(owner);
         var tab2 = await ConnectAsync(owner);
         var inbox1 = tab1.Inbox<BoardChange>("BoardChanged");
@@ -72,25 +67,14 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         Assert.Equal(HttpStatusCode.Created, (await owner.Http.SendAsync(request)).StatusCode);
 
         await inbox2.NextAsync();
-        Assert.False(await inbox1.AnyWithinAsync(TimeSpan.FromMilliseconds(500)));
-    }
+        Assert.False(await inbox1.AnyAsync());
 
-    [Fact]
-    public async Task Someone_elses_connection_id_does_not_silence_it()
-    {
-        var owner = await SessionAsync("live-silence-owner@example.com");
-        var editor = await SessionAsync("live-silence-editor@example.com");
-        var board = await owner.Http.CreateBoardAsync();
-        await owner.Http.ShareAsync(board.Id, editor.Http, BoardRole.Editor);
-        var live = await ConnectAsync(owner);
-        var changes = live.Inbox<BoardChange>("BoardChanged");
-        await live.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
+        // Someone else's connection id does not silence it.
+        var sneaky = new HttpRequestMessage(HttpMethod.Post, $"/api/boards/{board.Id}/cards") { Content = JsonContent.Create(new { title = "Sneaky" }) };
+        sneaky.Headers.Add("X-PrikBoard-Live", tab1.Connection.ConnectionId);
+        await editor.Http.SendAsync(sneaky);
 
-        var request = new HttpRequestMessage(HttpMethod.Post, $"/api/boards/{board.Id}/cards") { Content = JsonContent.Create(new { title = "Sneaky" }) };
-        request.Headers.Add("X-PrikBoard-Live", live.Connection.ConnectionId);
-        await editor.Http.SendAsync(request);
-
-        await changes.NextAsync();
+        await inbox1.NextAsync();
     }
 
     [Fact]
@@ -107,7 +91,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         await owner.Http.GetAsync($"/api/boards/{board.Id}");
         await owner.Http.PostAsJsonAsync($"/api/boards/{board.Id}/members/lookup", new { email = "nobody@example.com" });
 
-        Assert.False(await changes.AnyWithinAsync(TimeSpan.FromMilliseconds(500)));
+        Assert.False(await changes.AnyAsync());
     }
 
     [Fact]
@@ -199,7 +183,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
 
         await ownerLive.Connection.InvokeAsync("DragEnd");
         Assert.Equal(joined.Key, await ended.NextAsync());
-        Assert.False(await ownerDrags.AnyWithinAsync(TimeSpan.FromMilliseconds(200)));
+        Assert.False(await ownerDrags.AnyAsync());
 
         var refused = await Assert.ThrowsAsync<HubException>(() =>
             viewerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Card, card.Id, 1, 1)));
@@ -227,7 +211,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         await viewerLive.Connection.InvokeAsync("MoveCursor", new CursorUpdate(120.5, -40));
         var cursor = await cursors.NextAsync();
         Assert.Equal((joined.Key, (await viewer.Http.MeAsync()).Id, 120.5, -40d), (cursor.Key, cursor.PrincipalId, cursor.X, cursor.Y));
-        Assert.False(await ownCursors.AnyWithinAsync(TimeSpan.FromMilliseconds(200)));
+        Assert.False(await ownCursors.AnyAsync());
 
         var off = await Assert.ThrowsAsync<HubException>(() =>
             viewerLive.Connection.InvokeAsync("MoveCursor", new CursorUpdate(1e9, 0)));
@@ -268,7 +252,7 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var selected = await selections.NextAsync();
         Assert.Equal((joined.Key, (await viewer.Http.MeAsync()).Id), (selected.Key, selected.PrincipalId));
         Assert.Equal([card.Id, bucketId], selected.Items);
-        Assert.False(await ownSelections.AnyWithinAsync(TimeSpan.FromMilliseconds(200)));
+        Assert.False(await ownSelections.AnyAsync());
 
         // Someone joining later sees it at once.
         var lateLive = await ConnectAsync(owner);
@@ -344,22 +328,22 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         await ownerLive.Connection.InvokeAsync("MoveCursor", new CursorUpdate(5, 5));
         await memberCursors.NextAsync();
         await ownerLive.Connection.InvokeAsync("HideCursor");
-        Assert.False(await guestCursors.AnyWithinAsync(TimeSpan.FromMilliseconds(300)));
-        Assert.False(await guestHidden.AnyWithinAsync(TimeSpan.FromMilliseconds(100)));
+        Assert.False(await guestCursors.AnyAsync());
+        Assert.False(await guestHidden.AnyAsync());
 
         var guestSelections = guest.Inbox<RemoteSelection>("Selected");
         await ownerLive.Connection.InvokeAsync("Select", new SelectionUpdate([board.Buckets[0].Id]));
-        Assert.False(await guestSelections.AnyWithinAsync(TimeSpan.FromMilliseconds(300)));
+        Assert.False(await guestSelections.AnyAsync());
 
         await Assert.ThrowsAsync<HubException>(() => guest.Connection.InvokeAsync("MoveCursor", new CursorUpdate(5, 5)));
         await Assert.ThrowsAsync<HubException>(() => guest.Connection.InvokeAsync("Select", new SelectionUpdate([])));
     }
 
     [Fact]
-    public async Task Removed_members_stop_hearing_about_the_board()
+    public async Task Role_changes_and_removals_apply_to_open_connections()
     {
-        var owner = await SessionAsync("live-remove-owner@example.com");
-        var editor = await SessionAsync("live-remove-editor@example.com");
+        var owner = await SessionAsync("live-role-owner@example.com");
+        var editor = await SessionAsync("live-role-editor@example.com");
         var board = await owner.Http.CreateBoardAsync();
         await owner.Http.ShareAsync(board.Id, editor.Http, BoardRole.Editor);
         var editorId = (await editor.Http.MeAsync()).Id;
@@ -369,35 +353,24 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var access = live.Inbox<Guid>("AccessChanged");
         var lists = live.Inbox<object?>("BoardsChanged");
         await live.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
-
-        await owner.Http.DeleteAsync($"/api/boards/{board.Id}/members/{editorId}");
-        Assert.Equal(board.Id, await access.NextAsync());
-        await lists.NextAsync();
-        await changes.DrainAsync();
-
-        await owner.Http.CreateCardAsync(board.Id);
-        Assert.False(await changes.AnyWithinAsync(TimeSpan.FromMilliseconds(500)));
-        Assert.Null(await live.Connection.InvokeAsync<JoinedBoard?>("Join", board.Id));
-    }
-
-    [Fact]
-    public async Task Role_changes_apply_to_open_connections()
-    {
-        var owner = await SessionAsync("live-role-owner@example.com");
-        var editor = await SessionAsync("live-role-editor@example.com");
-        var board = await owner.Http.CreateBoardAsync();
-        await owner.Http.ShareAsync(board.Id, editor.Http, BoardRole.Editor);
-        var editorId = (await editor.Http.MeAsync()).Id;
-
-        var live = await ConnectAsync(editor);
-        var access = live.Inbox<Guid>("AccessChanged");
-        await live.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
         await live.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Card, Guid.NewGuid(), 1, 1));
 
         await owner.Http.PatchAsJsonAsync($"/api/boards/{board.Id}/members/{editorId}", new { role = BoardRole.Viewer });
         await access.NextAsync();
 
         await Assert.ThrowsAsync<HubException>(() => live.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Card, Guid.NewGuid(), 2, 2)));
+
+        // Removed members stop hearing about the board.
+        await access.DrainAsync();
+        await lists.DrainAsync();
+        await owner.Http.DeleteAsync($"/api/boards/{board.Id}/members/{editorId}");
+        Assert.Equal(board.Id, await access.NextAsync());
+        await lists.NextAsync();
+        await changes.DrainAsync();
+
+        await owner.Http.CreateCardAsync(board.Id);
+        Assert.False(await changes.AnyAsync());
+        Assert.Null(await live.Connection.InvokeAsync<JoinedBoard?>("Join", board.Id));
     }
 
     [Fact]
@@ -416,22 +389,6 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         await lists.NextAsync();
         await owner.Http.DeleteAsync($"/api/boards/{board.Id}");
         await lists.NextAsync();
-    }
-
-    [Fact]
-    public async Task Changing_the_agent_rules_tells_open_boards()
-    {
-        var owner = await SessionAsync("live-rules-owner@example.com");
-        var viewer = await SessionAsync("live-rules-viewer@example.com");
-        var board = await owner.Http.CreateBoardAsync();
-        await owner.Http.ShareAsync(board.Id, viewer.Http, BoardRole.Viewer);
-
-        var live = await ConnectAsync(viewer);
-        var changes = live.Inbox<BoardChange>("BoardChanged");
-        await live.Connection.InvokeAsync<JoinedBoard>("Join", board.Id);
-
-        (await owner.Http.PatchAsJsonAsync($"/api/boards/{board.Id}", new { rules = "Keep cards short." })).EnsureSuccessStatusCode();
-        Assert.Equal(board.Id, (await changes.NextAsync()).BoardId);
     }
 
     [Fact]
@@ -533,11 +490,18 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
             var channel = Channel.CreateUnbounded<T>();
             if (typeof(T) == typeof(object)) Connection.On(method, () => channel.Writer.TryWrite(default!));
             else Connection.On<T>(method, message => channel.Writer.TryWrite(message));
-            return new Inbox<T>(channel.Reader);
+            return new Inbox<T>(channel.Reader, this);
         }
+
+        /// <summary>
+        /// A round trip to the hub. A connection gets its messages in order, so once the answer is back, everything sent to
+        /// it before has arrived. The hub has no method to call for nothing, so this calls one it doesn't have.
+        /// </summary>
+        public async Task SyncAsync() =>
+            await Assert.ThrowsAsync<HubException>(() => Connection.InvokeAsync("Sync"));
     }
 
-    private sealed record Inbox<T>(ChannelReader<T> Reader)
+    private sealed record Inbox<T>(ChannelReader<T> Reader, Live Live)
     {
         public async Task<T> NextAsync()
         {
@@ -554,24 +518,17 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
             }
         }
 
-        public async Task<bool> AnyWithinAsync(TimeSpan time)
+        /// <summary>Whether a message has come for anything done before: the server sends them before it answers.</summary>
+        public async Task<bool> AnyAsync()
         {
-            using var timeout = new CancellationTokenSource(time);
-            try
-            {
-                await Reader.WaitToReadAsync(timeout.Token);
-                return true;
-            }
-            catch (OperationCanceledException)
-            {
-                return false;
-            }
+            await Live.SyncAsync();
+            return Reader.TryPeek(out _);
         }
 
         /// <summary>Lets messages already on their way arrive, then forgets them.</summary>
         public async Task DrainAsync()
         {
-            await Task.Delay(200);
+            await Live.SyncAsync();
             while (Reader.TryRead(out _)) { }
         }
     }

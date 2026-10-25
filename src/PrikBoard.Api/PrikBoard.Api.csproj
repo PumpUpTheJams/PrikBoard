@@ -8,6 +8,11 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <UserSecretsId>prikboard-local</UserSecretsId>
+    <!--
+      The endpoints' request delegates are generated at build time instead of compiled from expression trees at every
+      start, which took about 300 ms per start: once for the app, but once per test class for the tests.
+    -->
+    <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
   </PropertyGroup>
 
   <ItemGroup>

@@ -32,7 +32,7 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
     }
 
     [Fact]
-    public async Task Cards_are_assigned_to_board_members_by_principal_id()
+    public async Task Cards_are_assigned_to_board_members_by_principal_id_and_show_their_current_name()
     {
         var owner = await SignInAsync("assign-owner@example.com", "Owen");
         var mila = await SignInAsync("assign-mila@example.com", "Mila V.");
@@ -45,6 +45,9 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         Assert.Equal(
             [new Assignee(milaId, "Mila V.", AssigneeKind.Person, null), new Assignee(ownerId, "Owen", AssigneeKind.Person, null)],
             created.Assignees);
+        await mila.RenameAsync("Mila van Dijk");
+        var saved = (await owner.GetFromJsonAsync<CardDetail>($"/api/cards/{created.Id}"))!;
+        Assert.Equal("Mila van Dijk", saved.Assignees.Single(a => a.PrincipalId == milaId).Name);
         var cleared = await owner.PatchAsJsonAsync($"/api/cards/{created.Id}", new { assigneeIds = Array.Empty<Guid>() });
         Assert.Empty((await cleared.Content.ReadFromJsonAsync<CardDetail>())!.Assignees);
     }
@@ -70,21 +73,6 @@ public class AssigneeApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikB
         Assert.Equal(HttpStatusCode.BadRequest, limitedResponse.StatusCode);
         // Not even a token agent that reaches the board: it works for its owner, who is assigned instead.
         Assert.Equal(HttpStatusCode.BadRequest, reachingResponse.StatusCode);
-    }
-
-    [Fact]
-    public async Task Assignees_show_their_current_name()
-    {
-        var owner = await SignInAsync("rename-owner@example.com", "Owen");
-        var mila = await SignInAsync("rename-mila@example.com", "Mila V.");
-        var board = await owner.CreateBoardAsync("Rename");
-        await owner.ShareAsync(board.Id, mila, BoardRole.Editor);
-        var card = await PostCardAsync(owner, board.Id, new { title = "Rename", assigneeIds = new[] { (await mila.MeAsync()).Id } });
-
-        await mila.RenameAsync("Mila van Dijk");
-
-        var saved = (await owner.GetFromJsonAsync<CardDetail>($"/api/cards/{card.Id}"))!;
-        Assert.Equal("Mila van Dijk", Assert.Single(saved.Assignees).Name);
     }
 
     [Fact]

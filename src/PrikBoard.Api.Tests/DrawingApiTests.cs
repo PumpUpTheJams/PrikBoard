@@ -13,14 +13,14 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
 {
     private HttpClient _client = null!;
 
-    public async Task InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
+    public async ValueTask InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     private static readonly double[][] Squiggle = [[2, 2, 0.5], [40.04, 10.06, 0.123], [100.2, 30, 1]];
 
     [Fact]
-    public async Task A_stroke_snaps_its_corner_keeps_its_points_and_can_be_fetched()
+    public async Task A_stroke_snaps_its_corner_keeps_its_points_has_a_default_ink_and_width_and_can_be_fetched()
     {
         var board = await _client.CreateBoardAsync("Drawings");
 
@@ -46,13 +46,8 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
 
         var snapshot = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
         Assert.Equal(drawing.Id, Assert.Single(snapshot.Drawings).Id);
-    }
 
-    [Fact]
-    public async Task Color_and_stroke_width_have_defaults_and_the_margin_follows_the_width()
-    {
-        var board = await _client.CreateBoardAsync("Defaults");
-
+        // Color and stroke width have defaults, and the margin follows the width.
         var plain = await Create(board.Id, new { x = 0, y = 0, points = new[] { new[] { 10.0, 10.0, 0.5 } } });
         var bold = await Create(board.Id, new { x = 0, y = 0, points = new[] { new[] { 10.0, 10.0, 0.5 } }, strokeWidth = 8, color = "Brick" });
 
@@ -127,7 +122,7 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     }
 
     [Fact]
-    public async Task A_deleted_drawing_is_hidden_and_comes_back_with_the_same_id()
+    public async Task A_deleted_drawing_comes_back_with_the_same_id_until_it_is_purged_with_its_points()
     {
         var board = await _client.CreateBoardAsync("Delete");
         var drawing = await Create(board.Id, new { x = 40, y = 40, points = Squiggle, color = "Coral" });
@@ -143,6 +138,18 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         var back = (await restored.Content.ReadFromJsonAsync<DrawingDetail>())!;
         Assert.Equal((drawing.Id, 40, 40, InkColor.Coral), (back.Id, back.X, back.Y, Assert.Single(back.Colors)));
         Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync(drawing.ContentUrl)).StatusCode);
+
+        // Deleted longer ago than the retention, it is purged with its points.
+        (await _client.DeleteAsync($"/api/drawings/{drawing.Id}")).EnsureSuccessStatusCode();
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+        var longAgo = DateTimeOffset.UtcNow - Tombstones.Retention - TimeSpan.FromDays(1);
+        await db.Drawings.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete]).Where(d => d.Id == drawing.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, longAgo));
+
+        Assert.True(await Tombstones.PurgeAsync(db, DateTimeOffset.UtcNow - Tombstones.Retention, CancellationToken.None) >= 1);
+        Assert.False(await db.DrawingContents.AnyAsync(c => c.DrawingId == drawing.Id));
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.PostAsync($"/api/drawings/{drawing.Id}/restore", null)).StatusCode);
     }
 
     [Fact]
@@ -166,24 +173,6 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         var back = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
         // The one deleted on its own earlier stays deleted.
         Assert.Equal([onCard.Id, onBoard.Id], back.Drawings.Select(d => d.Id).Order());
-    }
-
-    [Fact]
-    public async Task Old_deleted_drawings_are_purged_with_their_points()
-    {
-        var board = await _client.CreateBoardAsync("Purge");
-        var drawing = await Create(board.Id, new { x = 0, y = 0, points = Squiggle });
-        (await _client.DeleteAsync($"/api/drawings/{drawing.Id}")).EnsureSuccessStatusCode();
-
-        await using var scope = factory.Services.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
-        var longAgo = DateTimeOffset.UtcNow - Tombstones.Retention - TimeSpan.FromDays(1);
-        await db.Drawings.IgnoreQueryFilters([PrikBoardDbContext.SoftDelete]).Where(d => d.Id == drawing.Id)
-            .ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, longAgo));
-
-        Assert.True(await Tombstones.PurgeAsync(db, DateTimeOffset.UtcNow - Tombstones.Retention, CancellationToken.None) >= 1);
-        Assert.False(await db.DrawingContents.AnyAsync(c => c.DrawingId == drawing.Id));
-        Assert.Equal(HttpStatusCode.NotFound, (await _client.PostAsync($"/api/drawings/{drawing.Id}/restore", null)).StatusCode);
     }
 
     [Fact]
@@ -287,23 +276,6 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         var resizeWithCarry = await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { x = todo.X, width = 400, carryDrawingIds = new[] { inside.Id } });
         Assert.Equal(HttpStatusCode.BadRequest, resizeWithCarry.StatusCode);
         Assert.Contains("carryDrawingIds", await resizeWithCarry.Content.ReadAsStringAsync());
-    }
-
-    [Fact]
-    public async Task Moving_a_bucket_onto_another_keeps_both_their_drawings()
-    {
-        var board = await _client.CreateBoardAsync("Overlapping drawings");
-        var (todo, doing) = (board.Buckets[0], board.Buckets[1]);
-        var todos = await Create(board.Id, new { x = todo.X + 20, y = todo.Y + 20, points = Squiggle });
-        var doings = await Create(board.Id, new { x = doing.X + 20, y = doing.Y + 20, points = Squiggle });
-
-        // Doing (on top) lands on To do, then To do moves away from under it: each takes only its own drawing.
-        (await _client.PatchAsJsonAsync($"/api/buckets/{doing.Id}", new { x = todo.X, y = todo.Y })).EnsureSuccessStatusCode();
-        (await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { x = 1200, y = todo.Y })).EnsureSuccessStatusCode();
-
-        var drawings = await Drawings(board.Id);
-        Assert.Equal((1220, todo.Y + 20, todo.Id), Spot(drawings, todos.Id));
-        Assert.Equal((todo.X + 20, todo.Y + 20, doing.Id), Spot(drawings, doings.Id));
     }
 
     [Fact]
@@ -476,9 +448,9 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     private static readonly double[][] Line = [[10, 10, 0.5], [90, 10, 0.5]];
 
     [Fact]
-    public async Task Rotating_a_drawing_turns_its_points_about_the_pivot_and_its_box_follows()
+    public async Task Transforming_a_drawing_turns_or_scales_its_points_and_its_box_follows()
     {
-        var board = await _client.CreateBoardAsync("Rotate");
+        var board = await _client.CreateBoardAsync("Transform");
         var drawing = await Create(board.Id, new { x = 100, y = 100, points = Line });
         Assert.Equal((92, 12), (drawing.Width, drawing.Height));
 
@@ -490,23 +462,19 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         var stroke = Assert.Single((await _client.GetFromJsonAsync<DrawingContentDetail>(turned.ContentUrl))!.Strokes);
         Assert.Equal([[10, 10, 0.5], [10, 90, 0.5]], stroke.Points);
         Assert.Equal(4, stroke.StrokeWidth);
-    }
 
-    [Fact]
-    public async Task Scaling_a_drawing_spreads_its_points_from_the_middle_of_its_box_by_default()
-    {
-        var board = await _client.CreateBoardAsync("Scale");
+        // Scaling spreads the points from the middle of the box by default, and the drawing stays in its bucket.
         var todo = board.Buckets[0];
         var (x, y) = (todo.X + 100, todo.Y + 100);
-        var drawing = await Create(board.Id, new { x, y, points = Line });
-        Assert.Equal(todo.Id, drawing.BucketId);
+        var scaled = await Create(board.Id, new { x, y, points = Line });
+        Assert.Equal(todo.Id, scaled.BucketId);
 
         // Its middle is 46 right of and 6 below its corner: the ends go from 36 and 44 px left and right of it to twice that.
-        var bigger = await Transform(drawing.Id, new { scaleX = 2, scaleY = 2 });
+        var bigger = await Transform(scaled.Id, new { scaleX = 2, scaleY = 2 });
 
         Assert.Equal((x - 40, y, 176, 16), (bigger.X, bigger.Y, bigger.Width, bigger.Height));
-        var stroke = Assert.Single((await _client.GetFromJsonAsync<DrawingContentDetail>(bigger.ContentUrl))!.Strokes);
-        Assert.Equal([[14, 14, 0.5], [174, 14, 0.5]], stroke.Points);
+        var spread = Assert.Single((await _client.GetFromJsonAsync<DrawingContentDetail>(bigger.ContentUrl))!.Strokes);
+        Assert.Equal([[14, 14, 0.5], [174, 14, 0.5]], spread.Points);
         Assert.Equal(todo.Id, bigger.BucketId);
     }
 

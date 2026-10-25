@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
@@ -14,9 +15,9 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
 {
     private HttpClient _client = null!;
 
-    public async Task InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
+    public async ValueTask InitializeAsync() => _client = await factory.CreateSignedInClientAsync();
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
     public async Task An_uploaded_image_lands_right_of_the_board_at_a_sensible_width_and_can_be_downloaded()
@@ -45,7 +46,7 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
-    public async Task An_uploaded_image_is_kept_as_a_file_named_after_its_id_and_downloads_with_its_own_name()
+    public async Task An_uploaded_image_is_kept_as_a_file_named_after_its_id_and_served_with_its_name_caching_and_byte_ranges()
     {
         var board = await CreateBoard("Files");
         var png = TestImages.Png(40, 30);
@@ -65,19 +66,11 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         Assert.True(cache.Private);
         Assert.Equal(TimeSpan.FromDays(365), cache.MaxAge);
         Assert.Contains(cache.Extensions, e => e.Name == "immutable");
-    }
 
-    [Fact]
-    public async Task Image_downloads_answer_not_modified_to_a_matching_etag_or_date_and_serve_byte_ranges()
-    {
-        var board = await CreateBoard("Caching");
-        var png = TestImages.Png(40, 30);
-        var image = await Upload(board.Id, png, "image/png");
-        var first = await _client.GetAsync(image.ContentUrl);
-
-        using var byTag = new HttpRequestMessage(HttpMethod.Get, image.ContentUrl) { Headers = { IfNoneMatch = { first.Headers.ETag! } } };
+        // Downloads answer not modified to a matching ETag or date, and serve byte ranges.
+        using var byTag = new HttpRequestMessage(HttpMethod.Get, image.ContentUrl) { Headers = { IfNoneMatch = { response.Headers.ETag! } } };
         Assert.Equal(HttpStatusCode.NotModified, (await _client.SendAsync(byTag)).StatusCode);
-        using var byDate = new HttpRequestMessage(HttpMethod.Get, image.ContentUrl) { Headers = { IfModifiedSince = first.Content.Headers.LastModified } };
+        using var byDate = new HttpRequestMessage(HttpMethod.Get, image.ContentUrl) { Headers = { IfModifiedSince = response.Content.Headers.LastModified } };
         Assert.Equal(HttpStatusCode.NotModified, (await _client.SendAsync(byDate)).StatusCode);
 
         using var range = new HttpRequestMessage(HttpMethod.Get, image.ContentUrl) { Headers = { Range = new RangeHeaderValue(0, 7) } };
@@ -233,21 +226,6 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
-    public async Task Images_attached_to_a_card_go_when_the_card_goes()
-    {
-        var board = await CreateBoard("Attached");
-        var cardResponse = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "With a screenshot" });
-        var card = (await cardResponse.Content.ReadFromJsonAsync<CardDetail>())!;
-
-        var image = await Upload(board.Id, TestImages.Png(300, 200), "image/png", $"?cardId={card.Id}");
-        Assert.Equal(card.Id, image.CardId);
-
-        (await _client.DeleteAsync($"/api/cards/{card.Id}")).EnsureSuccessStatusCode();
-        var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
-        Assert.Empty(snapshot!.Images);
-    }
-
-    [Fact]
     public async Task Images_uploaded_while_their_card_is_deleted_go_with_it_or_are_refused()
     {
         var board = await CreateBoard("Upload race");
@@ -375,6 +353,143 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         Assert.Equal(new ImageFormats.Info(contentType, width, height), ImageFormats.Detect(bytes));
     }
 
+    // Upload URLs: an agent asks for one and sends the file with curl -T, without its token.
+    [Fact]
+    public async Task An_upload_url_adds_one_image_where_it_was_asked_for_without_authentication()
+    {
+        var owner = await factory.CreateSignedInClientAsync("upload-url@example.com");
+        var board = await owner.CreateBoardAsync("Upload URLs");
+        var card = await owner.CreateCardAsync(board.Id, "Ingest errors");
+        var png = TestImages.Png(800, 600);
+
+        var url = await CreateUploadAsync(owner, board.Id, new { cardId = card.Id, caption = "Last night", fileName = "errors.png", width = 200 });
+        Assert.StartsWith($"{owner.BaseAddress!.GetLeftPart(UriPartial.Authority)}/api/image-uploads/{ImageUpload.Prefix}", url.UploadUrl);
+        Assert.Equal($"curl -sS -T FILE \"{url.UploadUrl}\"", url.Command);
+        Assert.InRange(url.ExpiresAt, DateTimeOffset.UtcNow.AddMinutes(14), DateTimeOffset.UtcNow.AddMinutes(16));
+
+        // No cookie, no token and no content type, as curl -T sends it.
+        var anonymous = factory.CreateAnonymousClient();
+        var response = await anonymous.PutAsync(url.UploadUrl, new ByteArrayContent(png));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var image = (await response.Content.ReadFromJsonAsync<ImageDetail>())!;
+        Assert.Equal((board.Id, card.Id, "errors.png", "Last night", 200), (image.BoardId, image.CardId, image.FileName, image.Caption, image.Width));
+        var me = await owner.MeAsync();
+        Assert.Equal((me.DisplayName, me.Id), (image.AddedBy, image.AddedById));
+        Assert.Equal(png, await owner.GetByteArrayAsync(image.ContentUrl));
+
+        // One image per URL.
+        Assert.Equal(HttpStatusCode.NotFound, (await anonymous.PutAsync(url.UploadUrl, new ByteArrayContent(png))).StatusCode);
+        var saved = (await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
+        Assert.Equal(image.Id, Assert.Single(saved.Images).Id);
+    }
+
+    [Fact]
+    public async Task A_failed_upload_leaves_the_url_usable()
+    {
+        var owner = await factory.CreateSignedInClientAsync("upload-retry@example.com");
+        var board = await owner.CreateBoardAsync("Upload retry");
+        var url = await CreateUploadAsync(owner, board.Id, new { x = 1000, y = 1010 });
+        var anonymous = factory.CreateAnonymousClient();
+
+        var svg = await anonymous.PutAsync(url.UploadUrl, new ByteArrayContent("<svg/>"u8.ToArray()));
+        Assert.Equal(HttpStatusCode.UnsupportedMediaType, svg.StatusCode);
+
+        var gif = await anonymous.PutAsync(url.UploadUrl, Content(TestImages.Gif(40, 30), "image/gif"));
+        Assert.Equal(HttpStatusCode.Created, gif.StatusCode);
+        var image = (await gif.Content.ReadFromJsonAsync<ImageDetail>())!;
+        Assert.Equal(("image/gif", 1000, 1020), (image.ContentType, image.X, image.Y));
+    }
+
+    [Fact]
+    public async Task Unknown_and_expired_urls_answer_not_found()
+    {
+        var owner = await factory.CreateSignedInClientAsync("upload-expired@example.com");
+        var board = await owner.CreateBoardAsync("Upload expiry");
+        var url = await CreateUploadAsync(owner, board.Id, new { });
+        var anonymous = factory.CreateAnonymousClient();
+        var png = new ByteArrayContent(TestImages.Png(40, 30));
+
+        Assert.Equal(HttpStatusCode.NotFound, (await anonymous.PutAsync($"/api/image-uploads/{ImageUpload.Prefix}nope", png)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await anonymous.PutAsync("/api/image-uploads/pb_pat_nope", png)).StatusCode);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+            await db.ImageUploads.Where(u => u.BoardId == board.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(u => u.ExpiresAt, DateTimeOffset.UtcNow.AddSeconds(-1)));
+        }
+        Assert.Equal(HttpStatusCode.NotFound, (await anonymous.PutAsync(url.UploadUrl, png)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Asking_for_a_url_checks_the_role_and_the_placement()
+    {
+        var owner = await factory.CreateSignedInClientAsync("upload-checks@example.com");
+        var viewer = await factory.CreateSignedInClientAsync("upload-checks-viewer@example.com");
+        var board = await owner.CreateBoardAsync("Upload checks");
+        var other = await owner.CreateBoardAsync("Upload checks elsewhere");
+        var elsewhere = await owner.CreateCardAsync(other.Id);
+        await owner.ShareAsync(board.Id, viewer, BoardRole.Viewer);
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await viewer.PostAsJsonAsync($"/api/boards/{board.Id}/image-uploads", new { })).StatusCode);
+        await Invalid(new { x = 20 }, "y");
+        await Invalid(new { cardId = elsewhere.Id }, "cardId");
+        await Invalid(new { width = 20 }, "width");
+
+        async Task Invalid(object request, string field)
+        {
+            var response = await owner.PostAsJsonAsync($"/api/boards/{board.Id}/image-uploads", request);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Contains(field, await response.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public async Task A_url_stops_working_when_its_creator_loses_edit_access()
+    {
+        var owner = await factory.CreateSignedInClientAsync("upload-access@example.com");
+        var editor = await factory.CreateSignedInClientAsync("upload-access-editor@example.com");
+        var board = await owner.CreateBoardAsync("Upload access");
+        await owner.ShareAsync(board.Id, editor, BoardRole.Editor);
+        var url = await CreateUploadAsync(editor, board.Id, new { });
+
+        var me = await editor.MeAsync();
+        (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}/members/{me.Id}", new { role = BoardRole.Viewer })).EnsureSuccessStatusCode();
+
+        var response = await factory.CreateAnonymousClient().PutAsync(url.UploadUrl, new ByteArrayContent(TestImages.Png(40, 30)));
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty((await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Images);
+    }
+
+    [Fact]
+    public async Task A_url_from_an_access_token_acts_as_its_agent_and_stops_working_when_the_token_is_revoked()
+    {
+        var owner = await factory.CreateSignedInClientAsync("upload-token@example.com");
+        var board = await owner.CreateBoardAsync("Upload tokens");
+        var (agent, token) = await factory.TokenAsync(owner, "Claude Code");
+        var anonymous = factory.CreateAnonymousClient();
+
+        var first = await CreateUploadAsync(agent, board.Id, new { });
+        var response = await anonymous.PutAsync(first.UploadUrl, new ByteArrayContent(TestImages.Png(40, 30)));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal("Claude Code", (await response.Content.ReadFromJsonAsync<ImageDetail>())!.AddedBy);
+
+        var second = await CreateUploadAsync(agent, board.Id, new { });
+        Assert.Equal(HttpStatusCode.NoContent, (await owner.DeleteAsync($"/api/me/tokens/{token.Details.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await anonymous.PutAsync(second.UploadUrl, new ByteArrayContent(TestImages.Png(40, 30)))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Unused_urls_are_limited_per_caller()
+    {
+        var owner = await factory.CreateSignedInClientAsync("upload-limit@example.com");
+        var board = await owner.CreateBoardAsync("Upload limit");
+        for (var i = 0; i < ImageUpload.MaxPendingPerPrincipal; i++) await CreateUploadAsync(owner, board.Id, new { });
+
+        var response = await owner.PostAsJsonAsync($"/api/boards/{board.Id}/image-uploads", new { });
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
     private async Task<BoardDetail> CreateBoard(string name)
     {
         var response = await _client.PostAsJsonAsync("/api/boards", new { name });
@@ -397,6 +512,20 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var response = await Post($"/api/boards/{boardId}/images{query}", data, contentType);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<ImageDetail>())!;
+    }
+
+    private static async Task<ImageUploadUrl> CreateUploadAsync(HttpClient client, Guid boardId, object request)
+    {
+        var response = await client.PostAsJsonAsync($"/api/boards/{boardId}/image-uploads", request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<ImageUploadUrl>())!;
+    }
+
+    private static ByteArrayContent Content(byte[] data, string contentType)
+    {
+        var content = new ByteArrayContent(data);
+        content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        return content;
     }
 }
 

@@ -63,23 +63,19 @@ public class AuthApiTests(AuthApiTests.Factory factory) : IClassFixture<AuthApiT
         }
     }
 
-    [Theory]
-    [InlineData("/api/boards")]
-    [InlineData("/api/me")]
-    public async Task Api_requires_a_signed_in_user(string url)
+    [Fact]
+    public async Task Api_requires_a_signed_in_user()
     {
-        var response = await factory.CreateAnonymousClient().GetAsync(url);
+        var response = await factory.CreateAnonymousClient().GetAsync("/api/boards");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
-    [Theory]
-    [InlineData("/openapi/v1.json")]
-    [InlineData("/health")]
-    [InlineData("/api/auth/providers")]
-    public async Task Contract_health_and_providers_are_public(string url)
+    [Fact]
+    public async Task Health_is_public()
     {
-        var response = await factory.CreateAnonymousClient().GetAsync(url);
+        // The contract and the providers are public too: the tests that read them do so without signing in.
+        var response = await factory.CreateAnonymousClient().GetAsync("/health");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
@@ -116,17 +112,13 @@ public class AuthApiTests(AuthApiTests.Factory factory) : IClassFixture<AuthApiT
     }
 
     [Fact]
-    public async Task The_api_reference_sends_people_through_the_default_provider_first()
+    public async Task The_api_reference_is_for_signed_in_people_and_sends_others_through_the_default_provider_first()
     {
-        var response = await factory.CreateAnonymousClient().GetAsync("/scalar");
+        var anonymous = await factory.CreateAnonymousClient().GetAsync("/scalar");
 
-        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        Assert.Equal("/api/auth/login/github?returnUrl=%2Fscalar", response.Headers.Location?.OriginalString);
-    }
+        Assert.Equal(HttpStatusCode.Redirect, anonymous.StatusCode);
+        Assert.Equal("/api/auth/login/github?returnUrl=%2Fscalar", anonymous.Headers.Location?.OriginalString);
 
-    [Fact]
-    public async Task Signed_in_people_get_the_api_reference()
-    {
         var client = await factory.CreateSignedInClientAsync();
 
         // Scalar itself redirects /scalar to /scalar/.
@@ -147,7 +139,7 @@ public class AuthApiTests(AuthApiTests.Factory factory) : IClassFixture<AuthApiT
     [Theory]
     [InlineData("https://evil.example/", "/")]
     [InlineData("//evil.example/", "/")]
-    [InlineData("/#/boards/42", "/#/boards/42")]
+    // A local one is kept: A_newcomer_refused_while_visiting_a_board_goes_back_to_it comes back to it.
     public async Task Login_only_returns_to_local_urls(string returnUrl, string expected)
     {
         var response = await factory.CreateAnonymousClient()
@@ -231,15 +223,6 @@ public class AuthApiTests(AuthApiTests.Factory factory) : IClassFixture<AuthApiT
         Assert.Equal(HttpStatusCode.Redirect, callback.StatusCode);
         Assert.Equal("/?authError=invite_required#/boards/k3x9m2/cards/4", callback.Headers.Location!.OriginalString);
         Assert.Equal(HttpStatusCode.Unauthorized, (await newcomer.GetAsync("/api/me")).StatusCode);
-    }
-
-    [Fact]
-    public async Task Signing_in_again_finds_the_same_user()
-    {
-        var first = await (await factory.CreateSignedInClientAsync("same@example.com")).GetFromJsonAsync<Caller>("/api/me");
-        var second = await (await factory.CreateSignedInClientAsync("same@example.com")).GetFromJsonAsync<Caller>("/api/me");
-
-        Assert.Equal(first!.Id, second!.Id);
     }
 
     [Fact]

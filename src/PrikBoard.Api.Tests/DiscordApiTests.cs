@@ -248,23 +248,6 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
     }
 
     [Fact]
-    public async Task Only_owners_in_the_browser_connect_boards()
-    {
-        await SetUpBotAsync(await Admin());
-        var owner = await factory.CreateSignedInClientAsync("discord-only-owner@example.com");
-        var editor = await factory.CreateSignedInClientAsync("discord-only-editor@example.com");
-        var board = await owner.CreateBoardAsync();
-        await owner.ShareAsync(board.Id, editor, BoardRole.Editor);
-        var guildId = BotJoinsServer();
-        var (token, _) = await factory.TokenAsync(owner, "Owner's agent");
-
-        Assert.Equal(HttpStatusCode.Forbidden, (await editor.GetAsync($"/api/boards/{board.Id}/discord/servers")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await Connect(editor, board.Id, guildId, Channel)).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await Connect(token, board.Id, guildId, Channel)).StatusCode);
-        Assert.Empty((await owner.GetFromJsonAsync<List<DiscordConnection>>($"/api/boards/{board.Id}/discord"))!);
-    }
-
-    [Fact]
     public async Task A_board_takes_a_limited_number_of_channels_per_server()
     {
         await SetUpBotAsync(await Admin());
@@ -392,14 +375,21 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
     }
 
     [Fact]
-    public async Task Owners_remove_channels_and_servers()
+    public async Task Only_owners_in_the_browser_connect_and_remove_channels_and_servers()
     {
-        await Admin();
+        await SetUpBotAsync(await Admin());
         var owner = await factory.CreateSignedInClientAsync("discord-remove@example.com");
         var editor = await factory.CreateSignedInClientAsync("discord-remove-editor@example.com");
         var board = await owner.CreateBoardAsync();
         await owner.ShareAsync(board.Id, editor, BoardRole.Editor);
         var guildId = BotJoinsServer();
+        var (token, _) = await factory.TokenAsync(owner, "Owner's agent");
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await editor.GetAsync($"/api/boards/{board.Id}/discord/servers")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Connect(editor, board.Id, guildId, Channel)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Connect(token, board.Id, guildId, Channel)).StatusCode);
+        Assert.Empty((await owner.GetFromJsonAsync<List<DiscordConnection>>($"/api/boards/{board.Id}/discord"))!);
+
         await ConnectAsync(owner, board.Id, guildId, Channel);
         await ConnectAsync(owner, board.Id, guildId, OtherChannel);
         var link = $"{DiscordApiFactory.PublicUrl}/#/boards/{board.ShortId}";

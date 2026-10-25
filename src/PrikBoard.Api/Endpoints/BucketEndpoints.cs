@@ -77,7 +77,7 @@ public static class BucketEndpoints
     internal static async Task<Results<Created<BucketDetail>, NotFound>> CreateBucket(
         Guid boardId, CreateBucketRequest request, PrikBoardDbContext db, CancellationToken ct)
     {
-        if (!await db.Boards.AnyAsync(b => b.Id == boardId, ct)) return TypedResults.NotFound();
+        // The board exists: the role check (or the MCP tool's) found it.
 
         var siblings = await db.Buckets.Where(b => b.BoardId == boardId).ToListAsync(ct);
         var (x, y) = request is { X: { } requestX, Y: { } requestY } ? (requestX, requestY) : Layout.NextBucketSpot(siblings);
