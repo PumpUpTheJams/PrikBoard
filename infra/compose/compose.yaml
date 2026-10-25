@@ -9,7 +9,7 @@
 # The app is published on localhost only. To serve it on your own domain with HTTPS, set DOMAIN in .env (see
 # .env.example) and start the Caddy profile too: docker compose --profile https up -d
 #
-# Back up both volumes: postgres18-data (the database) and data (images, sign-in keys and the hash key).
+# Back up both volumes: postgres-data (the database) and data (images, sign-in keys and the hash key).
 # Not "prikboard": that is the development database's project (the root compose.yaml), whose volume this would share.
 name: prikboard-server
 
@@ -21,10 +21,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prikboard}
       POSTGRES_DB: prikboard
     # No ports: only the app reaches the database, over the compose network.
-    # From 18 on, the image keeps its data in a folder per major version under /var/lib/postgresql. A new volume name,
-    # because 18 can't open the data of 17 in postgres-data: see "Upgrading from PostgreSQL 17" in infra/README.md.
+    # From 18 on, the image keeps its data in a folder per major version under /var/lib/postgresql. On a volume that
+    # still holds the data of 17 it refuses to start, leaving that data alone: see "Upgrading from PostgreSQL 17" in
+    # infra/README.md.
     volumes:
-      - postgres18-data:/var/lib/postgresql
+      - postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U prikboard -d prikboard"]
       interval: 5s
@@ -70,7 +71,7 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres18-data:
+  postgres-data:
   data:
   caddy-data:
   caddy-config:

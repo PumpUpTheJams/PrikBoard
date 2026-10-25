@@ -24,12 +24,13 @@ Open http://localhost:8080 and follow the setup: enter the setup key, add sign-i
 
 ## Upgrading from PostgreSQL 17
 
-The compose file used PostgreSQL 17 with its database in the `postgres-data` volume. It now runs 18 in `postgres18-data`, since 18 can't open the data of 17, so an install from before the change starts with an empty database until you move the data over. Dump it with the old compose file still running, before pulling the new one:
+The compose file ran PostgreSQL 17 and now runs 18, which can't open the data of 17. On an install from before the change, PostgreSQL keeps restarting with an error that there appears to be PostgreSQL data in `/var/lib/postgresql`, without touching it, and the app doesn't start (`docker compose up` says the postgres dependency is unhealthy). Move the database over with a dump. Make it with the old compose file still running, before pulling the new one, and keep the file until the new install works:
 
 ```bash
 cd infra/compose
 docker compose exec -T postgres pg_dump -U prikboard -Fc prikboard > prikboard.dump
 docker compose down
+docker volume rm prikboard-server_postgres-data   # the old database: from here on it is only in prikboard.dump
 ```
 
 Then, with the new compose file, start only PostgreSQL (the app would create empty tables first), restore the dump and start the rest:
@@ -40,7 +41,7 @@ docker compose exec -T postgres pg_restore -U prikboard -d prikboard --no-owner 
 docker compose up -d
 ```
 
-The `data` volume is used as before. Once everything is there, `docker volume rm prikboard-server_postgres-data` removes the old database.
+The `data` volume is used as before.
 
 ## Configuration
 
