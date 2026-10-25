@@ -40,7 +40,7 @@ export type Gesture = GestureTarget & {
   current: Point
   /** Finished: it stays until the board has reloaded, so the dropped item doesn't jump back while the request is in flight. */
   done?: boolean
-  /** For a card or group drag: the area its items took up when it began. Released back over it, the drag is called off. */
+  /** For a card drag: the place it took up when it began. Released back over it, the drag is called off (not for a group). */
   home?: Rect
   /** The pointer has left `home` since the drag began. */
   away?: boolean
