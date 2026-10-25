@@ -9,7 +9,7 @@ import type { BoardState } from '../board/useBoard'
 import { useUndo, type UndoHistory } from '../board/useUndo'
 import { Face } from '../components/Avatar'
 import { Menu, MenuItem } from '../components/Menu'
-import { ColorSchemeToggle } from '../components/SettingsMenu'
+import { ThemePicker } from '../components/SettingsMenu'
 import { NoAccess } from '../components/NoAccess'
 import { Toast, type ToastMessage } from '../components/Toast'
 import { BoardList } from './BoardList'
@@ -63,7 +63,7 @@ export function MobileWorkspace(props: MobileWorkspaceProps) {
               Account
             </MenuItem>
           )}
-          <ColorSchemeToggle />
+          <ThemePicker />
           <MenuItem icon={<ExpandIcon />} onClick={onDesktop}>
             Desktop view
           </MenuItem>

@@ -1,38 +1,95 @@
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { Caller } from '../api/types'
-import { CardIcon, ChevronDownIcon, ContrastIcon, ExternalIcon, MoonIcon, ShieldIcon, SignOutIcon, SunIcon, UserIcon } from '../board/icons'
-import { useColorScheme } from '../theme'
+import { CardIcon, CheckIcon, ChevronDownIcon, ContrastIcon, ExternalIcon, ShieldIcon, SignOutIcon, UserIcon } from '../board/icons'
+import { BUILT_IN_THEMES, useTheme } from '../theme'
+import { tokenValue, type Theme } from '../themes/themeFile'
 import { Face } from './Avatar'
 import { Menu, MenuItem } from './Menu'
 
-/**
- * Switches between the Productivity (dark) and Positivity (light) color schemes, in this browser: the name of the one
- * in use slides in, and the switch's knob slides over with a moon or a sun in it. The menu stays open to show it.
- */
-export function ColorSchemeToggle() {
-  const { scheme, choose } = useColorScheme()
-  const on = scheme === 'positivity'
+/** A little picture of a theme, drawn from its own tokens: the board under its bar, the accent and three card fills. */
+function ThemeSwatch({ theme }: { theme: Theme }) {
+  const token = (name: string) => tokenValue(theme, name)
   return (
-    <button
-      type="button"
-      role="menuitemcheckbox"
-      aria-checked={on}
-      aria-label="Positivity colors"
-      className="menu-item scheme-toggle"
-      title={on ? 'Positivity: light daytime colors. Switch for Productivity, the dark ones.' : 'Productivity: dark colors. Switch for Positivity, the light daytime ones.'}
-      onClick={() => choose(on ? 'productivity' : 'positivity')}
-    >
-      <ContrastIcon />
-      <span className="scheme-names" aria-hidden="true">
-        <span className="scheme-name productivity">Productivity</span>
-        <span className="scheme-name positivity">Positivity</span>
+    <span className="theme-swatch" aria-hidden="true" style={{ background: token('bg'), borderColor: token('line') }}>
+      <span className="theme-swatch-bar" style={{ background: token('bar') }}>
+        <span style={{ background: token('accent') }} />
       </span>
-      <span className="scheme-switch" aria-hidden="true">
-        <span className="scheme-knob">
-          <MoonIcon size={12} />
-          <SunIcon size={12} />
-        </span>
+      <span className="theme-swatch-cards">
+        <span style={{ background: token('fill-butter') }} />
+        <span style={{ background: token('fill-mint') }} />
+        <span style={{ background: token('fill-sky') }} />
       </span>
-    </button>
+    </span>
+  )
+}
+
+/**
+ * Picks the theme, in this browser: a row naming the theme in use that opens the list of themes in place, each with a
+ * preview of its colors. The menu stays open, so the page's fade to the new theme shows behind it.
+ */
+export function ThemePicker() {
+  const { theme, choose } = useTheme()
+  const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (open) listRef.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus()
+  }, [open])
+
+  // Up and down move between the themes, Home and End to the first and last.
+  function onListKeyDown(e: KeyboardEvent) {
+    const options = [...(listRef.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])]
+    const at = options.indexOf(document.activeElement as HTMLElement)
+    const next = ({ ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: options.length - 1 } as Record<string, number>)[e.key]
+    if (next === undefined) return
+    e.preventDefault()
+    options[(next + options.length) % options.length]?.focus()
+  }
+
+  return (
+    <div className="theme-picker">
+      <button
+        ref={triggerRef}
+        type="button"
+        role="menuitem"
+        aria-haspopup="true"
+        aria-expanded={open}
+        className="menu-item theme-picker-trigger"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <ContrastIcon />
+        <span className="menu-item-text">Theme</span>
+        <span className="theme-picker-current">{theme.name}</span>
+        <ChevronDownIcon />
+      </button>
+      {open && (
+        <div ref={listRef} className="theme-picker-list" role="group" aria-label="Theme" onKeyDown={onListKeyDown}>
+          {BUILT_IN_THEMES.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              role="menuitemradio"
+              aria-checked={option.id === theme.id}
+              className="menu-item theme-option"
+              title={option.description}
+              onClick={() => {
+                if (option.id !== theme.id) choose(option.id)
+                setOpen(false)
+                triggerRef.current?.focus()
+              }}
+            >
+              <ThemeSwatch theme={option} />
+              <span className="theme-option-text">
+                <span className="theme-option-name">{option.name}</span>
+                <span className="theme-option-description">{option.description}</span>
+              </span>
+              {option.id === theme.id && <CheckIcon />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -91,7 +148,7 @@ export function SettingsMenu({ user, canSwitch, onAccount, onMobile, onSignOut }
               Admin
             </MenuItem>
           )}
-          <ColorSchemeToggle />
+          <ThemePicker />
           {canSwitch && (
             <MenuItem icon={<CardIcon />} onClick={onMobile}>
               Mobile view

@@ -1,208 +1,23 @@
 /*
- * "Night shift" board design (docs/Scrum Board — Night shift.html). Two color schemes, picked in the settings menu
- * (theme.ts): Productivity, the dark one on :root, and Positivity, a light "misty morning" one with navy bars
- * ([data-theme='positivity'] below). Every color the schemes differ in is a token here.
+ * "Night shift" board design (docs/Scrum Board — Night shift.html). The colors and fonts come from the theme in use: a
+ * theme file (themes/*.json, checked against themes/theme.schema.json, docs/themes.md) that theme.ts turns into one
+ * stylesheet of custom properties (--bg, --panel, --accent, ...), picked in the settings menu. Every color a theme may
+ * change is such a token: use them here, never a hard-coded color, and add a token to the schema and the built-in
+ * themes when a new one is needed.
  */
 :root {
-  --bg: #0e1014;
-  --bar: #111318;
-  --bar-line: #1f242d;
-  --panel: #161a21;
-  --panel-2: #171b22;
-  --dialog: #14171d;
-  --dialog-line: #2a303b;
-  --line: #262b35;
-  --line-strong: #303644;
-  --text: #e6e8ec;
-  --text-2: #c9ced8;
-  --text-body: #d3d7de;
-  --muted: #9aa3b2;
-  --subtle: #8b94a5;
-  --hover: #1d222b;
-  --tool-hover: #232833;
-  --row-hover: #1a1e26;
-  --accent: #7cc4ff;
-  --accent-ink: #0e1622;
-  --accent-bg: #263142;
-  --danger: #ff8a80;
-  --danger-strong: #e5484d;
-  --bucket-bg: rgba(20, 23, 29, 0.8);
-  /* A bucket on the board: nearly opaque, so one drawn over others covers them, with the dots a little fainter. */
-  --bucket-fill: rgba(20, 23, 29, 0.97);
-  --bucket-dot: rgba(255, 255, 255, 0.06);
-  --dot: rgba(255, 255, 255, 0.1);
-  --mini-bg: #111419;
-  --mini-dot: rgba(255, 255, 255, 0.08);
-  --chip: #1d222b;
-  --dim: rgba(7, 8, 11, 0.78);
-  --minimap-bucket-fill: #2a303b;
-  --slot: #3a4150;
-  --halo: #c4a7ff;
-  --float-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
   /* Width of every scroll bar; floating controls keep this much clear of a canvas's edges. */
   --scrollbar: 10px;
-  --scrollbar-thumb: #3a4150;
-  --scrollbar-thumb-hover: #4a5265;
-  --scrollbar-track: #111318;
-  --window-shadow: 0 40px 100px rgba(0, 0, 0, 0.6);
-  --dialog-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
-  --avatar-bg: #20242c;
-  --avatar-text: #e6e8ec;
-  --avatar-more-bg: #2e3441;
-  --avatar-more-text: #c9ced8;
-  /* Agents' avatars, chips and badges. */
-  --agent-bg: #2a2140;
-  --agent-text: #d9c9ff;
-  /* A connected Discord server's badge, in Discord's own blurple. */
-  --discord-bg: #262a52;
-  --discord-text: #c9cdff;
-
-  --ink: #17181b;
-  --fill-butter: #f3d77a;
-  --fill-mint: #9fe0c0;
-  --fill-sky: #9ccbf5;
-  --fill-coral: #f4a99a;
-  --fill-lilac: #cdb8f5;
-  /* The fills as text or icons on a panel (the card tool, status labels); a scheme with pale fills makes them deeper. */
-  --tone-butter: var(--fill-butter);
-  --tone-mint: var(--fill-mint);
-  --tone-sky: var(--fill-sky);
-  --tone-coral: var(--fill-coral);
-  --tone-lilac: var(--fill-lilac);
-  /* A ghost button's own background; transparent where its outline shows well enough. */
-  --ghost-bg: transparent;
-
-  /* Pen inks (InkColor): light ones for the dark board, dark ones for drawing over a card's fill. */
-  --ink-chalk: #e6e8ec;
-  --ink-butter: #f3d77a;
-  --ink-mint: #9fe0c0;
-  --ink-sky: #9ccbf5;
-  --ink-coral: #ff8a73;
-  --ink-lilac: #cdb8f5;
-  --ink-ink: #17181b;
-  --ink-ochre: #7a5a00;
-  --ink-pine: #1f6249;
-  --ink-ocean: #1d5a8c;
-  --ink-brick: #963528;
-  --ink-violet: #663d8f;
-
-  --font: Geist, ui-sans-serif, system-ui, sans-serif;
-  --mono: 'Geist Mono', ui-monospace, monospace;
 
   font: 14px/1.4 var(--font);
+  /* Until the theme's stylesheet is in, the page is Productivity's dark. */
   color-scheme: dark;
   color: var(--text);
-  background: var(--bg);
+  background: var(--bg, #0e1014);
   -webkit-font-smoothing: antialiased;
 }
 
-/*
- * Positivity, "misty morning": a blue-grey board, navy bars, navy text and a blush warmth, with softer card fills and
- * pen inks deep enough to show on the light board (Chalk draws in navy here). Menus opened from a bar take these again
- * (the bars have their own, below).
- */
-:root[data-theme='positivity'],
-:root[data-theme='positivity'] :is(.topbar, .m-bar, .m-tabs-bar, .m-actions, .m-search.in-bar) .menu-panel {
-  --bg: #c4cbd3;
-  --bar: #34465f;
-  --bar-line: #2b3a52;
-  --panel: #e3e7ec;
-  --panel-2: #dde2e8;
-  --dialog: #e8ebef;
-  --dialog-line: #b3bcc8;
-  --line: #b8c1cc;
-  --line-strong: #a3adba;
-  --text: #2b3a52;
-  --text-2: #34465f;
-  --text-body: #2f3d55;
-  --muted: #3f4a5c;
-  --subtle: #5a6679;
-  --hover: #d4dae1;
-  --tool-hover: #ccd3dc;
-  --row-hover: #d9dee5;
-  --accent: #3f5490;
-  --accent-ink: #ffffff;
-  --accent-bg: #c9d1e6;
-  --danger: #a8525e;
-  --danger-strong: #c4434e;
-  --bucket-bg: rgba(213, 219, 226, 0.8);
-  --bucket-fill: rgba(213, 219, 226, 0.97);
-  --bucket-dot: rgba(43, 58, 82, 0.08);
-  --dot: rgba(43, 58, 82, 0.16);
-  --mini-bg: #d5dbe2;
-  --mini-dot: rgba(43, 58, 82, 0.12);
-  --chip: #d4dae1;
-  --dim: rgba(196, 203, 211, 0.8);
-  --minimap-bucket-fill: #aab4c1;
-  --slot: #8592a5;
-  --halo: #6f5bb0;
-  --float-shadow: 0 12px 32px rgba(43, 58, 82, 0.22);
-  --scrollbar-thumb: #a3adba;
-  --scrollbar-thumb-hover: #8592a5;
-  --scrollbar-track: #cbd1d9;
-  --window-shadow: 0 40px 100px rgba(43, 58, 82, 0.32);
-  --dialog-shadow: 0 24px 60px rgba(43, 58, 82, 0.28);
-  --avatar-bg: #3f5490;
-  --avatar-text: #f2f4f8;
-  --avatar-more-bg: #34465f;
-  --avatar-more-text: #e3e7ec;
-  --agent-bg: #d7d1ec;
-  --agent-text: #45307e;
-  --discord-bg: #d3d7f2;
-  --discord-text: #343a8f;
-
-  --ink: #1f2b40;
-  --fill-butter: #f3dfa8;
-  --fill-mint: #c8e2d5;
-  --fill-sky: #dde7f3;
-  --fill-coral: #edc8c4;
-  --fill-lilac: #d7d1ec;
-  --tone-butter: #95690f;
-  --tone-mint: #2c7454;
-  --tone-sky: #3a66a3;
-  --tone-coral: #a8525e;
-  --tone-lilac: #64509f;
-  --ghost-bg: rgba(255, 255, 255, 0.4);
-
-  --ink-chalk: #2b3a52;
-  --ink-butter: #b8892a;
-  --ink-mint: #3d8a68;
-  --ink-sky: #3f6fb0;
-  --ink-coral: #a8525e;
-  --ink-lilac: #6f5bb0;
-
-  color-scheme: light;
-}
-
-/* Positivity's navy bars: light text and lines on them, with what is drawn on the bar taking these tokens. */
-:root[data-theme='positivity'] :is(.topbar, .m-bar, .m-tabs-bar, .m-actions, .m-search.in-bar) {
-  --text: #eef1f5;
-  --text-2: #d9dfe7;
-  --text-body: #e3e7ec;
-  --muted: #b7c1ce;
-  --subtle: #a1adbc;
-  --hover: rgba(255, 255, 255, 0.1);
-  --tool-hover: rgba(255, 255, 255, 0.14);
-  --line: #4a5d78;
-  --line-strong: #5a6d88;
-  --panel: #3d5170;
-  --chip: rgba(255, 255, 255, 0.12);
-  --accent: #a9bcf0;
-  --accent-ink: #1f2b40;
-  --accent-bg: #44588a;
-  --avatar-more-bg: #4a5d78;
-  --ghost-bg: transparent;
-  color-scheme: dark;
-  /* Inherited text resolves its color where it is set, so the bar sets it again with its own token. */
-  color: var(--text);
-}
-
-:root[data-theme='positivity'] :is(.topbar, .m-bar, .m-tabs-bar, .m-actions, .m-search.in-bar) .menu-panel {
-  color-scheme: light;
-  color: var(--text);
-}
-
-/* Switching schemes fades the whole page from one to the other, like a dimmer (applyColorScheme in theme.ts). */
+/* Switching schemes fades the whole page from one to the other, like a dimmer (applyTheme in theme.ts). */
 :root.scheme-fade::view-transition-old(root),
 :root.scheme-fade::view-transition-new(root) {
   animation-duration: 0.75s;
@@ -668,112 +483,113 @@ main {
 }
 
 /*
- * The color scheme switch (ColorSchemeToggle): the name of the scheme in use slides in, and the knob slides over with a
- * little bounce, a moon in it at night and a sun by day. During the page's fade it is drawn live (its own view
- * transition below), so its own animation shows.
+ * The theme picker (ThemePicker in SettingsMenu): a row naming the theme in use that opens the themes in place, each
+ * with a little preview of its own colors (ThemeSwatch, drawn from its tokens rather than the page's).
  */
-.scheme-toggle {
-  view-transition-name: scheme-toggle;
-}
-
-.scheme-names {
-  display: grid;
-  flex: 1;
+.theme-picker-current {
   overflow: hidden;
-  text-align: left;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.scheme-name {
-  grid-area: 1 / 1;
-  transition: opacity 0.3s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+.theme-picker-trigger svg:last-child {
+  color: var(--muted);
+  transition: transform 0.2s ease;
 }
 
-.scheme-toggle[aria-checked='true'] .scheme-name.productivity,
-.scheme-toggle[aria-checked='false'] .scheme-name.positivity {
-  opacity: 0;
-  transform: translateY(-8px);
+.theme-picker-trigger[aria-expanded='true'] svg:last-child {
+  transform: rotate(180deg);
 }
 
-.scheme-toggle[aria-checked='false'] .scheme-name.productivity,
-.scheme-toggle[aria-checked='true'] .scheme-name.positivity {
-  opacity: 1;
-  transform: none;
+/* As wide as the menu, never wider: long descriptions end in an ellipsis instead of widening it. */
+.theme-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 0;
+  min-width: 100%;
+  margin: 2px 0 4px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--panel-2);
 }
 
-.scheme-switch {
-  position: relative;
+.theme-option {
+  min-height: 48px;
+}
+
+.theme-option[aria-checked='true'] {
+  background: var(--accent-bg);
+}
+
+.theme-option > svg {
+  color: var(--accent);
+}
+
+.theme-option-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.theme-option-name {
+  font-weight: 500;
+}
+
+.theme-option-description {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-swatch {
+  display: flex;
   flex: none;
-  width: 44px;
-  height: 24px;
-  border-radius: 999px;
-  background: #2e3557;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
-  transition: background 0.4s ease;
+  flex-direction: column;
+  width: 40px;
+  height: 30px;
+  overflow: hidden;
+  border: 1px solid;
+  border-radius: 6px;
 }
 
-.scheme-toggle[aria-checked='true'] .scheme-switch {
-  background: #f2c76b;
+.theme-swatch-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 8px;
+  padding: 0 4px;
 }
 
-.scheme-knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
+.theme-swatch-bar > span {
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.scheme-toggle[aria-checked='true'] .scheme-knob {
-  transform: translateX(20px) rotate(180deg);
+.theme-swatch-cards {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
 }
 
-.scheme-knob svg {
-  grid-area: 1 / 1;
-  transition: opacity 0.3s ease, transform 0.45s ease;
-}
-
-.scheme-knob svg:first-child {
-  color: #4a5486;
-}
-
-.scheme-knob svg:last-child {
-  color: #d99a1e;
-  opacity: 0;
-  transform: rotate(-180deg) scale(0.5);
-}
-
-.scheme-toggle[aria-checked='true'] .scheme-knob svg:first-child {
-  opacity: 0;
-  transform: scale(0.5);
-}
-
-.scheme-toggle[aria-checked='true'] .scheme-knob svg:last-child {
-  opacity: 1;
-  transform: rotate(-180deg);
+.theme-swatch-cards > span {
+  width: 8px;
+  height: 10px;
+  border-radius: 1px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .scheme-name,
-  .scheme-switch,
-  .scheme-knob,
-  .scheme-knob svg {
+  .theme-picker-trigger svg:last-child {
     transition: none;
   }
-}
-
-/* During the page's fade the switch is drawn as it is now, not faded from a picture, so its slide shows. */
-::view-transition-old(scheme-toggle) {
-  display: none;
-}
-
-::view-transition-new(scheme-toggle) {
-  animation: none;
 }
 
 .menu-divider {
