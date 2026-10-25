@@ -46,7 +46,7 @@
     {
       "name": "perf-api",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["tools/perf/serve-board.mjs", "--snapshot=tools/perf/out/board.json", "--export=tools/perf/out/perf-board.json", "--port=5099"],
+      "runtimeArgs": ["tools/perf/serve-board.mjs", "--snapshot=tools/perf/out/board.json", "--clip=tools/perf/out/perf-board.json", "--port=5099"],
       "port": 5099
     },
     {

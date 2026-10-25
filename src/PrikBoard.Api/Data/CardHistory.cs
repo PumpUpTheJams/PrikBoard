@@ -13,7 +13,7 @@ namespace PrikBoard.Api.Data;
 /// cards and the images and drawings on them with what was loaded. Every write path (REST, MCP, undo) goes through here,
 /// so handlers don't record anything themselves, except where they bypass the change tracker (<see cref="Record"/>).
 /// Only saves made for an authenticated caller (a session or a token) are recorded, and not cards added together with
-/// their board (an import).
+/// their board.
 /// </summary>
 public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInterceptor
 {

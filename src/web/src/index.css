@@ -1104,6 +1104,165 @@ main {
   pointer-events: none;
 }
 
+/* A big paste: its outline follows the pointer until it is placed, then waits there while it is uploaded */
+
+.paste-ghost {
+  position: absolute;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.paste-ghost svg {
+  display: block;
+  overflow: visible;
+}
+
+.paste-ghost-bucket {
+  fill: color-mix(in srgb, var(--accent) 8%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1.5px;
+  stroke-dasharray: 6 4;
+}
+
+.paste-ghost-cards {
+  fill: color-mix(in srgb, var(--accent) 22%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1px;
+}
+
+.paste-ghost-others {
+  fill: color-mix(in srgb, var(--accent) 12%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1px;
+  stroke-dasharray: 3 3;
+}
+
+/* Placed and on its way: it breathes until the board has it. */
+.paste-ghost.placed {
+  animation: paste-pending 1.6s ease-in-out infinite;
+}
+
+@keyframes paste-pending {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.paste-ghost-label {
+  position: absolute;
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+  box-shadow: var(--float-shadow);
+  transform-origin: 0 0;
+  cursor: default;
+}
+
+/* A copy with images on its way to the clipboard, above the toasts */
+
+.transfer-panel {
+  position: absolute;
+  bottom: calc(64px + var(--scrollbar));
+  left: 50%;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+  box-shadow: var(--float-shadow);
+  transform: translateX(-50%);
+  animation: toast-in 0.18s ease-out;
+}
+
+.transfer-text {
+  font-variant-numeric: tabular-nums;
+}
+
+.transfer-hint {
+  color: var(--muted);
+}
+
+.transfer-bar {
+  position: relative;
+  width: 140px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.transfer-bar span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.2s ease-out;
+}
+
+/* How far it is isn't known yet: a stripe goes back and forth. */
+.transfer-bar.waiting span {
+  width: 30%;
+  animation: transfer-waiting 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes transfer-waiting {
+  from {
+    left: 0;
+  }
+  to {
+    left: 70%;
+  }
+}
+
+.transfer-button {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.transfer-button:hover:not(:disabled) {
+  background: var(--tool-hover);
+  color: var(--text);
+}
+
+.transfer-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.transfer-button.primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .paste-ghost.placed,
+  .transfer-bar.waiting span {
+    animation: none;
+  }
+}
+
 /* Where a card or group being dragged started, once the drag has left it: released back over it, nothing changes. */
 .drag-home {
   position: absolute;
@@ -1774,6 +1933,14 @@ main {
   border-radius: 1px;
   background: var(--fill);
   opacity: 0.8;
+}
+
+/* Where a big paste on its way lands. */
+.minimap-paste {
+  position: absolute;
+  border: 1px dashed var(--accent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
 .minimap-viewport {

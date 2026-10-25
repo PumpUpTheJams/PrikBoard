@@ -34,6 +34,12 @@ public sealed class FileStore : IDisposable
     /// <summary>Holds the files that belong to no board: avatars.</summary>
     private const string AvatarsFolder = "avatars";
 
+    /// <summary>Holds files uploaded for a paste that is still to come (<see cref="PasteFiles"/>): they never have a row there.</summary>
+    private const string PastingFolder = "pasting";
+
+    /// <summary>A file waits in the pasting folder this long: a paste can't use it after <see cref="PasteFiles.Lifetime"/>.</summary>
+    private static readonly TimeSpan PastingGrace = PasteFiles.Lifetime + TimeSpan.FromHours(1);
+
     private readonly MemoryCache _cache;
     private readonly long _maxCachedFileBytes;
     private readonly ILogger _logger;
@@ -121,6 +127,41 @@ public sealed class FileStore : IDisposable
         stream.Flush(flushToDisk: true);
     }
 
+    /// <summary>
+    /// Writes a file uploaded for a paste (<see cref="PasteFiles"/>) to the pasting folder, where it waits for the paste
+    /// (<see cref="MovePasted"/>) and the sweep deletes it after <see cref="PastingGrace"/> otherwise.
+    /// </summary>
+    public async Task WritePastingAsync(Guid id, ReadOnlyMemory<byte> data, CancellationToken ct)
+    {
+        Directory.CreateDirectory(Path.Combine(Root, PastingFolder));
+        await using var stream = new FileStream(PastingPath(id), FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, FileOptions.Asynchronous);
+        await stream.WriteAsync(data, ct);
+        stream.Flush(flushToDisk: true);
+    }
+
+    /// <summary>Copies the content of <paramref name="from"/> to the pasting folder as <paramref name="id"/>, as an upload for a paste would be.</summary>
+    public async Task CopyToPastingAsync(StoredFile from, Guid id, CancellationToken ct)
+    {
+        Directory.CreateDirectory(Path.Combine(Root, PastingFolder));
+        await using var source = new FileStream(PathOf(from), FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, FileOptions.Asynchronous);
+        await using var target = new FileStream(PastingPath(id), FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, FileOptions.Asynchronous);
+        await source.CopyToAsync(target, BufferSize, ct);
+        target.Flush(flushToDisk: true);
+    }
+
+    /// <summary>Whether the file uploaded for a paste as <paramref name="id"/> is still waiting in the pasting folder.</summary>
+    public bool IsPasting(Guid id) => File.Exists(PastingPath(id));
+
+    /// <summary>Moves the file uploaded for a paste into its place as <paramref name="file"/>, before <paramref name="file"/>'s row is saved.</summary>
+    public void MovePasted(StoredFile file)
+    {
+        var path = PathOf(file);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.Move(PastingPath(file.Id), path);
+    }
+
+    private string PastingPath(Guid id) => Path.Combine(Root, PastingFolder, id.ToString());
+
     /// <summary>The whole file, from memory when it is there.</summary>
     public async Task<byte[]> ReadAllBytesAsync(StoredFile file, CancellationToken ct) =>
         _cache.TryGetValue(file.Id, out byte[]? cached) ? cached! : await File.ReadAllBytesAsync(PathOf(file), ct);
@@ -173,9 +214,10 @@ public sealed class FileStore : IDisposable
             RETURNING f."Id", f."BoardId"
             """).ToListAsync(ct);
         foreach (var file in unreferenced) Delete(file.Id, PathOf(file.BoardId, file.Id));
+        var pasting = DeletePastingOlderThan(now - PastingGrace);
 
         // An empty table more likely means a new, wrong database than a store without files: leave the disk alone.
-        if (!await db.StoredFiles.AnyAsync(ct)) return unreferenced.Count;
+        if (!await db.StoredFiles.AnyAsync(ct)) return unreferenced.Count + pasting;
 
         var before = now - StrayGrace;
         var strays = FilesOlderThan(before);
@@ -189,13 +231,13 @@ public sealed class FileStore : IDisposable
         {
             _logger.LogError("Found {Count} files in {Root} without a row; deleting none, as that many suggests the wrong database",
                 orphans.Count, Root);
-            return unreferenced.Count;
+            return unreferenced.Count + pasting;
         }
         foreach (var (id, path) in orphans) Delete(id, path);
         if (orphans.Count > 0) _logger.LogWarning("Deleted {Count} files without a row from {Root}", orphans.Count, Root);
 
         DeleteEmptyBoardFolders(before);
-        return unreferenced.Count + orphans.Count;
+        return unreferenced.Count + pasting + orphans.Count;
     }
 
     private record SweptFile(Guid Id, Guid? BoardId);
@@ -242,6 +284,18 @@ public sealed class FileStore : IDisposable
                 // Something arrived in the meantime.
             }
         }
+    }
+
+    /// <summary>Deletes the files uploaded for pastes that were last written before <paramref name="before"/>; returns how many.</summary>
+    private int DeletePastingOlderThan(DateTimeOffset before)
+    {
+        var folder = Path.Combine(Root, PastingFolder);
+        if (!Directory.Exists(folder)) return 0;
+        var old = Directory.EnumerateFiles(folder)
+            .Where(path => IsId(Path.GetFileName(path), out _) && File.GetLastWriteTimeUtc(path) < before.UtcDateTime)
+            .ToList();
+        foreach (var path in old) File.Delete(path);
+        return old.Count;
     }
 
     private static bool IsId(string name, out Guid id) => Guid.TryParseExact(name, "D", out id) && id.ToString() == name;

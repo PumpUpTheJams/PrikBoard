@@ -142,22 +142,6 @@ public class TrashAndCollapseApiTests(PrikBoardApiFactory factory) : IClassFixtu
         Assert.Equal(toDo.X + 1000, moved.X);
     }
 
-    [Fact]
-    public async Task A_collapsed_bucket_survives_export_and_import_with_its_cards()
-    {
-        var board = await _client.CreateBoardAsync("Collapse export");
-        var toDo = board.Buckets[0];
-        await _client.CreateCardAsync(board.Id, "Inside");
-        (await _client.PatchAsJsonAsync($"/api/buckets/{toDo.Id}", new { collapsed = true })).EnsureSuccessStatusCode();
-        var file = await (await _client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync();
-
-        var response = await _client.PostAsync("/api/boards/import", new StringContent(file, System.Text.Encoding.UTF8, "application/json"));
-        var imported = (await response.Content.ReadFromJsonAsync<BoardDetail>())!;
-
-        Assert.Equal([true, false, false], imported.Buckets.Select(b => b.Collapsed));
-        Assert.Equal(imported.Buckets[0].Id, Assert.Single(imported.Cards).BucketId);
-    }
-
     private async Task<TrashContents> Trash(Guid boardId, string? search = null) =>
         (await _client.GetFromJsonAsync<TrashContents>($"/api/boards/{boardId}/trash{(search is null ? "" : $"?search={search}")}"))!;
 

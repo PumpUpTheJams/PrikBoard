@@ -376,21 +376,6 @@ public class PlaceItemsApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
         Assert.Equal(todo.Id, await TopAfter(await client.PostAsJsonAsync($"/api/buckets/{todo.Id}/items", new { cardIds = new[] { card.Id } })));
     }
 
-    [Fact]
-    public async Task An_exported_board_imports_with_its_buckets_stacked_and_listed_as_they_were()
-    {
-        var client = await factory.CreateSignedInClientAsync("stacking-export@example.com");
-        var board = await client.CreateBoardAsync("Stacked");
-        (await client.PostAsync($"/api/buckets/{board.Buckets[0].Id}/front", null)).EnsureSuccessStatusCode();
-
-        var file = await (await client.GetAsync($"/api/boards/{board.Id}/export")).Content.ReadAsStringAsync();
-        var imported = await client.PostAsync("/api/boards/import", new StringContent(file, System.Text.Encoding.UTF8, "application/json"));
-        var copy = (await imported.Content.ReadFromJsonAsync<BoardDetail>())!;
-
-        Assert.Equal(["To do", "Doing", "Done"], copy.Buckets.Select(b => b.Name));
-        Assert.Equal(["Doing", "Done", "To do"], copy.Buckets.OrderBy(b => b.StackedAt).Select(b => b.Name));
-    }
-
     private async Task<CardDetail> CreateCard(Guid boardId, object request)
     {
         var response = await _client.PostAsJsonAsync($"/api/boards/{boardId}/cards", request);

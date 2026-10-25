@@ -113,14 +113,6 @@ public static class Layout
         return true;
     }
 
-    /// <summary>Places every card, image and drawing by position, for a board built from scratch (an import).</summary>
-    public static void PlaceAll(IEnumerable<Card> cards, IEnumerable<ICanvasItem> items, IEnumerable<Bucket> buckets)
-    {
-        var stacked = BackToFront(buckets);
-        foreach (var card in cards) Place(card, stacked);
-        foreach (var item in items) Place(item, stacked);
-    }
-
     /// <summary>
     /// Keeps a card in its bucket if that bucket is still in <paramref name="stacked"/> and the card still overlaps it (it
     /// may hang over the edge, as a drop by the pointer leaves it); otherwise it goes loose, never into another bucket.

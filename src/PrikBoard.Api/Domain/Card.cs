@@ -32,7 +32,7 @@ public class Card
     /// <summary>
     /// While <see cref="AgentWorking"/>: the assignee the agent works for, whose avatar shows it. That is the person whose
     /// access token the agent uses (agents behind a person's token are never assignees themselves), or an agent without
-    /// such an owner; null when it isn't known (the flag set by hand or by an import).
+    /// such an owner; null when it isn't known (the flag set by hand).
     /// </summary>
     public Guid? AgentWorkingForId { get; set; }
     public int X { get; set; }

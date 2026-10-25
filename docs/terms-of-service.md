@@ -47,7 +47,7 @@ The Service relies on third parties, such as sign-in providers and Discord. We a
 
 ## 7. Availability and changes
 
-The Service is run on a best-effort basis. It may be slow, unavailable, changed or shut down at any time, with or without notice. Data may be lost: keep your own copies of anything important (boards can be exported).
+The Service is run on a best-effort basis. It may be slow, unavailable, changed or shut down at any time, with or without notice. Data may be lost: keep your own copies of anything important (a whole board can be copied and pasted elsewhere).
 
 ## 8. Ending your use
 

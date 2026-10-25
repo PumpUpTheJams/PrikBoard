@@ -154,10 +154,12 @@ interface BoardMapItemsProps extends MapPlace {
   current?: string | null
   /** The ids of the cards faded by the filters or the search, separated by spaces. */
   dimmedKey: string
+  /** Where a big paste on its way lands. */
+  pasting?: Rect | null
 }
 
 /** The board's buckets, images and cards: they only render again when they or the map's scale change, not as the view scrolls. */
-export const BoardMapItems = memo(function BoardMapItems({ left, top, scale, buckets, cards, images, current, dimmedKey }: BoardMapItemsProps) {
+export const BoardMapItems = memo(function BoardMapItems({ left, top, scale, buckets, cards, images, current, dimmedKey, pasting }: BoardMapItemsProps) {
   const dimmed = new Set(dimmedKey.split(' '))
   return (
     <>
@@ -174,6 +176,7 @@ export const BoardMapItems = memo(function BoardMapItems({ left, top, scale, buc
           style={toMap({ x: n.x, y: n.y, width: CARD_WIDTH, height: CARD_HEIGHT }, left, top, scale)}
         />
       ))}
+      {pasting && <span className="minimap-paste" style={toMap(pasting, left, top, scale)} />}
     </>
   )
 })

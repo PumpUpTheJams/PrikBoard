@@ -15,9 +15,6 @@ public static class CardLinks
     /// <summary>Where the web app shows the card: its board, with the card opened up.</summary>
     public static string CardPath(string boardShortId, int number) => $"{BoardsPrefix}{boardShortId}{CardsSegment}{number}";
 
-    /// <summary>The older form of a card's path, by ids. Exports still refer to the cards in the file this way.</summary>
-    public static string CardPath(Guid boardId, Guid cardId) => $"{BoardsPrefix}{boardId}{CardsSegment}{cardId}";
-
     /// <summary>How people and agents refer to a card: the board's key and the card's number, e.g. "MPCT-415".</summary>
     public static string ReadableId(string boardKey, int number) => $"{boardKey}-{number}";
 

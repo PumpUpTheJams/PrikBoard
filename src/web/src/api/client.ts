@@ -47,6 +47,9 @@ import type {
   ImageUploadRequest,
   ImageUploadUrl,
   ImagePlacement,
+  ItemIds,
+  PasteImageFile,
+  RestoredItems,
   NewDrawing,
   NewDrawingStroke,
   NewCardComponent,
@@ -139,8 +142,8 @@ export function setLiveConnectionId(id: string | null) {
 }
 
 /** A JSON request, or with a Blob body the file itself (sent with the file's own content type). */
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const response = await send(method, path, body)
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  const response = await send(method, path, body, signal)
   const text = await response.text()
   return (text ? JSON.parse(text) : undefined) as T
 }
@@ -153,17 +156,24 @@ const statusMessages: Record<number, string> = {
   504: 'The server took too long to answer.',
 }
 
-/** Sends the request and throws an ApiError unless the answer is a success. */
-async function send(method: string, path: string, body?: unknown): Promise<Response> {
+/** The headers every request sends: the client's own, and the live connection on changes. */
+async function headersFor(method: string): Promise<Record<string, string>> {
   const headers: Record<string, string> = { ...(await config.headers?.()) }
-  if (body !== undefined) headers['Content-Type'] = body instanceof Blob ? body.type : 'application/json'
   if (method !== 'GET' && liveConnectionId) headers['X-PrikBoard-Live'] = liveConnectionId
+  return headers
+}
+
+/** Sends the request and throws an ApiError unless the answer is a success. */
+async function send(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<Response> {
+  const headers = await headersFor(method)
+  if (body !== undefined) headers['Content-Type'] = body instanceof Blob ? body.type : 'application/json'
   let response: Response
   try {
     response = await fetch(`${config.baseUrl ?? ''}/api${path}`, {
       method,
       headers,
       body: body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body),
+      signal,
     })
   } catch (error) {
     // The server drops the connection on a body over its request limit, before it can answer.
@@ -172,15 +182,17 @@ async function send(method: string, path: string, body?: unknown): Promise<Respo
   }
 
   if (response.status === 401) onUnauthorized()
-  if (!response.ok) {
-    const problem = (await response.json().catch(() => null)) as ProblemDetails | null
-    const firstError = problem?.errors && Object.values(problem.errors)[0]?.[0]
-    // Without a problem (a proxy's answer, say) there may be no status text either: HTTP/2 has none.
-    const message = firstError ?? problem?.detail ?? problem?.title ?? (response.statusText || statusMessages[response.status])
-    throw new ApiError(response.status, message ?? `The server answered ${response.status}.`, problem?.errors)
-  }
+  if (!response.ok) throw failure(response.status, response.statusText, (await response.json().catch(() => null)) as ProblemDetails | null)
 
   return response
+}
+
+/** The error for an answer that isn't a success, from its problem when it has one. */
+function failure(status: number, statusText: string, problem: ProblemDetails | null) {
+  const firstError = problem?.errors && Object.values(problem.errors)[0]?.[0]
+  // Without a problem (a proxy's answer, say) there may be no status text either: HTTP/2 has none.
+  const message = firstError ?? problem?.detail ?? problem?.title ?? (statusText || statusMessages[status])
+  return new ApiError(status, message ?? `The server answered ${status}.`, problem?.errors)
 }
 
 // Method names match the operationIds in the OpenAPI document.
@@ -254,15 +266,6 @@ export const api = {
     },
   ) => request<BoardSummary>('PATCH', `/boards/${boardId}`, changes),
   deleteBoard: (boardId: string) => request<void>('DELETE', `/boards/${boardId}`),
-  /** The board as one file to save: its content with images, but no people. */
-  exportBoard: async (boardId: string) => {
-    const response = await send('GET', `/boards/${boardId}/export`)
-    const name = response.headers.get('Content-Disposition')?.match(/filename\*=(?:UTF-8'')?([^;]+)/i)?.[1]
-    return { blob: await response.blob(), fileName: name ? decodeURIComponent(name) : 'board.prikboard.json' }
-  },
-  /** Makes a new board you own from a file made by exportBoard. The file is sent as it is, as JSON. */
-  importBoard: async (file: Blob) =>
-    request<BoardDetail>('POST', '/boards/import', new Blob([await file.text()], { type: 'application/json' })),
 
   createBucket: (boardId: string, bucket: { name: string } & Partial<Rect>) =>
     request<BucketDetail>('POST', `/boards/${boardId}/buckets`, bucket),
@@ -276,11 +279,25 @@ export const api = {
   placeItemsInBucket: (bucketId: string, placement: PlaceItemsRequest) =>
     request<PlacedItems>('POST', `/buckets/${bucketId}/items`, placement),
 
-  /** The items as a clip, with everything on them (images as base64), for pasteItems here or on another server. Changes nothing. */
-  copyItems: (boardId: string, what: CopyItemsRequest) => request<BoardClip>('POST', `/boards/${boardId}/copy`, what),
-  /** Adds what is in a clip to the board as new items. */
-  pasteItems: (boardId: string, clip: BoardClip, place: PastePlace = {}) =>
-    request<PastedItems>('POST', `/boards/${boardId}/paste`, { clip, ...place }),
+  /**
+   * The items as a clip, with everything on them (images as base64, unless `imageData` is false), for pasteItems here or
+   * on another server. Changes nothing.
+   */
+  copyItems: (boardId: string, what: CopyItemsRequest, signal?: AbortSignal) =>
+    request<BoardClip>('POST', `/boards/${boardId}/copy`, what, signal),
+  /** Adds what is in a clip to the board as new items; `imageFiles` names images uploaded first (uploadPasteImage), by index. */
+  pasteItems: (boardId: string, clip: BoardClip, place: PastePlace = {}, imageFiles?: (string | null)[]) =>
+    request<PastedItems>('POST', `/boards/${boardId}/paste`, { clip, ...place, imageFiles }),
+  /** Answers what pasteItems would (nothing, or its error) without adding anything; images may come without their data. */
+  checkPaste: (boardId: string, clip: BoardClip, place: PastePlace = {}, imageFiles?: (string | null)[], signal?: AbortSignal) =>
+    request<void>('POST', `/boards/${boardId}/paste/check`, { clip, ...place, imageFiles }, signal),
+  /** Uploads one image file of a clip ahead of its paste (sent with the file's own content type). */
+  uploadPasteImage: (boardId: string, file: Blob, signal?: AbortSignal) =>
+    request<PasteImageFile>('POST', `/boards/${boardId}/paste-images`, file, signal),
+  /** Deletes cards, buckets, images and drawings of the board at once, as their own deletes do one by one. */
+  deleteItems: (boardId: string, items: ItemIds) => request<void>('POST', `/boards/${boardId}/items/delete`, items),
+  /** Brings back cards, buckets, images and drawings of the board deleted in the last 7 days, at once. */
+  restoreItems: (boardId: string, items: ItemIds) => request<RestoredItems>('POST', `/boards/${boardId}/items/restore`, items),
   deleteBucket: (bucketId: string) => request<void>('DELETE', `/buckets/${bucketId}`),
   /** Brings back a bucket deleted in the last 7 days, with the same id. */
   restoreBucket: (bucketId: string) => request<BucketDetail>('POST', `/buckets/${bucketId}/restore`),
@@ -354,6 +371,9 @@ export const api = {
   /** Sends a file to an upload URL from createImageUpload; the URL itself is the key. */
   completeImageUpload: (uploadUrl: string, file: Blob) =>
     request<ImageDetail>('PUT', `/image-uploads/${uploadUrl.slice(uploadUrl.lastIndexOf('/') + 1)}`, file),
+  /** An image's file. */
+  getImageContent: async (imageId: string, signal?: AbortSignal) =>
+    (await send('GET', `/images/${imageId}/content`, undefined, signal)).blob(),
   updateImage: (imageId: string, changes: ImageChanges) => request<ImageDetail>('PATCH', `/images/${imageId}`, changes),
   deleteImage: (imageId: string) => request<void>('DELETE', `/images/${imageId}`),
   /** Brings back an image deleted in the last 7 days (not one whose card is deleted: restore the card). */

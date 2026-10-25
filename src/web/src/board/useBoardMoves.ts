@@ -39,39 +39,26 @@ export interface GroupDrop {
 export function useBoardMoves(options: BoardMovesOptions) {
   const { board, selected, setSelected, expanded, closeCard, settle, cardPlace, dropBucket, bucketRect, cardPoint, imageRect, drawingRect } = options
 
-  /** Deletes the selected items at once; buckets go but what is in them stays. */
+  /** Deletes the selected items at once, in one request; buckets go but what is in them stays. */
   function deleteSelected() {
     const items = selected
     if (items.some((s) => s.kind === 'card' && s.id === expanded?.id)) closeCard()
     setSelected([])
-    return runAll(settle, `Delete ${count(items.length, 'item', 'items')}`, `${count(items.length, 'item', 'items')} deleted`, (changes) =>
-      allOf(
-        items.map(async ({ kind, id }) => {
-          if (kind === 'card') {
-            const card = board.cards.find((n) => n.id === id)
-            if (!card) return
-            await api.deleteCard(id)
-            // One with nothing on it is gone for good: nothing to undo.
-            if (!isBlankCard(board, card)) changes.push(deleted(target.card(id), snap.card(card)))
-          } else if (kind === 'bucket') {
-            const bucket = board.buckets.find((b) => b.id === id)
-            if (!bucket) return
-            await api.deleteBucket(id)
-            changes.push(...bucketDelete(board, bucket))
-          } else if (kind === 'image') {
-            const image = board.images.find((i) => i.id === id)
-            if (!image) return
-            await api.deleteImage(id)
-            changes.push(deleted(target.image(id), snap.image(image)))
-          } else {
-            const drawing = board.drawings.find((d) => d.id === id)
-            if (!drawing) return
-            await api.deleteDrawing(id)
-            changes.push(deleted(target.drawing(id), snap.drawing(drawing)))
-          }
-        }),
-      ),
-    )
+    const cards = itemsOf(board, items, 'card')
+    const buckets = itemsOf(board, items, 'bucket')
+    const images = itemsOf(board, items, 'image')
+    const drawings = itemsOf(board, items, 'drawing')
+    const ids = (list: { id: string }[]) => list.map((x) => x.id)
+    return runAll(settle, `Delete ${count(items.length, 'item', 'items')}`, `${count(items.length, 'item', 'items')} deleted`, async (changes) => {
+      await api.deleteItems(board.id, { cardIds: ids(cards), bucketIds: ids(buckets), imageIds: ids(images), drawingIds: ids(drawings) })
+      changes.push(
+        // One with nothing on it is gone for good: nothing to undo.
+        ...cards.filter((card) => !isBlankCard(board, card)).map((card) => deleted(target.card(card.id), snap.card(card))),
+        ...buckets.flatMap((bucket) => bucketDelete(board, bucket)),
+        ...images.map((image) => deleted(target.image(image.id), snap.image(image))),
+        ...drawings.map((drawing) => deleted(target.drawing(drawing.id), snap.drawing(drawing))),
+      )
+    })
   }
 
   /**

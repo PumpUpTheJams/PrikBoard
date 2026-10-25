@@ -1,4 +1,7 @@
 using System.Security.Claims;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +12,7 @@ using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
 using PrikBoard.Api.Live;
-using PastedImage = (PrikBoard.Api.Domain.BoardImage Image, PrikBoard.Api.Contracts.ClippedImage Source, byte[] Data);
+using PastedImage = (PrikBoard.Api.Domain.BoardImage Image, PrikBoard.Api.Contracts.ClippedImage Source, byte[]? Data);
 using PastedDrawing = (PrikBoard.Api.Domain.BoardDrawing Drawing, PrikBoard.Api.Contracts.ClippedDrawing Source);
 
 namespace PrikBoard.Api.Endpoints;
@@ -23,6 +26,12 @@ public static class ClipEndpoints
 {
     /// <summary><see cref="BoardClip.MaxImageBytes"/> in MB, for messages.</summary>
     private const long MaxClipMegabytes = BoardClip.MaxImageBytes / 1024 / 1024;
+
+    /// <summary><see cref="BoardClip.MaxInlineImageBytes"/> in MB, for messages.</summary>
+    private const long MaxInlineMegabytes = BoardClip.MaxInlineImageBytes / 1024 / 1024;
+
+    /// <summary>The largest pasteItems request: a clip with up to <see cref="BoardClip.MaxInlineImageBytes"/> of images as base64, and the rest.</summary>
+    internal const long MaxPasteBytes = 64 * 1024 * 1024;
 
     public static RouteGroupBuilder MapClipEndpoints(this RouteGroupBuilder api)
     {
@@ -38,12 +47,38 @@ public static class ClipEndpoints
                              "and drawings on the board. Changes nothing, even with cut (Editors only): that only marks the clip, so " +
                              "pasting it on another board of this server moves the items. Pass the clip to pasteItems on any board, on this server or " +
                              $"another PrikBoard server. At most {BoardClip.MaxCards} cards, {BoardClip.MaxBuckets} buckets and " +
-                             $"{BoardClip.MaxImageBytes / 1024 / 1024} MB of images per clip.")
+                             $"{MaxInlineMegabytes} MB of images per clip, or {MaxClipMegabytes} MB with imageData false, which leaves the " +
+                             "images' data out (fetch each from getImageContent).")
+            .ProducesValidationProblem();
+
+        boards.MapPost("/{boardId:guid}/paste-images", UploadPasteImage)
+            .RequireBoardRole(BoardRole.Editor)
+            .Quiet()
+            .WithName("uploadPasteImage")
+            .WithSummary("Upload an image for a paste")
+            .WithDescription("For pasting a big clip: send one image file of the clip as the request body (PNG, JPEG, GIF or WebP, at " +
+                             "most 10 MB; the format is read from the file) and give the token you get back in pasteItems' imageFiles, " +
+                             "at that image's index, with its data left out of the clip. Adds nothing to the board by itself: the " +
+                             $"token works for you on this board for {PasteFiles.Lifetime.TotalMinutes:0} minutes, and the file goes " +
+                             "away when no paste uses it.")
+            .Accepts<Stream>(ImageFormats.ContentTypes[0], [.. ImageFormats.ContentTypes[1..], "application/octet-stream"])
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+            .ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
+
+        boards.MapPost("/{boardId:guid}/paste/check", CheckPaste)
+            .RequireBoardRole(BoardRole.Editor)
+            .Quiet()
+            .WithMetadata(new RequestSizeLimitAttribute(MaxPasteBytes), new BufferedBody())
+            .WithName("checkPaste")
+            .WithSummary("Check a paste before making it")
+            .WithDescription("Takes what pasteItems takes and answers as it would (204 for a paste that would go through, or the same " +
+                             "400), but adds nothing. The images' data may be left out, so a big clip can be checked before its " +
+                             "images are uploaded.")
             .ProducesValidationProblem();
 
         boards.MapPost("/{boardId:guid}/paste", PasteItems)
             .RequireBoardRole(BoardRole.Editor)
-            .WithMetadata(new RequestSizeLimitAttribute(BoardTransferEndpoints.MaxImportBytes), new BufferedBody())
+            .WithMetadata(new RequestSizeLimitAttribute(MaxPasteBytes), new BufferedBody())
             .WithName("pasteItems")
             .WithSummary("Paste copied items")
             .WithDescription("Adds what is in a clip from copyItems to the board as new items: cards created by you with new numbers, " +
@@ -54,6 +89,9 @@ public static class ClipEndpoints
                              "the board's first bucket and anything else to a free spot. Tags the board doesn't have yet are added with " +
                              "their colors; assignees stay only when they can be assigned here. Links between the pasted cards point at " +
                              "the new cards; links to other cards stay, or, for a clip from another server, become full links to it. " +
+                             "On the board they were copied from, the copies keep their creators; anywhere else you created them. " +
+                             $"Images come with their data in the clip (at most {MaxInlineMegabytes} MB in all), or, for a bigger clip, are " +
+                             "uploaded first with uploadPasteImage and named in imageFiles. " +
                              "A cut pasted on another board of this server moves the items: the originals go to their board's trash " +
                              "(you need Editor there) and come back as moved; on the board it was cut from it is a 400. A clip " +
                              "from a newer PrikBoard (a newer version, or fields this server doesn't know) is refused with a 400 keyed on " +
@@ -73,21 +111,91 @@ public static class ClipEndpoints
         return await BuildClipAsync(db, files, boardId, request, ServerUrl(http), ct);
     }
 
+    private static async Task<Results<Ok<PasteImageFile>, NotFound, ProblemHttpResult>> UploadPasteImage(
+        Guid boardId, Stream body, HttpRequest request, ClaimsPrincipal principal, FileStore files, IDataProtectionProvider protection,
+        CancellationToken ct)
+    {
+        if (!ImageEndpoints.SendsImage(request)) return ImageEndpoints.Unsupported(ImageEndpoints.SendImageBody);
+        var data = await ImageEndpoints.ReadUpTo(body, ImageFormats.MaxBytes, ct);
+        if (data is null)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status413PayloadTooLarge, title: "Image too large", detail: ImageFormats.TooLarge);
+        }
+        if (ImageFormats.Detect(data) is not { } info) return ImageEndpoints.Unsupported(ImageFormats.NotAnImage);
+
+        // It waits in the pasting folder, and gets its place and row from the paste, which names it after the clip's image.
+        var file = StoredFile.For(boardId, "pasted", info.ContentType, data);
+        await files.WritePastingAsync(file.Id, data, ct);
+        var expiresAt = DateTimeOffset.UtcNow.Add(PasteFiles.Lifetime);
+        var pending = new PasteFiles.Pending(file.Id, boardId, principal.PrincipalId(), info.ContentType, file.Size, file.Sha256, info.Width, info.Height);
+        return TypedResults.Ok(new PasteImageFile(PasteFiles.Protect(protection, pending, expiresAt), info.ContentType, file.Size, expiresAt));
+    }
+
     private static async Task<Results<Ok<PastedItems>, NotFound, ValidationProblem>> PasteItems(
         Guid boardId, PasteItemsRequest request, HttpRequest http, IOptions<HttpJsonOptions> json, ClaimsPrincipal principal,
-        PrikBoardDbContext db, FileStore files, BoardEvents events, CancellationToken ct)
+        PrikBoardDbContext db, FileStore files, BoardEvents events, IDataProtectionProvider protection, CancellationToken ct)
     {
-        // A clip from a newer PrikBoard is refused rather than pasted without what this server can't read.
-        if (request.Clip.Version <= BoardClip.CurrentVersion
-            && await BoardTransferEndpoints.UnknownFieldsAsync(http, json.Value.SerializerOptions, typeof(PasteItemsRequest), ct) is { Count: > 0 } unknown)
-        {
-            return Problems.Invalid("clip.version", $"These items have fields this server doesn't know ({BoardTransferEndpoints.FieldList(unknown)}). {MadeWith(request.Clip)} " +
-                                           "Update PrikBoard to paste them without losing them.");
-        }
-        var result = await PasteAsync(boardId, request, ServerUrl(http), principal, db, files, ct);
+        if (await NewerClipAsync(request, http, json, ct) is { } newer) return newer;
+        if (PendingFiles(boardId, request, principal, protection, out var pending) is { } unknownFile) return unknownFile;
+        var result = await PasteAsync(boardId, request, ServerUrl(http), principal, db, files, ct, pending);
         // The board they were cut from changed too (this one is announced by the role filter).
         if (result.Result is Ok<PastedItems> { Value.Moved: { } moved }) await events.ChangedAsync(moved.BoardId, http.HttpContext);
         return result;
+    }
+
+    private static async Task<Results<NoContent, NotFound, ValidationProblem>> CheckPaste(
+        Guid boardId, PasteItemsRequest request, HttpRequest http, IOptions<HttpJsonOptions> json, ClaimsPrincipal principal,
+        PrikBoardDbContext db, FileStore files, IDataProtectionProvider protection, CancellationToken ct)
+    {
+        if (await NewerClipAsync(request, http, json, ct) is { } newer) return newer;
+        if (PendingFiles(boardId, request, principal, protection, out var pending) is { } unknownFile) return unknownFile;
+        return (await PasteAsync(boardId, request, ServerUrl(http), principal, db, files, ct, pending, check: true)).Result switch
+        {
+            NotFound notFound => notFound,
+            ValidationProblem problem => problem,
+            _ => TypedResults.NoContent(),
+        };
+    }
+
+    /// <summary>
+    /// A clip with fields this server doesn't know (from a newer PrikBoard) is refused rather than pasted without them. A
+    /// newer version is left to <see cref="InvalidClip"/>, which names it.
+    /// </summary>
+    private static async Task<ValidationProblem?> NewerClipAsync(
+        PasteItemsRequest request, HttpRequest http, IOptions<HttpJsonOptions> json, CancellationToken ct)
+    {
+        if (request.Clip.Version > BoardClip.CurrentVersion) return null;
+        if (await UnknownFieldsAsync(http, json.Value.SerializerOptions, typeof(PasteItemsRequest), ct) is not { Count: > 0 } unknown)
+        {
+            return null;
+        }
+        return Problems.Invalid("clip.version", $"These items have fields this server doesn't know ({FieldList(unknown)}). {MadeWith(request.Clip)} " +
+                                       "Update PrikBoard to paste them without losing them.");
+    }
+
+    /// <summary>
+    /// The uploaded files that <paramref name="request"/>'s imageFiles name, by image index (null where an image has none);
+    /// a problem keyed on the token when one is unknown, expired, or someone else's or another board's.
+    /// </summary>
+    private static ValidationProblem? PendingFiles(
+        Guid boardId, PasteItemsRequest request, ClaimsPrincipal principal, IDataProtectionProvider protection, out List<PasteFiles.Pending?> pending)
+    {
+        pending = [];
+        var me = principal.PrincipalId();
+        foreach (var (i, token) in (request.ImageFiles ?? []).Index())
+        {
+            if (token is null)
+            {
+                pending.Add(null);
+                continue;
+            }
+            if (PasteFiles.Unprotect(protection, token) is not { } file || file.BoardId != boardId || file.PrincipalId != me)
+            {
+                return Problems.Invalid($"imageFiles[{i}]", "This upload is unknown, has expired, or was made by someone else or for another board. Upload the image again.");
+            }
+            pending.Add(file);
+        }
+        return null;
     }
 
     /// <summary>Where this server is, as clips name it: scheme and host of the request (the Host header, as for sign-in callbacks).</summary>
@@ -129,10 +237,11 @@ public static class ClipEndpoints
         {
             return Problems.Invalid("imageIds", "Every image must be on this board, and not on a card (those come with their card).");
         }
-        if (images.Count > BoardClip.MaxImages || images.Sum(i => i.File!.Size) > BoardClip.MaxImageBytes)
+        var maxBytes = what.ImageData ? BoardClip.MaxInlineImageBytes : BoardClip.MaxImageBytes;
+        if (images.Count > BoardClip.MaxImages || images.Sum(i => i.File!.Size) > maxBytes)
         {
-            return Problems.Invalid("cardIds", $"These hold more than {BoardClip.MaxImages} images or {MaxClipMegabytes} MB " +
-                                      "of them, more than one copy takes. Copy fewer at a time.");
+            return Problems.Invalid("cardIds", $"These hold more than {BoardClip.MaxImages} images or {maxBytes / 1024 / 1024} MB " +
+                                      $"of them, more than one copy takes{(what.ImageData ? " with their data (see imageData)" : "")}. Copy fewer at a time.");
         }
         var drawings = await db.Drawings.AsNoTracking().Include(d => d.Content)
             .Where(d => d.BoardId == boardId && (d.CardId != null
@@ -154,7 +263,7 @@ public static class ClipEndpoints
             .Where(t => t.BoardId == boardId && tagNames.Contains(t.Name) && t.Color != TagColor.Default)
             .ToDictionaryAsync(t => t.Name, t => t.Color, ct);
         var clippedImages = new List<ClippedImage>();
-        foreach (var i in images) clippedImages.Add(await ClipImageAsync(files, i, CopiedBucket(i.BucketId), ct));
+        foreach (var i in images) clippedImages.Add(await ClipImageAsync(files, i, CopiedBucket(i.BucketId), what.ImageData, ct));
 
         return TypedResults.Ok(new BoardClip(
             BoardClip.FormatName, BoardClip.CurrentVersion, DateTimeOffset.UtcNow,
@@ -172,28 +281,36 @@ public static class ClipEndpoints
     /// <summary>A card as a clip holds it; <paramref name="bucketId"/> is its copied bucket, if any.</summary>
     private static ClippedCard ClipCard(Card card, Guid? bucketId) => new(
         card.Id, card.Number, card.Title, card.Color, card.Tags, card.X, card.Y,
-        [.. card.Components.Select(b => BoardTransferEndpoints.Exported(b, url => url))], card.AssigneeIds, bucketId);
+        [.. card.Components.Select(ClipComponent)], card.AssigneeIds, bucketId, card.CreatedById);
 
-    /// <summary>An image as a clip holds it, with its bytes; <paramref name="bucketId"/> is its copied bucket, if any.</summary>
-    private static async Task<ClippedImage> ClipImageAsync(FileStore files, BoardImage image, Guid? bucketId, CancellationToken ct) => new(
-        image.CardId, image.File!.FileName, image.Caption, image.X, image.Y, image.Width, await files.ReadAllBytesAsync(image.File, ct),
-        bucketId, image.Id);
+    /// <summary>
+    /// An image as a clip holds it, with its bytes unless <paramref name="withData"/> is false; <paramref name="bucketId"/>
+    /// is its copied bucket, if any.
+    /// </summary>
+    private static async Task<ClippedImage> ClipImageAsync(FileStore files, BoardImage image, Guid? bucketId, bool withData, CancellationToken ct) => new(
+        image.CardId, image.File!.FileName, image.Caption, image.X, image.Y, image.Width, withData ? await files.ReadAllBytesAsync(image.File, ct) : [],
+        bucketId, image.Id, image.Height);
 
     /// <summary>
     /// A drawing as a clip holds it; <paramref name="bucketId"/> is its copied bucket, if any. A loose one says where it
     /// stacks among the copied <paramref name="buckets"/>.
     /// </summary>
     private static ClippedDrawing ClipDrawing(BoardDrawing drawing, Guid? bucketId, IEnumerable<Bucket> buckets) =>
-        new(drawing.CardId, drawing.X, drawing.Y, BoardTransferEndpoints.ExportedStrokes(drawing), BucketId: bucketId, Id: drawing.Id,
+        new(drawing.CardId, drawing.X, drawing.Y, ClipStrokes(drawing), BucketId: bucketId, Id: drawing.Id,
             BucketsBelow: drawing.CardId is null && drawing.BucketId is null ? Layout.BucketsBelow(drawing, buckets) : null);
 
     private static ClippedBucket ClipBucket(Bucket bucket) =>
         new(bucket.Id, bucket.Name, bucket.X, bucket.Y, bucket.Width, bucket.Height, bucket.Collapsed);
 
-    /// <summary>Adds the clip's items to <paramref name="boardId"/>; see pasteItems. <paramref name="serverUrl"/> is this server.</summary>
+    /// <summary>
+    /// Adds the clip's items to <paramref name="boardId"/>; see pasteItems. <paramref name="serverUrl"/> is this server.
+    /// <paramref name="pending"/> are the files uploaded for its images, by index (see imageFiles). With
+    /// <paramref name="check"/> it does all the same work in a transaction it never commits, and answers an empty paste
+    /// instead (checkPaste); images may then come without their data.
+    /// </summary>
     internal static async Task<Results<Ok<PastedItems>, NotFound, ValidationProblem>> PasteAsync(
         Guid boardId, PasteItemsRequest request, string serverUrl, ClaimsPrincipal principal, PrikBoardDbContext db, FileStore files,
-        CancellationToken ct)
+        CancellationToken ct, IReadOnlyList<PasteFiles.Pending?>? pending = null, bool check = false)
     {
         var clip = request.Clip;
         if (InvalidClip(request) is { } invalidClip) return invalidClip;
@@ -202,6 +319,8 @@ public static class ClipEndpoints
         if (board is null) return TypedResults.NotFound();
         var me = principal.PrincipalId();
         var sameServer = SameServer(clip.Source.Url, serverUrl);
+        pending ??= [];
+        if (await InvalidFilesAsync(db, files, clip, pending, ct) is { } invalidFile) return invalidFile;
 
         // A cut moves the items: pasted on another board of this server, the originals go to their board's trash. From
         // another server they can't be reached, so it pastes as a copy (Moved stays null).
@@ -220,10 +339,11 @@ public static class ClipEndpoints
         }
 
         var assignable = await AssignableAsync(db, boardId, clip, ct);
+        var creators = sameServer && clip.Source.BoardShortId == board.ShortId ? await CreatorsAsync(db, clip, ct) : [];
         var now = DateTimeOffset.UtcNow;
-        if (BuildCards(clip, boardId, me, now, assignable, out var cards) is { } invalidCard) return invalidCard;
+        if (BuildCards(clip, boardId, me, now, assignable, creators, out var cards) is { } invalidCard) return invalidCard;
         var copies = clip.Cards.Select((n, i) => (n.Id, Card: cards[i])).ToDictionary(p => p.Id, p => p.Card);
-        if (BuildImages(clip, boardId, me, now, copies, out var images) is { } invalidImage) return invalidImage;
+        if (BuildImages(clip, boardId, me, now, copies, pending, check, out var images) is { } invalidImage) return invalidImage;
         if (clip.Drawings.Count > 0
             && await db.Drawings.CountAsync(d => d.BoardId == boardId, ct) + clip.Drawings.Count > BoardDrawing.MaxPerBoard)
         {
@@ -255,8 +375,15 @@ public static class ClipEndpoints
             return Problems.Invalid("clip.cut", "These were moved already: none of them is on the board they were cut from any more. Copy them from where they are now.");
         }
 
-        // Files go on disk before their rows are saved (see FileStore).
-        foreach (var (image, _, data) in images) await files.WriteAsync(image.File!, data, ct);
+        // A check goes this far, and its transaction ends without a commit.
+        if (check) return TypedResults.Ok(new PastedItems([], [], [], null, []));
+
+        // Files go on disk before their rows are saved (see FileStore); uploaded ones move into place.
+        foreach (var (image, _, data) in images)
+        {
+            if (data is not null) await files.WriteAsync(image.File!, data, ct);
+            else files.MovePasted(image.File!);
+        }
         db.Buckets.AddRange(newBuckets);
         db.Cards.AddRange(cards);
         db.Images.AddRange(images.Select(m => m.Image));
@@ -276,6 +403,31 @@ public static class ClipEndpoints
             bucket is null ? null : BucketDetail.From(bucket),
             [.. newBuckets.Select(BucketDetail.From)],
             moved));
+    }
+
+    /// <summary>
+    /// For a paste on this server of a clip built without its images' data (copy_to_board): copies each image's file for
+    /// a paste on <paramref name="boardId"/>, as uploadPasteImage would have, and returns them by image index.
+    /// </summary>
+    internal static async Task<List<PasteFiles.Pending?>> CopyFilesAsync(
+        PrikBoardDbContext db, FileStore files, BoardClip clip, Guid boardId, Guid principalId, CancellationToken ct)
+    {
+        var ids = clip.Images.Select(m => m.Id).OfType<Guid>().ToList();
+        var sources = await db.Images.AsNoTracking().Include(i => i.File).Where(i => ids.Contains(i.Id)).ToDictionaryAsync(i => i.Id, ct);
+        var copies = new List<PasteFiles.Pending?>();
+        foreach (var image in clip.Images)
+        {
+            if (image.Id is not { } id || !sources.TryGetValue(id, out var source))
+            {
+                copies.Add(null);
+                continue;
+            }
+            var file = source.File!;
+            var copy = new PasteFiles.Pending(Guid.CreateVersion7(), boardId, principalId, file.ContentType, file.Size, file.Sha256, source.PixelWidth, source.PixelHeight);
+            await files.CopyToPastingAsync(file, copy.FileId, ct);
+            copies.Add(copy);
+        }
+        return copies;
     }
 
     /// <summary>The checks on a clip that need no database, in the order pasteItems answers them.</summary>
@@ -324,9 +476,48 @@ public static class ClipEndpoints
         return (await BoardAccess.AssignableIds(db, boardId).Where(id => people.Contains(id)).ToListAsync(ct)).ToHashSet();
     }
 
-    /// <summary>The clip's cards as new cards by <paramref name="me"/>, in clip order, not placed or numbered yet.</summary>
+    /// <summary>The clip's creators who still exist: pasted on the board they were copied from, the copies keep them.</summary>
+    private static async Task<HashSet<Guid>> CreatorsAsync(PrikBoardDbContext db, BoardClip clip, CancellationToken ct)
+    {
+        var creators = clip.Cards.Select(n => n.CreatedById).OfType<Guid>().Distinct().ToList();
+        if (creators.Count == 0) return [];
+        return (await db.Principals.Where(p => creators.Contains(p.Id)).Select(p => p.Id).ToListAsync(ct)).ToHashSet();
+    }
+
+    /// <summary>
+    /// The checks on the files uploaded for the clip's images (<paramref name="pending"/>, by index): one per image at most,
+    /// each used once, and still on disk.
+    /// </summary>
+    private static async Task<ValidationProblem?> InvalidFilesAsync(
+        PrikBoardDbContext db, FileStore files, BoardClip clip, IReadOnlyList<PasteFiles.Pending?> pending, CancellationToken ct)
+    {
+        if (pending.Count > clip.Images.Count) return Problems.Invalid("imageFiles", "Give at most one upload per image in the clip.");
+        var uploads = pending.OfType<PasteFiles.Pending>().ToList();
+        if (uploads.Count == 0) return null;
+        var ids = uploads.Select(f => f.FileId).ToList();
+        if (ids.Distinct().Count() != ids.Count) return Problems.Invalid("imageFiles", "Each upload goes with one image only.");
+        if (await db.StoredFiles.AnyAsync(f => ids.Contains(f.Id), ct))
+        {
+            return Problems.Invalid("imageFiles", "An upload has been pasted already. Upload the image again.");
+        }
+        foreach (var (i, file) in pending.Index())
+        {
+            if (file is null) continue;
+            if (clip.Images[i].Data.Length > 0) return Problems.Invalid($"imageFiles[{i}]", "Give the image's data or an upload, not both.");
+            if (!files.IsPasting(file.FileId))
+            {
+                return Problems.Invalid($"imageFiles[{i}]", "The uploaded file is gone. Upload the image again.");
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The clip's cards as new cards by <paramref name="me"/>, in clip order, not placed or numbered yet. A card whose
+    /// creator is in <paramref name="creators"/> keeps them.
+    /// </summary>
     private static ValidationProblem? BuildCards(
-        BoardClip clip, Guid boardId, Guid me, DateTimeOffset now, HashSet<Guid> assignable, out List<Card> cards)
+        BoardClip clip, Guid boardId, Guid me, DateTimeOffset now, HashSet<Guid> assignable, HashSet<Guid> creators, out List<Card> cards)
     {
         cards = [];
         foreach (var (i, source) in clip.Cards.Index())
@@ -340,7 +531,7 @@ public static class ClipEndpoints
                 Color = source.Color,
                 Tags = tags,
                 AssigneeIds = [.. (source.AssigneeIds ?? []).Where(assignable.Contains).Distinct()],
-                CreatedById = me,
+                CreatedById = source.CreatedById is { } creator && creators.Contains(creator) ? creator : me,
                 CreatedAt = now.AddMilliseconds(i),
                 UpdatedAt = now.AddMilliseconds(i),
             });
@@ -350,13 +541,16 @@ public static class ClipEndpoints
 
     /// <summary>
     /// The clip's images as new images, in clip order: those on cards on their copy's canvas, the others not placed yet.
-    /// <paramref name="copies"/> maps the clip's card ids to the copies.
+    /// <paramref name="copies"/> maps the clip's card ids to the copies. An image's file is its data in the clip or its
+    /// upload in <paramref name="pending"/>; for a <paramref name="check"/> it may have neither.
     /// </summary>
     private static ValidationProblem? BuildImages(
-        BoardClip clip, Guid boardId, Guid me, DateTimeOffset now, Dictionary<Guid, Card> copies, out List<PastedImage> images)
+        BoardClip clip, Guid boardId, Guid me, DateTimeOffset now, Dictionary<Guid, Card> copies, IReadOnlyList<PasteFiles.Pending?> pending,
+        bool check, out List<PastedImage> images)
     {
         images = [];
-        if (clip.Images.Sum(m => (long)m.Data.Length) > BoardClip.MaxImageBytes)
+        PasteFiles.Pending? Upload(int i) => i < pending.Count ? pending[i] : null;
+        if (clip.Images.Select((m, i) => Upload(i)?.Size ?? m.Data.Length).Sum() > BoardClip.MaxImageBytes)
         {
             return Problems.Invalid("clip.images", $"A clip holds at most {MaxClipMegabytes} MB of images.");
         }
@@ -367,16 +561,34 @@ public static class ClipEndpoints
             {
                 return Problems.Invalid($"clip.images[{i}].cardId", "The card is not in the clip.");
             }
-            if (!ImageEndpoints.TryFromBytes(boardId, source.Data, source.FileName, source.Caption, source.Width, out var image, out var problem))
+            BoardImage? image;
+            byte[]? data = null;
+            if (Upload(i) is { } file)
+            {
+                var name = ImageEndpoints.CleanFileName(source.FileName, file.ContentType);
+                image = ImageEndpoints.FromFile(boardId, PasteFiles.Row(file, name), file.PixelWidth, file.PixelHeight, source.Caption, source.Width);
+            }
+            else if (source.Data.Length == 0 && check)
+            {
+                // Checked before its upload: about its size is enough for its place.
+                var stand = StoredFile.For(boardId, source.FileName, "image/png", []);
+                image = ImageEndpoints.FromFile(boardId, stand, source.Width, source.Height ?? source.Width, source.Caption, source.Width);
+            }
+            else if (source.Data.Length == 0)
+            {
+                return Problems.Invalid($"clip.images[{i}].data", "The image's data is missing: put it in the clip, or upload it (uploadPasteImage) and give it in imageFiles.");
+            }
+            else if (!ImageEndpoints.TryFromBytes(boardId, source.Data, source.FileName, source.Caption, source.Width, out image, out var problem))
             {
                 return Problems.Invalid($"clip.images[{i}].data", problem);
             }
+            else data = source.Data;
             image.CardId = card?.Id;
             image.AddedById = me;
             image.CreatedAt = image.UpdatedAt = now.AddMilliseconds(i);
             // On the board it gets its place with the rest (PlaceOnBoardAsync).
             if (card is not null) (image.X, image.Y) = Layout.OnCardCanvas(source.X, source.Y, image.Width, image.Height);
-            images.Add((image, source, source.Data));
+            images.Add((image, source, data));
         }
         return null;
     }
@@ -446,7 +658,7 @@ public static class ClipEndpoints
         var newBuckets = new List<Bucket>();
         foreach (var (i, source) in clipBuckets.Index())
         {
-            var (width, height) = BoardTransferEndpoints.FittedBucketSize(source.Width, source.Height);
+            var (width, height) = FittedBucketSize(source.Width, source.Height);
             var made = new Bucket
             {
                 BoardId = boardId,
@@ -617,5 +829,73 @@ public static class ClipEndpoints
         Uri.TryCreate(a, UriKind.Absolute, out var x) && Uri.TryCreate(b, UriKind.Absolute, out var y)
         && Uri.Compare(x, y, UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.Unescaped, StringComparison.OrdinalIgnoreCase) == 0;
 
-    private static string MadeWith(BoardClip clip) => BoardTransferEndpoints.MadeWith(clip.AppVersion, "They were copied");
+    /// <summary>Which PrikBoard copied them, for refusing what a newer one wrote.</summary>
+    private static string MadeWith(BoardClip clip) => clip.AppVersion is { } made
+        ? $"They were copied with PrikBoard {made}, and this server runs {AppVersion.Number}."
+        : "They were copied with a newer PrikBoard than this server runs.";
+
+    /// <summary>A drawing's strokes as clips hold them, each with its ink. Needs its <c>Content</c> loaded.</summary>
+    private static List<ClippedStroke> ClipStrokes(BoardDrawing drawing) =>
+        [.. drawing.Content!.Strokes.Zip(drawing.Colors, (s, color) => new ClippedStroke(color, s.StrokeWidth, [.. s.Points]))];
+
+    /// <summary>A bucket size from a clip: snapped to the grid, within the smallest and largest a bucket can be.</summary>
+    private static (int Width, int Height) FittedBucketSize(int width, int height) => (
+        Math.Min(Layout.MaxBucketSize, Layout.SnapSize(width, Layout.MinBucketWidth)),
+        Math.Min(Layout.MaxBucketSize, Layout.SnapSize(height, Layout.MinBucketHeight)));
+
+    /// <summary>A component as it goes in a clip: like a new component, with its place and only the content of its kind.</summary>
+    private static NewCardComponent ClipComponent(CardComponent component)
+    {
+        var detail = CardComponentDetail.From(component);
+        return new NewCardComponent(component.Kind, component.Title, detail.Text, detail.Items?.ToList(), detail.Links?.ToList(),
+            component.X, component.Y, component.Width, component.Height);
+    }
+
+    /// <summary>Unknown fields for a message: the first five, and how many more.</summary>
+    private static string FieldList(IReadOnlyList<string> fields) =>
+        string.Join(", ", fields.Take(5)) + (fields.Count > 5 ? $" and {fields.Count - 5} more" : "");
+
+    /// <summary>Fields that older clips still have but this version dropped: they are known, and binding skips them. A bucket's color went with clip version 4.</summary>
+    private static readonly HashSet<(Type Type, string Field)> DroppedFields = [(typeof(ClippedBucket), "color")];
+
+    /// <summary>
+    /// The fields in the request body that <paramref name="type"/> doesn't have, as paths (clip.cards[3].priority): a newer
+    /// PrikBoard wrote them, and binding the request would quietly leave them out. The body is read again for this
+    /// (<see cref="BufferedBody"/> keeps it).
+    /// </summary>
+    private static async Task<List<string>> UnknownFieldsAsync(HttpRequest request, JsonSerializerOptions options, Type type, CancellationToken ct)
+    {
+        if (!request.Body.CanSeek) return [];
+        request.Body.Position = 0;
+        using var document = await JsonDocument.ParseAsync(request.Body, cancellationToken: ct);
+        var unknown = new List<string>();
+        Collect(document.RootElement, options.GetTypeInfo(type), "");
+        return unknown;
+
+        void Collect(JsonElement element, JsonTypeInfo info, string path)
+        {
+            if (info.Kind == JsonTypeInfoKind.Object && element.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var field in element.EnumerateObject())
+                {
+                    var property = info.Properties.FirstOrDefault(p => string.Equals(p.Name, field.Name, StringComparison.OrdinalIgnoreCase));
+                    var at = path.Length == 0 ? field.Name : $"{path}.{field.Name}";
+                    if (property is null)
+                    {
+                        if (!DroppedFields.Contains((info.Type, field.Name.ToLowerInvariant()))) unknown.Add(at);
+                    }
+                    else Collect(field.Value, options.GetTypeInfo(property.PropertyType), at);
+                }
+            }
+            else if (info is { Kind: JsonTypeInfoKind.Enumerable, ElementType: { } elementType } && element.ValueKind == JsonValueKind.Array)
+            {
+                var elementInfo = options.GetTypeInfo(elementType);
+                var i = 0;
+                foreach (var item in element.EnumerateArray()) Collect(item, elementInfo, $"{path}[{i++}]");
+            }
+        }
+    }
 }
+
+/// <summary>Marks an endpoint whose request body can be read again after binding (pasteItems' check for unknown fields).</summary>
+public sealed class BufferedBody;

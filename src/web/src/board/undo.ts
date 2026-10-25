@@ -286,13 +286,45 @@ export function check(
 /** Applies the step: writes the old values back (undo) or the new ones again (redo). */
 export async function apply(entry: UndoEntry, direction: UndoDirection, home: BoardDetail, elsewhere: Record<string, BoardDetail> = {}) {
   const changes = direction === 'undo' ? entry.changes.toReversed() : entry.changes
-  for (const change of changes) {
+  const boardOf = (change: UndoChange) => (change.boardId && elsewhere[change.boardId]) || home
+  for (let i = 0; i < changes.length; i++) {
+    const change = changes[i]
     if (change.implied) continue
+    // Cards, buckets, images and drawings deleted or brought back one after another on one board go as one request
+    // (undoing a big paste, say).
+    const bulk = bulkOf(change, direction)
+    if (bulk) {
+      let end = i + 1
+      while (end < changes.length && (changes[end].implied || (bulkOf(changes[end], direction) === bulk && boardOf(changes[end]) === boardOf(change)))) end++
+      const run = changes.slice(i, end).filter((c) => !c.implied)
+      if (run.length > 1) {
+        await writeAll(bulk, run, boardOf(change))
+        i = end - 1
+        continue
+      }
+    }
     const from = direction === 'undo' ? change.after : change.before
     const to = direction === 'undo' ? change.before : change.after
-    await write(change.target, from, to, (change.boardId && elsewhere[change.boardId]) || home)
+    await write(change.target, from, to, boardOf(change))
     if (change.target.kind === 'bucket' && from && to) await fixCarried(entry, direction, change.target.carry, from, to)
   }
+}
+
+/** Whether applying the change deletes or brings back a card, bucket, image or drawing (which go in bulk), or neither. */
+function bulkOf(change: UndoChange, direction: UndoDirection): 'delete' | 'restore' | null {
+  const kind = change.target.kind
+  if (change.implied || (kind !== 'card' && kind !== 'bucket' && kind !== 'image' && kind !== 'drawing')) return null
+  const from = direction === 'undo' ? change.after : change.before
+  const to = direction === 'undo' ? change.before : change.after
+  return to === null ? 'delete' : from === null ? 'restore' : null
+}
+
+/** Deletes or brings back the changes' items at once (deleteItems, restoreItems), as their own requests would one by one. */
+async function writeAll(bulk: 'delete' | 'restore', changes: UndoChange[], board: BoardDetail) {
+  const ids = (kind: UndoTarget['kind']) => changes.flatMap((c) => (c.target.kind === kind ? [c.target.id] : []))
+  const items = { cardIds: ids('card'), bucketIds: ids('bucket'), imageIds: ids('image'), drawingIds: ids('drawing') }
+  if (bulk === 'delete') await api.deleteItems(board.id, items)
+  else await api.restoreItems(board.id, items)
 }
 
 /** Text fields are cleared with an empty string. */

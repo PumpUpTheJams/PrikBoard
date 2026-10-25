@@ -5,10 +5,11 @@ numbers on the same machine. None of this runs in CI.
 
 | File | What it does |
 |---|---|
-| `make-board.mjs` | Writes a big board as an export file, to import. |
+| `make-board.mjs` | Writes a big board as a clip, what copying a whole board puts on the clipboard. |
+| `paste-board.mjs` | Pastes a clip into a new board on a server, as the web app pastes a big one. |
 | `measure.js` | Times the open board in the browser: scrolling, dragging, zooming, reloading, opening. |
 | `serve-board.mjs` | A read-only stand-in API serving one board, so the web app can be measured without signing in. |
-| `../../src/PrikBoard.Api.Tests/PerfBenchmarks.cs` | Server timings: import, getBoard, placeItemsInBucket, createCards, `Layout.PackIn`. |
+| `../../src/PrikBoard.Api.Tests/PerfBenchmarks.cs` | Server timings: pasting the board (uploads, check, paste), getBoard, placeItemsInBucket, createCards, `Layout.PackIn`. |
 
 Generated files go in `tools/perf/out/`, which git ignores.
 
@@ -19,7 +20,7 @@ node tools/perf/make-board.mjs --out=tools/perf/out/perf-board.json
 ```
 
 The defaults are 1,250 cards, 100 images and 100 drawings (`--cards`, `--images`, `--drawings`; at most 2,000 cards and
-200 images, the import's limits). The layout is the same every run:
+200 images, a clip's limits). The layout is the same every run:
 
 - six buckets side by side, named `Bucket 1 (225)` to `Bucket 6 (75)`, holding 60% of the cards;
 - an empty `Drop here` bucket;
@@ -28,7 +29,11 @@ The defaults are 1,250 cards, 100 images and 100 drawings (`--cards`, `--images`
 
 Every card has a note, every fourth a checklist, and up to three tags. `measure.js` looks for the bucket names.
 
-Import it on your own PrikBoard through the board menu's **Import**.
+Paste it into a new board on your own PrikBoard with a personal access token that can write (Settings → Access tokens):
+
+```bash
+node tools/perf/paste-board.mjs --clip=tools/perf/out/perf-board.json --token=pb_pat_... --server=http://localhost:5080
+```
 
 ## Server timings
 
@@ -36,7 +41,7 @@ Import it on your own PrikBoard through the board menu's **Import**.
 PRIKBOARD_PERF=1 dotnet test --solution PrikBoard.slnx -c Release --filter "FullyQualifiedName~PerfBenchmarks" --show-live-output on
 ```
 
-This needs the compose database, like the tests, and Node: without `PRIKBOARD_PERF_BOARD` (the path of an export file)
+This needs the compose database, like the tests, and Node: without `PRIKBOARD_PERF_BOARD` (the path of a clip file)
 it runs `make-board.mjs` itself. With `PRIKBOARD_PERF_SNAPSHOT` set to a path such as `tools/perf/out/board.json`, it
 also saves the board as getBoard returns it there, for `serve-board.mjs`.
 
@@ -49,13 +54,13 @@ cd src/web && npm run build && npm run preview
 ```
 
 `npm run preview` serves `dist` on port 4173 and proxies `/api` like the dev server (`PRIKBOARD_API_URL` picks the
-API). Open the imported board, make the window the size you want to compare at, paste `measure.js` into the
+API). Open the pasted board, make the window the size you want to compare at, paste `measure.js` into the
 console, and wait for the table. It takes about a minute: the reload measurement waits for the board's next poll.
 
 Without signing in, serve the board from a snapshot instead:
 
 ```bash
-node tools/perf/serve-board.mjs --snapshot=tools/perf/out/board.json --export=tools/perf/out/perf-board.json
+node tools/perf/serve-board.mjs --snapshot=tools/perf/out/board.json --clip=tools/perf/out/perf-board.json
 ```
 
 Then run the preview with `PRIKBOARD_API_URL=http://localhost:5099`. The `perf-api` and `perf-web` entries in

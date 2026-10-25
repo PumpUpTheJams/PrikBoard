@@ -470,14 +470,16 @@ public sealed partial class BoardTools
         var files = Files(http);
         var bucketIds = new List<Guid>();
         foreach (var name in buckets ?? []) bucketIds.Add(await ResolveBucketAsync(http, db, sourceId, name, ct));
-        var what = new CopyItemsRequest(cardIds, bucketIds, images, drawings, move);
+        // The images' files are copied on disk rather than read into the clip.
+        var what = new CopyItemsRequest(cardIds, bucketIds, images, drawings, move, ImageData: false);
         McpCall.Validate(what);
         Guid? bucketId = bucket is null ? null : await ResolveBucketAsync(http, db, targetId, bucket, ct);
         var server = ClipEndpoints.ServerUrl(http.Request);
         var clip = McpCall.Value<BoardClip>(await ClipEndpoints.BuildClipAsync(db, files, sourceId, what, server, ct));
         var request = new PasteItemsRequest(clip, x, y, bucketId);
         McpCall.Validate(request);
-        var result = McpCall.Value<PastedItems>(await ClipEndpoints.PasteAsync(targetId, request, server, http.User, db, files, ct));
+        var copiedFiles = await ClipEndpoints.CopyFilesAsync(db, files, clip, targetId, http.User.PrincipalId(), ct);
+        var result = McpCall.Value<PastedItems>(await ClipEndpoints.PasteAsync(targetId, request, server, http.User, db, files, ct, copiedFiles));
         if (result.Moved is { } moved) await McpCall.AnnounceAsync(http, moved.BoardId);
         await McpCall.AnnounceAsync(http, targetId);
         return result;
