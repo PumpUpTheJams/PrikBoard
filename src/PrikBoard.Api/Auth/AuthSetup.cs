@@ -357,6 +357,64 @@ public static partial class AuthSetup
 
     internal const string SteamLoginEndpoint = "https://steamcommunity.com/openid/login";
 
+    /// <summary>
+    /// The settings of a Slack provider's scheme: Sign in with Slack, Slack's OpenID Connect, through the OAuth handler
+    /// with Slack's endpoints set (no discovery), like Discord's. See <see cref="SignInProviders.SchemeOptions"/>.
+    /// </summary>
+    internal static void ConfigureSlack(OAuthOptions options, string id, ProviderOptions provider)
+    {
+        options.ClientId = provider.ClientId!;
+        options.ClientSecret = provider.ClientSecret!;
+        options.CallbackPath = CallbackPath(id);
+        options.SignInScheme = CookieScheme;
+        options.AuthorizationEndpoint = "https://slack.com/openid/connect/authorize";
+        options.TokenEndpoint = "https://slack.com/api/openid.connect.token";
+        options.UserInformationEndpoint = "https://slack.com/api/openid.connect.userInfo";
+        foreach (var scope in new[] { "openid", "profile", "email" }.Concat(provider.Scopes).Distinct()) options.Scope.Add(scope);
+
+        options.Events.OnCreatingTicket = AddSlackClaims;
+        options.Events.OnTicketReceived = context => UserSignIn.OnTicketReceived(context, id);
+        options.Events.OnRemoteFailure = UserSignIn.OnRemoteFailure;
+    }
+
+    /// <summary>
+    /// Maps Slack's user info to the claim names <see cref="UserSignIn"/> expects. The subject is
+    /// <c>{team id}:{user id}</c>: Slack user ids are only unique within their workspace, and it is the same key the Slack
+    /// app knows people by (<see cref="Integrations.ChatAccounts"/>), so a Slack sign-in needs no link to save messages.
+    /// </summary>
+    private static async Task AddSlackClaims(OAuthCreatingTicketContext context)
+    {
+        using var user = await GetJson(context, context.Options.UserInformationEndpoint, "application/json");
+        context.Identity!.AddClaims(SlackClaims(user.RootElement));
+    }
+
+    /// <summary>The claims for Slack's <c>openid.connect.userInfo</c> answer; thrown when Slack refused or named nobody.</summary>
+    public static List<Claim> SlackClaims(JsonElement profile)
+    {
+        string? Text(string name) => profile.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+        if (profile.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.False)
+        {
+            throw new AuthenticationFailureException($"Slack refused the sign-in ({Text("error")}).");
+        }
+        var userId = Text("https://slack.com/user_id") ?? Text("sub");
+        var teamId = Text("https://slack.com/team_id");
+        if (userId is null || teamId is null) throw new AuthenticationFailureException("Slack didn't say who signed in.");
+
+        List<Claim> claims = [new("sub", SlackSubject(teamId, userId))];
+        if (Text("name") is { Length: > 0 } name) claims.Add(new("name", name));
+        if (Text("picture") is { Length: > 0 } picture) claims.Add(new("picture", picture));
+        if (Text("email") is { Length: > 0 } email)
+        {
+            claims.Add(new("email", email));
+            claims.Add(new("email_verified",
+                profile.TryGetProperty("email_verified", out var verified) && verified.ValueKind == JsonValueKind.True ? "true" : "false"));
+        }
+        return claims;
+    }
+
+    /// <summary>How a Slack sign-in's subject, and the Slack app's account key, name a person: workspace and user.</summary>
+    public static string SlackSubject(string teamId, string userId) => $"{teamId}:{userId}";
+
     /// <summary>Maps the Discord user to the OpenID Connect claim names that <see cref="UserSignIn"/> expects.</summary>
     private static async Task AddDiscordClaims(OAuthCreatingTicketContext context)
     {

@@ -38,6 +38,12 @@ public enum ProviderType
     /// people come without a name or picture.
     /// </summary>
     Steam,
+
+    /// <summary>
+    /// Sign in with Slack (Slack's OpenID Connect), with the client id and secret of a Slack app, such as the one the Slack
+    /// integration runs as. Someone who signs in this way is known to the Slack app without linking (docs/slack.md).
+    /// </summary>
+    Slack,
 }
 
 public class ProviderOptions

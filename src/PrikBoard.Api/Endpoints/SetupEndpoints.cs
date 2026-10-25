@@ -530,7 +530,7 @@ public static partial class SetupEndpoints
         {
             return Problems.Invalid("clientId", "Give the client id from the provider's app registration.");
         }
-        if (provider.Type is ProviderType.GitHub or ProviderType.Discord && provider.ProtectedClientSecret is null)
+        if (provider.Type is ProviderType.GitHub or ProviderType.Discord or ProviderType.Slack && provider.ProtectedClientSecret is null)
         {
             return Problems.Invalid("clientSecret", $"{provider.Type} needs the client secret.");
         }

@@ -86,8 +86,8 @@ public static class SlackEndpoints
         me.MapGet("/", GetSlackAccount)
             .WithName("getSlackAccount")
             .WithSummary("Whether the Slack app knows who you are")
-            .WithDescription("Whether your Slack account is linked to you, for Save to PrikBoard: a link you made from the app. " +
-                             "Sessions only.")
+            .WithDescription("Whether your Slack account is linked to you, for Save to PrikBoard: through a Slack sign-in, or a " +
+                             "link you made from the app. Sessions only.")
             .Produces(StatusCodes.Status403Forbidden);
 
         me.MapGet("/links/{code}", PreviewSlackAccountLink)
@@ -109,7 +109,8 @@ public static class SlackEndpoints
         me.MapDelete("/", UnlinkSlackAccount)
             .WithName("unlinkSlackAccount")
             .WithSummary("Unlink your Slack account")
-            .WithDescription("Removes the link you made from the app. Sessions only.")
+            .WithDescription("Removes the link you made from the app. A Slack sign-in still says who you are; unlink that sign-in " +
+                             "under Account instead. Sessions only.")
             .Produces(StatusCodes.Status403Forbidden);
 
         return api;
@@ -120,7 +121,9 @@ public static class SlackEndpoints
     {
         if (principal.IsToken()) return TypedResults.Forbid();
         var (kind, linkedAt) = await accounts.StatusAsync(db, ChatPlatform.Slack, principal.UserId(), ct);
-        return TypedResults.Ok(new SlackAccountStatus(kind is not null, linkedAt));
+        return TypedResults.Ok(new SlackAccountStatus(kind is not null,
+            kind switch { ChatAccountKind.SignIn => SlackAccountSource.SignIn, ChatAccountKind.Link => SlackAccountSource.Link, _ => null },
+            linkedAt));
     }
 
     private static Results<Ok<SlackAccountLinkPreview>, NotFound, ForbidHttpResult> PreviewSlackAccountLink(
@@ -142,7 +145,7 @@ public static class SlackEndpoints
         {
             return Problems.Invalid("code", "Unknown, used or expired code. Use Save to PrikBoard in Slack again for a new one.");
         }
-        return TypedResults.Ok(new SlackAccountStatus(true, DateTimeOffset.UtcNow));
+        return TypedResults.Ok(new SlackAccountStatus(true, SlackAccountSource.Link, DateTimeOffset.UtcNow));
     }
 
     private static async Task<Results<NoContent, ForbidHttpResult>> UnlinkSlackAccount(

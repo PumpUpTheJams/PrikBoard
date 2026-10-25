@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using PrikBoard.Api.Auth;
 using PrikBoard.Api.Contracts;
 using PrikBoard.Api.Data;
 using PrikBoard.Api.Domain;
@@ -90,6 +91,16 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
         // From scratch, whichever test set the app up before.
         Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync("/api/admin/slack")).StatusCode);
         await Eventually(() => factory.Workspace.Connections == 0);
+
+        // The address alone can come first, so the manifest names its unfurl domain and Sign in with Slack's redirect.
+        var addressFirst = await admin.PutAsJsonAsync("/api/admin/slack", new { publicUrl = "https://board.example/" });
+        Assert.Equal(HttpStatusCode.OK, addressFirst.StatusCode);
+        var unconnected = (await addressFirst.Content.ReadFromJsonAsync<SlackAppDetail>())!;
+        Assert.Equal((SlackAppState.Off, "https://board.example"), (unconnected.State, unconnected.PublicUrl));
+        Assert.Contains("\"board.example\"", unconnected.Manifest);
+        Assert.Contains("\"https://board.example/api/auth/callback/slack\"", unconnected.Manifest);
+        Assert.Contains("\"openid\"", unconnected.Manifest);
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync("/api/admin/slack")).StatusCode);
 
         // Both tokens the first time, each the right kind, and each accepted by Slack.
         await AssertInvalidAsync(admin, new { botToken = Fake.BotToken }, "appToken");
@@ -434,6 +445,47 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
         Assert.Equal(HttpStatusCode.NoContent, (await owner.DeleteAsync("/api/me/slack-account")).StatusCode);
         Assert.False((await owner.GetFromJsonAsync<SlackAccountStatus>("/api/me/slack-account"))!.Linked);
         Assert.Contains("connect/slack-account", (await ShortcutAsync(message, SlackApiFactory.Jimmy)).ToJsonString(Plain));
+    }
+
+    [Fact]
+    public async Task Signing_in_with_Slack_needs_no_link_to_save()
+    {
+        var admin = await Admin();
+        await SetUpAppAsync(admin);
+        // Sign in with Slack, with the app's own credentials; the provider id the manifest's redirect URL is for.
+        var provider = await admin.PostAsJsonAsync("/api/setup/providers",
+            new { id = SlackApp.SignInProviderId, type = "Slack", clientId = "123.456", clientSecret = "secret" });
+        Assert.Equal(HttpStatusCode.Created, provider.StatusCode);
+
+        // Signed in as Jimmy of the fake workspace: the same key the app knows people by.
+        var jimmy = await factory.CreateSignedInClientAsync("slack-signin@example.com",
+            subject: AuthSetup.SlackSubject(Fake.TeamId, SlackApiFactory.Jimmy), provider: SlackApp.SignInProviderId);
+        var status = (await jimmy.GetFromJsonAsync<SlackAccountStatus>("/api/me/slack-account"))!;
+        Assert.Equal((true, SlackAccountSource.SignIn), (status.Linked, status.Source));
+
+        var board = await jimmy.CreateBoardAsync("Signed in with Slack");
+        await ConnectAsync(jimmy, board.Id, SlackApiFactory.Snapshot);
+        var message = await factory.Workspace.PostAsync(SlackApiFactory.Snapshot, SlackApiFactory.Jimmy, "Straight to a card");
+
+        // No connect link: the modal to save opens at once.
+        var save = await ShortcutAsync(message, SlackApiFactory.Jimmy);
+        Assert.Equal(SlackBlocks.SaveCallback, save["callback_id"]!.GetValue<string>());
+        Assert.Contains("Signed in with Slack", save.ToJsonString(Plain));
+        var answer = await SubmitAsync(new() { ["where"] = SlackBlocks.WhereValue(board.Id, board.Buckets[0].Id) });
+        Assert.Contains($"Saved as {board.Key}-1", answer.Body!.ToJsonString(Plain));
+
+        // Someone of another workspace with the same user id is somebody else.
+        var other = await factory.CreateSignedInClientAsync("slack-other-team@example.com",
+            subject: AuthSetup.SlackSubject("T0OTHER001", SlackApiFactory.Jimmy), provider: SlackApp.SignInProviderId);
+        var otherStatus = (await other.GetFromJsonAsync<SlackAccountStatus>("/api/me/slack-account"))!;
+        Assert.Equal((true, SlackAccountSource.SignIn), (otherStatus.Linked, otherStatus.Source));
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+        var accounts = factory.Services.GetRequiredService<ChatAccounts>();
+        Assert.Equal((await jimmy.MeAsync()).Id,
+            await accounts.FindUserAsync(db, ChatPlatform.Slack, AuthSetup.SlackSubject(Fake.TeamId, SlackApiFactory.Jimmy), CancellationToken.None));
+        Assert.Equal((await other.MeAsync()).Id,
+            await accounts.FindUserAsync(db, ChatPlatform.Slack, AuthSetup.SlackSubject("T0OTHER001", SlackApiFactory.Jimmy), CancellationToken.None));
     }
 
     [Fact]

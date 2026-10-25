@@ -275,7 +275,7 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | previewDiscordAccountLink | `GET /api/me/discord-account/links/{code}` | The Discord name behind a code from the bot's "Connect your PrikBoard account" button (sessions only) |
 | linkDiscordAccount | `POST /api/me/discord-account` | Link the Discord account behind `code` to you; once, for 10 minutes (sessions from PrikBoard's own pages only) |
 | unlinkDiscordAccount | `DELETE /api/me/discord-account` | Remove the link you made (sessions only) |
-| getSlackAccount | `GET /api/me/slack-account` | Whether the Slack app knows who you are (`linked`, `linkedAt`) for Save to PrikBoard (sessions only) |
+| getSlackAccount | `GET /api/me/slack-account` | Whether the Slack app knows who you are (`linked`, `source`: `SignIn` or `Link`, `linkedAt`) for Save to PrikBoard (sessions only) |
 | previewSlackAccountLink | `GET /api/me/slack-account/links/{code}` | The Slack name behind a code from the app's "Connect your PrikBoard account" link (sessions only) |
 | linkSlackAccount | `POST /api/me/slack-account` | Link the Slack account behind `code` to you; once, for 10 minutes (sessions from PrikBoard's own pages only) |
 | unlinkSlackAccount | `DELETE /api/me/slack-account` | Remove the link (sessions only) |
@@ -298,13 +298,13 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | deleteDiscordBot | `DELETE /api/admin/discord` | Forget the saved token and address and log the bot out; boards stay connected (admins, sessions only) |
 | leaveDiscordServer | `DELETE /api/admin/discord/servers/{guildId}` | The bot leaves the server and its boards are disconnected (admins, sessions only) |
 | getSlackApp | `GET /api/admin/slack` | The Slack app's state, workspace, bot name, public address, the `manifest` to create it from (`createAppUrl` prefills it) and the workspace's boards; never the tokens (admins, sessions only) |
-| setSlackApp | `PUT /api/admin/slack` | Save the app's `botToken` (xoxb-, checked with `auth.test`) and `appToken` (xapp-, checked by opening a Socket Mode connection), both the first time, stored encrypted, and `publicUrl` (defaults to the request's address); the app reconnects at once. 400 for values set in configuration (admins, sessions only) |
+| setSlackApp | `PUT /api/admin/slack` | Save the app's `botToken` (xoxb-, checked with `auth.test`) and `appToken` (xapp-, checked by opening a Socket Mode connection), both the first time, stored encrypted, and `publicUrl` (defaults to the request's address; it can be saved alone first, so the manifest names it); the app reconnects at once. 400 for values set in configuration (admins, sessions only) |
 | deleteSlackApp | `DELETE /api/admin/slack` | Forget the saved tokens and address and disconnect; boards stay connected (admins, sessions only) |
 | forgetSlackWorkspace | `DELETE /api/admin/slack/workspaces/{teamId}` | Disconnect every board from the workspace; the app stays installed in Slack (admins, sessions only) |
 | getSetupStatus | `GET /api/setup` | Whether nobody has an account yet (`needed`), recovery mode, and whether this browser entered the setup key (public) |
 | unlockSetup | `POST /api/setup/unlock` | The setup key from the server's log: sets the setup cookie for an hour. 403 for a wrong key, 409 once set up (public, 10 a minute) |
 | listSignInProviders | `GET /api/setup/providers` | Every sign-in provider with its settings and number of sign-ins, the default first; secrets never come back (setup or admins) |
-| createSignInProvider | `POST /api/setup/providers` | Add an OpenID Connect provider, a GitHub OAuth App, Discord or Steam: `id`, `type`, `clientId` (not Steam), `clientSecret` (Steam: optional Web API key), `authority` for OpenID Connect. Works at once (setup or admins) |
+| createSignInProvider | `POST /api/setup/providers` | Add an OpenID Connect provider, a GitHub OAuth App, Discord, Slack or Steam: `id`, `type`, `clientId` (not Steam), `clientSecret` (Steam: optional Web API key), `authority` for OpenID Connect. Works at once (setup or admins) |
 | updateSignInProvider | `PATCH /api/setup/providers/{id}` | Change a provider added in the setup; 409 for one from the configuration (setup or admins) |
 | deleteSignInProvider | `DELETE /api/setup/providers/{id}` | Remove a provider added in the setup; not the last one once people have accounts (setup or admins) |
 | checkOpenIdAuthority | `POST /api/setup/openid-check` | Fetch an issuer's discovery document and return its `issuer` (setup or admins) |

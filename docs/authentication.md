@@ -42,7 +42,7 @@ A provider without a `ClientId` is skipped (except Steam, which has none). `apps
 
 | Setting | Meaning |
 | --- | --- |
-| `Type` | `OpenIdConnect` (default), `GitHub`, `Discord` or `Steam` |
+| `Type` | `OpenIdConnect` (default), `GitHub`, `Discord`, `Steam` or `Slack` |
 | `DisplayName` | Label on the sign-in button |
 | `Authority` | The OpenID Connect issuer URL. Its `/.well-known/openid-configuration` must exist. Not used for GitHub |
 | `ClientId`, `ClientSecret` | From the provider's app registration. Steam has no client id; its `ClientSecret` is an optional Steam Web API key |
@@ -91,6 +91,12 @@ A GitHub OAuth App has exactly one callback URL, so register a separate app for 
 ### Discord
 
 `Type: "Discord"`, OAuth 2.0 with the scopes `identify` and `email`. In the [Discord Developer Portal](https://discord.com/developers/applications), create an application, add the redirect `.../api/auth/callback/{id}` under OAuth2 and copy its client id and secret. The email counts as verified when Discord says so (`verified`); the name is the display name, else the username.
+
+### Slack
+
+`Type: "Slack"`: *Sign in with Slack*, Slack's OpenID Connect, with the scopes `openid`, `profile` and `email`. It runs through the OAuth handler with Slack's endpoints set (`slack.com/openid/connect/authorize`, `openid.connect.token`, `openid.connect.userInfo`), like Discord, so there is no discovery. Use any Slack app's client id and secret (*Basic Information → App Credentials*), such as the one the Slack integration runs as, and add `https://…/api/auth/callback/{id}` under *OAuth & Permissions → Redirect URLs*. Slack only takes https redirect URLs, so this needs PrikBoard's https address. The Slack app's manifest already lists the redirect for the id `slack`, and the user scopes.
+
+The subject is `{team id}:{user id}` (`AuthSetup.SlackSubject`), because Slack user ids are only unique within their workspace. It is the same key the Slack app knows people by, so someone who signs in with Slack is known to the app without linking an account ([slack.md](slack.md)). The email counts as verified when Slack says so (`email_verified`).
 
 ### Steam
 
@@ -186,6 +192,14 @@ An App token is still a token: like any other it cannot manage tokens, approve a
 The Discord bot that previews pasted links ([discord.md](discord.md)) runs inside the API and calls no endpoint, so it is no caller here. Its token is a Discord bot token that an admin saves under Admin → *Instance*. It is stored encrypted with Data Protection, like sign-in provider secrets, or set as `Discord:BotToken` in the configuration.
 
 Each connected Discord server is an `Agent` (issuer `discord`, client id the guild id) and a **Viewer** member of its boards. The bot looks links up as that agent. Board owners connect servers in the board's *Integrations*, from a browser session.
+
+### The Slack app
+
+The Slack app ([slack.md](slack.md)) also runs inside the API and calls no endpoint. Its bot and app-level tokens are saved by an admin under Admin → *Instance*, encrypted with Data Protection, or set as `Slack:BotToken` and `Slack:AppToken`. Each connected workspace is an `Agent` (issuer `slack`, client id the team id) and a **Viewer** member of its boards.
+
+### Behind a proxy or tunnel
+
+Callback URLs are built from the request's scheme and host. Behind a proxy that ends HTTPS (the Docker image behind Caddy, or a tunnel such as `cloudflared` in development), the API must trust `X-Forwarded-Proto`, or it builds `http://` callbacks that providers refuse. The Docker image sets `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`. In development, the `api-tunnel` launch config does the same.
 
 ## Machine-to-machine: Client Credentials
 

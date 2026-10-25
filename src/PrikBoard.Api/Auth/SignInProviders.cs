@@ -64,7 +64,7 @@ public sealed class SignInProviders(
                 Forget(provider.Id);
                 schemes.TryAddScheme(new AuthenticationScheme(provider.Id, provider.Name, provider.Options.Type switch
                 {
-                    ProviderType.GitHub or ProviderType.Discord => typeof(OAuthHandler<OAuthOptions>),
+                    ProviderType.GitHub or ProviderType.Discord or ProviderType.Slack => typeof(OAuthHandler<OAuthOptions>),
                     ProviderType.Steam => typeof(SteamAuthenticationHandler),
                     _ => typeof(OpenIdConnectHandler),
                 }));
@@ -172,6 +172,9 @@ public sealed class SignInProviders(
                     break;
                 case { Options.Type: ProviderType.Discord } discord:
                     AuthSetup.ConfigureDiscord(options, discord.Id, discord.Options);
+                    break;
+                case { Options.Type: ProviderType.Slack } slack:
+                    AuthSetup.ConfigureSlack(options, slack.Id, slack.Options);
                     break;
             }
         }

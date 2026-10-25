@@ -117,10 +117,22 @@ public sealed record SetSlackAppRequest(
     [property: StringLength(300, MinimumLength = 1)] string? AppToken = null,
     [property: StringLength(SlackAppSettings.PublicUrlMaxLength, MinimumLength = 1)] string? PublicUrl = null);
 
+/// <summary>Where your Slack account is known from.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<SlackAccountSource>))]
+public enum SlackAccountSource
+{
+    /// <summary>You sign in to PrikBoard with Slack, which says who you are.</summary>
+    SignIn,
+
+    /// <summary>You linked it from the app's "Connect your PrikBoard account".</summary>
+    Link,
+}
+
 /// <summary>Whether the Slack app knows who you are in Slack, for Save to PrikBoard.</summary>
-/// <param name="Linked">Whether it does: a link you made from the app's "Connect your PrikBoard account".</param>
-/// <param name="LinkedAt">When you made the link.</param>
-public sealed record SlackAccountStatus(bool Linked, DateTimeOffset? LinkedAt);
+/// <param name="Linked">Whether it does.</param>
+/// <param name="Source">How: a Slack sign-in, or a link you made; null when not linked.</param>
+/// <param name="LinkedAt">When you made the link (Link only).</param>
+public sealed record SlackAccountStatus(bool Linked, SlackAccountSource? Source, DateTimeOffset? LinkedAt);
 
 /// <summary>The Slack user behind a link code, so you can check it is you before linking.</summary>
 /// <param name="SlackName">Their name in Slack, as Slack gave it to the app.</param>

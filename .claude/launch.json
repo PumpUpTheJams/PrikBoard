@@ -8,6 +8,12 @@
       "port": 5080
     },
     {
+      "name": "api-tunnel",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NoProfile", "-Command", "$env:ASPNETCORE_FORWARDEDHEADERS_ENABLED = 'true'; dotnet run --project src/PrikBoard.Api --launch-profile http -- --ConnectionStrings:PrikBoard='Host=localhost;Port=5432;Username=prikboard;Password=prikboard;Database=prikboard_slack'"],
+      "port": 5080
+    },
+    {
       "name": "api-fake-slack",
       "runtimeExecutable": "dotnet",
       "runtimeArgs": ["run", "--project", "src/PrikBoard.Api", "--launch-profile", "http", "--", "--Slack:ApiUrl=http://localhost:5090/api/"],
@@ -23,6 +29,12 @@
       "name": "web",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "src/web"],
+      "port": 5173
+    },
+    {
+      "name": "web-tunnel",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NoProfile", "-Command", "$env:__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS = '.trycloudflare.com'; npm run dev --prefix src/web"],
       "port": 5173
     },
     {

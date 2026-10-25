@@ -600,7 +600,7 @@ export interface SetupStatus {
   unlocked: boolean
 }
 
-export type ProviderType = 'OpenIdConnect' | 'GitHub' | 'Discord' | 'Steam'
+export type ProviderType = 'OpenIdConnect' | 'GitHub' | 'Discord' | 'Steam' | 'Slack'
 
 /** A sign-in provider as the setup shows it; the client secret never comes back. */
 export interface SignInProviderDetail {
@@ -1084,9 +1084,10 @@ export interface SlackAppDetail {
   workspaces: SlackAppWorkspace[]
 }
 
-/** Whether the Slack app knows who you are, for Save to PrikBoard: a link you made from the app. */
+/** Whether the Slack app knows who you are, for Save to PrikBoard: through a Slack sign-in, or a link you made. */
 export interface SlackAccountStatus {
   linked: boolean
+  source: 'SignIn' | 'Link' | null
   linkedAt: string | null
 }
 

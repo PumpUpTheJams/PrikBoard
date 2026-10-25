@@ -206,7 +206,7 @@ export function AccountDialog({ user, boards, onChange, onClose }: AccountDialog
   )
 }
 
-/** How a chat app's bot knows you: a sign-in with that app (Discord only), or a link you made from the bot. */
+/** How a chat app's bot knows you: a sign-in with that app, or a link you made from the bot. */
 interface ChatAccountStatus {
   source: 'SignIn' | 'Link' | null
   linkedAt: string | null
@@ -219,8 +219,9 @@ const accounts: Record<ChatPlatform, { status: () => Promise<ChatAccountStatus>;
     signedIn: 'You sign in with Discord, so the PrikBoard bot knows you there: Save to PrikBoard works as you.',
   },
   Slack: {
-    status: () => api.getSlackAccount().then((s) => ({ source: s.linked ? 'Link' : null, linkedAt: s.linkedAt })),
+    status: () => api.getSlackAccount().then((s) => ({ source: s.source, linkedAt: s.linkedAt })),
     unlink: () => api.unlinkSlackAccount(),
+    signedIn: 'You sign in with Slack, so the PrikBoard Slack app knows you there: Save to PrikBoard works as you.',
   },
 }
 

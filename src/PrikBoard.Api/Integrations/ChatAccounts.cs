@@ -10,8 +10,9 @@ namespace PrikBoard.Api.Integrations;
 
 /// <summary>
 /// Who a chat user is in PrikBoard, for what a bot does on their behalf (Save to PrikBoard). One rule for every action:
-/// someone who signs in with the platform's sign-in provider is known by that sign-in; anyone else links once, from the
-/// bot's "Connect your PrikBoard account" button, which opens <c>#/connect/discord-account</c> with a code. Chat user ids
+/// someone who signs in with the platform's sign-in provider (Discord, or Sign in with Slack) is known by that sign-in;
+/// anyone else links once, from the bot's "Connect your PrikBoard account", which opens <c>#/connect/discord-account</c>
+/// or <c>#/connect/slack-account</c> with a code. Chat user ids
 /// are only ever stored as keyed hashes, like sign-in subjects. The codes live in memory (one instance, like the bots).
 /// </summary>
 public sealed class ChatAccounts(KeyedHasher hasher, SignInProviders providers, TimeProvider time)
@@ -92,10 +93,15 @@ public sealed class ChatAccounts(KeyedHasher hasher, SignInProviders providers, 
         return true;
     }
 
-    /// <summary>The sign-in providers whose subjects are the platform's user ids.</summary>
-    private List<string> SignInsOf(ChatPlatform platform) => platform == ChatPlatform.Discord
-        ? providers.All.Where(p => p.Options.Type == ProviderType.Discord).Select(p => p.Id).ToList()
-        : [];
+    /// <summary>
+    /// The sign-in providers whose subjects are the platform's user ids: Discord's are its user ids, Slack's are
+    /// <c>{team}:{user}</c> (<see cref="AuthSetup.SlackSubject"/>), the same key the Slack app uses.
+    /// </summary>
+    private List<string> SignInsOf(ChatPlatform platform)
+    {
+        var type = platform == ChatPlatform.Slack ? ProviderType.Slack : ProviderType.Discord;
+        return providers.All.Where(p => p.Options.Type == type).Select(p => p.Id).ToList();
+    }
 
     /// <summary>A code waiting to be used: the chat user it links and their name, shown so people can check it is them.</summary>
     public sealed record PendingLink(ChatPlatform Platform, string ChatUserId, string ChatName, DateTimeOffset ExpiresAt);

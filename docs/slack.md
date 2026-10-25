@@ -154,7 +154,7 @@ Under a message's *More actions*, *Save to PrikBoard* is a message shortcut. Sla
 1. **Who it is.** `ChatAccounts.FindUserAsync(Slack, "{team}:{user}")`: Slack user ids are only unique within a workspace. The link holds only the keyed hash (`slack-bot`).
    - **Not known yet:** a modal (`SlackBlocks.NoticeView`) links to `#/connect/slack-account?code=…`, a code that works for 10 minutes.
    - On that page, `components/ChatAccountPage` (which was `DiscordAccountPage`, now for both apps) names the Slack account and warns to link only your own. The link is made with linkSlackAccount, and Account → *Slack* shows it and unlinks it.
-   - There is no Slack sign-in provider type, so unlike Discord nobody is known by their sign-in.
+   - Someone who signs in to PrikBoard with Slack (a `Slack` sign-in provider, *Sign in with Slack*) is known by that sign-in and never sees the connect link: the sign-in's subject is the same `{team}:{user}` key. See [authentication.md](authentication.md#slack).
 2. **Where it can go.** `ChatSaves.TargetsAsync`: boards connected to this workspace that the person can edit, those in this channel first, each with the channel's save bucket (updateSlackChannel's `saveBucketId`) or its first bucket. With none, a modal says so.
 3. **The modal** (`SlackBlocks.SaveView`) opens right away, as Slack's trigger requires. It has:
    - one select with a group per board and an option per bucket, the save bucket picked;

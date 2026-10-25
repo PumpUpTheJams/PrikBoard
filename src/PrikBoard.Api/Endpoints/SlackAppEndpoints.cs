@@ -34,7 +34,8 @@ public static class SlackAppEndpoints
             .WithSummary("Set up the Slack app")
             .WithDescription("Admins only. Saves the app's bot token (xoxb-…) and app-level token (xapp-…, for Socket Mode), each " +
                              "checked with Slack first and stored encrypted, and the public address, and (re)connects the app at once. " +
-                             "The public address defaults to the one this request came to. Values in the server's configuration " +
+                             "The public address defaults to the one this request came to, and can be saved on its own first, so the " +
+                             "manifest names it. Values in the server's configuration " +
                              "(Slack:BotToken, Slack:AppToken, Slack:PublicUrl) win and can't be changed here (400).")
             .ProducesValidationProblem();
 
@@ -70,7 +71,9 @@ public static class SlackAppEndpoints
             return Problems.Invalid(botToken is not null ? "botToken" : "appToken",
                 $"This server's configuration sets the tokens ({SlackApp.BotTokenSetting}, {SlackApp.AppTokenSetting}); change them there.");
         }
-        if (!app.TokensAreConfigured)
+        // Only the address the first time: kept, so the manifest built from it is right before the app exists.
+        var addressOnly = string.IsNullOrEmpty(botToken) && string.IsNullOrEmpty(appToken) && request.PublicUrl is not null;
+        if (!app.TokensAreConfigured && !addressOnly)
         {
             if (string.IsNullOrEmpty(botToken) && row?.ProtectedBotToken is null)
             {

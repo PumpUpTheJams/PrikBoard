@@ -9,12 +9,13 @@ import { plural } from './plural'
 import { takeSetupResult } from './setupResult'
 
 /** The kinds of provider the setup offers, each with its own form. */
-type Template = 'github-app' | 'github' | 'google' | 'discord' | 'steam' | 'openid'
+type Template = 'github-app' | 'github' | 'google' | 'discord' | 'slack' | 'steam' | 'openid'
 
 const templates: { template: Template; label: string; hint: string }[] = [
   { template: 'github-app', label: 'GitHub', hint: 'One click: PrikBoard creates a GitHub App for you' },
   { template: 'google', label: 'Google', hint: 'Google accounts and Workspace' },
   { template: 'discord', label: 'Discord', hint: 'Discord accounts' },
+  { template: 'slack', label: 'Slack', hint: 'Sign in with Slack, also with the Slack app’s own credentials' },
   { template: 'steam', label: 'Steam', hint: 'Steam accounts, no app to register' },
   { template: 'openid', label: 'Other (OpenID Connect)', hint: 'Microsoft Entra, Auth0, Okta, Keycloak, Authentik and others' },
   { template: 'github', label: 'GitHub OAuth App', hint: 'An app you register on GitHub yourself' },
@@ -51,6 +52,17 @@ const forms: Record<
     url: 'https://discord.com/developers/applications',
     where: 'Discord Developer Portal → your application → OAuth2',
     callback: 'Redirect',
+    clientId: true,
+    secret: 'Client secret',
+    secretRequired: true,
+  },
+  slack: {
+    type: 'Slack',
+    label: 'Slack',
+    url: 'https://api.slack.com/apps',
+    // Slack only takes https redirect URLs, so this needs PrikBoard's https address (localhost won't do).
+    where: 'Slack → your app → OAuth & Permissions → Redirect URLs (https only); the client id and secret are under Basic Information → App Credentials',
+    callback: 'Redirect URL',
     clientId: true,
     secret: 'Client secret',
     secretRequired: true,
@@ -111,7 +123,7 @@ interface SignInProvidersProps {
 
 /**
  * The sign-in providers, for the setup and the admin page: add GitHub (in one click, through a GitHub App), Google,
- * Discord, Steam or any OpenID Connect provider, test them, pick the default and remove them. Changes work at once.
+ * Discord, Slack, Steam or any OpenID Connect provider, test them, pick the default and remove them. Changes work at once.
  */
 export function SignInProviders({ returnUrl, onLoaded }: SignInProvidersProps) {
   const [providers, setProviders] = useState<SignInProviderDetail[] | null>(null)

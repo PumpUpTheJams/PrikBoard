@@ -148,6 +148,44 @@ public class SetupApiTests(SetupApiTests.Factory factory) : IClassFixture<SetupA
     }
 
     [Fact]
+    public async Task Slack_providers_send_people_to_sign_in_with_slack()
+    {
+        var admin = await Admin();
+
+        var slack = await admin.PostAsJsonAsync("/api/setup/providers",
+            new { id = "slack-live", type = "Slack", clientId = "123.456", clientSecret = "secret" });
+        var withoutSecret = await admin.PostAsJsonAsync("/api/setup/providers", new { id = "slack-x", type = "Slack", clientId = "123.456" });
+        var withAuthority = await admin.PostAsJsonAsync("/api/setup/providers",
+            new { id = "slack-y", type = "Slack", clientId = "123.456", clientSecret = "secret", authority = "https://slack.com" });
+        var toSlack = await factory.CreateAnonymousClient().GetAsync("/api/auth/login/slack-live?returnUrl=/");
+
+        Assert.Equal(HttpStatusCode.Created, slack.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, withoutSecret.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, withAuthority.StatusCode);
+        var login = toSlack.Headers.Location!;
+        Assert.Equal("https://slack.com/openid/connect/authorize", login.GetLeftPart(UriPartial.Path));
+        Assert.Contains("client_id=123.456", login.Query);
+        Assert.Contains("scope=openid%20profile%20email", login.Query);
+        Assert.Contains(Uri.EscapeDataString("http://localhost/api/auth/callback/slack-live"), login.Query);
+    }
+
+    [Fact]
+    public void Slack_sign_ins_are_known_by_workspace_and_user()
+    {
+        using var info = System.Text.Json.JsonDocument.Parse("""
+            {"ok": true, "sub": "U0JIMMY001", "https://slack.com/user_id": "U0JIMMY001", "https://slack.com/team_id": "T0FAKE0001",
+             "email": "jimmy@example.com", "email_verified": true, "name": "Jimmy", "picture": "https://avatars.slack-edge.com/j.png"}
+            """);
+        var claims = AuthSetup.SlackClaims(info.RootElement).ToDictionary(c => c.Type, c => c.Value);
+        Assert.Equal("T0FAKE0001:U0JIMMY001", claims["sub"]);
+        Assert.Equal(("Jimmy", "jimmy@example.com", "true", "https://avatars.slack-edge.com/j.png"),
+            (claims["name"], claims["email"], claims["email_verified"], claims["picture"]));
+
+        using var refused = System.Text.Json.JsonDocument.Parse("""{"ok": false, "error": "invalid_auth"}""");
+        Assert.Throws<Microsoft.AspNetCore.Authentication.AuthenticationFailureException>(() => AuthSetup.SlackClaims(refused.RootElement));
+    }
+
+    [Fact]
     public async Task Provider_settings_are_checked_and_configured_providers_are_read_only()
     {
         var admin = await Admin();

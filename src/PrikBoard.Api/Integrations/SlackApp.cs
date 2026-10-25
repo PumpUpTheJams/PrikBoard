@@ -34,6 +34,12 @@ public sealed class SlackApp(IConfiguration config, IDataProtectionProvider prot
     /// <summary>The message shortcut's name, as Slack lists it under a message's More actions.</summary>
     public const string SaveShortcut = "Save to PrikBoard";
 
+    /// <summary>The sign-in provider id the manifest's redirect URL is for, when the same app does Sign in with Slack.</summary>
+    public const string SignInProviderId = "slack";
+
+    /// <summary>The user scopes Sign in with Slack asks for (OpenID Connect).</summary>
+    public static readonly string[] SignInScopes = ["openid", "profile", "email"];
+
     /// <summary>The slash command the app answers.</summary>
     public const string Command = "/prikboard";
 
@@ -80,12 +86,16 @@ public sealed class SlackApp(IConfiguration config, IDataProtectionProvider prot
     }
 
     /// <summary>
-    /// The manifest to create the Slack app from: Socket Mode, the <c>link_shared</c> event, <see cref="Command"/>, <see cref="Scopes"/>, and the
-    /// public address's host as its unfurl domain (Slack only sends links on those domains).
+    /// The manifest to create the Slack app from: Socket Mode, the <c>link_shared</c> event, <see cref="Command"/>, <see cref="Scopes"/>, the
+    /// public address's host as its unfurl domain (Slack only sends links on those domains), and Sign in with Slack's
+    /// redirect URL and user scopes, so the same app can be a Slack sign-in provider (id <see cref="SignInProviderId"/>).
     /// </summary>
     public static string Manifest(string? publicUrl)
     {
-        var host = Uri.TryCreate(publicUrl, UriKind.Absolute, out var uri) ? uri.Host : "board.example.com";
+        var site = Uri.TryCreate(publicUrl, UriKind.Absolute, out var uri) ? uri : new Uri("https://board.example.com");
+        var host = site.Host;
+        // Slack only takes https redirect URLs, which the public address is once PrikBoard has one.
+        var signInCallback = site.GetLeftPart(UriPartial.Authority) + Auth.AuthSetup.CallbackPath(SignInProviderId);
         var manifest = new Dictionary<string, object>
         {
             ["display_information"] = new Dictionary<string, object>
@@ -121,7 +131,9 @@ public sealed class SlackApp(IConfiguration config, IDataProtectionProvider prot
             },
             ["oauth_config"] = new Dictionary<string, object>
             {
-                ["scopes"] = new Dictionary<string, object> { ["bot"] = Scopes },
+                // For Sign in with Slack with this app's client id and secret (a Slack sign-in provider, id "slack").
+                ["redirect_urls"] = new[] { signInCallback },
+                ["scopes"] = new Dictionary<string, object> { ["bot"] = Scopes, ["user"] = SignInScopes },
             },
             ["settings"] = new Dictionary<string, object>
             {
