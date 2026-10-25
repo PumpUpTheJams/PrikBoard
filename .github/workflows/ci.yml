@@ -21,7 +21,7 @@ jobs:
         run: >-
           nohup docker run -d --name postgres -p 127.0.0.1:5432:5432
           -e POSTGRES_USER=prikboard -e POSTGRES_PASSWORD=prikboard -e POSTGRES_DB=prikboard
-          postgres:17 > "$RUNNER_TEMP/postgres.log" 2>&1 &
+          postgres:18 > "$RUNNER_TEMP/postgres.log" 2>&1 &
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
         with:

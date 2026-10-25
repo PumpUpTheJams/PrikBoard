@@ -7,7 +7,7 @@ PrikBoard is a board of cards for small project management. It has a .NET 10 RES
 ## Commands
 
 ```bash
-docker compose up -d                              # PostgreSQL 17 on localhost:5432 (user/password/db: prikboard), data in volume postgres-data
+docker compose up -d                              # PostgreSQL 18 on localhost:5432 (user/password/db: prikboard), data in volume postgres18-data
 dotnet run --project src/PrikBoard.Api            # API on http://localhost:5080; applies migrations on startup
 dotnet test --solution PrikBoard.slnx             # all API tests (what CI runs; xUnit v3 on Microsoft.Testing.Platform, see global.json); needs the compose database
 dotnet test --solution PrikBoard.slnx --filter "FullyQualifiedName~Moving_a_bucket_carries_its_cards_along"   # one test
