@@ -91,6 +91,20 @@ export const CloseIcon = ({ size = 16 }: IconProps) => (
   </Icon>
 )
 
+/** Four corners pointing out: make a window fill the board. */
+export const MaximizeIcon = ({ size = 16 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />
+  </Icon>
+)
+
+/** Four corners pointing in: give a filled window its own size back. */
+export const RestoreIcon = ({ size = 16 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5" />
+  </Icon>
+)
+
 export const ChevronDownIcon = ({ size = 14 }: IconProps) => (
   <Icon size={size}>
     <path d="M6 9l6 6 6-6" />

@@ -1646,8 +1646,19 @@ main {
   cursor: grab;
 }
 
+/* Maximized, the open card fills the board: square corners, and nothing to move by its band. */
+.expanded.maximized {
+  border-radius: 0;
+}
+
+.expanded.maximized .band {
+  border-radius: 0;
+  cursor: default;
+}
+
 .expanded .card-viewport {
   overflow: hidden;
+  container-type: inline-size;
 }
 
 /*
@@ -2297,12 +2308,31 @@ input.editable {
   box-shadow: var(--float-shadow);
 }
 
+/* The board's minimap, zoom, undo and redo, in the open card's bottom-right corner (below the history sheet). */
+.card-view-controls {
+  z-index: 3;
+}
+
 .card-bar {
   position: absolute;
   bottom: calc(16px + var(--scrollbar));
   left: 50%;
   z-index: 3;
   transform: translateX(-50%);
+}
+
+/* In a narrow card (.card-viewport is the container), the bar moves to the left so it stays clear of the minimap, and then undo and redo go above it. */
+@container (max-width: 820px) {
+  .card-bar {
+    left: 16px;
+    transform: none;
+  }
+}
+
+@container (max-width: 600px) {
+  .card-view-controls {
+    flex-direction: column;
+  }
 }
 
 .card-bar .rail-divider {
@@ -3331,6 +3361,20 @@ a.button.primary:hover {
   border-radius: 1px;
   background: var(--subtle);
   opacity: 0.6;
+}
+
+/* In the open card's minimap: its components, and its drawings as outlines. */
+.minimap-component {
+  position: absolute;
+  border-radius: 1px;
+  background: var(--text-2);
+  opacity: 0.5;
+}
+
+.minimap-drawing {
+  position: absolute;
+  border: 1px solid var(--subtle);
+  border-radius: 1px;
 }
 
 /* Dropping files */

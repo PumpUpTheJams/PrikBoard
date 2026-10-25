@@ -21,7 +21,7 @@ import { EditableText } from './EditableText'
 import { draggingFiles, imageFiles } from './files'
 import { Highlight } from './Highlight'
 import type { SearchTerm } from './search'
-import { BucketIcon, CheckIcon, CloseIcon, LinkIcon, PutBackIcon, SparkleIcon, TrashIcon } from './icons'
+import { BucketIcon, CheckIcon, CloseIcon, LinkIcon, MaximizeIcon, PutBackIcon, RestoreIcon, SparkleIcon, TrashIcon } from './icons'
 import { cardLabel, TITLE_SUGGESTION } from './links'
 import { CardCanvas, type IncomingDrawing, type IncomingImage, type CardCanvasHandle } from './CardCanvas'
 import { tagColorClass, type TagColorPreview, type TagColors } from './tagColors'
@@ -30,6 +30,7 @@ import type { RecordingRun } from './undo'
 import { MAX_ASSIGNEES, MAX_TAGS } from './tags'
 import { useCopyLink } from './useCopy'
 import { useFloatingWindow } from './useFloatingWindow'
+import type { HistoryButtons } from './ViewControls'
 import { WindowResizeHandles } from './WindowResizeHandles'
 
 /** What the board needs from the open card: its canvas, and whether a paste is meant for it. */
@@ -78,6 +79,8 @@ interface ExpandedCardProps {
   handle: RefObject<ExpandedCardHandle | null>
   /** Runs a change through the board (which then reloads), recorded for undo. */
   run: RecordingRun
+  /** The board's undo and redo buttons, shown next to the card's minimap too; none for viewers. */
+  history?: HistoryButtons
   /** Whether a drag on the card's canvas is in progress, so the board holds back its refreshes. */
   onBusy: (busy: boolean) => void
   /** A board image being dragged over the window. */
@@ -100,7 +103,7 @@ interface ExpandedCardProps {
 export function ExpandedCard(props: ExpandedCardProps) {
   const { card, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onClose, readOnly, highlight } = props
   const { boardTags, tagColors, people, cards, onRenameTag, onRecolorTag, onPreviewTagColor, onDeleteTag, handle, run, onBusy, incoming, linking, boardPoint, boardZoom, deleted } = props
-  const { drawings = [], incomingDrawing = null, visiting = false } = props
+  const { drawings = [], incomingDrawing = null, visiting = false, history } = props
   /** The tag or people window, opened from its button in the band. */
   const [picking, setPicking] = useState<{ kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
   const [fileOver, setFileOver] = useState(false)
@@ -109,7 +112,7 @@ export function ExpandedCard(props: ExpandedCardProps) {
   const dialogRef = useRef<HTMLElement>(null)
   const canvas = useRef<CardCanvasHandle>(null)
   const titleRef = useRef<HTMLInputElement & HTMLTextAreaElement>(null)
-  const { rect, style, moving, startMove, startResize, contains, pop } = useFloatingWindow(dialogRef)
+  const { rect, style, moving, maximized, toggleMaximized, startMove, startResize, contains, pop } = useFloatingWindow(dialogRef)
 
   // Focus goes to the window, or, for a card just added to the board, to its title with the text selected, so typing
   // replaces it. Only once the window shows: it is hidden until it has measured the board, and hidden things can't
@@ -161,7 +164,7 @@ export function ExpandedCard(props: ExpandedCardProps) {
     <>
       <article
         ref={dialogRef}
-        className={`expanded fill-${card.color.toLowerCase()}${moving ? ' moving' : ''}${fileOver ? ' file-over' : ''}${readOnly ? ' read-only' : ''}${incoming || incomingDrawing || linking ? ' drop-over' : ''}`}
+        className={`expanded fill-${card.color.toLowerCase()}${moving ? ' moving' : ''}${maximized ? ' maximized' : ''}${fileOver ? ' file-over' : ''}${readOnly ? ' read-only' : ''}${incoming || incomingDrawing || linking ? ' drop-over' : ''}`}
         style={style}
         // Images dropped on the band are attached in a free spot (the canvas takes drops where they land).
         onDragOver={(e) => {
@@ -220,6 +223,16 @@ export function ExpandedCard(props: ExpandedCardProps) {
                   <CloseIcon size={12} />
                 </button>
               )}
+              <button
+                type="button"
+                className="band-button icon"
+                aria-label={maximized ? 'Restore size' : 'Maximize'}
+                aria-pressed={maximized}
+                title={maximized ? 'Back to its own size' : 'Fill the board'}
+                onClick={toggleMaximized}
+              >
+                {maximized ? <RestoreIcon /> : <MaximizeIcon />}
+              </button>
               <button type="button" className="band-button icon" aria-label="Close" title="Close (Esc)" onClick={onClose}>
                 <CloseIcon />
               </button>
@@ -275,6 +288,7 @@ export function ExpandedCard(props: ExpandedCardProps) {
           readOnly={readOnly}
           handle={canvas}
           run={run}
+          history={history}
           onBusy={onBusy}
           incoming={incoming}
           incomingDrawing={incomingDrawing}
@@ -287,7 +301,7 @@ export function ExpandedCard(props: ExpandedCardProps) {
 
         {!visiting && <CardHistory card={card} attached={images.length + drawings.length} />}
 
-        <WindowResizeHandles onResize={startResize} />
+        {!maximized && <WindowResizeHandles onResize={startResize} />}
       </article>
 
       {picking?.kind === 'tags' && (

@@ -47,7 +47,7 @@ import { useStroke } from './useStroke'
 import { useToast } from './useToast'
 import { useTrashWindow } from './useTrashWindow'
 import { useUndo, type UndoHistory } from './useUndo'
-import { ViewControls } from './ViewControls'
+import { BoardMapItems, ViewControls, type HistoryButtons } from './ViewControls'
 import { useVisibleWindow } from './visibleWindow'
 import { FAR_ZOOM, stepZoom } from './zoom'
 
@@ -807,6 +807,13 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const countIn = (bucketId: string): BucketCount => counts.get(bucketId) ?? NOTHING_IN
   /** Cards the filters or the search fade. */
   const dimmed = (card: CardDetail) => filters.faded(card) || search.misses(card)
+  // Which cards are faded, as one string, so the minimap's cards only render again when that changes.
+  const mapFaded = visibleCards.flatMap((n) => (dimmed(n) ? [n.id] : [])).join(' ')
+  const historyBusy = !!gesture || stroke || cardBusy
+  /** The undo and redo buttons, on the board and in the open card; none for viewers. */
+  const history: HistoryButtons | undefined = readOnly
+    ? undefined
+    : { undo: { label: undo.nextUndo, disabled: historyBusy, onClick: undo.undo }, redo: { label: undo.nextRedo, disabled: historyBusy, onClick: undo.redo } }
   const hint = edits.uploads > 0 ? 'Uploading…' : fileDrop.over ? 'Drop to add the image here' : readOnly ? undefined : hints[tool]
 
   return (
@@ -1047,19 +1054,26 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         {hint && <div className="canvas-hint">{hint}</div>}
       </div>
       <ViewControls
-        undo={readOnly ? undefined : { label: undo.nextUndo, disabled: !!gesture || stroke || cardBusy, onClick: undo.undo }}
-        redo={readOnly ? undefined : { label: undo.nextRedo, disabled: !!gesture || stroke || cardBusy, onClick: undo.redo }}
+        undo={history?.undo}
+        redo={history?.redo}
         zoom={zoom}
         onZoom={(direction) => zoomTo(stepZoom(zoom, direction))}
         onZoomReset={() => zoomTo(1)}
         extent={canvas.minimap.extent}
         view={canvas.minimap.view}
         viewport={canvas.minimap.viewport}
-        buckets={board.buckets}
-        cards={visibleCards}
-        dimmed={dimmed}
-        current={current}
-        images={shownImages}
+        items={(left, top, scale) => (
+          <BoardMapItems
+            left={left}
+            top={top}
+            scale={scale}
+            buckets={board.buckets}
+            cards={visibleCards}
+            images={shownImages}
+            current={current}
+            dimmedKey={mapFaded}
+          />
+        )}
         onNavigate={canvas.navigate}
       />
 
@@ -1096,6 +1110,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
           cards={board.cards}
           handle={expandedRef}
           run={runRec}
+          history={history}
           onBusy={setCardBusy}
           incoming={incoming}
           drawings={board.drawings.filter((d) => d.cardId === expandedCard.id)}

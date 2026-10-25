@@ -22,11 +22,19 @@ function stored(key: string): Rect | null {
   }
 }
 
-function store(key: string, rect: Rect) {
+function store(key: string, value: unknown) {
   try {
-    localStorage.setItem(key, JSON.stringify(rect))
+    localStorage.setItem(key, JSON.stringify(value))
   } catch {
     // Storage can be unavailable (private windows, blocked site data); the window then just opens at the default.
+  }
+}
+
+function storedMaximized(key: string): boolean {
+  try {
+    return localStorage.getItem(`${key}.maximized`) === 'true'
+  } catch {
+    return false
   }
 }
 
@@ -41,13 +49,15 @@ function clamp(r: Rect, containerWidth: number, containerHeight: number): Rect {
 
 /**
  * A window floating over its offset parent (the board), moved by a press passed to `startMove` and resized from its right and
- * bottom edges (WindowResizeHandles). Its last size and place are remembered in localStorage. `rect` is null, and
- * `style` hides the window, until the board has been measured.
+ * bottom edges (WindowResizeHandles). Maximized, it fills the board until it is restored to `rect` again. Its last size
+ * and place, and whether it was maximized, are remembered in localStorage. `rect` is null, and `style` hides the window,
+ * until the board has been measured.
  */
 export function useFloatingWindow(windowRef: RefObject<HTMLElement | null>, storageKey = STORAGE_KEY) {
   const [rect, setRect] = useState<Rect | null>(null)
   /** Whether the window is being moved or resized right now. */
   const [moving, setMoving] = useState(false)
+  const [maximized, setMaximized] = useState(() => storedMaximized(storageKey))
 
   useLayoutEffect(() => {
     const container = windowRef.current?.parentElement
@@ -69,7 +79,7 @@ export function useFloatingWindow(windowRef: RefObject<HTMLElement | null>, stor
   /** Follows the pointer from a press until it is released, then remembers the result. */
   function track(e: PointerEvent, change: (start: Rect, dx: number, dy: number) => Rect) {
     const container = windowRef.current?.parentElement
-    if (!rect || !container || e.button !== 0) return
+    if (!rect || maximized || !container || e.button !== 0) return
     e.preventDefault()
     const start = rect
     const origin = { x: e.clientX, y: e.clientY }
@@ -102,7 +112,17 @@ export function useFloatingWindow(windowRef: RefObject<HTMLElement | null>, stor
     track(e, (s, dx, dy) => ({ ...s, width: edge === 's' ? s.width : s.width + dx, height: edge === 'e' ? s.height : s.height + dy }))
   }
 
-  const style: CSSProperties = rect ? { left: rect.x, top: rect.y, width: rect.width, height: rect.height } : { visibility: 'hidden' }
+  /** Fills the board, or goes back to its own size and place. */
+  function toggleMaximized() {
+    setMaximized(!maximized)
+    store(`${storageKey}.maximized`, !maximized)
+  }
+
+  const style: CSSProperties = !rect
+    ? { visibility: 'hidden' }
+    : maximized
+      ? { left: 0, top: 0, width: '100%', height: '100%' }
+      : { left: rect.x, top: rect.y, width: rect.width, height: rect.height }
 
   /** Whether a screen point is over the window. */
   const contains = useCallback(
@@ -116,5 +136,5 @@ export function useFloatingWindow(windowRef: RefObject<HTMLElement | null>, stor
   /** A little pop of the window, when something dropped on it went in. */
   const pop = useCallback(() => popElement(windowRef.current, 1.015), [windowRef])
 
-  return { rect, style, moving, startMove, startResize, contains, pop }
+  return { rect, style, moving, maximized, toggleMaximized, startMove, startResize, contains, pop }
 }
