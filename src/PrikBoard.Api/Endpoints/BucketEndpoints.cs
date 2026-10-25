@@ -18,7 +18,8 @@ public static class BucketEndpoints
             .WithName("createBucket")
             .WithSummary("Create a bucket")
             .WithDescription("Creates a bucket at the given rectangle (or to the right of the existing buckets), on top of " +
-                             "the others. The cards, images and drawings whose center it covers join it. Coordinates snap to the 20 px grid.")
+                             "the others. The loose cards, images and drawings whose center it covers join it (items in another " +
+                             "bucket stay there); it is the only change to a bucket that takes items. Coordinates snap to the 20 px grid.")
             .ProducesValidationProblem();
 
         buckets.MapPatch("/buckets/{bucketId:guid}", UpdateBucket)
@@ -29,7 +30,7 @@ public static class BucketEndpoints
                              "An x or y sent with a size is a resize from a top or left corner or edge. " +
                              "Moving a bucket carries its cards, images and drawings along (or exactly carryCardIds, carryImageIds " +
                              "and carryDrawingIds, which only a move takes) and changes no item's bucket, even where it overlaps " +
-                             "another bucket. A resize lets go of items now outside it and takes loose ones it now covers; a " +
+                             "another bucket. A resize lets go of items that no longer overlap it (they go loose) and takes none; a " +
                              "collapsed bucket can't be resized (400). Moving, resizing and opening a bucket put it on top of the others.")
             .ProducesValidationProblem();
 
@@ -49,7 +50,7 @@ public static class BucketEndpoints
                              "drawings, row by row in the order given, on the 20 px grid and a grid step clear of the bucket's own and " +
                              "loose items (only cards with onlyCardsTakeRoom); other buckets' items don't count. When they don't fit, the bucket grows towards grow (Down by " +
                              "default, or Right, Left or Up) by whole rows or columns, only as far as needed, also over neighboring " +
-                             "buckets (the items still join this one). Works on a collapsed bucket too. The bucket goes on top of the " +
+                             "buckets (the items still join this one; loose items it grows over stay loose). Works on a collapsed bucket too. The bucket goes on top of the " +
                              "others. Returns the bucket and the items; 400 when no item is given, or one is not on the bucket's board " +
                              "itself.")
             .ProducesValidationProblem();
@@ -58,15 +59,16 @@ public static class BucketEndpoints
             .RequireBoardRole(BoardRole.Editor, BoardScope.Bucket)
             .WithName("deleteBucket")
             .WithSummary("Delete a bucket")
-            .WithDescription("Deletes the bucket. Its cards, images and drawings stay where they are and become loose " +
-                             $"(or join a bucket underneath). restoreBucket brings it back within {Tombstones.RetentionText}.");
+            .WithDescription("Deletes the bucket. Its cards, images and drawings stay where they are and become loose, even " +
+                             $"over another bucket. restoreBucket brings it back within {Tombstones.RetentionText}.");
 
         buckets.MapPost("/buckets/{bucketId:guid}/restore", RestoreBucket)
             .RequireBoardRole(BoardRole.Editor, BoardScope.Bucket)
             .WithName("restoreBucket")
             .WithSummary("Restore a deleted bucket")
-            .WithDescription($"Brings back a bucket deleted in the last {Tombstones.RetentionText} with the same id, place and size, " +
-                             "and the cards, images and drawings whose center it covers join it again. 409 when it is not deleted.")
+            .WithDescription($"Brings back a bucket deleted in the last {Tombstones.RetentionText} with the same id, place and size. " +
+                             "It takes no items: put its old ones back with moveCard, updateImage or updateDrawing (bucketId with " +
+                             "their x and y). 409 when it is not deleted.")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         return api;
@@ -90,10 +92,11 @@ public static class BucketEndpoints
         };
         db.Buckets.Add(bucket);
 
-        // Drawn around cards, images and drawings, it takes them (it is on top of the others).
+        // Drawn around loose cards, images and drawings, it takes them (it is on top of the others). Items already in a
+        // bucket stay in theirs.
         var cards = await db.Cards.Where(n => n.BoardId == boardId).ToListAsync(ct);
         var items = await CanvasItemsAsync(db, boardId, ct);
-        Layout.Adopt(bucket, [.. Layout.BackToFront(siblings), bucket], cards, items, looseOnly: false);
+        Layout.Adopt(bucket, [.. Layout.BackToFront(siblings), bucket], cards, items);
 
         await db.SaveChangesAsync(ct);
         return TypedResults.Created($"/api/buckets/{bucket.Id}", BucketDetail.From(bucket));
@@ -165,12 +168,11 @@ public static class BucketEndpoints
 
         if (resizing || moving)
         {
-            // A new outline lets go of what is now outside it (after a move, only items left behind by carryCardIds or
-            // carryImageIds or carryDrawingIds) and a resize takes loose items it now covers, never another bucket's.
+            // A new outline lets go of what no longer reaches into it (after a move, only items left behind by carryCardIds
+            // or carryImageIds or carryDrawingIds), and takes nothing: only a bucket drawn around items takes them.
             var stacked = await StackAsync(db, bucket.BoardId, ct);
             ICanvasItem[] items = [.. images, .. drawings];
             Layout.Release(bucket, stacked, cards, items);
-            if (resizing) Layout.Adopt(bucket, stacked, cards, items, looseOnly: true);
         }
 
         await db.SaveChangesAsync(ct);
@@ -284,8 +286,7 @@ public static class BucketEndpoints
             (item.X, item.Y) = (x, y);
             item.BucketId = bucket.Id;
         }
-        // A bucket that grew can now cover loose items too.
-        Layout.Adopt(bucket, Layout.BackToFront(buckets), others, staying, looseOnly: true);
+        // A bucket that grew takes nothing else: loose items it now covers stay loose (only a bucket drawn around them takes them).
     }
 
     private static async Task<Results<NoContent, NotFound>> DeleteBucket(
@@ -310,11 +311,9 @@ public static class BucketEndpoints
         if (bucket is null) return TypedResults.NotFound();
         if (bucket.DeletedAt is null) return Problems.NotDeleted("bucket");
 
-        // StackedAt stays, so it goes back to its place in the stack and takes back the cards, images and drawings it covers.
+        // StackedAt stays, so it goes back to its place in the stack. It takes no items: its own went loose when it was
+        // deleted, and the web app's undo puts them back in it one by one.
         bucket.DeletedAt = null;
-        var others = await db.Buckets.Where(b => b.BoardId == bucket.BoardId && b.Id != bucketId).ToListAsync(ct);
-        var cards = await db.Cards.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);
-        Layout.Adopt(bucket, Layout.BackToFront([.. others, bucket]), cards, await CanvasItemsAsync(db, bucket.BoardId, ct), looseOnly: false);
 
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok(BucketDetail.From(bucket));

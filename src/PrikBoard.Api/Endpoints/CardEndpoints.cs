@@ -588,7 +588,7 @@ public static class CardEndpoints
         else
         {
             // UpdatedAt stays, so the card goes back to its place in the stacking order too.
-            // Back in its bucket if that is still around it, or wherever it now lands.
+            // Back in its bucket if that still reaches it, else loose (never into another bucket).
             Layout.Recheck(card, stacked);
         }
         await db.SaveChangesAsync(ct);
@@ -672,10 +672,9 @@ public static class CardEndpoints
         else if (bucket is not null)
         {
             (card.X, card.Y) = Layout.MakeRoomIn(bucket, others, buckets);
-            // Put in this bucket on purpose, so it joins it even when it is collapsed (which other cards don't).
+            // Put in this bucket on purpose, so it joins it even when it is collapsed (which other cards don't). A bucket
+            // that grew to make room takes no loose cards it now covers.
             card.BucketId = bucket.Id;
-            // A bucket that grew to make room can now cover loose cards too.
-            Layout.Adopt(bucket, stacked, others, [], looseOnly: true);
         }
         else
         {

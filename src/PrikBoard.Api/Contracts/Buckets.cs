@@ -23,7 +23,7 @@ public record BucketDetail(
         new(bucket.Id, bucket.BoardId, bucket.Name, bucket.X, bucket.Y, bucket.Width, bucket.Height, bucket.Collapsed, bucket.StackedAt);
 }
 
-/// <summary>Creates a bucket on a board, on top of the others. The cards, images and drawings whose center it covers join it. Coordinates snap to the 20 px grid.</summary>
+/// <summary>Creates a bucket on a board, on top of the others. The loose cards, images and drawings whose center it covers join it; items in another bucket stay there. Coordinates snap to the 20 px grid.</summary>
 /// <param name="Name">Bucket name.</param>
 /// <param name="X">Left edge; omit X and Y to place the bucket to the right of the existing ones.</param>
 /// <param name="Y">Top edge; give it together with X.</param>
@@ -40,7 +40,7 @@ public record CreateBucketRequest(
 /// Renames, moves, resizes or folds a bucket. Omitted (null) fields stay unchanged.
 /// Moving a bucket carries its own cards, images and drawings along and changes no item's bucket, even where it ends up
 /// over another bucket. Giving a new X or Y together with a new Width or Height resizes it from a top or left corner or edge
-/// instead: its items stay where they are, those now outside it leave it, and loose ones it now covers join it.
+/// instead: its items stay where they are, those that no longer overlap it go loose, and it takes no others.
 /// </summary>
 /// <param name="Name">New name.</param>
 /// <param name="X">New left edge.</param>

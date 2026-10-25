@@ -2,7 +2,7 @@ import { api } from '../api/client'
 import { cardColors, type BoardDetail, type BucketDetail, type CardDetail, type DrawingDetail, type DropBucket, type GrowSide, type ImageDetail, type Point, type Rect } from '../api/types'
 import { cardBox, count, itemsOf, packed, type BucketItems, type Selection } from './boardItems'
 import { CARD_HEIGHT, CARD_WIDTH, GRID, snapPoint } from './layout'
-import { allOf, bucketMove, isBlankCard, runAll } from './ops'
+import { allOf, bucketDelete, bucketMove, isBlankCard, runAll } from './ops'
 import type { CardSort } from './SelectionToolbar'
 import { bounds } from './selection'
 import { deleted, patched, snap, target, type RecordingRun, type UndoChange } from './undo'
@@ -57,7 +57,7 @@ export function useBoardMoves(options: BoardMovesOptions) {
             const bucket = board.buckets.find((b) => b.id === id)
             if (!bucket) return
             await api.deleteBucket(id)
-            changes.push(deleted(target.bucket(id), snap.bucket(bucket)))
+            changes.push(...bucketDelete(board, bucket))
           } else if (kind === 'image') {
             const image = board.images.find((i) => i.id === id)
             if (!image) return

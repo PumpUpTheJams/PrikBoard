@@ -291,7 +291,7 @@ public class PlaceItemsApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
     }
 
     [Fact]
-    public async Task A_loose_card_the_grown_bucket_covers_joins_it_and_its_history_says_so()
+    public async Task A_loose_card_the_grown_bucket_covers_stays_loose()
     {
         var board = await _client.CreateBoardAsync("Covered");
         var todo = board.Buckets[0];
@@ -303,13 +303,11 @@ public class PlaceItemsApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
 
         var placed = await Place(todo.Id, new { cardIds = new[] { extra.Id } });
 
-        // The bucket grows down past the loose card, which stays put and joins it.
+        // The bucket grows down past the loose card, which stays put and loose: only a bucket drawn around it takes it.
         Assert.True(placed.Bucket.Y + placed.Bucket.Height > below.Y + Layout.CardHeight);
         var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
         var now = snapshot!.Cards.Single(n => n.Id == below.Id);
-        Assert.Equal((todo.Id, below.X, below.Y), (now.BucketId, now.X, now.Y));
-        var history = await _client.GetFromJsonAsync<List<CardChangeDetail>>($"/api/cards/{below.Id}/history");
-        Assert.Equal(CardChangeKind.Bucket, Assert.Single(history![0].Entries).Kind);
+        Assert.Equal((null, below.X, below.Y), (now.BucketId, now.X, now.Y));
     }
 
     [Fact]

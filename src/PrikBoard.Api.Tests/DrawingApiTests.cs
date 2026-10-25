@@ -307,7 +307,7 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     }
 
     [Fact]
-    public async Task Shrinking_or_deleting_a_bucket_lets_its_drawings_go_and_restoring_takes_them_back()
+    public async Task Shrinking_or_deleting_a_bucket_lets_its_drawings_go_and_nothing_takes_them_back()
     {
         var board = await _client.CreateBoardAsync("Released drawings");
         var todo = board.Buckets[0];
@@ -320,17 +320,17 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         Assert.Equal(todo.Id, drawings.Single(d => d.Id == top.Id).BucketId);
         Assert.Null(drawings.Single(d => d.Id == low.Id).BucketId);
 
-        // Grown back, it takes the loose drawing it now covers again.
+        // Grown back, it doesn't take the loose drawing it now covers: only a bucket drawn around items takes them.
         (await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { height = 600 })).EnsureSuccessStatusCode();
-        Assert.Equal(todo.Id, (await Drawings(board.Id)).Single(d => d.Id == low.Id).BucketId);
+        Assert.Null((await Drawings(board.Id)).Single(d => d.Id == low.Id).BucketId);
 
-        // Deleted, it lets all of them go, and restored, it takes back the ones it covers; the drawings never move.
+        // Deleted, it lets all of them go, and restored, it takes none back; the drawings never move.
         (await _client.DeleteAsync($"/api/buckets/{todo.Id}")).EnsureSuccessStatusCode();
         Assert.All(await Drawings(board.Id), d => Assert.Null(d.BucketId));
         (await _client.PostAsync($"/api/buckets/{todo.Id}/restore", null)).EnsureSuccessStatusCode();
         drawings = await Drawings(board.Id);
-        Assert.All(drawings, d => Assert.Equal(todo.Id, d.BucketId));
-        Assert.Equal((todo.X + 20, todo.Y + 400, todo.Id), Spot(drawings, low.Id));
+        Assert.All(drawings, d => Assert.Null(d.BucketId));
+        Assert.Equal((todo.X + 20, todo.Y + 400, (Guid?)null), Spot(drawings, low.Id));
     }
 
     [Fact]

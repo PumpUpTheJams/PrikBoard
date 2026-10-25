@@ -1096,7 +1096,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         onSaveBucket={(bucket, { name = bucket.name }) => settle(...ops.renameBucket(bucket, name))}
         onDeleteBucket={(bucket) => {
           setSelection(null)
-          void settle(...ops.deleteBucket(bucket))
+          void settle(...ops.deleteBucket(board, bucket))
         }}
         image={selectedImage}
         onSaveImage={(image, changes) => settle(...ops.editImage(image, changes, 'Edit caption', ['caption']))}
