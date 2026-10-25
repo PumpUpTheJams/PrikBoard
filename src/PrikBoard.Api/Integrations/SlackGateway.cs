@@ -557,9 +557,8 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
             return;
         }
 
-        var preview = await LinkPreviews.CardAsync(db, (await db.Cards.FindAsync([card.Id], ct))!, (await db.Boards.FindAsync([boardId], ct))!, ct);
-        await AnswerAsync(draft, $"Saved as {card.ReadableId} on {target.Name}.", site.Blocks.For(preview, site.Url + card.Path), ct);
-        // A pin on the message tells the channel it is on a board now.
+        // A pin on the message tells the channel it is on a board now. It comes before the answer, so the message is
+        // pinned by the time the person who saved it reads "Saved as".
         try
         {
             await Api.AddReactionAsync(botToken, draft.ChannelId, draft.MessageTs, "pushpin", ct);
@@ -568,6 +567,8 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
         {
             logger.LogInformation("The Slack app could not pin a saved message in {Channel}: {Error}", draft.ChannelId, error.Error);
         }
+        var preview = await LinkPreviews.CardAsync(db, (await db.Cards.FindAsync([card.Id], ct))!, (await db.Boards.FindAsync([boardId], ct))!, ct);
+        await AnswerAsync(draft, $"Saved as {card.ReadableId} on {target.Name}.", site.Blocks.For(preview, site.Url + card.Path), ct);
     }
 
     /// <summary>An answer only the person who saved sees, through the shortcut's <c>response_url</c>.</summary>
