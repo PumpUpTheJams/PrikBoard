@@ -2,6 +2,9 @@ name: CI
 
 on:
   pull_request:
+  # Also on main, so its caches exist: a pull request can only restore caches from its own runs and from its base branch.
+  push:
+    branches: [main]
 
 # Pull requests can come from forks, so CI only reads the repository.
 permissions:
@@ -37,7 +40,10 @@ jobs:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('src/**/*.csproj', 'global.json') }}
           restore-keys: nuget-${{ runner.os }}-
-      - run: dotnet test --solution PrikBoard.slnx
+      # Separate steps, so the job's timings show where the time goes.
+      - run: dotnet restore PrikBoard.slnx
+      - run: dotnet build PrikBoard.slnx --no-restore
+      - run: dotnet test --solution PrikBoard.slnx --no-build
 
   web:
     name: Web lint and build

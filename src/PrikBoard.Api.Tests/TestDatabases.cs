@@ -27,7 +27,15 @@ internal static class TestDatabases
 
     private const string MissingPrefix = "prikboard_tests_first_start_";
 
-    private static readonly string Server = Environment.GetEnvironmentVariable("PRIKBOARD_TEST_POSTGRES") ?? DefaultServer;
+    private static readonly string Server = WithoutLocalhost(Environment.GetEnvironmentVariable("PRIKBOARD_TEST_POSTGRES") ?? DefaultServer);
+
+    /// <summary>The same server with <c>localhost</c> as <c>127.0.0.1</c>, for the same reason as the default.</summary>
+    private static string WithoutLocalhost(string server)
+    {
+        var builder = new NpgsqlConnectionStringBuilder(server);
+        if (string.Equals(builder.Host, "localhost", StringComparison.OrdinalIgnoreCase)) builder.Host = "127.0.0.1";
+        return builder.ConnectionString;
+    }
 
     private static readonly Lazy<string> Pool = new(() => $"{PoolPrefix}{MigrationsHash()}_");
 
