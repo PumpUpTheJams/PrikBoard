@@ -65,13 +65,7 @@
     "tone-sky": "#3a66a3",
     "tone-coral": "#a8525e",
     "tone-lilac": "#64509f",
-    "ghost-bg": "rgba(255, 255, 255, 0.4)",
-    "ink-chalk": "#2b3a52",
-    "ink-butter": "#b8892a",
-    "ink-mint": "#3d8a68",
-    "ink-sky": "#3f6fb0",
-    "ink-coral": "#a8525e",
-    "ink-lilac": "#6f5bb0"
+    "ghost-bg": "rgba(255, 255, 255, 0.4)"
   },
   "bar": {
     "colorScheme": "dark",
