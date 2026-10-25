@@ -14,22 +14,14 @@ jobs:
   api:
     name: API build and tests
     runs-on: ubuntu-latest
-    services:
-      # Same credentials as compose.yaml, which the test factory uses by default.
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: prikboard
-          POSTGRES_PASSWORD: prikboard
-          POSTGRES_DB: prikboard
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U prikboard"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     steps:
+      # Not a service container, which pulls and starts before the first step (about 20 s): it starts in the background
+      # while the build runs. Same credentials as compose.yaml, which the test factory uses by default.
+      - name: Start PostgreSQL
+        run: >-
+          nohup docker run -d --name postgres -p 127.0.0.1:5432:5432
+          -e POSTGRES_USER=prikboard -e POSTGRES_PASSWORD=prikboard -e POSTGRES_DB=prikboard
+          postgres:17 > "$RUNNER_TEMP/postgres.log" 2>&1 &
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
         with:
@@ -43,7 +35,17 @@ jobs:
       # Separate steps, so the job's timings show where the time goes.
       - run: dotnet restore PrikBoard.slnx
       - run: dotnet build PrikBoard.slnx --no-restore
-      - run: dotnet test --solution PrikBoard.slnx --no-build
+      # Over TCP: during its first start the image runs a temporary server on the socket only, which then restarts.
+      - name: Wait for PostgreSQL
+        run: |
+          for _ in $(seq 60); do
+            docker exec postgres pg_isready -h 127.0.0.1 -U prikboard && exit 0
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/postgres.log"
+          exit 1
+      # The test program itself, which skips the solution evaluation `dotnet test` does first (about 2 s).
+      - run: src/PrikBoard.Api.Tests/bin/Debug/net10.0/PrikBoard.Api.Tests
 
   web:
     name: Web lint and build
