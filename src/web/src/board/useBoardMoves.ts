@@ -101,7 +101,7 @@ export function useBoardMoves(options: BoardMovesOptions) {
       await allOf(groupBuckets.map(async (b) => changes.push(...bucketMove(board, b, await api.updateBucket(b.id, to(b.id))))))
       await allOf([
         into
-          ? pack(changes, into.bucket, groupCards, into.side)
+          ? pack(changes, into.bucket, { cards: groupCards, images: [], drawings: [], onlyCardsTakeRoom: true }, into.side)
           : allOf(
               groupCards.map(async (n) => {
                 const moved = await api.moveCard(n.id, pointer ? placed(n.id) : cardPlace(to(n.id)))
@@ -121,25 +121,29 @@ export function useBoardMoves(options: BoardMovesOptions) {
   }
 
   /**
-   * Puts cards, images and drawings into a bucket's free room in one request (dropped on a collapsed bucket): the
-   * server finds their spots, each at its own size, around the cards there only, growing the bucket towards `grow` when
-   * they don't fit.
+   * Puts cards, images and drawings into a bucket's free room in one request (dropped on a collapsed bucket, where
+   * nothing can be placed by hand): the server finds their spots, each at its own size and clear of everything in it,
+   * as for the API, growing the bucket towards `grow` when they don't fit.
    */
   function putItems(bucket: BucketDetail, items: BucketItems, grow: GrowSide) {
     const all = packed(items)
     const onlyCards = all.length === items.cards.length
     const label = `Put ${onlyCards ? count(all.length, 'card', 'cards') : count(all.length, 'item', 'items')} in ${bucket.name}`
-    return runAll(settle, label, undefined, (changes) => pack(changes, bucket, items.cards, grow, items.images, items.drawings))
+    return runAll(settle, label, undefined, (changes) => pack(changes, bucket, { ...items, onlyCardsTakeRoom: false }, grow))
   }
 
-  /** Packs items into a bucket's free room around its cards (placeItemsInBucket), and records the step's changes. */
-  async function pack(changes: (UndoChange | null)[], bucket: BucketDetail, cards: CardDetail[], grow: GrowSide, images: ImageDetail[] = [], drawings: DrawingDetail[] = []) {
+  /**
+   * Packs items into a bucket's free room (placeItemsInBucket), around its cards only with `onlyCardsTakeRoom`, and
+   * records the step's changes.
+   */
+  async function pack(changes: (UndoChange | null)[], bucket: BucketDetail, items: BucketItems & { onlyCardsTakeRoom: boolean }, grow: GrowSide) {
+    const { cards, images, drawings, onlyCardsTakeRoom } = items
     const placed = await api.placeItemsInBucket(bucket.id, {
       cardIds: cards.map((n) => n.id),
       imageIds: images.map((i) => i.id),
       drawingIds: drawings.map((d) => d.id),
       grow,
-      onlyCardsTakeRoom: true,
+      onlyCardsTakeRoom,
     })
     // Undo reverses the order: the items go back first, then the bucket shrinks to its old size.
     changes.push(patched(target.bucket(bucket.id), snap.bucket(bucket), snap.bucket(placed.bucket), ['x', 'y', 'width', 'height']))

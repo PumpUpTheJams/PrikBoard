@@ -76,7 +76,7 @@ public static class Layout
     // Bucket membership. A card, image or drawing on the board keeps its bucket (BucketId) until it moves itself: then it
     // joins the topmost bucket containing its center (Place). Changes to a bucket only touch its own items, so moving a
     // bucket onto another never moves items from one to the other: a moved bucket carries its own items and takes none;
-    // a resized one lets go of its items now outside it (Release) and takes the loose ones it now covers (Adopt,
+    // a resized one lets go of its items that no longer reach into it (Release) and takes the loose ones it now covers (Adopt,
     // looseOnly); a created or restored one takes everything it covers (Adopt); a deleted one lets all its items go.
     // A collapsed bucket keeps its items but takes no others, since they would vanish into it. The exception is a card
     // put into it by bucketId (dropped on its square).
@@ -122,18 +122,19 @@ public static class Layout
     }
 
     /// <summary>
-    /// Keeps a card in its bucket if that bucket is still in <paramref name="stacked"/> and contains its center;
-    /// otherwise places it by position. For a restored card, or one its bucket let go.
+    /// Keeps a card in its bucket if that bucket is still in <paramref name="stacked"/> and the card still overlaps it (it
+    /// may hang over the edge, as a drop by the pointer leaves it); otherwise places it by position. For a restored card,
+    /// or one its bucket may let go.
     /// </summary>
     public static void Recheck(Card card, IReadOnlyList<Bucket> stacked)
     {
-        if (!StillIn(card.BucketId, Centre(card), stacked)) Place(card, stacked);
+        if (!StillIn(card.BucketId, (card.X, card.Y, CardWidth, CardHeight), stacked)) Place(card, stacked);
     }
 
     /// <summary>Likewise for an image or drawing.</summary>
     public static void Recheck(ICanvasItem item, IReadOnlyList<Bucket> stacked)
     {
-        if (item.CardId is not null || !StillIn(item.BucketId, Centre(item), stacked)) Place(item, stacked);
+        if (item.CardId is not null || !StillIn(item.BucketId, (item.X, item.Y, item.Width, item.Height), stacked)) Place(item, stacked);
     }
 
     /// <summary>
@@ -159,8 +160,8 @@ public static class Layout
     }
 
     /// <summary>
-    /// Items of <paramref name="bucket"/> that are no longer inside it go to whatever is under them (another bucket, or
-    /// loose). For a deleted bucket, leave it out of <paramref name="stacked"/> so all its items go.
+    /// Items of <paramref name="bucket"/> that no longer reach into it at all go to whatever is under them (another bucket,
+    /// or loose). For a deleted bucket, leave it out of <paramref name="stacked"/> so all its items go.
     /// </summary>
     public static void Release(Bucket bucket, IReadOnlyList<Bucket> stacked, IEnumerable<Card> cards, IEnumerable<ICanvasItem> items)
     {
@@ -172,8 +173,8 @@ public static class Layout
 
     private static (int X, int Y) Centre(ICanvasItem item) => (item.X + item.Width / 2, item.Y + item.Height / 2);
 
-    private static bool StillIn(Guid? bucketId, (int X, int Y) centre, IReadOnlyList<Bucket> stacked) =>
-        bucketId is { } id && stacked.Any(b => b.Id == id && b.Contains(centre.X, centre.Y));
+    private static bool StillIn(Guid? bucketId, (int X, int Y, int Width, int Height) item, IReadOnlyList<Bucket> stacked) =>
+        bucketId is { } id && stacked.Any(b => b.Id == id && Intersects(item, (b.X, b.Y, b.Width, b.Height)));
 
     /// <summary>The topmost of <paramref name="stacked"/> (back to front) containing a point, leaving out collapsed ones.</summary>
     private static Bucket? TopmostAt(IReadOnlyList<Bucket> stacked, (int X, int Y) point) =>

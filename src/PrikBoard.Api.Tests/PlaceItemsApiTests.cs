@@ -86,6 +86,28 @@ public class PlaceItemsApiTests(PrikBoardApiFactory factory) : IClassFixture<Pri
     }
 
     [Fact]
+    public async Task Items_hanging_over_a_buckets_edge_stay_in_it_when_it_moves()
+    {
+        var board = await _client.CreateBoardAsync("Hanging over");
+        var (todo, doing) = (board.Buckets[0], board.Buckets[1]);
+        var card = await CreateCard(board.Id, new { title = "Card", x = 1000, y = 1000 });
+        var image = await Upload(board.Id, "?x=1000&y=1400&width=160");
+        // Over To do's right edge, with the centers in Doing.
+        var x = todo.X + todo.Width - 40;
+        await Ok<CardDetail>(await _client.PostAsJsonAsync($"/api/cards/{card.Id}/move", new { x, y = todo.Y + 60, bucketId = todo.Id }));
+        await Ok<ImageDetail>(await _client.PatchAsJsonAsync($"/api/images/{image.Id}", new { x, y = todo.Y + 300, bucketId = todo.Id }));
+
+        // Folded, then moved down along Doing: the items go with it, whatever their centers now lie over.
+        await Ok<BucketDetail>(await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { collapsed = true }));
+        await Ok<BucketDetail>(await _client.PatchAsJsonAsync($"/api/buckets/{doing.Id}", new { y = doing.Y + 400 }));
+        await Ok<BucketDetail>(await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { y = todo.Y + 400 }));
+
+        var snapshot = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
+        Assert.Equal((todo.Id, todo.Y + 460), (snapshot.Cards.Single(n => n.Id == card.Id).BucketId, snapshot.Cards.Single(n => n.Id == card.Id).Y));
+        Assert.Equal(todo.Id, snapshot.Images.Single(i => i.Id == image.Id).BucketId);
+    }
+
+    [Fact]
     public async Task A_drop_names_a_bucket_it_overlaps_or_loose_with_a_place()
     {
         var board = await _client.CreateBoardAsync("Pointer checks");
