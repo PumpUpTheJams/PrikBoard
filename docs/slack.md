@@ -182,11 +182,11 @@ Drafts wait 15 minutes, in memory (one instance, like the rest).
 
 ## Phases
 
-0. **Spike** (an evening, in a real workspace; see Testing, step 4). Answer these:
-   1. Does `link_shared` give the URL with its `#/boards/…` part? If not, PrikBoard needs share links without a fragment, which is a design change before anything else.
-   2. Does a second `chat.unfurl` on the same message replace the unfurl?
-   3. Does the manifest prefill link work?
-   4. Which unfurl domain works for local testing (an ngrok static domain)?
+0. **Spike** (done in a real workspace on 2026-10-25, see *Tried in a real workspace* below). The questions:
+   1. Does `link_shared` give the URL with its `#/boards/…` part? **Yes**: Slack sent `https://…/#/boards/zht8s5/cards/2` in full, so no share links without a fragment are needed.
+   2. Does a second `chat.unfurl` on the same message replace the unfurl? Not confirmed yet.
+   3. Does the manifest prefill link work? Not tried: the app was made from the copied manifest.
+   4. Which unfurl domain works for local testing? A Cloudflare quick tunnel (`cloudflared tunnel --url http://localhost:5173`, no account): Slack takes its `….trycloudflare.com` host as unfurl domain. Its address changes with every start.
 1. **Shared chat model** (built). A refactor and migration, with Discord unchanged and its tests green.
 2. **Slack app setup, gateway, previews, Integrations UI**, plus the fake Slack (built).
 3. **Live previews and updates**, and `/prikboard board` (built).
@@ -235,9 +235,20 @@ Slack can't run locally: there is no self-hosted or open-source Slack that runs 
 
    The fake can't answer phase 0's questions. It answers them the way we code it to. Only real Slack can. The same goes for anything else the docs leave open; the fake follows Slack's documentation.
 
+## Tried in a real workspace (2026-10-25)
+
+Everything worked against real Slack once the app was set up right: previews, `/prikboard board`, Save to PrikBoard (the card, the 📌, the answer only the saver sees) and Sign in with Slack. What tripped the setup up, for whoever does it next:
+
+- **Event Subscriptions must be on.** Commands and shortcuts come over Socket Mode without it, but no events do, so links never unfurl while everything else works. With Socket Mode on, *Enable Events* asks for no Request URL; when it does, Socket Mode is off, and saving hangs waiting for a URL check. Subscribe to `link_shared` and list the unfurl domain there, then reinstall.
+- **No user scopes for Sign in with Slack.** Listing `openid`, `profile` and `email` as *User Token Scopes* makes Slack refuse the install ("Invalid permissions requested"). The sign-in asks for them itself. The manifest no longer lists them.
+- **Sign-in through a tunnel needs forwarded headers**, or the API builds `http://` callbacks that GitHub and Slack refuse (`api-tunnel` launch config, [authentication.md](authentication.md#behind-a-proxy-or-tunnel)).
+- **A VPN's DNS filter can block tunnel services** (`trycloudflare.com` and `loca.lt` resolved to `0.0.0.0`).
+- **A Slack sign-in that PrikBoard doesn't know needs an invite**, or linking from an account that is already signed in.
+- **The `link_shared` log line** (`Slack link_shared in … : <links>`) tells at once whether Slack sent anything.
+
 ## Open questions
 
-1. **Fragments in `link_shared`** (phase 0). If Slack drops the `#` part, we need path-style share links (`/s/{shortId}/{number}`) that the web app redirects. That would also help other chat apps.
+1. ~~**Fragments in `link_shared`**~~ Answered: Slack keeps them (phase 0).
 2. **Refreshing unfurls** (phase 0). Live previews depend on it.
 3. **Bare ids.** Off, because it needs `channels:history`, which means reading every message in channels the bot is in. If we want it, make it a per-channel opt-in that an owner turns on, with the scope requested only then.
 4. **Several workspaces.** Not with one Socket Mode app per instance. That needs an OAuth "Add to Slack" app with a public events URL, after there is a deployment (Discord's open question 10).
