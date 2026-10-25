@@ -215,7 +215,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
-    public async Task A_resized_bucket_lets_go_of_its_cards_outside_it_and_takes_only_loose_ones()
+    public async Task A_resized_bucket_lets_go_of_its_cards_outside_it_and_takes_none()
     {
         var board = await CreateBoard("Resize members");
         var (doing, done) = (board.Buckets[1], board.Buckets[2]);
@@ -228,35 +228,32 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var resized = await _client.PatchAsJsonAsync($"/api/buckets/{done.Id}", new { x = doing.X - 20, width = done.X + done.Width - doing.X + 20, height = 160 });
         resized.EnsureSuccessStatusCode();
         var shrunk = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Cards;
-        // Then tall again: the loose cards it now covers join it.
+        // Then tall again: the loose cards it now covers stay loose (only a bucket drawn around them takes them).
         (await _client.PatchAsJsonAsync($"/api/buckets/{done.Id}", new { height = done.Height + 300 })).EnsureSuccessStatusCode();
         var grown = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Cards;
 
         Assert.Equal(done.Id, shrunk.Single(n => n.Id == first.Id).BucketId);
         Assert.Null(shrunk.Single(n => n.Id == second.Id).BucketId);
         Assert.Equal(doing.Id, shrunk.Single(n => n.Id == inDoing.Id).BucketId);
-        Assert.Equal(done.Id, grown.Single(n => n.Id == second.Id).BucketId);
-        Assert.Equal(done.Id, grown.Single(n => n.Id == loose.Id).BucketId);
+        Assert.Null(grown.Single(n => n.Id == second.Id).BucketId);
+        Assert.Null(grown.Single(n => n.Id == loose.Id).BucketId);
         Assert.Equal(doing.Id, grown.Single(n => n.Id == inDoing.Id).BucketId);
     }
 
     [Fact]
-    public async Task A_bucket_that_grows_for_a_new_card_takes_the_loose_card_below_it_with_its_history()
+    public async Task A_bucket_that_grows_for_a_new_card_leaves_the_loose_card_below_it_loose()
     {
         var board = await CreateBoard("Grow over loose");
         var done = board.Buckets[2];
         var loose = await CreateCard(board.Id, new { title = "Below", x = done.X + 20, y = done.Y + done.Height + 40 });
         Assert.Null(loose.BucketId);
 
-        // Fill Done until it grows down over the loose card.
+        // Fill Done until it grows down over the loose card, which stays loose and where it is.
         for (var i = 0; i < 12; i++) await CreateCard(board.Id, new { title = $"Filler {i}", bucketId = done.Id });
 
         var after = (await _client.GetFromJsonAsync<CardDetail>($"/api/cards/{loose.Id}"))!;
-        Assert.Equal(done.Id, after.BucketId);
+        Assert.Null(after.BucketId);
         Assert.Equal((loose.X, loose.Y, "Below"), (after.X, after.Y, after.Title));
-        var history = await _client.GetFromJsonAsync<JsonElement>($"/api/cards/{loose.Id}/history");
-        Assert.Contains(history.EnumerateArray(), c => c.GetProperty("entries").EnumerateArray()
-            .Any(e => e.GetProperty("kind").GetString() == "Bucket" && e.GetProperty("after").GetString() == "Done"));
     }
 
     [Fact]
@@ -316,11 +313,14 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
-    public async Task A_new_bucket_adopts_the_loose_cards_it_covers_and_sits_on_top()
+    public async Task A_new_bucket_adopts_only_the_loose_cards_it_covers_and_sits_on_top()
     {
         var board = await CreateBoard("Adopt");
+        var todo = board.Buckets[0];
         var loose = await CreateCard(board.Id, new { title = "Loose", x = 40, y = 700 });
         var inTodo = await CreateCard(board.Id, new { title = "In to do" });
+        // In To do, hanging out of it over where the new bucket goes.
+        var hanging = await CreateCard(board.Id, new { title = "Hanging out", x = todo.X + 100, y = todo.Y + todo.Height - 40, bucketId = todo.Id });
 
         var created = await _client.PostAsJsonAsync(
             $"/api/boards/{board.Id}/buckets", new { name = "Review", x = 20, y = 60, width = 300, height = 800 });
@@ -330,7 +330,45 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var snapshot = await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}");
         Assert.Equal("Review", snapshot!.Buckets[^1].Name);
         Assert.Equal(review.Id, snapshot.Cards.Single(n => n.Id == loose.Id).BucketId);
-        Assert.Equal(review.Id, snapshot.Cards.Single(n => n.Id == inTodo.Id).BucketId);
+        Assert.Equal(todo.Id, snapshot.Cards.Single(n => n.Id == inTodo.Id).BucketId);
+        Assert.Equal(todo.Id, snapshot.Cards.Single(n => n.Id == hanging.Id).BucketId);
+    }
+
+    [Fact]
+    public async Task Items_a_bucket_lets_go_of_go_loose_not_into_another_bucket()
+    {
+        var board = await CreateBoard("Let go");
+        var (todo, doing) = (board.Buckets[0], board.Buckets[1]);
+        var card = await CreateCard(board.Id, new { title = "Card", bucketId = todo.Id });
+        // Doing moves under To do (To do stays on top), so the card also lies over Doing.
+        (await _client.PatchAsJsonAsync($"/api/buckets/{doing.Id}", new { x = todo.X, y = todo.Y })).EnsureSuccessStatusCode();
+        (await _client.PostAsync($"/api/buckets/{todo.Id}/front", null)).EnsureSuccessStatusCode();
+
+        (await _client.DeleteAsync($"/api/buckets/{todo.Id}")).EnsureSuccessStatusCode();
+        var afterDelete = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Cards.Single(n => n.Id == card.Id);
+        // A restored bucket takes nothing back by itself; the web app's undo puts its items back by id.
+        (await _client.PostAsync($"/api/buckets/{todo.Id}/restore", null)).EnsureSuccessStatusCode();
+        var afterRestore = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Cards.Single(n => n.Id == card.Id);
+        var putBack = await MoveCard(card.Id, new { x = card.X, y = card.Y, bucketId = todo.Id });
+
+        Assert.Null(afterDelete.BucketId);
+        Assert.Null(afterRestore.BucketId);
+        Assert.Equal(todo.Id, putBack.BucketId);
+    }
+
+    [Fact]
+    public async Task Resizing_or_folding_a_bucket_takes_no_items()
+    {
+        var board = await CreateBoard("No taking");
+        var todo = board.Buckets[0];
+        var loose = await CreateCard(board.Id, new { title = "Loose", x = todo.X + 20, y = todo.Y + todo.Height + 40 });
+
+        (await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { height = todo.Height + 400 })).EnsureSuccessStatusCode();
+        (await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { collapsed = true })).EnsureSuccessStatusCode();
+        (await _client.PatchAsJsonAsync($"/api/buckets/{todo.Id}", new { collapsed = false })).EnsureSuccessStatusCode();
+
+        var after = (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Cards.Single(n => n.Id == loose.Id);
+        Assert.Null(after.BucketId);
     }
 
     [Fact]
@@ -379,6 +417,26 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var hits = await _client.GetFromJsonAsync<List<CardDetail>>($"/api/boards/{board.Id}/cards?search=logo");
 
         Assert.Equal(["Design LOGO", "Write copy", "Print", "Brand"], hits!.Select(n => n.Title));
+    }
+
+    [Fact]
+    public async Task Search_finds_a_card_by_its_number_or_readable_id()
+    {
+        var board = await CreateBoard("Numbers");
+        var tiles = await CreateCard(board.Id, new { title = "Order 12 tiles" });
+        var call = await CreateCard(board.Id, new { title = "Call back" });
+        await CreateCard(board.Id, new { title = "Book venue" });
+        async Task<List<string>> Search(string search) =>
+            (await _client.GetFromJsonAsync<List<CardDetail>>($"/api/boards/{board.Id}/cards?search={Uri.EscapeDataString(search)}"))!.Select(n => n.Title).ToList();
+
+        Assert.Equal((1, 2), (tiles.Number, call.Number));
+        // The card with that number first, then the cards with that text.
+        Assert.Equal(["Call back", "Order 12 tiles"], await Search("2"));
+        Assert.Equal(["Call back"], await Search(" 002 "));
+        Assert.Equal(["Call back"], await Search("#2"));
+        Assert.Equal(["Call back"], await Search(call.ReadableId.ToLowerInvariant()));
+        Assert.Empty(await Search("#9"));
+        Assert.Equal(["Order 12 tiles"], await Search("12"));
     }
 
     [Fact]

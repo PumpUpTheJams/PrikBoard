@@ -1,7 +1,40 @@
 import type { Caller } from '../api/types'
-import { CardIcon, ChevronDownIcon, ExternalIcon, ShieldIcon, SignOutIcon, UserIcon } from '../board/icons'
+import { CardIcon, ChevronDownIcon, ContrastIcon, ExternalIcon, MoonIcon, ShieldIcon, SignOutIcon, SunIcon, UserIcon } from '../board/icons'
+import { useColorScheme } from '../theme'
 import { Face } from './Avatar'
 import { Menu, MenuItem } from './Menu'
+
+/**
+ * Switches between the Productivity (dark) and Positivity (light) color schemes, in this browser: the name of the one
+ * in use slides in, and the switch's knob slides over with a moon or a sun in it. The menu stays open to show it.
+ */
+export function ColorSchemeToggle() {
+  const { scheme, choose } = useColorScheme()
+  const on = scheme === 'positivity'
+  return (
+    <button
+      type="button"
+      role="menuitemcheckbox"
+      aria-checked={on}
+      aria-label="Positivity colors"
+      className="menu-item scheme-toggle"
+      title={on ? 'Positivity: light daytime colors. Switch for Productivity, the dark ones.' : 'Productivity: dark colors. Switch for Positivity, the light daytime ones.'}
+      onClick={() => choose(on ? 'productivity' : 'positivity')}
+    >
+      <ContrastIcon />
+      <span className="scheme-names" aria-hidden="true">
+        <span className="scheme-name productivity">Productivity</span>
+        <span className="scheme-name positivity">Positivity</span>
+      </span>
+      <span className="scheme-switch" aria-hidden="true">
+        <span className="scheme-knob">
+          <MoonIcon size={12} />
+          <SunIcon size={12} />
+        </span>
+      </span>
+    </button>
+  )
+}
 
 interface SettingsMenuProps {
   user: Caller
@@ -58,6 +91,7 @@ export function SettingsMenu({ user, canSwitch, onAccount, onMobile, onSignOut }
               Admin
             </MenuItem>
           )}
+          <ColorSchemeToggle />
           {canSwitch && (
             <MenuItem icon={<CardIcon />} onClick={onMobile}>
               Mobile view

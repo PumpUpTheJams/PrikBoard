@@ -2,24 +2,6 @@ import { useLayoutEffect, useState, type DragEvent, type PointerEvent, type RefO
 import type { Rect } from '../api/types'
 import { draggingFiles, imageFiles } from './files'
 
-/** A canvas's scroll viewport in screen pixels (its scroll position and size), kept up to date. */
-export function useScrollView(scrollRef: RefObject<HTMLDivElement | null>): Rect {
-  const [view, setView] = useState<Rect>({ x: 0, y: 0, width: 0, height: 0 })
-  useLayoutEffect(() => {
-    const el = scrollRef.current!
-    const update = () => setView({ x: el.scrollLeft, y: el.scrollTop, width: el.clientWidth, height: el.clientHeight })
-    update()
-    const observer = new ResizeObserver(update)
-    observer.observe(el)
-    el.addEventListener('scroll', update, { passive: true })
-    return () => {
-      observer.disconnect()
-      el.removeEventListener('scroll', update)
-    }
-  }, [scrollRef])
-  return view
-}
-
 /** A scroll viewport (screen pixels) kept outside React state: read it when needed, or subscribe to its changes. */
 export interface ScrollView {
   get: () => Rect
@@ -29,8 +11,9 @@ export interface ScrollView {
 }
 
 /**
- * Like useScrollView, but a scroll doesn't render the component: only the viewport's size is state (it changes when the
- * window resizes), and where it is scrolled to is in `view`, for what shows it (the minimap's viewport) to subscribe to.
+ * A canvas's scroll viewport in screen pixels, kept up to date without a scroll rendering the component: only its size
+ * is state (it changes when the window resizes), and where it is scrolled to is in `view`, for what shows it (the
+ * minimap's viewport) to subscribe to.
  */
 export function useScrollStore(scrollRef: RefObject<HTMLDivElement | null>): { size: { width: number; height: number }; view: ScrollView } {
   const [size, setSize] = useState({ width: 0, height: 0 })

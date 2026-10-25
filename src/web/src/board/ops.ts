@@ -23,7 +23,7 @@ import type {
 import { countList } from './clipboard'
 import { loadDrawingStrokes, type Reshape } from './drawings'
 import { onBoard } from './layout'
-import { cardEdit, componentEdit, created, deleted, patched, reshaped, snap, step, target, type RecordingRun, type UndoChange, type UndoEntry } from './undo'
+import { cardEdit, componentEdit, created, deleted, patched, reshaped, snap, step, target, type RecordingRun, type UndoChange, type UndoEntry, type UndoTarget } from './undo'
 
 /**
  * A change: its request, and a function that builds its undo step from the result. Spread it into a RecordingRun,
@@ -133,6 +133,24 @@ export function bucketMove(board: BoardDetail, bucket: BucketDetail, moved: Buck
     ...carried.map((n) => patched(target.card(n.id), { x: n.x, y: n.y, bucketId: n.bucketId }, { ...along(n), bucketId: n.bucketId }, ['x', 'y'], true)),
     ...carriedImages.map((i) => patched(target.image(i.id), { x: i.x, y: i.y }, along(i), ['x', 'y'], true)),
     ...carriedDrawings.map((dr) => patched(target.drawing(dr.id), { x: dr.x, y: dr.y }, along(dr), ['x', 'y'], true)),
+  ]
+}
+
+/**
+ * The step's changes for a deleted bucket: the cards, images and drawings in it, which the server leaves loose, then the
+ * bucket. Undoing it brings the bucket back first and then puts those items back in it (a restored bucket takes none).
+ */
+export function bucketDelete(board: BoardDetail, bucket: BucketDetail): (UndoChange | null)[] {
+  const left = (t: UndoTarget, item: Point & { bucketId: string | null }): UndoChange => ({
+    target: t,
+    before: { x: item.x, y: item.y, bucketId: item.bucketId },
+    after: { x: item.x, y: item.y, bucketId: null },
+  })
+  return [
+    ...board.cards.filter((n) => n.bucketId === bucket.id).map((n) => left(target.card(n.id), n)),
+    ...board.images.filter((i) => i.cardId === null && i.bucketId === bucket.id).map((i) => left(target.image(i.id), i)),
+    ...board.drawings.filter((d) => d.cardId === null && d.bucketId === bucket.id).map((d) => left(target.drawing(d.id), d)),
+    deleted(target.bucket(bucket.id), snap.bucket(bucket)),
   ]
 }
 
@@ -278,10 +296,10 @@ export const ops = {
     (after) => step('Rename bucket', [patched(target.bucket(bucket.id), snap.bucket(bucket), snap.bucket(after), ['name'])]),
   ],
 
-  /** Deletes a bucket; what is in it stays on the board. */
-  deleteBucket: (bucket: BucketDetail): Op<void> => [
+  /** Deletes a bucket; what is in it stays on the board, loose (undo puts it back in). */
+  deleteBucket: (board: BoardDetail, bucket: BucketDetail): Op<void> => [
     () => api.deleteBucket(bucket.id),
-    () => step('Delete bucket', [deleted(target.bucket(bucket.id), snap.bucket(bucket))], { toast: 'Bucket deleted' }),
+    () => step('Delete bucket', bucketDelete(board, bucket), { toast: 'Bucket deleted' }),
   ],
 
   renameTag: (boardId: string, tag: BoardTag, name: string): Op<BoardTag> => [

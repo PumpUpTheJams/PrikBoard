@@ -48,6 +48,29 @@ export const SadCardIcon = ({ size = 18 }: IconProps) => (
   </Icon>
 )
 
+/** A moon: the dark (Productivity) color scheme. */
+export const MoonIcon = ({ size = 16 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" />
+  </Icon>
+)
+
+/** A circle half filled in: the color scheme. */
+export const ContrastIcon = ({ size = 16 }: IconProps) => (
+  <Icon size={size}>
+    <circle cx="12" cy="12" r="8" />
+    <path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" />
+  </Icon>
+)
+
+/** A sun: the light (Positivity) color scheme. */
+export const SunIcon = ({ size = 16 }: IconProps) => (
+  <Icon size={size}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+  </Icon>
+)
+
 export const ShieldIcon = ({ size = 16 }: IconProps) => (
   <Icon size={size}>
     <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />
@@ -88,6 +111,20 @@ export const ExpandIcon = ({ size = 14 }: IconProps) => (
 export const CloseIcon = ({ size = 16 }: IconProps) => (
   <Icon size={size} width={2.2}>
     <path d="M6 6l12 12M18 6L6 18" />
+  </Icon>
+)
+
+/** Four corners pointing out: make a window fill the board. */
+export const MaximizeIcon = ({ size = 16 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />
+  </Icon>
+)
+
+/** Four corners pointing in: give a filled window its own size back. */
+export const RestoreIcon = ({ size = 16 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5" />
   </Icon>
 )
 

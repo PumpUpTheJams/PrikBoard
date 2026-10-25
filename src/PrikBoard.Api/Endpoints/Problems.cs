@@ -13,6 +13,18 @@ internal static class Problems
     public static ValidationProblem? XWithoutY(int? x, int? y) =>
         x is null != y is null ? Invalid(x is null ? "x" : "y", "Give X and Y together.") : null;
 
+    /// <summary>
+    /// A 400 for a drop's bucketId or loose (where the pointer was in the web app) without X and Y, or both at once; null
+    /// when they are fine. With <paramref name="bucketAlone"/>, a bucketId without X and Y is fine (a card put in a free spot).
+    /// </summary>
+    public static ValidationProblem? Drop(Guid? bucketId, bool? loose, bool placed, bool bucketAlone = false)
+    {
+        if (loose == true && bucketId is not null) return Invalid("loose", "Give either a bucketId or loose, not both.");
+        if (!placed && loose == true) return Invalid("loose", "Give loose together with X and Y.");
+        if (!placed && bucketId is not null && !bucketAlone) return Invalid("bucketId", "Give bucketId together with X and Y.");
+        return null;
+    }
+
     public static ValidationProblem CardNotOnBoard() => Invalid("cardId", "The card does not exist on this board.");
 
     /// <summary>A 403 for a token limited to chosen boards, which can't <paramref name="cannot"/> (create new ones, import new ones).</summary>

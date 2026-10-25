@@ -49,7 +49,7 @@ public static class ClipEndpoints
             .WithDescription("Adds what is in a clip from copyItems to the board as new items: cards created by you with new numbers, " +
                              "their images and drawings, buckets (on top of the others) with what was in them, and images and drawings. " +
                              "With X and Y everything keeps its place relative to the rest, the top-left at X and Y; an item joins its " +
-                             "pasted bucket, or else the bucket it lands in, and a pasted bucket takes the loose items it covers. With a " +
+                             "pasted bucket, or else the bucket it lands in; a pasted bucket takes none of the board's items. With a " +
                              "bucketId (a clip of cards alone) the cards go into free spots in that bucket; with neither, cards go into " +
                              "the board's first bucket and anything else to a free spot. Tags the board doesn't have yet are added with " +
                              "their colors; assignees stay only when they can be assigned here. Links between the pasted cards point at " +
@@ -485,18 +485,9 @@ public static class ClipEndpoints
         Layout.Restack(newBuckets,
             [.. drawings.Where(d => d.Drawing.CardId is null && d.Source.BucketId is null).Select(d => (d.Drawing, d.Source.BucketsBelow))], now);
 
-        // What was in them has joined them by id, so they can fold up now. An open one then takes the board's loose items
-        // it covers, like a bucket drawn there (not those in other buckets); a folded one takes none, as they would vanish.
+        // What was in them has joined them by id, so they can fold up now. They take none of the board's items: only a
+        // bucket drawn around items takes them.
         foreach (var source in clipBuckets) pasted[source.Id].Collapsed = source.Collapsed;
-        if (newBuckets.Count > 0)
-        {
-            List<ICanvasItem> loose =
-            [
-                .. await db.Images.Where(i => i.BoardId == boardId && i.CardId == null && i.BucketId == null).ToListAsync(ct),
-                .. await db.Drawings.Where(d => d.BoardId == boardId && d.CardId == null && d.BucketId == null).ToListAsync(ct),
-            ];
-            foreach (var made in newBuckets) Layout.Adopt(made, stacked, others, loose, looseOnly: true);
-        }
         return newBuckets;
     }
 
@@ -571,7 +562,7 @@ public static class ClipEndpoints
                 new(CardChangeKind.MovedAway, CardLinks.ReadableId(to.Key, copy.Number), CardLinks.CardPath(to.ShortId, copy.Number)));
         }
 
-        // A bucket goes like deleteBucket: what else is in it now stays, loose or in the bucket under it.
+        // A bucket goes like deleteBucket: what else is in it now stays, loose.
         if (buckets.Count > 0)
         {
             foreach (var bucket in buckets) bucket.DeletedAt = stamp;

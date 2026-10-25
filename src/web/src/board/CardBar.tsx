@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 import type { InkColor, CardComponentKind } from '../api/types'
-import { inkHex } from './drawings'
+import { inkColor } from './drawings'
 import { PenOptions } from './DrawingView'
 import { ImageIcon, PenIcon, TrashIcon } from './icons'
 import { componentKinds } from './componentKinds'
@@ -47,7 +47,7 @@ export function CardBar({ onAdd, onAddImage, pen, onDelete }: CardBarProps) {
           aria-label="Pen"
           title="Pen (P): draw on the card"
           aria-pressed={pen.on}
-          style={{ '--pen-ink': inkHex[pen.ink] } as CSSProperties}
+          style={{ '--pen-ink': inkColor[pen.ink] } as CSSProperties}
           onClick={pen.onToggle}
         >
           <PenIcon />

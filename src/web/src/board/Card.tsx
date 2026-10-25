@@ -45,7 +45,6 @@ interface CardProps {
   selected: boolean
   lifted: boolean
   /** Drawn above the rest, with the topmost open bucket it is in. */
-  front?: boolean
   /** Faded: it doesn't match the board's filters or search. */
   dimmed?: boolean
   /** Search words to mark in the title and tags. */
@@ -82,7 +81,7 @@ interface CardProps {
  * expand button, with copy link (its tooltip names the readable id) below it.
  */
 export function Card(props: CardProps) {
-  const { card, point, images = 0, tagColors, selected, lifted, front, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
+  const { card, point, images = 0, tagColors, selected, lifted, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
   const { editingTitle, titleCaret, onRenameTitle, onTitleDone, onPutBack, onPurge } = props
   /** A title just saved, shown until the reload brings it (while the card still has the old title, `from`). */
   const [saved, setSaved] = useState<{ title: string; from: string } | null>(null)
@@ -102,7 +101,6 @@ export function Card(props: CardProps) {
   if (!point) classes.push('in-list')
   if (selected) classes.push('selected')
   if (lifted) classes.push('lifted')
-  if (front) classes.push('in-front')
   if (card.agentWorking) classes.push('agent-working')
   if (dimmed) classes.push('dimmed')
   if (current) classes.push('search-current')

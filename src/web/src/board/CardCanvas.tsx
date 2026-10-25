@@ -1,9 +1,9 @@
-import { useEffect, useImperativeHandle, useRef, useState, type PointerEvent, type RefObject } from 'react'
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../api/client'
-import type { DrawingDetail, ImageDetail, InkColor, CardComponent, CardComponentKind, CardDetail, Point, Rect, ResizeHandle } from '../api/types'
+import type { DrawingDetail, DropBucket, ImageDetail, InkColor, CardComponent, CardComponentKind, CardDetail, Point, Rect, ResizeHandle } from '../api/types'
 import { BoardImageView } from './BoardImageView'
-import { inkHex, movePenRing, CARD_PEN, usePen } from './drawings'
+import { inkColor, movePenRing, CARD_PEN, usePen } from './drawings'
 import { DrawingGhost, DrawingToolbar, DrawingView, IncomingDrawingView, PenRing, StrokeSvg } from './DrawingView'
 import { delta, isDrag } from './gesture'
 import { ImageInspector } from './Inspector'
@@ -15,13 +15,13 @@ import { resizeCursor } from './resizeCursor'
 import { componentMatches, type SearchTerm } from './search'
 import { adds, bounds, insideClient, mergePicked, togglePicked, touches, useSelection, useSpaceHeld, type Picked } from './selection'
 import { count } from './boardItems'
-import { useFileDrop, usePan, useScrollView } from './canvasHooks'
+import { useFileDrop, usePan, useScrollStore } from './canvasHooks'
 import { inField } from './keys'
 import { deleted, patched, snap, step, target, type RecordingRun, type UndoChange } from './undo'
 import { useStroke } from './useStroke'
 import { useZoom } from './useZoom'
+import { CardMapItems, ViewControls, type HistoryButtons } from './ViewControls'
 import { stepZoom } from './zoom'
-import { ZoomButtons } from './ZoomButtons'
 
 /** What the board needs from the card's canvas to drop images into it and paste there. */
 export interface CardCanvasHandle {
@@ -98,6 +98,8 @@ interface CardCanvasProps {
   handle: RefObject<CardCanvasHandle | null>
   /** Runs a change through the board (which then reloads), recorded for undo. */
   run: RecordingRun
+  /** The board's undo and redo buttons, next to the minimap; none for viewers. */
+  history?: HistoryButtons
   /** Whether a gesture is in progress, so the board holds back its refreshes. */
   onBusy: (busy: boolean) => void
   incoming: IncomingImage | null
@@ -106,6 +108,8 @@ interface CardCanvasProps {
   onPickImages: () => void
   /** A screen point in board canvas pixels when it is over the board, to drop an image or drawing there; else null. */
   boardPoint: (client: Point) => Point | null
+  /** The bucket an image or drawing dropped on the board joins, by the pointer there (`dropBucket`). */
+  dropBucket?: (pointer: Point, item?: Rect) => DropBucket
   boardZoom: number
   /** Asks to delete the whole card. */
   onDeleteCard: () => void
@@ -113,7 +117,7 @@ interface CardCanvasProps {
 
 /** The card's own small board: its components, images and drawings, moved and resized like items on the board, with zoom and pan. */
 export function CardCanvas(props: CardCanvasProps) {
-  const { card, images, drawings, cards, readOnly, highlight, handle, run, onBusy, incoming, incomingDrawing, onAddImages, onPickImages, boardPoint, boardZoom, onDeleteCard } = props
+  const { card, images, drawings, cards, readOnly, highlight, handle, run, history, onBusy, incoming, incomingDrawing, onAddImages, onPickImages, boardPoint, dropBucket, boardZoom, onDeleteCard } = props
   /** The selected items: one, or several (Shift or Ctrl/Cmd + click, or the selection rectangle). */
   const { selected, setSelected, selection, setSelection, unselect, isSelected } = useSelection<Item>()
   /** Space is held: a left press pans, as the middle button does. */
@@ -123,13 +127,15 @@ export function CardCanvas(props: CardCanvasProps) {
   const [focusComponent, setFocusComponent] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
-  /** The scroll viewport in screen pixels, for the canvas size and where new components go. */
-  const view = useScrollView(scrollRef)
+  /** The scroll viewport in screen pixels: its size for the canvas's, where it is scrolled to for the minimap and new components. */
+  const { size, view } = useScrollStore(scrollRef)
   const pan = usePan(scrollRef, canvasRef)
   const lastPointer = useRef<Point | null>(null)
   /** The images the last two presses were on: the canvas holds the pointer, so double-clicks reach it, not the image. */
   const imagePresses = useRef<[string | null, string | null]>([null, null])
   const { zoom, zoomTo } = useZoom(scrollRef, NO_INSET)
+  // A zoom moved the scroll position in code: the minimap catches up before the browser paints.
+  useLayoutEffect(() => view.refresh())
   /** The card's pen: on or off (while on, a press draws instead of selecting or moving), with an ink and size of its own. */
   const [penOn, setPenOn] = useState(false)
   const cardPen = usePen(CARD_PEN)
@@ -149,7 +155,14 @@ export function CardCanvas(props: CardCanvasProps) {
 
   const hits = (client: Point) => !!scrollRef.current && insideClient(scrollRef.current.getBoundingClientRect(), client)
   /** What is visible of the canvas, in card pixels. */
-  const visible = (): Rect => ({ x: view.x / zoom, y: view.y / zoom, width: view.width / zoom, height: view.height / zoom })
+  const visible = (): Rect => viewport(view.get())
+  const viewport = (v: Rect): Rect => ({ x: v.x / zoom, y: v.y / zoom, width: v.width / zoom, height: v.height / zoom })
+
+  /** Scrolls so a point on the card (picked on the minimap) is in the middle of the view. */
+  function navigate(center: Point) {
+    const el = scrollRef.current!
+    el.scrollTo({ left: center.x * zoom - el.clientWidth / 2, top: center.y * zoom - el.clientHeight / 2 })
+  }
 
   useImperativeHandle(handle, () => ({
     hits,
@@ -442,7 +455,8 @@ export function CardCanvas(props: CardCanvasProps) {
       setGesture({ ...gesture, done: true })
       setSelection(null)
       const grab = { x: gesture.start.x - item.x, y: gesture.start.y - item.y }
-      const place = { detach: true, ...snapPoint({ x: at.x - grab.x, y: at.y - grab.y }) }
+      const corner = snapPoint({ x: at.x - grab.x, y: at.y - grab.y })
+      const place = { detach: true, ...corner, ...dropBucket?.(at, { ...corner, width: item.width, height: item.height }) }
       if (gesture.kind === 'drawing') void settle(...ops.editDrawing(item as DrawingDetail, place, 'Put drawing on the board', ['cardId', 'x', 'y']))
       else void settle(...ops.editImage(item as ImageDetail, place, 'Put image on the board', ['cardId', 'x', 'y']))
       return
@@ -483,9 +497,12 @@ export function CardCanvas(props: CardCanvasProps) {
     ...(drawingGhost ? [{ ...drawingGhost.drawing, ...drawingGhost.at }] : []),
   ])
   const extent = {
-    width: Math.max(Math.floor(view.width / zoom), CANVAS_MARGIN + Math.max(0, all ? all.x + all.width : 0)),
-    height: Math.max(Math.floor(view.height / zoom), CANVAS_MARGIN + Math.max(0, all ? all.y + all.height : 0)),
+    width: Math.max(Math.floor(size.width / zoom), CANVAS_MARGIN + Math.max(0, all ? all.x + all.width : 0)),
+    height: Math.max(Math.floor(size.height / zoom), CANVAS_MARGIN + Math.max(0, all ? all.y + all.height : 0)),
   }
+  const mapComponents = components.map((b) => b.rect)
+  const mapImages = placed.map((p) => p.rect)
+  const mapDrawings = strokes.map((s) => s.rect)
   const leavingImage = leaving && images.find((i) => i.id === leaving.id)
   const leavingDrawing = leaving && drawings.find((d) => d.id === leaving.id)
   /** The selection rectangle being dragged out. */
@@ -633,7 +650,7 @@ export function CardCanvas(props: CardCanvasProps) {
             ))}
 
             {pen.strokes.map((s, i) => (
-              <StrokeSvg key={i} points={s.points} color={inkHex[s.color]} strokeWidth={s.width} at={{ x: 0, y: 0 }} />
+              <StrokeSvg key={i} points={s.points} color={inkColor[s.color]} strokeWidth={s.width} at={{ x: 0, y: 0 }} />
             ))}
 
             {selectedDrawing && !(dragging?.id === selectedDrawing.drawing.id && !dragging.done) && (
@@ -669,7 +686,21 @@ export function CardCanvas(props: CardCanvasProps) {
         </p>
       )}
 
-      <ZoomButtons className="card-zoom" zoom={zoom} onStep={(direction) => zoomTo(stepZoom(zoom, direction))} onReset={() => zoomTo(1)} />
+      <ViewControls
+        className="card-view-controls"
+        undo={history?.undo}
+        redo={history?.redo}
+        zoom={zoom}
+        onZoom={(direction) => zoomTo(stepZoom(zoom, direction))}
+        onZoomReset={() => zoomTo(1)}
+        extent={{ x: 0, y: 0, ...extent }}
+        view={view}
+        viewport={viewport}
+        items={(left, top, scale) => (
+          <CardMapItems left={left} top={top} scale={scale} components={mapComponents} images={mapImages} drawings={mapDrawings} />
+        )}
+        onNavigate={navigate}
+      />
 
       {!readOnly && (
         <CardBar

@@ -117,7 +117,7 @@ public sealed partial class BoardTools
         [Description("Only cards in this bucket: its name (for example \"Doing\") or id.")] string? bucket = null,
         [Description("Only cards with any of these tags.")] List<string>? tags = null,
         [Description("Only cards assigned to this person or agent: their name or principal id.")] string? assignee = null,
-        [Description("Text to look for in titles and content (text, checklist items, links).")] string? text = null,
+        [Description("Text to look for in titles and content (text, checklist items, links). A card's number (224) also finds that card, listed first; #224 or its readable id (PRIK-224) finds only that card.")] string? text = null,
         CancellationToken ct = default)
     {
         var (http, db, boardId) = await BoardCallAsync(accessor, board, BoardRole.Viewer, ct);

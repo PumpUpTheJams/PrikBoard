@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { Tooltips } from './components/Tooltips'
+import { applyColorScheme, storedColorScheme } from './theme'
+
+applyColorScheme(storedColorScheme())
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

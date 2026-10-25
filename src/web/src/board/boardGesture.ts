@@ -44,6 +44,8 @@ export type Gesture = GestureTarget & {
   home?: Rect
   /** The pointer has left `home` since the drag began. */
   away?: boolean
+  /** The pointer has gone past the drag threshold (`isDrag`): released anywhere, even back at the start, it isn't a click. */
+  dragged?: boolean
 }
 
 export type GroupGesture = Extract<Gesture, { kind: 'group' }>

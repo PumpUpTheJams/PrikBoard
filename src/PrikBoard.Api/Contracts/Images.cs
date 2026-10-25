@@ -61,13 +61,17 @@ public record ImageDetail(
 /// <param name="Caption">New caption; an empty string clears it.</param>
 /// <param name="CardId">Attach the image to this card on the same board (from the board, or from another card).</param>
 /// <param name="Detach">True to take an attached image off its card and put it on the board. Do not combine with cardId.</param>
+/// <param name="BucketId">With X and Y on the board: the bucket it joins, which it must overlap (without one it joins the topmost one containing its center).</param>
+/// <param name="Loose">With X and Y on the board: true to join no bucket, even over one. Do not combine with bucketId.</param>
 public record UpdateImageRequest(
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X = null,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null,
     [property: Range(Layout.MinImageWidth, Layout.MaxImageWidth)] int? Width = null,
     [property: StringLength(500)] string? Caption = null,
     Guid? CardId = null,
-    bool? Detach = null);
+    bool? Detach = null,
+    Guid? BucketId = null,
+    bool? Loose = null);
 
 /// <summary>
 /// Asks for a one-time upload URL (createImageUpload): where the image goes once its file is sent there. The fields are
