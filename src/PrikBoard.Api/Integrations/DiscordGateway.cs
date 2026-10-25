@@ -27,7 +27,7 @@ public enum DiscordBotState
 }
 
 /// <summary>A server the bot is in, with the channels it can preview links in (it may read and post there).</summary>
-public sealed record DiscordServerInfo(string Id, string Name, IReadOnlyList<DiscordChannel> Channels);
+public sealed record DiscordServerInfo(string Id, string Name, IReadOnlyList<ChatChannel> Channels);
 
 /// <summary>The Discord bot's connection, as the rest of PrikBoard sees it; tests replace it with a fake.</summary>
 public interface IDiscordGateway
@@ -61,9 +61,9 @@ public interface IDiscordGateway
 
 /// <summary>
 /// The Discord bot itself, inside the API (docs/discord.md). It connects out to Discord's gateway, so it needs no inbound
-/// port. It answers messages with previews of links and readable ids (<see cref="DiscordPreviews"/>), offers Save to
-/// PrikBoard on messages (<see cref="DiscordSaves"/>) and /prikboard board, and posts and edits what
-/// <see cref="DiscordActivity"/> passes on. <see cref="DiscordBot"/> gives it its token and public URL, at startup and
+/// port. It answers messages with previews of links and readable ids (<see cref="ChatPreviews"/>), offers Save to
+/// PrikBoard on messages (<see cref="ChatSaves"/>) and /prikboard board, and posts and edits what
+/// <see cref="ChatActivity"/> passes on. <see cref="DiscordBot"/> gives it its token and public URL, at startup and
 /// whenever an admin changes them. One instance only, like the rest of PrikBoard: two would answer every message twice.
 /// </summary>
 public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration config, ILogger<DiscordGateway> logger)
@@ -314,7 +314,7 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
             .Where(c => c is not (SocketThreadChannel or SocketVoiceChannel))
             .Where(c => bot?.GetPermissions(c) is { ViewChannel: true, SendMessages: true })
             .OrderBy(c => c.Position)
-            .Select(c => new DiscordChannel(c.Id.ToString(), c.Name))
+            .Select(c => new ChatChannel(c.Id.ToString(), c.Name))
             .ToList();
         return new DiscordServerInfo(guild.Id.ToString(), guild.Name, channels);
     }
@@ -334,7 +334,7 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
         var channelId = ChannelOf(channel);
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
-        var shown = await DiscordPreviews.ForMessageAsync(db, guildId, channelId, user.Content, site.Links, site.Url, ct,
+        var shown = await ChatPreviews.ForMessageAsync(db, ChatPlatform.Discord, guildId, channelId, user.Content, site.Links, site.Url, ct,
             allow: () =>
             {
                 using var lease = _previews.AttemptAcquire(guildId);
@@ -344,7 +344,7 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
         if (shown.Count == 0) return;
 
         var reply = await user.ReplyAsync(embeds: shown.Select(s => site.Embeds.For(s.Preview, s.Source)).ToArray(), allowedMentions: AllowedMentions.None);
-        await DiscordPreviews.RememberAsync(db, reply.Id.ToString(), guildId, channelId, shown, ct);
+        await ChatPreviews.RememberAsync(db, ChatPlatform.Discord, reply.Id.ToString(), guildId, channelId, shown, ct);
 
         // Remove Discord's own "not signed in" preview from the message answered, when the bot may.
         if (channel.Guild.CurrentUser?.GetPermissions(channel).ManageMessages == true && user.Embeds.Count > 0)
@@ -369,10 +369,10 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
 
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
-        var accounts = scope.ServiceProvider.GetRequiredService<DiscordAccounts>();
-        if (await accounts.FindUserAsync(db, command.User.Id.ToString(), ct) is not { } userId)
+        var accounts = scope.ServiceProvider.GetRequiredService<ChatAccounts>();
+        if (await accounts.FindUserAsync(db, ChatPlatform.Discord, command.User.Id.ToString(), ct) is not { } userId)
         {
-            var code = accounts.StartLink(command.User.Id.ToString(), NameOf(command.User));
+            var code = accounts.StartLink(ChatPlatform.Discord, command.User.Id.ToString(), NameOf(command.User));
             await command.FollowupAsync(
                 "PrikBoard doesn't know you yet. Connect your PrikBoard account once, then use Save to PrikBoard again.",
                 components: new ComponentBuilder()
@@ -383,7 +383,7 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
         }
 
         var channelId = ChannelOf(channel);
-        var targets = await DiscordSaves.TargetsAsync(db, userId, guild.ToString(), channelId, ct);
+        var targets = await ChatSaves.TargetsAsync(db, userId, ChatPlatform.Discord, guild.ToString(), channelId, ct);
         if (targets.Count == 0)
         {
             await command.FollowupAsync(
@@ -401,7 +401,7 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
         {
             BoardId = targets[0].BoardId,
             BucketId = targets[0].DefaultBucketId,
-            Title = DiscordSaves.TitleFor(saved),
+            Title = ChatSaves.TitleFor(saved),
         };
         _drafts[token] = draft;
         await command.FollowupAsync(draft.Text(), components: draft.Components(token), ephemeral: true);
@@ -483,7 +483,7 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
-        var saves = scope.ServiceProvider.GetRequiredService<DiscordSaves>();
+        var saves = scope.ServiceProvider.GetRequiredService<ChatSaves>();
         var (card, problem) = await saves.SaveAsync(db, draft.UserId, draft.BoardId, draft.BucketId, draft.Title, draft.Message, ct);
         if (card is null || _site is not { } site)
         {
@@ -526,13 +526,13 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
         await command.DeferAsync(ephemeral: true);
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
-        var boards = await DiscordPreviews.BoardsInChannelAsync(db, guild.ToString(), ChannelOf(channel), ct);
+        var boards = await ChatPreviews.BoardsInChannelAsync(db, ChatPlatform.Discord, guild.ToString(), ChannelOf(channel), ct);
         if (boards.Count == 0)
         {
             await command.FollowupAsync("No PrikBoard board is connected to this channel. A board owner connects one under Integrations.", ephemeral: true);
             return;
         }
-        var snapshot = await DiscordPreviews.SnapshotAsync(db, boards[0], DateTimeOffset.UtcNow, ct);
+        var snapshot = await ChatPreviews.SnapshotAsync(db, boards[0], DateTimeOffset.UtcNow, ct);
         var others = boards.Count > 1 ? $"Also here: {string.Join(", ", boards.Skip(1).Select(b => Format.Sanitize(b.Name)))}" : null;
         await command.FollowupAsync(others, embed: site.Embeds.Snapshot(snapshot), ephemeral: true);
     }

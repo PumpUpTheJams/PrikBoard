@@ -1,35 +1,53 @@
 import { useEffect, useState } from 'react'
 import { api, errorMessage } from '../api/client'
-import type { Caller, DiscordAccountLinkPreview } from '../api/types'
+import type { Caller } from '../api/types'
 import { CardIcon } from '../board/icons'
+import type { ChatPlatform } from './discord'
 
-interface DiscordAccountPageProps {
+interface ChatAccountPageProps {
+  platform: ChatPlatform
   code: string
   user: Caller
   onDone: () => void
 }
 
+/** Whose chat account a code is for, as either app's preview gives it. */
+interface LinkPreview {
+  name: string
+}
+
+const links: Record<ChatPlatform, { preview: (code: string) => Promise<LinkPreview>; link: (code: string) => Promise<unknown> }> = {
+  Discord: {
+    preview: (code) => api.previewDiscordAccountLink(code).then((p) => ({ name: p.discordName })),
+    link: (code) => api.linkDiscordAccount(code),
+  },
+  Slack: {
+    preview: (code) => api.previewSlackAccountLink(code).then((p) => ({ name: p.slackName })),
+    link: (code) => api.linkSlackAccount(code),
+  },
+}
+
 /**
- * Opened from the Discord bot's "Connect your PrikBoard account" button: links that Discord account to you, so Save to
- * PrikBoard there works as you. The page names the Discord account the code is for, so nobody can link theirs to you by
- * sending you their link.
+ * Opened from a chat bot's "Connect your PrikBoard account" link (Discord's button, or the Slack app's modal): links that
+ * chat account to you, so Save to PrikBoard there works as you. The page names the account the code is for, so nobody
+ * can link theirs to you by sending you their link.
  */
-export function DiscordAccountPage({ code, user, onDone }: DiscordAccountPageProps) {
+export function ChatAccountPage({ platform, code, user, onDone }: ChatAccountPageProps) {
   // A link without a code has nothing to look up: it shows as expired straight away.
-  const [preview, setPreview] = useState<DiscordAccountLinkPreview | null | undefined>(code === '' ? null : undefined)
+  const [preview, setPreview] = useState<LinkPreview | null | undefined>(code === '' ? null : undefined)
   const [linked, setLinked] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (code !== '') api.previewDiscordAccountLink(code).then(setPreview, () => setPreview(null))
-  }, [code])
+    if (code !== '') links[platform].preview(code).then(setPreview, () => setPreview(null))
+  }, [code, platform])
 
   async function link() {
     setBusy(true)
     setError(null)
     try {
-      await api.linkDiscordAccount(code)
+      await links[platform].link(code)
       setLinked(true)
     } catch (e) {
       setError(errorMessage(e))
@@ -38,6 +56,7 @@ export function DiscordAccountPage({ code, user, onDone }: DiscordAccountPagePro
     }
   }
 
+  const bot = platform === 'Slack' ? "PrikBoard's Slack app" : "PrikBoard's Discord bot"
   return (
     <div className="sign-in">
       <div className="sign-in-card">
@@ -49,7 +68,7 @@ export function DiscordAccountPage({ code, user, onDone }: DiscordAccountPagePro
         ) : preview === null ? (
           <>
             <h1>Link expired</h1>
-            <p>This link was used already or is more than 10 minutes old. Use Save to PrikBoard in Discord again for a new one.</p>
+            <p>This link was used already or is more than 10 minutes old. Use Save to PrikBoard in {platform} again for a new one.</p>
             <div className="sign-in-providers">
               <button type="button" className="ghost" onClick={onDone}>
                 Go to your boards
@@ -58,9 +77,9 @@ export function DiscordAccountPage({ code, user, onDone }: DiscordAccountPagePro
           </>
         ) : linked ? (
           <>
-            <h1>Discord account linked</h1>
+            <h1>{platform} account linked</h1>
             <p>
-              Go back to Discord and use Save to PrikBoard again. You can unlink it any time under Account, Discord.
+              Go back to {platform} and use Save to PrikBoard again. You can unlink it any time under Account, {platform}.
             </p>
             <div className="sign-in-providers">
               <button type="button" className="ghost" onClick={onDone}>
@@ -70,13 +89,13 @@ export function DiscordAccountPage({ code, user, onDone }: DiscordAccountPagePro
           </>
         ) : (
           <>
-            <h1>Link your Discord account?</h1>
+            <h1>Link your {platform} account?</h1>
             <p>
-              The Discord account <strong>{preview.discordName}</strong> will act as <strong>{user.displayName}</strong> when it uses
-              PrikBoard's Discord bot: messages it saves become cards made by you, on boards you can edit.
+              The {platform} account <strong>{preview.name}</strong> will act as <strong>{user.displayName}</strong> when it uses {bot}:
+              messages it saves become cards made by you, on boards you can edit.
             </p>
             <p className="sign-in-error">
-              Only continue if you are {preview.discordName} in Discord and just clicked Connect there. If someone sent you this link,
+              Only continue if you are {preview.name} in {platform} and just clicked Connect there. If someone sent you this link,
               cancel.
             </p>
             {error && (

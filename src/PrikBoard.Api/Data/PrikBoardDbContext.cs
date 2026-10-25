@@ -36,11 +36,12 @@ public class PrikBoardDbContext : DbContext
     public DbSet<BoardDrawing> Drawings => Set<BoardDrawing>();
     public DbSet<DrawingContent> DrawingContents => Set<DrawingContent>();
     public DbSet<CardChange> CardChanges => Set<CardChange>();
-    public DbSet<DiscordGuild> DiscordGuilds => Set<DiscordGuild>();
-    public DbSet<DiscordBoardChannels> DiscordBoardChannels => Set<DiscordBoardChannels>();
+    public DbSet<ChatWorkspace> ChatWorkspaces => Set<ChatWorkspace>();
+    public DbSet<ChatBoardChannels> ChatBoardChannels => Set<ChatBoardChannels>();
+    public DbSet<ChatAccount> ChatAccounts => Set<ChatAccount>();
+    public DbSet<ChatPreviewMessage> ChatPreviewMessages => Set<ChatPreviewMessage>();
     public DbSet<DiscordBotSettings> DiscordBotSettings => Set<DiscordBotSettings>();
-    public DbSet<DiscordAccount> DiscordAccounts => Set<DiscordAccount>();
-    public DbSet<DiscordPreviewMessage> DiscordPreviewMessages => Set<DiscordPreviewMessage>();
+    public DbSet<SlackAppSettings> SlackAppSettings => Set<SlackAppSettings>();
     public DbSet<SignInProvider> SignInProviders => Set<SignInProvider>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -111,7 +112,7 @@ public class PrikBoardDbContext : DbContext
             change.HasOne<Card>().WithMany().HasForeignKey(c => c.CardId).OnDelete(DeleteBehavior.Cascade);
             change.HasOne(c => c.By).WithMany().HasForeignKey(c => c.ById).OnDelete(DeleteBehavior.SetNull);
             change.HasIndex(c => new { c.CardId, c.At });
-            // The Discord bot follows the latest changes (Integrations/DiscordActivity).
+            // The chat bots follow the latest changes (Integrations/ChatActivity).
             change.HasIndex(c => c.At);
         });
 
@@ -214,41 +215,47 @@ public class PrikBoardDbContext : DbContext
             grant.HasIndex(g => g.OwnerId);
         });
 
-        modelBuilder.Entity<DiscordGuild>(guild =>
+        // A chat workspace (Discord server, Slack workspace) and what it may preview; see Domain/Chat.cs.
+        modelBuilder.Entity<ChatWorkspace>(workspace =>
         {
-            guild.HasKey(g => g.GuildId);
-            guild.Property(g => g.GuildId).HasMaxLength(DiscordGuild.IdMaxLength);
-            guild.HasOne(g => g.Agent).WithOne().HasForeignKey<DiscordGuild>(g => g.AgentId).OnDelete(DeleteBehavior.Cascade);
-            guild.HasOne<User>().WithMany().HasForeignKey(g => g.ConnectedById).OnDelete(DeleteBehavior.SetNull);
+            workspace.HasKey(w => new { w.Platform, w.WorkspaceId });
+            workspace.Property(w => w.Platform).HasConversion<string>().HasMaxLength(20);
+            workspace.Property(w => w.WorkspaceId).HasMaxLength(ChatPlatforms.IdMaxLength);
+            workspace.HasOne(w => w.Agent).WithOne().HasForeignKey<ChatWorkspace>(w => w.AgentId).OnDelete(DeleteBehavior.Cascade);
+            workspace.HasOne<User>().WithMany().HasForeignKey(w => w.ConnectedById).OnDelete(DeleteBehavior.SetNull);
         });
 
-        // Gone with the board or the server; a removed membership leaves it behind, and connecting again replaces it.
-        modelBuilder.Entity<DiscordBoardChannels>(channels =>
+        // Gone with the board or the workspace; a removed membership leaves it behind, and connecting again replaces it.
+        modelBuilder.Entity<ChatBoardChannels>(channels =>
         {
-            channels.HasKey(c => new { c.GuildId, c.BoardId });
-            channels.Property(c => c.GuildId).HasMaxLength(DiscordGuild.IdMaxLength);
-            channels.Property(c => c.Channels).HasColumnType("jsonb").HasConversion(DiscordChannelsJson.Converter, DiscordChannelsJson.Comparer);
-            channels.HasOne<DiscordGuild>().WithMany().HasForeignKey(c => c.GuildId).OnDelete(DeleteBehavior.Cascade);
+            channels.HasKey(c => new { c.Platform, c.WorkspaceId, c.BoardId });
+            channels.Property(c => c.Platform).HasConversion<string>().HasMaxLength(20);
+            channels.Property(c => c.WorkspaceId).HasMaxLength(ChatPlatforms.IdMaxLength);
+            channels.Property(c => c.Channels).HasColumnType("jsonb").HasConversion(ChatChannelsJson.Converter, ChatChannelsJson.Comparer);
+            channels.HasOne<ChatWorkspace>().WithMany().HasForeignKey(c => new { c.Platform, c.WorkspaceId }).OnDelete(DeleteBehavior.Cascade);
             channels.HasOne<Board>().WithMany().HasForeignKey(c => c.BoardId).OnDelete(DeleteBehavior.Cascade);
             channels.HasIndex(c => c.BoardId);
         });
 
-        // Only the hash of the Discord user id, like a sign-in's subject; gone with the user.
-        modelBuilder.Entity<DiscordAccount>(account =>
+        // Only the hash of the chat user id, like a sign-in's subject; gone with the user.
+        modelBuilder.Entity<ChatAccount>(account =>
         {
-            account.HasKey(a => a.DiscordUserHash);
-            account.Property(a => a.DiscordUserHash).HasMaxLength(32);
+            account.HasKey(a => new { a.Platform, a.UserHash });
+            account.Property(a => a.Platform).HasConversion<string>().HasMaxLength(20);
+            account.Property(a => a.UserHash).HasMaxLength(32);
             account.HasOne(a => a.User).WithMany().HasForeignKey(a => a.UserId).OnDelete(DeleteBehavior.Cascade);
             account.HasIndex(a => a.UserId);
         });
 
-        // Discord's ids, not personal data; dropped after DiscordPreviewMessage.KeptFor (DiscordActivity).
-        modelBuilder.Entity<DiscordPreviewMessage>(message =>
+        // The chat apps' ids, not personal data; dropped after ChatPreviewMessage.KeptFor (ChatActivity).
+        modelBuilder.Entity<ChatPreviewMessage>(message =>
         {
-            message.HasKey(m => m.MessageId);
-            message.Property(m => m.MessageId).HasMaxLength(DiscordGuild.IdMaxLength);
-            message.Property(m => m.GuildId).HasMaxLength(DiscordGuild.IdMaxLength);
-            message.Property(m => m.ChannelId).HasMaxLength(DiscordGuild.IdMaxLength);
+            // Slack's message timestamps are only unique within their channel.
+            message.HasKey(m => new { m.Platform, m.ChannelId, m.MessageId });
+            message.Property(m => m.Platform).HasConversion<string>().HasMaxLength(20);
+            message.Property(m => m.MessageId).HasMaxLength(ChatPlatforms.IdMaxLength);
+            message.Property(m => m.WorkspaceId).HasMaxLength(ChatPlatforms.IdMaxLength);
+            message.Property(m => m.ChannelId).HasMaxLength(ChatPlatforms.IdMaxLength);
             message.PrimitiveCollection(m => m.Sources).IsRequired();
             message.PrimitiveCollection(m => m.CardIds).IsRequired();
             message.PrimitiveCollection(m => m.BoardIds).IsRequired();
@@ -258,10 +265,20 @@ public class PrikBoardDbContext : DbContext
         modelBuilder.Entity<DiscordBotSettings>(bot =>
         {
             bot.Property(b => b.Id).ValueGeneratedNever();
-            bot.Property(b => b.ApplicationId).HasMaxLength(DiscordGuild.IdMaxLength);
+            bot.Property(b => b.ApplicationId).HasMaxLength(DiscordIds.MaxLength);
             bot.Property(b => b.BotName).HasMaxLength(100);
             bot.Property(b => b.PublicUrl).HasMaxLength(Domain.DiscordBotSettings.PublicUrlMaxLength);
             bot.HasOne<User>().WithMany().HasForeignKey(b => b.UpdatedById).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<SlackAppSettings>(app =>
+        {
+            app.Property(a => a.Id).ValueGeneratedNever();
+            app.Property(a => a.TeamId).HasMaxLength(ChatPlatforms.IdMaxLength);
+            app.Property(a => a.TeamName).HasMaxLength(100);
+            app.Property(a => a.BotName).HasMaxLength(100);
+            app.Property(a => a.PublicUrl).HasMaxLength(Domain.SlackAppSettings.PublicUrlMaxLength);
+            app.HasOne<User>().WithMany().HasForeignKey(a => a.UpdatedById).OnDelete(DeleteBehavior.SetNull);
         });
 
         // Gone with its board, card, caller, member or token: an upload URL never outlives the access it was given for.

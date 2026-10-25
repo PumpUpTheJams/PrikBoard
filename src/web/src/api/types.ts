@@ -615,7 +615,7 @@ export interface SetupStatus {
   unlocked: boolean
 }
 
-export type ProviderType = 'OpenIdConnect' | 'GitHub' | 'Discord' | 'Steam'
+export type ProviderType = 'OpenIdConnect' | 'GitHub' | 'Discord' | 'Steam' | 'Slack'
 
 /** A sign-in provider as the setup shows it; the client secret never comes back. */
 export interface SignInProviderDetail {
@@ -930,15 +930,15 @@ export interface DiscordChannelChoice {
   name: string
 }
 
-/** Board activity a Discord channel can follow. */
-export type DiscordUpdate = 'NewCards' | 'Moves' | 'Assignments' | 'AgentWork'
+/** Board activity a chat channel (Discord or Slack) can follow. */
+export type ChatUpdate = 'NewCards' | 'Moves' | 'Assignments' | 'AgentWork'
 
 /** A Discord channel connected to a board, with what it does there. */
 export interface DiscordChannel {
   id: string
   name: string
   /** What the bot posts there as it happens on the board. */
-  updates: DiscordUpdate[]
+  updates: ChatUpdate[]
   /** Where Save to PrikBoard in this channel puts cards; null for the board's first bucket. */
   saveBucketId: string | null
 }
@@ -1021,4 +1021,93 @@ export interface DiscordBotDetail {
   publicUrlIsConfigured: boolean
   updatedAt: string | null
   servers: DiscordBotServer[]
+}
+
+/** Off: no admin set up the Slack app. Failed: Slack refused a token (problem says why). */
+export type SlackAppState = 'Off' | 'Connecting' | 'Online' | 'Failed'
+
+/** A Slack channel connected to a board. */
+export interface SlackChannel {
+  id: string
+  name: string
+  /** What the app posts there as it happens on the board. */
+  updates: ChatUpdate[]
+  /** Where Save to PrikBoard in this channel puts cards; null for the board's first bucket. */
+  saveBucketId: string | null
+}
+
+/** A Slack workspace where the app unfurls a board's links. */
+export interface SlackConnection {
+  teamId: string
+  teamName: string
+  /** The workspace's member on the board (a Viewer agent). */
+  agentId: string
+  wholeWorkspace: boolean
+  channels: SlackChannel[]
+  connectedAt: string
+  connectedBy: string | null
+}
+
+/** The workspace the Slack app is in, with the channels it was added to (not those shared with other organizations). */
+export interface SlackWorkspaceChoice {
+  teamId: string
+  name: string
+  channels: { id: string; name: string }[]
+}
+
+/** Where the instance's Slack app can preview a board's links. */
+export interface SlackWorkspaces {
+  state: SlackAppState
+  workspaces: SlackWorkspaceChoice[]
+}
+
+/** A board a Slack workspace previews, with where. */
+export interface SlackBoardConnection {
+  boardId: string
+  shortId: string
+  boardName: string
+  wholeWorkspace: boolean
+  channels: SlackChannel[]
+}
+
+/** The workspace the Slack app is in, for admins. */
+export interface SlackAppWorkspace {
+  teamId: string
+  name: string
+  channelCount: number
+  boards: SlackBoardConnection[]
+}
+
+/** The instance's Slack app, for admins; never its tokens. */
+export interface SlackAppDetail {
+  state: SlackAppState
+  problem: string | null
+  /** Where the tokens come from: Configuration (Slack:BotToken and Slack:AppToken, read-only here) or Setup; null without them. */
+  source: 'Configuration' | 'Setup' | null
+  teamId: string | null
+  teamName: string | null
+  botName: string | null
+  /** The PrikBoard address pasted links are matched against; its host is the app's unfurl domain. */
+  publicUrl: string | null
+  /** Whether that comes from Slack:PublicUrl in the server's configuration (read-only here). */
+  publicUrlIsConfigured: boolean
+  updatedAt: string | null
+  /** The app manifest (JSON) to create the Slack app from. */
+  manifest: string
+  /** Slack's page for creating an app, with the manifest filled in. */
+  createAppUrl: string
+  workspaces: SlackAppWorkspace[]
+}
+
+/** Whether the Slack app knows who you are, for Save to PrikBoard: through a Slack sign-in, or a link you made. */
+export interface SlackAccountStatus {
+  linked: boolean
+  source: 'SignIn' | 'Link' | null
+  linkedAt: string | null
+}
+
+/** The Slack user behind a link code from the app, so you can check it is you. */
+export interface SlackAccountLinkPreview {
+  slackName: string
+  expiresAt: string
 }

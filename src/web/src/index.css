@@ -4149,6 +4149,12 @@ a.button.primary:hover {
   color: var(--discord-text);
 }
 
+/* A Slack workspace connected for link previews; Slack's aubergine. */
+.badge.slack {
+  background: #3b1f3d;
+  color: #f0c8ef;
+}
+
 .discord-channels {
   display: flex;
   flex-wrap: wrap;
@@ -4231,6 +4237,27 @@ a.button.primary:hover {
   align-items: center;
   gap: 8px;
   margin-top: 10px;
+}
+
+/* Admin → Instance: the Slack app's manifest, to copy into Slack's "create from a manifest". */
+.slack-manifest {
+  margin: 10px 0;
+  font-size: 13px;
+}
+
+.slack-manifest summary {
+  cursor: pointer;
+  color: var(--text-2);
+}
+
+.slack-manifest pre {
+  max-height: 220px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--chip);
+  font: 12px var(--mono);
+  white-space: pre;
 }
 
 /* Admin → Instance: the instance's Discord bot. */

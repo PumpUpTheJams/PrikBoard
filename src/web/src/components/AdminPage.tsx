@@ -5,6 +5,7 @@ import { isDrag } from '../board/gesture'
 import { CloseIcon, PeopleIcon, SearchIcon, ShieldIcon, SparkleIcon, TrashIcon } from '../board/icons'
 import { ConfirmDialog } from './ConfirmDialog'
 import { DiscordBotSettings } from './DiscordBotSettings'
+import { SlackAppSettings } from './SlackAppSettings'
 import { Face } from './Avatar'
 import { plural } from './plural'
 import { hasSetupResult } from './setupResult'
@@ -301,6 +302,10 @@ export function AdminPage({ onYouChanged, onBack }: AdminPageProps) {
             <section className="admin-panel" aria-labelledby="admin-discord">
               <h3 id="admin-discord">Discord bot</h3>
               <DiscordBotSettings />
+            </section>
+            <section className="admin-panel" aria-labelledby="admin-slack">
+              <h3 id="admin-slack">Slack app</h3>
+              <SlackAppSettings />
             </section>
           </div>
           <div className="admin-instance-column">

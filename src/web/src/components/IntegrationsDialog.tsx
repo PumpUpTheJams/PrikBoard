@@ -1,23 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, errorMessage } from '../api/client'
-import type { BoardSummary, BucketDetail, DiscordChannel, DiscordConnection, DiscordServers, DiscordUpdate } from '../api/types'
+import type { BoardSummary, BucketDetail, DiscordChannel, DiscordConnection, DiscordServers, ChatUpdate } from '../api/types'
 import { CloseIcon } from '../board/icons'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Dialog } from './Dialog'
 import { Select, type SelectOption } from './Select'
+import { SlackIntegration } from './SlackIntegration'
+import { updateChoices } from './chatUpdates'
 
 /** The channel choice that previews the board in every channel of the server. */
 const WHOLE_SERVER = '*'
 
 /** The save bucket choice that means the board's first bucket. */
 const FIRST_BUCKET = '*'
-
-const updateChoices: { value: DiscordUpdate; label: string }[] = [
-  { value: 'NewCards', label: 'New cards' },
-  { value: 'Moves', label: 'Cards moving between buckets' },
-  { value: 'Assignments', label: 'People being assigned' },
-  { value: 'AgentWork', label: 'Agents starting and stopping work' },
-]
 
 interface IntegrationsDialogProps {
   board: BoardSummary
@@ -29,7 +24,7 @@ interface IntegrationsDialogProps {
 }
 
 /**
- * For owners: the apps this board is connected to. For now that is Discord. A board connects to channels of servers
+ * For owners: the apps this board is connected to, Discord and Slack ({@link SlackIntegration}). A board connects to channels of servers
  * the instance's bot is in, and/or to whole servers; links and readable ids preview there, and each connected channel
  * can also post the board's updates and decides where Save to PrikBoard puts cards. An admin sets the bot up under
  * Admin → Instance.
@@ -228,6 +223,7 @@ export function IntegrationsDialog({ board, buckets, isAdmin, onClose }: Integra
             </p>
           )}
         </section>
+        <SlackIntegration board={board} buckets={buckets} isAdmin={isAdmin} />
       </div>
 
       {removing && (
@@ -281,7 +277,7 @@ interface ChannelSettingsProps {
   channel: DiscordChannel
   buckets: BucketDetail[]
   busy: boolean
-  onChange: (settings: { updates: DiscordUpdate[]; saveBucketId: string | null }) => void
+  onChange: (settings: { updates: ChatUpdate[]; saveBucketId: string | null }) => void
 }
 
 /** What one connected channel does for the board: the updates it posts, and where Save to PrikBoard puts cards. */

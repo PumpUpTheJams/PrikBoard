@@ -29,6 +29,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PrikBoard.Api\PrikBoard.Api.csproj" />
+    <!-- The fake Slack the Slack app's tests run the real gateway against. -->
+    <ProjectReference Include="..\..\tools\FakeSlack\FakeSlack.csproj" />
   </ItemGroup>
 
 </Project>
