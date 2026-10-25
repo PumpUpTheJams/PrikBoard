@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Step 3 of moving a FigJam board to PrikBoard: pastes the parts convert.mjs wrote onto a board, the way the web app
+// The last step for any source: pastes the parts a converter wrote onto a board, the way the web app
 // pastes a big clip: each image is uploaded first (uploadPasteImage), then the part goes as one paste (pasteItems), so a
 // part lands whole or not at all. Parts keep their places relative to each other. No dependencies.
 //
-//   PRIKBOARD_TOKEN=pb_pat_... node tools/figma-import/paste.mjs --board=<short id> [--server=http://localhost:5080]
-//   PRIKBOARD_TOKEN=pb_pat_... node tools/figma-import/paste.mjs --name="From FigJam"     (a new board)
+//   PRIKBOARD_TOKEN=pb_pat_... node tools/board-import/paste.mjs --from=figma --board=<short id> [--server=http://localhost:5080]
+//   PRIKBOARD_TOKEN=pb_pat_... node tools/board-import/paste.mjs --from=miro --name="From Miro"     (a new board)
 //
 // --board pastes onto a board you made in the web app (a token limited to that board, Editor, is enough). When that
 // board holds nothing but its empty starting buckets (To do, Doing, Done), those are deleted first; otherwise the parts
@@ -17,7 +17,9 @@ const token = process.env.PRIKBOARD_TOKEN ?? args.token
 if (!token) throw new Error('Set PRIKBOARD_TOKEN (a PrikBoard personal access token, Settings → Access tokens).')
 if (!args.board && !args.name) throw new Error('Give --board=<short id> (an existing board) or --name="…" (a new board).')
 const server = (args.server ?? 'http://localhost:5080').replace(/\/+$/, '')
-const out = args.out ?? 'tools/figma-import/out'
+// --from=figma or --from=miro names the converter's folder; --out gives any other.
+const out = args.out ?? (args.from ? `tools/board-import/out/${args.from}` : null)
+if (!out) throw new Error('Give --from=figma or --from=miro (or --out=<folder with part-1.json>).')
 const contentTypes = { png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }
 
 async function call(method, path, body, type = 'application/json') {
@@ -62,6 +64,7 @@ if (empty && !args['keep-buckets']) {
     ...board.buckets.map((b) => b.x + b.width),
     ...board.cards.map((c) => c.x + 200),
     ...board.images.filter((i) => !i.cardId).map((i) => i.x + i.width),
+    ...(board.drawings ?? []).filter((d) => !d.cardId).map((d) => d.x + (d.width ?? 0)),
   ]
   if (rights.length > 0) {
     const allParts = parts.flatMap(({ clip }) => corners(clip))
@@ -70,7 +73,7 @@ if (empty && !args['keep-buckets']) {
 }
 
 function corners(clip) {
-  return [...clip.cards, ...clip.buckets, ...clip.images.filter((i) => !i.cardId)]
+  return [...clip.cards, ...clip.buckets, ...clip.images.filter((i) => !i.cardId), ...clip.drawings.filter((d) => !d.cardId)]
 }
 
 for (const { n, clip, files } of parts) {

@@ -451,6 +451,6 @@ appsettings.*.local.json
 # Boards generated for measuring (tools/perf)
 tools/perf/out/
 
-# FigJam downloads and clips (tools/figma-import)
-tools/figma-import/out/
-tools/figma-import/config.json
+# FigJam and Miro downloads and clips (tools/board-import)
+tools/board-import/out/
+tools/board-import/config.json
