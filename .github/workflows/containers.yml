@@ -4,6 +4,9 @@ name: Containers
 # publishes it to the GitHub Container Registry as ghcr.io/<owner>/prikboard:1.2.3 and :latest, for linux/amd64 and
 # linux/arm64 (Raspberry Pi). Pull requests don't build images. The package must give this repository Write access
 # (its Package settings -> Manage Actions access), or the push is refused with 403.
+# It also goes to Docker Hub as <DOCKERHUB_USERNAME>/prikboard when the repository variable DOCKERHUB_USERNAME (the user
+# or organization on Docker Hub) and the secret DOCKERHUB_TOKEN (a personal access token with Read & Write) are set;
+# without them only ghcr.io gets it. The Docker Hub repository is created on the first push, public by default.
 on:
   push:
     tags: ['[0-9]+.[0-9]+.[0-9]+']
@@ -23,10 +26,17 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - if: vars.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository_owner }}/prikboard
+          images: |
+            ghcr.io/${{ github.repository_owner }}/prikboard
+            name=docker.io/${{ vars.DOCKERHUB_USERNAME }}/prikboard,enable=${{ vars.DOCKERHUB_USERNAME != '' }}
           tags: type=semver,pattern={{version}}
           # infra/compose/compose.yaml uses latest unless PRIKBOARD_VERSION says otherwise.
           flavor: latest=true
