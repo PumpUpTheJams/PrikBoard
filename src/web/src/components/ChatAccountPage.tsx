@@ -29,7 +29,7 @@ const links: Record<ChatPlatform, { preview: (code: string) => Promise<LinkPrevi
 
 /**
  * Opened from a chat bot's "Connect your PrikBoard account" link (Discord's button, or the Slack app's modal): links that
- * chat account to you, so Save to PrikBoard there works as you. The page names the account the code is for, so nobody
+ * chat account to you, so Save as card there works as you. The page names the account the code is for, so nobody
  * can link theirs to you by sending you their link.
  */
 export function ChatAccountPage({ platform, code, user, onDone }: ChatAccountPageProps) {
@@ -68,7 +68,7 @@ export function ChatAccountPage({ platform, code, user, onDone }: ChatAccountPag
         ) : preview === null ? (
           <>
             <h1>Link expired</h1>
-            <p>This link was used already or is more than 10 minutes old. Use Save to PrikBoard in {platform} again for a new one.</p>
+            <p>This link was used already or is more than 10 minutes old. Use Save as card in {platform} again for a new one.</p>
             <div className="sign-in-providers">
               <button type="button" className="ghost" onClick={onDone}>
                 Go to your boards
@@ -79,7 +79,7 @@ export function ChatAccountPage({ platform, code, user, onDone }: ChatAccountPag
           <>
             <h1>{platform} account linked</h1>
             <p>
-              Go back to {platform} and use Save to PrikBoard again. You can unlink it any time under Account, {platform}.
+              Go back to {platform} and use Save as card again. You can unlink it any time under Account, {platform}.
             </p>
             <div className="sign-in-providers">
               <button type="button" className="ghost" onClick={onDone}>

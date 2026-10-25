@@ -126,14 +126,14 @@ public sealed class SlackBlocks(string publicUrl)
         return Attachment(Brand, blocks);
     }
 
-    /// <summary>The modal's <c>callback_id</c> for Save to PrikBoard.</summary>
+    /// <summary>The modal's <c>callback_id</c> for Save as card.</summary>
     public const string SaveCallback = "save_to_prikboard";
 
     /// <summary>Options a select takes in Slack, and characters in an option's text.</summary>
     private const int MaxOptions = 100, MaxOptionText = 75;
 
     /// <summary>
-    /// Save to PrikBoard's modal: where (one select with a group per board and its buckets, the one picked first already
+    /// Save as card's modal: where (one select with a group per board and its buckets, the one picked first already
     /// chosen), the title, and whose message it is. <paramref name="draft"/> comes back with the submission
     /// (<c>private_metadata</c>), to find the message again.
     /// </summary>
@@ -198,7 +198,7 @@ public sealed class SlackBlocks(string publicUrl)
         var view = new Dictionary<string, object>
         {
             ["type"] = "modal",
-            ["title"] = Plain("Save to PrikBoard"),
+            ["title"] = Plain(SlackApp.SaveShortcut),
             ["close"] = Plain(submit is null ? "Close" : "Cancel"),
             ["blocks"] = blocks,
         };

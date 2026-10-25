@@ -83,7 +83,7 @@ internal static class Page
   <form id="compose">
     <select id="user" aria-label="Post as"></select>
     <input id="text" autocomplete="off" placeholder="Paste a PrikBoard link, or /prikboard board…" aria-label="Message">
-    <label class="with-image" title="Posts a small test PNG with the message, for Save to PrikBoard"><input type="checkbox" id="image"> image</label>
+    <label class="with-image" title="Posts a small test PNG with the message, for Save as card"><input type="checkbox" id="image"> image</label>
     <button type="button" class="secondary" id="type" title="Sends link_shared with source composer, as Slack does while you type">Type only</button>
     <button>Send</button>
   </form>
@@ -136,7 +136,7 @@ async function refresh() {
     const shown = Object.entries(m.unfurls);
     const waiting = m.links.filter(l => !(l in m.unfurls));
     const fromBot = m.user === state?.botUserId;
-    return `<div class="message">${fromBot ? '' : `<button class="save" data-ts="${m.ts}" title="More actions → Save to PrikBoard, as the person picked below">Save to PrikBoard</button>`}
+    return `<div class="message">${fromBot ? '' : `<button class="save" data-ts="${m.ts}" title="More actions → Save as card, as the person picked below">Save as card</button>`}
       <span class="who">${esc(users[m.user] || m.user)}</span><span class="ts">${m.ts}</span>
       <div class="text">${esc(m.text)}</div>
       ${m.files.length || m.reactions.length ? `<div class="extras">${m.files.map(f => '📎 ' + esc(f)).join(' ')} ${m.reactions.includes('pushpin') ? '📌' : ''}</div>` : ''}

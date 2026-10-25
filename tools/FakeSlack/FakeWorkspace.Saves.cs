@@ -16,7 +16,7 @@ public sealed record FakeView(string Id, string User, JsonNode View)
 }
 
 /// <summary>
-/// Save to PrikBoard's side of the fake workspace: message shortcuts, the modals the app opens for them and their
+/// Save as card's side of the fake workspace: message shortcuts, the modals the app opens for them and their
 /// submission, files that need the bot token, reactions and permalinks.
 /// </summary>
 public sealed partial class FakeWorkspace
@@ -56,7 +56,7 @@ public sealed partial class FakeWorkspace
         var trigger = Guid.NewGuid().ToString("N");
         _triggers[trigger] = user;
         var responseId = Guid.NewGuid().ToString("N");
-        _pendingCommands[responseId] = (channel, user, "Save to PrikBoard");
+        _pendingCommands[responseId] = (channel, user, "Save as card");
         var person = Options.Users.FirstOrDefault(u => u.Id == user);
         await connection.SendAsync(new
         {

@@ -267,22 +267,22 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | listDiscordConnections | `GET /api/boards/{boardId}/discord` | Discord servers connected to the board: `wholeServer` and the `channels` picked, each with the `updates` it posts and its `saveBucketId` (Owner) |
 | listDiscordServers | `GET /api/boards/{boardId}/discord/servers` | The bot's `state` (`Off` until an admin sets it up) and the servers it is in, with the channels it may read and post in (Owner) |
 | connectDiscordChannel | `POST /api/boards/{boardId}/discord` | Connect the board to a server's `channelId`, adding to its channels, or to the whole server without one (both may be set); returns the board's connections. The server becomes a Viewer. 409 past 50 channels (Owner, sessions only) |
-| updateDiscordChannel | `PUT /api/boards/{boardId}/discord/{guildId}/channels/{channelId}` | What a connected channel does: the `updates` it posts (`NewCards`, `Moves`, `Assignments`, `AgentWork`) and the `saveBucketId` for Save to PrikBoard (null: the first bucket); returns the board's connections (Owner) |
+| updateDiscordChannel | `PUT /api/boards/{boardId}/discord/{guildId}/channels/{channelId}` | What a connected channel does: the `updates` it posts (`NewCards`, `Moves`, `Assignments`, `AgentWork`) and the `saveBucketId` for Save as card (null: the first bucket); returns the board's connections (Owner) |
 | removeDiscordConnection | `DELETE /api/boards/{boardId}/discord/{guildId}` | Take a Discord server off the board; its previews say "no longer available" (Owner) |
 | removeDiscordWholeServer | `DELETE /api/boards/{boardId}/discord/{guildId}/whole-server` | Stop previewing in every channel; with no channels left, the server is disconnected (Owner) |
 | removeDiscordChannel | `DELETE /api/boards/{boardId}/discord/{guildId}/channels/{channelId}` | Disconnect one channel, with its settings; with nothing left, the server is disconnected (Owner) |
-| getDiscordAccount | `GET /api/me/discord-account` | Whether the Discord bot knows who you are (`linked`, `source`: `SignIn` or `Link`) for Save to PrikBoard (sessions only) |
+| getDiscordAccount | `GET /api/me/discord-account` | Whether the Discord bot knows who you are (`linked`, `source`: `SignIn` or `Link`) for Save as card (sessions only) |
 | previewDiscordAccountLink | `GET /api/me/discord-account/links/{code}` | The Discord name behind a code from the bot's "Connect your PrikBoard account" button (sessions only) |
 | linkDiscordAccount | `POST /api/me/discord-account` | Link the Discord account behind `code` to you; once, for 10 minutes (sessions from PrikBoard's own pages only) |
 | unlinkDiscordAccount | `DELETE /api/me/discord-account` | Remove the link you made (sessions only) |
-| getSlackAccount | `GET /api/me/slack-account` | Whether the Slack app knows who you are (`linked`, `source`: `SignIn` or `Link`, `linkedAt`) for Save to PrikBoard (sessions only) |
+| getSlackAccount | `GET /api/me/slack-account` | Whether the Slack app knows who you are (`linked`, `source`: `SignIn` or `Link`, `linkedAt`) for Save as card (sessions only) |
 | previewSlackAccountLink | `GET /api/me/slack-account/links/{code}` | The Slack name behind a code from the app's "Connect your PrikBoard account" link (sessions only) |
 | linkSlackAccount | `POST /api/me/slack-account` | Link the Slack account behind `code` to you; once, for 10 minutes (sessions from PrikBoard's own pages only) |
 | unlinkSlackAccount | `DELETE /api/me/slack-account` | Remove the link (sessions only) |
 | listSlackConnections | `GET /api/boards/{boardId}/slack` | Slack workspaces connected to the board: `wholeWorkspace` and the `channels` picked (Owner) |
 | listSlackWorkspaces | `GET /api/boards/{boardId}/slack/workspaces` | The Slack app's `state` (`Off` until an admin sets it up) and its workspace, with the channels it was added to; never Slack Connect channels (Owner) |
 | connectSlackChannel | `POST /api/boards/{boardId}/slack` | Connect the board to a `teamId`'s `channelId`, or to the whole workspace without one (both may be set); returns the board's connections. The workspace becomes a Viewer. 409 past 50 channels (Owner, sessions only) |
-| updateSlackChannel | `PUT /api/boards/{boardId}/slack/{teamId}/channels/{channelId}` | What a connected channel does: the `updates` it posts (`NewCards`, `Moves`, `Assignments`, `AgentWork`) and the `saveBucketId` for Save to PrikBoard (null: the first bucket); returns the board's connections (Owner) |
+| updateSlackChannel | `PUT /api/boards/{boardId}/slack/{teamId}/channels/{channelId}` | What a connected channel does: the `updates` it posts (`NewCards`, `Moves`, `Assignments`, `AgentWork`) and the `saveBucketId` for Save as card (null: the first bucket); returns the board's connections (Owner) |
 | removeSlackConnection | `DELETE /api/boards/{boardId}/slack/{teamId}` | Take a Slack workspace off the board; previews posted in the last week say "no longer available" (Owner) |
 | removeSlackWholeWorkspace | `DELETE /api/boards/{boardId}/slack/{teamId}/whole-workspace` | Stop unfurling in every channel; with no channels left, the workspace is disconnected (Owner) |
 | removeSlackChannel | `DELETE /api/boards/{boardId}/slack/{teamId}/channels/{channelId}` | Disconnect one channel; with nothing left, the workspace is disconnected (Owner) |

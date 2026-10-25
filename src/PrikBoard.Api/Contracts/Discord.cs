@@ -43,7 +43,7 @@ public static class ChatUpdateLists
 /// <param name="Id">Discord's id for it.</param>
 /// <param name="Name">Its name, without the #.</param>
 /// <param name="Updates">What the bot posts there as it happens on the board.</param>
-/// <param name="SaveBucketId">Where Save to PrikBoard in this channel puts cards; null for the board's first bucket.</param>
+/// <param name="SaveBucketId">Where Save as card in this channel puts cards; null for the board's first bucket.</param>
 public sealed record DiscordChannelDetail(string Id, string Name, List<ChatUpdate> Updates, Guid? SaveBucketId)
 {
     public static List<DiscordChannelDetail> From(IEnumerable<ChatChannel> channels) =>
@@ -63,7 +63,7 @@ public sealed record DiscordBoardConnection(Guid BoardId, string ShortId, string
 /// <param name="GuildName">Its name.</param>
 /// <param name="AgentId">The server's member on the board (a Viewer agent).</param>
 /// <param name="WholeServer">Whether the board's links preview in every channel of the server.</param>
-/// <param name="Channels">The channels picked for the board: its links preview there, and each can post updates and take Save to PrikBoard.</param>
+/// <param name="Channels">The channels picked for the board: its links preview there, and each can post updates and take Save as card.</param>
 /// <param name="ConnectedAt">When it was connected to this board (UTC).</param>
 /// <param name="ConnectedBy">Who made the server's latest connection, if they still exist.</param>
 public sealed record DiscordConnection(
@@ -94,7 +94,7 @@ public sealed record ConnectDiscordRequest(
 
 /// <summary>What a channel connected to a board does for it. Both fields replace what was set.</summary>
 /// <param name="Updates">The board activity the bot posts in the channel; empty for none.</param>
-/// <param name="SaveBucketId">The bucket Save to PrikBoard in this channel puts cards in; null for the board's first bucket.</param>
+/// <param name="SaveBucketId">The bucket Save as card in this channel puts cards in; null for the board's first bucket.</param>
 public sealed record UpdateDiscordChannelRequest(
     [property: Required] List<ChatUpdate> Updates,
     Guid? SaveBucketId = null);
@@ -110,7 +110,7 @@ public enum DiscordAccountSource
     Link,
 }
 
-/// <summary>Whether the Discord bot knows who you are in Discord, for Save to PrikBoard.</summary>
+/// <summary>Whether the Discord bot knows who you are in Discord, for Save as card.</summary>
 /// <param name="Linked">Whether it does.</param>
 /// <param name="Source">How: a Discord sign-in, or a link you made; null when not linked.</param>
 /// <param name="LinkedAt">When you made the link (Link only).</param>

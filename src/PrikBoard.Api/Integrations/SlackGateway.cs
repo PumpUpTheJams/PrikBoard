@@ -79,7 +79,7 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
 
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(30);
 
-    /// <summary>How long Save to PrikBoard's modal waits to be submitted.</summary>
+    /// <summary>How long Save as card's modal waits to be submitted.</summary>
     private static readonly TimeSpan DraftLifetime = TimeSpan.FromMinutes(15);
 
     /// <summary>How long the modal waits for the message's names before opening anyway; Slack's trigger works for 3 seconds.</summary>
@@ -422,7 +422,7 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
         static object Ephemeral(string text) => new { response_type = "ephemeral", text };
     }
 
-    /// <summary>Shortcuts and modals: Save to PrikBoard on a message, and its modal being submitted. Everything else is ignored.</summary>
+    /// <summary>Shortcuts and modals: Save as card on a message, and its modal being submitted. Everything else is ignored.</summary>
     private Task InteractiveAsync(JsonElement payload, string botToken, CancellationToken ct) =>
         (Text(payload, "type"), payload) switch
         {
@@ -433,7 +433,7 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
         };
 
     /// <summary>
-    /// Save to PrikBoard on a message: who you are (a link to connect your account if PrikBoard doesn't know you yet),
+    /// Save as card on a message: who you are (a link to connect your account if PrikBoard doesn't know you yet),
     /// then a modal to pick the board and bucket and change the title. The modal opens first, since Slack's
     /// <c>trigger_id</c> only works for 3 seconds; reading the message (names, permalink) goes on meanwhile.
     /// </summary>
@@ -456,7 +456,7 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
             var code = accounts.StartLink(ChatPlatform.Slack, accountId, Text(payload, "user", "name") ?? Text(payload, "user", "username") ?? slackUserId);
             await OpenAsync(botToken, triggerId, SlackBlocks.NoticeView(
                 $"PrikBoard doesn't know you yet. <{site.Url}/#/connect/slack-account?code={code}|Connect your PrikBoard account> once, " +
-                "then use Save to PrikBoard again."), ct);
+                $"then use {SlackApp.SaveShortcut} again."), ct);
             return;
         }
 
@@ -577,7 +577,7 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
         object answer = attachment is null
             ? new { response_type = "ephemeral", text = SlackBlocks.Escape(text) }
             : new { response_type = "ephemeral", text = SlackBlocks.Escape(text), attachments = new[] { attachment } };
-        if (!await Api.RespondAsync(url, answer, ct)) logger.LogInformation("Answering Save to PrikBoard in {Channel} failed.", draft.ChannelId);
+        if (!await Api.RespondAsync(url, answer, ct)) logger.LogInformation("Answering Save as card in {Channel} failed.", draft.ChannelId);
     }
 
     private async Task OpenAsync(string botToken, string triggerId, object view, CancellationToken ct)

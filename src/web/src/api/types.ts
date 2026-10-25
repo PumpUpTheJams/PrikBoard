@@ -939,7 +939,7 @@ export interface DiscordChannel {
   name: string
   /** What the bot posts there as it happens on the board. */
   updates: ChatUpdate[]
-  /** Where Save to PrikBoard in this channel puts cards; null for the board's first bucket. */
+  /** Where Save as card in this channel puts cards; null for the board's first bucket. */
   saveBucketId: string | null
 }
 
@@ -967,7 +967,7 @@ export interface DiscordConnection {
   agentId: string
   /** Whether links preview in every channel of the server. */
   wholeServer: boolean
-  /** The channels picked for the board: links preview there, and each can post updates and take Save to PrikBoard. */
+  /** The channels picked for the board: links preview there, and each can post updates and take Save as card. */
   channels: DiscordChannel[]
   connectedAt: string
   connectedBy: string | null
@@ -982,7 +982,7 @@ export interface DiscordBoardConnection {
   channels: DiscordChannel[]
 }
 
-/** Whether the Discord bot knows who you are, for Save to PrikBoard: through a Discord sign-in, or a link you made. */
+/** Whether the Discord bot knows who you are, for Save as card: through a Discord sign-in, or a link you made. */
 export interface DiscordAccountStatus {
   linked: boolean
   source: 'SignIn' | 'Link' | null
@@ -1032,7 +1032,7 @@ export interface SlackChannel {
   name: string
   /** What the app posts there as it happens on the board. */
   updates: ChatUpdate[]
-  /** Where Save to PrikBoard in this channel puts cards; null for the board's first bucket. */
+  /** Where Save as card in this channel puts cards; null for the board's first bucket. */
   saveBucketId: string | null
 }
 
@@ -1099,7 +1099,7 @@ export interface SlackAppDetail {
   workspaces: SlackAppWorkspace[]
 }
 
-/** Whether the Slack app knows who you are, for Save to PrikBoard: through a Slack sign-in, or a link you made. */
+/** Whether the Slack app knows who you are, for Save as card: through a Slack sign-in, or a link you made. */
 export interface SlackAccountStatus {
   linked: boolean
   source: 'SignIn' | 'Link' | null

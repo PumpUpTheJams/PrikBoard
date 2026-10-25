@@ -14,7 +14,7 @@ namespace PrikBoard.Api.Endpoints;
 /// A board's Discord connections (docs/discord.md), set by its owners under Integrations: they pick a server the
 /// instance's bot is in (<see cref="IDiscordGateway"/>), and channels of it and/or the whole server. The server becomes a
 /// Viewer agent on the board; <see cref="ChatBoardChannels"/> keeps where links preview and what each channel does
-/// (posting updates, Save to PrikBoard's bucket). Also the link between a person's Discord and PrikBoard accounts. An
+/// (posting updates, Save as card's bucket). Also the link between a person's Discord and PrikBoard accounts. An
 /// admin sets the bot up (<see cref="DiscordBotEndpoints"/>).
 /// </summary>
 public static class DiscordEndpoints
@@ -28,7 +28,7 @@ public static class DiscordEndpoints
             .WithName("listDiscordConnections")
             .WithSummary("List the Discord servers connected to a board")
             .WithDescription("Lists the Discord servers where PrikBoard's bot previews this board's links: the whole server and/or " +
-                             "channels, and what each channel does for the board (updates it posts, where Save to PrikBoard puts cards).");
+                             "channels, and what each channel does for the board (updates it posts, where Save as card puts cards).");
 
         board.MapGet("/servers", ListDiscordServers)
             .RequireBoardRole(BoardRole.Owner)
@@ -55,7 +55,7 @@ public static class DiscordEndpoints
             .WithName("updateDiscordChannel")
             .WithSummary("Set what a Discord channel does for a board")
             .WithDescription("Sets the board activity the bot posts in the channel (new cards, moves between buckets, assignments, " +
-                             "agents at work; none by default) and the bucket Save to PrikBoard there puts cards in. Returns the " +
+                             "agents at work; none by default) and the bucket Save as card there puts cards in. Returns the " +
                              "board's Discord connections.")
             .ProducesValidationProblem();
 
@@ -85,7 +85,7 @@ public static class DiscordEndpoints
         me.MapGet("/", GetDiscordAccount)
             .WithName("getDiscordAccount")
             .WithSummary("Whether the Discord bot knows who you are")
-            .WithDescription("Whether your Discord account is linked to you, for Save to PrikBoard: through a Discord sign-in, or a " +
+            .WithDescription("Whether your Discord account is linked to you, for Save as card: through a Discord sign-in, or a " +
                              "link you made from the bot. Sessions only.")
             .Produces(StatusCodes.Status403Forbidden);
 
@@ -100,7 +100,7 @@ public static class DiscordEndpoints
             .WithName("linkDiscordAccount")
             .WithSummary("Link your Discord account")
             .WithDescription("Links the Discord account behind a code from the bot to you, replacing an earlier link. What that " +
-                             "Discord account then does through the bot (Save to PrikBoard) is done as you, so only link your own. " +
+                             "Discord account then does through the bot (Save as card) is done as you, so only link your own. " +
                              "Each code works once, for 10 minutes. Browser sessions from PrikBoard's own pages only.")
             .ProducesValidationProblem()
             .Produces(StatusCodes.Status403Forbidden);
@@ -219,7 +219,7 @@ public static class DiscordEndpoints
         if (principal.IsToken() || !SameOrigin.Check(http)) return TypedResults.Forbid();
         if (!await accounts.LinkAsync(db, ChatPlatform.Discord, request.Code, principal.UserId(), ct))
         {
-            return Problems.Invalid("code", "Unknown, used or expired code. Use Save to PrikBoard in Discord again for a new one.");
+            return Problems.Invalid("code", "Unknown, used or expired code. Use Save as card in Discord again for a new one.");
         }
         return TypedResults.Ok(new DiscordAccountStatus(true, DiscordAccountSource.Link, DateTimeOffset.UtcNow));
     }

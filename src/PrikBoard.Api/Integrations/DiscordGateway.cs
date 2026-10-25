@@ -70,7 +70,7 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
     : IDiscordGateway, IHostedService
 {
     /// <summary>The message command that saves a message as a card.</summary>
-    public const string SaveCommand = "Save to PrikBoard";
+    public const string SaveCommand = "Save as card";
 
     /// <summary>Close codes after which Discord won't take the bot back until something changes.</summary>
     private static readonly Dictionary<int, string> Fatal = new()
@@ -80,7 +80,7 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
         [4014] = "Turn on Message Content Intent on the Bot tab of your application: without it the bot can't see pasted links.",
     };
 
-    /// <summary>How long Save to PrikBoard's choices wait for the Save button.</summary>
+    /// <summary>How long Save as card's choices wait for the Save button.</summary>
     private static readonly TimeSpan DraftLifetime = TimeSpan.FromMinutes(15);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -356,13 +356,13 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
     private static string NameOf(IUser user) =>
         (user as IGuildUser)?.DisplayName ?? user.GlobalName ?? user.Username;
 
-    /// <summary>Save to PrikBoard on a message: who you are, then where it goes (<see cref="SaveDraft"/>).</summary>
+    /// <summary>Save as card on a message: who you are, then where it goes (<see cref="SaveDraft"/>).</summary>
     private async Task SaveCommandAsync(SocketMessageCommand command, CancellationToken ct)
     {
         if (command.CommandName != SaveCommand) return;
         if (_site is not { } site || command.GuildId is not { } guild || command.Data.Message.Channel is not IGuildChannel channel)
         {
-            await command.RespondAsync("Save to PrikBoard works in servers only.", ephemeral: true);
+            await command.RespondAsync($"{SaveCommand} works in servers only.", ephemeral: true);
             return;
         }
         await command.DeferAsync(ephemeral: true);
@@ -374,7 +374,7 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
         {
             var code = accounts.StartLink(ChatPlatform.Discord, command.User.Id.ToString(), NameOf(command.User));
             await command.FollowupAsync(
-                "PrikBoard doesn't know you yet. Connect your PrikBoard account once, then use Save to PrikBoard again.",
+                $"PrikBoard doesn't know you yet. Connect your PrikBoard account once, then use {SaveCommand} again.",
                 components: new ComponentBuilder()
                     .WithButton("Connect your PrikBoard account", style: ButtonStyle.Link, url: $"{site.Url}/#/connect/discord-account?code={code}")
                     .Build(),
@@ -435,7 +435,7 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
         {
             await component.UpdateAsync(m =>
             {
-                m.Content = "This took too long; use Save to PrikBoard again.";
+                m.Content = $"This took too long; use {SaveCommand} again.";
                 m.Components = new ComponentBuilder().Build();
             });
             return;

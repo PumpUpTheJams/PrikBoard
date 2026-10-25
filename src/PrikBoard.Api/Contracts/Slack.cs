@@ -9,7 +9,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Id">Slack's id for it (C… or G…).</param>
 /// <param name="Name">Its name, without the #.</param>
 /// <param name="Updates">What the app posts there as it happens on the board.</param>
-/// <param name="SaveBucketId">Where Save to PrikBoard in this channel puts cards; null for the board's first bucket.</param>
+/// <param name="SaveBucketId">Where Save as card in this channel puts cards; null for the board's first bucket.</param>
 public sealed record SlackChannelDetail(string Id, string Name, List<ChatUpdate> Updates, Guid? SaveBucketId)
 {
     public static List<SlackChannelDetail> From(IEnumerable<ChatChannel> channels) =>
@@ -18,7 +18,7 @@ public sealed record SlackChannelDetail(string Id, string Name, List<ChatUpdate>
 
 /// <summary>What a Slack channel connected to a board does for it. Both fields replace what was set.</summary>
 /// <param name="Updates">The board activity the app posts in the channel; empty for none.</param>
-/// <param name="SaveBucketId">The bucket Save to PrikBoard in this channel puts cards in; null for the board's first bucket.</param>
+/// <param name="SaveBucketId">The bucket Save as card in this channel puts cards in; null for the board's first bucket.</param>
 public sealed record UpdateSlackChannelRequest([property: Required] List<ChatUpdate> Updates, Guid? SaveBucketId = null);
 
 /// <summary>A Slack workspace connected to a board, for its owners.</summary>
@@ -128,7 +128,7 @@ public enum SlackAccountSource
     Link,
 }
 
-/// <summary>Whether the Slack app knows who you are in Slack, for Save to PrikBoard.</summary>
+/// <summary>Whether the Slack app knows who you are in Slack, for Save as card.</summary>
 /// <param name="Linked">Whether it does.</param>
 /// <param name="Source">How: a Slack sign-in, or a link you made; null when not linked.</param>
 /// <param name="LinkedAt">When you made the link (Link only).</param>

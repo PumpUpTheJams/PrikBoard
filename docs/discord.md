@@ -7,7 +7,7 @@ Status: built. Part 1 (PRIK-142) is the meta tags in `src/web/index.html` and th
   - `DiscordBot`, its settings
   - `LinkPreviews` and `ChatPreviews`, what links and ids preview as
   - `ChatActivity` and `DiscordActivityTarget`, live previews and updates (shared with Slack)
-  - `ChatSaves`, Save to PrikBoard
+  - `ChatSaves`, Save as card
   - `ChatAccounts`, who a Discord user is
   - `Embeds`, how all of it looks
 - `Endpoints/DiscordEndpoints.cs` and `Endpoints/DiscordBotEndpoints.cs`
@@ -25,7 +25,7 @@ A board connects to channels. Every connected channel does three things for its 
 | --- | --- | --- |
 | Previews | Links and bare ids such as `PRIK-149` show an embed that keeps up with the card for a week | Always on |
 | Updates | Posts the board activity the channel follows | Off |
-| Save here | *Save to PrikBoard* in this channel saves to this board, in a bucket of the owner's choice | The first bucket |
+| Save here | *Save as card* in this channel saves to this board, in a bucket of the owner's choice | The first bucket |
 
 A connection to the whole server previews everywhere. Updates and a save bucket need a channel picked as well, and both kinds of connection can exist side by side.
 
@@ -167,7 +167,7 @@ What the choices do:
 - **The cross on a chip** takes that channel, or the whole server, away (removeDiscordChannel, removeDiscordWholeServer). When nothing is left, the server is disconnected; the dialog asks first.
 - **Clicking a channel's name** opens its settings (updateDiscordChannel, saved at once):
   - The updates it posts: new cards, moves between buckets, assignments, agents starting or stopping work.
-  - The bucket *Save to PrikBoard* puts cards in.
+  - The bucket *Save as card* puts cards in.
   - A 🔔 on the chip shows that the channel posts updates.
 
 The server and channel names come from the bot, not from the request, so a board can only be connected to a channel the bot really is in. Connecting is for browser sessions only (403 for tokens), because the connection records who made it.
@@ -241,9 +241,9 @@ All embeds use the PrikBoard icon and name as author, so they read as one thing,
   Each channel picked for the board collects what it follows, if the server's agent is still on the board. After `Chat:UpdatesDelaySeconds` (30; the older `Discord:UpdatesDelaySeconds` still works), it gets one post per board. Moves of the same card become one, from the first bucket to the last. A move back to where the card started is left out.
 - While the bot is offline nothing is saved up, so coming back online doesn't flood channels.
 
-### Save to PrikBoard
+### Save as card
 
-On any message, *Apps → Save to PrikBoard* (a message command the bot registers when it comes online):
+On any message, *Apps → Save as card* (a message command the bot registers when it comes online):
 
 1. **Who it is.** If the bot doesn't know the person (see Who is who), it replies privately with a *Connect your PrikBoard account* button and stops.
 2. **Where it can go.** The boards the person can edit (Editor or Owner) that are connected to this server (`ChatSaves.TargetsAsync`). Boards connected to this channel come first, each with the channel's save bucket or the board's first bucket. With no such board, the bot says so privately.
@@ -276,13 +276,13 @@ Linking only lets that Discord account save cards as the person, on boards they 
 4. ~~**Who may connect a server?**~~ Decided: any board owner, to any server the bot is in. The bot's owner decides which servers those are (Public Bot off), and admins can make it leave one.
 5. ~~**More on the card embed.**~~ Decided: bucket, tags, assignees by name, checklist progress and an agent at work, as inline fields. Names are visible to the whole channel; showing them is what makes previews and updates useful.
 6. ~~**Readable ids in plain text.**~~ Decided: yes, but only for boards connected to that channel, and an id two of them could mean previews nothing.
-7. ~~**Per-person check.**~~ Decided: no for reading. The whole channel sees the embed, so the server grant and the channel limits are what protect a board. Writing (Save to PrikBoard) is done as the person, with their own role.
+7. ~~**Per-person check.**~~ Decided: no for reading. The whole channel sees the embed, so the server grant and the channel limits are what protect a board. Writing (Save as card) is done as the person, with their own role.
 8. ~~**Revoked access.**~~ Decided, then changed. Replies are remembered for a week and turn into *No longer available* once their board is disconnected or the card is gone. Older replies stay as snapshots.
-9. ~~**Images.**~~ Decided: none in previews yet. Later, the bot could attach the card's first image to the reply (`attachment://`). Save to PrikBoard does take a message's images onto the card.
+9. ~~**Images.**~~ Decided: none in previews yet. Later, the bot could attach the card's first image to the reply (`attachment://`). Save as card does take a message's images onto the card.
 10. **Hosting.** Nothing is deployed yet. Discord's crawler needs a public host, and the bot is only useful when the public address is one people can open.
 11. ~~**Notifications.**~~ Decided: per channel, board owners tick what a channel follows. The bot learns what changed from the card history and gathers it into one post per board.
 12. **Later.**
-    - A 📌 reaction as a shortcut for Save to PrikBoard.
+    - A 📌 reaction as a shortcut for Save as card.
     - Buttons on embeds (Move to…, Assign me, Mark done), which only need a button now that people are known.
     - A daily digest on a schedule.
     - Image thumbnails in previews.

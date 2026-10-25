@@ -79,7 +79,7 @@ public class ChatBoardChannels
 /// <param name="Id">The platform's id for the channel.</param>
 /// <param name="Name">Its name, without the #.</param>
 /// <param name="Updates">What the bot posts in the channel as it happens on the board.</param>
-/// <param name="SaveBucketId">Where "Save to PrikBoard" in this channel puts cards; null for the board's first bucket.</param>
+/// <param name="SaveBucketId">Where "Save as card" in this channel puts cards; null for the board's first bucket.</param>
 public sealed record ChatChannel(string Id, string Name, ChatUpdates Updates = ChatUpdates.None, Guid? SaveBucketId = null);
 
 /// <summary>The board activity a channel can follow. Stored as a number, so the names may change but never the values.</summary>
@@ -102,7 +102,7 @@ public enum ChatUpdates
 }
 
 /// <summary>
-/// A chat user linked to a PrikBoard user, so what they do through the bot (Save to PrikBoard) is done as that person,
+/// A chat user linked to a PrikBoard user, so what they do through the bot (Save as card) is done as that person,
 /// with their own role on the board. Only a keyed hash of the chat user id is stored (<see cref="Auth.KeyedHasher"/>),
 /// like sign-in subjects. People who sign in with the platform's sign-in provider need no link: their sign-in already
 /// says who they are. One link per person and platform.

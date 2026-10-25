@@ -14,7 +14,7 @@ namespace PrikBoard.Api.Endpoints;
 /// A board's Slack connections (docs/slack.md), set by its owners under Integrations next to Discord: they pick the
 /// workspace the instance's Slack app is in (<see cref="ISlackGateway"/>), and channels of it and/or the whole
 /// workspace. The workspace becomes a Viewer agent on the board (<see cref="ChatConnections"/>). Also the link between a
-/// person's Slack and PrikBoard accounts, for Save to PrikBoard (<see cref="ChatAccounts"/>). An admin sets the app up
+/// person's Slack and PrikBoard accounts, for Save as card (<see cref="ChatAccounts"/>). An admin sets the app up
 /// (<see cref="SlackAppEndpoints"/>).
 /// </summary>
 public static class SlackEndpoints
@@ -56,7 +56,7 @@ public static class SlackEndpoints
             .WithName("updateSlackChannel")
             .WithSummary("Set what a Slack channel does for a board")
             .WithDescription("Sets the board activity the Slack app posts in the channel (new cards, moves between buckets, " +
-                             "assignments, agents at work; none by default) and the bucket Save to PrikBoard there puts cards in. " +
+                             "assignments, agents at work; none by default) and the bucket Save as card there puts cards in. " +
                              "Returns the board's Slack connections.")
             .ProducesValidationProblem();
 
@@ -86,7 +86,7 @@ public static class SlackEndpoints
         me.MapGet("/", GetSlackAccount)
             .WithName("getSlackAccount")
             .WithSummary("Whether the Slack app knows who you are")
-            .WithDescription("Whether your Slack account is linked to you, for Save to PrikBoard: through a Slack sign-in, or a " +
+            .WithDescription("Whether your Slack account is linked to you, for Save as card: through a Slack sign-in, or a " +
                              "link you made from the app. Sessions only.")
             .Produces(StatusCodes.Status403Forbidden);
 
@@ -101,7 +101,7 @@ public static class SlackEndpoints
             .WithName("linkSlackAccount")
             .WithSummary("Link your Slack account")
             .WithDescription("Links the Slack account behind a code from the app to you, replacing an earlier link. What that Slack " +
-                             "account then does through the app (Save to PrikBoard) is done as you, so only link your own. Each code " +
+                             "account then does through the app (Save as card) is done as you, so only link your own. Each code " +
                              "works once, for 10 minutes. Browser sessions from PrikBoard's own pages only.")
             .ProducesValidationProblem()
             .Produces(StatusCodes.Status403Forbidden);
@@ -143,7 +143,7 @@ public static class SlackEndpoints
         if (principal.IsToken() || !SameOrigin.Check(http)) return TypedResults.Forbid();
         if (!await accounts.LinkAsync(db, ChatPlatform.Slack, request.Code, principal.UserId(), ct))
         {
-            return Problems.Invalid("code", "Unknown, used or expired code. Use Save to PrikBoard in Slack again for a new one.");
+            return Problems.Invalid("code", "Unknown, used or expired code. Use Save as card in Slack again for a new one.");
         }
         return TypedResults.Ok(new SlackAccountStatus(true, SlackAccountSource.Link, DateTimeOffset.UtcNow));
     }
