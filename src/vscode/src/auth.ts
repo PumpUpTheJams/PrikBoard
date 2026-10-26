@@ -20,10 +20,14 @@ export const serverUrl = () => setting('serverUrl', 'http://localhost:5080').rep
 /** Where the web app runs; defaults to the API origin, which serves it in a deployment. */
 export const webUrl = () => (setting('webUrl', '') || serverUrl()).replace(/\/+$/, '')
 
-/** Whether someone chose a server, rather than the extension falling back to the local development default. */
+/**
+ * Whether someone chose a server, rather than the extension falling back to the local development default. Only the
+ * user settings count: the address settings are application-scoped, so a repository's workspace settings can't pick
+ * where the credential goes.
+ */
 function serverChosen() {
   const inspected = vscode.workspace.getConfiguration('prikboard').inspect<string>('serverUrl')
-  return [inspected?.globalValue, inspected?.workspaceValue, inspected?.workspaceFolderValue].some((value) => value?.trim())
+  return !!inspected?.globalValue?.trim()
 }
 
 /** Credentials go to this address, so it must be encrypted unless it is this machine. */
@@ -105,8 +109,15 @@ function oidcConfig(): OidcConfig | null {
   }
 }
 
-/** What requests are sent with: a personal access token (from PrikBoard's own sign-in, or pasted), or tokens from the issuer's sign-in. */
-type Credential = { type: 'token'; token: string } | { type: 'oidc'; tokens: TokenSet }
+/**
+ * What requests are sent with: a personal access token (from PrikBoard's own sign-in, or pasted), or tokens from the
+ * issuer's sign-in. `server` is the address it was made for, and an issuer's credential keeps the `oidc` sign-in it came
+ * from, so changed settings never send it, or its refresh token, anywhere else. Credentials stored before these existed
+ * lack them until `load` fills them in.
+ */
+type Credential =
+  | { type: 'token'; token: string; server: string }
+  | { type: 'oidc'; tokens: TokenSet; server: string; oidc: OidcConfig }
 
 /**
  * Who is signed in and how requests prove it. The shared API client asks for the Authorization header on every request,
@@ -140,14 +151,21 @@ export class Auth implements vscode.Disposable {
   }
 
   async init() {
-    this.reconfigure()
     setUnauthorizedHandler(() => void this.rejected())
     this.credential = await this.load()
+    this.reconfigure()
     await this.publish()
   }
 
-  /** Points the shared client at the configured server. The credential is read per request, so it can change under it. */
+  /**
+   * Points the shared client at the configured server. The credential is read per request, so it can change under it.
+   * A credential made for another server is dropped rather than sent there.
+   */
   reconfigure() {
+    if (this.credential && this.credential.server !== serverUrl()) {
+      void this.signOut()
+      void vscode.window.showWarningMessage('The PrikBoard address changed, so you were signed out of the old server. Sign in again.')
+    }
     configureClient({
       baseUrl: serverUrl(),
       headers: async (): Promise<Record<string, string>> => {
@@ -188,14 +206,15 @@ export class Auth implements vscode.Disposable {
   async signInWithBrowser() {
     if (!(await this.ensureServer())) return
     const config = oidcConfig()
+    const server = serverUrl()
     let credential: Credential
     try {
       credential = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: 'Waiting for the sign-in in your browser…', cancellable: true },
         async (_progress, cancelled): Promise<Credential> =>
           config
-            ? { type: 'oidc', tokens: await signInWithBrowser(config, cancelled) }
-            : { type: 'token', token: await signInWithPrikBoard(webUrl(), cancelled) },
+            ? { type: 'oidc', tokens: await signInWithBrowser(config, cancelled), server, oidc: config }
+            : { type: 'token', token: await signInWithPrikBoard(webUrl(), cancelled), server },
       )
     } catch (error) {
       void vscode.window.showErrorMessage(`PrikBoard sign-in failed: ${errorMessage(error)}`)
@@ -214,7 +233,7 @@ export class Auth implements vscode.Disposable {
       ignoreFocusOut: true,
       validateInput: (value) => (value.trim() ? undefined : 'Paste the token'),
     })
-    if (entered) await this.adopt({ type: 'token', token: entered.trim() })
+    if (entered) await this.adopt({ type: 'token', token: entered.trim(), server: serverUrl() })
   }
 
   async signOut() {
@@ -249,38 +268,58 @@ export class Auth implements vscode.Disposable {
     void vscode.window.showInformationMessage(`Signed in to PrikBoard as ${caller.displayName}.`)
   }
 
+  /**
+   * The stored credential. One stored before credentials named their server belongs to the address in the user settings
+   * (workspace settings can't set it), and an issuer's one to the sign-in configured now; it is stored again with them.
+   */
   private async load(): Promise<Credential | undefined> {
     const stored = await this.secrets.get(CREDENTIAL_KEY)
     if (stored) {
+      let credential: { type?: string; token?: string; tokens?: TokenSet; server?: string; oidc?: OidcConfig }
       try {
-        return JSON.parse(stored) as Credential
+        credential = JSON.parse(stored) as typeof credential
       } catch {
         await this.secrets.delete(CREDENTIAL_KEY)
+        return undefined
       }
+      if (credential.server && (credential.type !== 'oidc' || credential.oidc)) return credential as Credential
+      const server = credential.server ?? serverUrl()
+      let bound: Credential | undefined
+      if (credential.type === 'token' && credential.token) bound = { type: 'token', token: credential.token, server }
+      const config = credential.type === 'oidc' ? oidcConfig() : null
+      if (credential.type === 'oidc' && credential.tokens && config) bound = { type: 'oidc', tokens: credential.tokens, server, oidc: config }
+      if (!bound) {
+        await this.secrets.delete(CREDENTIAL_KEY)
+        return undefined
+      }
+      await this.secrets.store(CREDENTIAL_KEY, JSON.stringify(bound))
+      return bound
     }
     const legacy = await this.secrets.get(LEGACY_TOKEN_KEY)
-    return legacy ? { type: 'token', token: legacy } : undefined
+    return legacy ? { type: 'token', token: legacy, server: serverUrl() } : undefined
   }
 
   /** The Authorization header value, refreshing the issuer's access token first when it is about to run out. */
   private async authorization() {
     const credential = this.credential
-    if (!credential) return undefined
+    // Never to another server than the one it was made for, even before reconfigure has signed out.
+    if (!credential || credential.server !== serverUrl()) return undefined
     if (credential.type === 'token') return `Bearer ${credential.token}`
 
     if (credential.tokens.expiresAt - REFRESH_MARGIN_MS < Date.now()) {
-      this.refreshing ??= this.refresh(credential.tokens).finally(() => (this.refreshing = undefined))
+      this.refreshing ??= this.refresh(credential).finally(() => (this.refreshing = undefined))
       await this.refreshing
     }
     return this.credential?.type === 'oidc' ? `Bearer ${this.credential.tokens.accessToken}` : undefined
   }
 
-  private async refresh(tokens: TokenSet) {
-    const config = oidcConfig()
+  /** Renews the issuer's tokens at the issuer they came from, not whatever the settings say now. */
+  private async refresh(credential: Extract<Credential, { type: 'oidc' }>) {
+    const { tokens, oidc, server } = credential
     try {
-      if (!config || !tokens.refreshToken) throw new Error('There is no refresh token.')
-      const renewed = await refreshTokens(config, tokens.refreshToken)
-      this.credential = { type: 'oidc', tokens: renewed }
+      if (!tokens.refreshToken) throw new Error('There is no refresh token.')
+      const renewed = await refreshTokens(oidc, tokens.refreshToken)
+      this.credential = { type: 'oidc', tokens: renewed, server, oidc }
       await this.secrets.store(CREDENTIAL_KEY, JSON.stringify(this.credential))
     } catch (error) {
       await this.signOut()

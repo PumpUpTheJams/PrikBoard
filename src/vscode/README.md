@@ -40,6 +40,8 @@ Viewers get a read-only tree. The server decides what is allowed and its message
 
 ## Settings
 
+The address and sign-in settings (all but `prikboard.refreshSeconds`) only count in your user settings. VS Code ignores them in a workspace's or folder's `.vscode/settings.json`, so a repository you open can't send your sign-in to another server. Your sign-in also remembers the server it was made for: changing the address signs you out instead of sending it to the new one.
+
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `prikboard.serverUrl` | `http://localhost:5080` | Your PrikBoard address, which serves the web app and the API; asked for on the first sign-in |
