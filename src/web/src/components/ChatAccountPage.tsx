@@ -11,18 +11,19 @@ interface ChatAccountPageProps {
   onDone: () => void
 }
 
-/** Whose chat account a code is for, as either app's preview gives it. */
+/** Whose chat account a code is for and where they asked from, as either app's preview gives it. */
 interface LinkPreview {
   name: string
+  workspace: string
 }
 
 const links: Record<ChatPlatform, { preview: (code: string) => Promise<LinkPreview>; link: (code: string) => Promise<unknown> }> = {
   Discord: {
-    preview: (code) => api.previewDiscordAccountLink(code).then((p) => ({ name: p.discordName })),
+    preview: (code) => api.previewDiscordAccountLink(code).then((p) => ({ name: p.discordName, workspace: p.serverName })),
     link: (code) => api.linkDiscordAccount(code),
   },
   Slack: {
-    preview: (code) => api.previewSlackAccountLink(code).then((p) => ({ name: p.slackName })),
+    preview: (code) => api.previewSlackAccountLink(code).then((p) => ({ name: p.slackName, workspace: p.workspaceName })),
     link: (code) => api.linkSlackAccount(code),
   },
 }
@@ -57,6 +58,7 @@ export function ChatAccountPage({ platform, code, user, onDone }: ChatAccountPag
   }
 
   const bot = platform === 'Slack' ? "PrikBoard's Slack app" : "PrikBoard's Discord bot"
+  const place = platform === 'Slack' ? 'the Slack workspace' : 'the Discord server'
   return (
     <div className="sign-in">
       <div className="sign-in-card">
@@ -91,12 +93,13 @@ export function ChatAccountPage({ platform, code, user, onDone }: ChatAccountPag
           <>
             <h1>Link your {platform} account?</h1>
             <p>
-              The {platform} account <strong>{preview.name}</strong> will act as <strong>{user.displayName}</strong> when it uses {bot}:
-              messages it saves become cards made by you, on boards you can edit.
+              The {platform} account <strong>{preview.name}</strong> in {place} <strong>{preview.workspace}</strong> will act as{' '}
+              <strong>{user.displayName}</strong> when it uses {bot}: messages it saves become cards made by you, on boards you can
+              edit.
             </p>
             <p className="sign-in-error">
-              Only continue if you are {preview.name} in {platform} and just clicked Connect there. If someone sent you this link,
-              cancel.
+              Only continue if you just clicked Connect in {preview.workspace} yourself. Anyone can call themselves {preview.name}, so
+              if someone sent you this link or asked you to open it, cancel: linking would let them save cards as you.
             </p>
             {error && (
               <p className="sign-in-error" role="alert">

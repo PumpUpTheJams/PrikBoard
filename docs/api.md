@@ -274,11 +274,11 @@ pb -X POST localhost:5080/api/cards/{cardId}/move -H "Content-Type: application/
 | removeDiscordWholeServer | `DELETE /api/boards/{boardId}/discord/{guildId}/whole-server` | Stop previewing in every channel; with no channels left, the server is disconnected (Owner) |
 | removeDiscordChannel | `DELETE /api/boards/{boardId}/discord/{guildId}/channels/{channelId}` | Disconnect one channel, with its settings; with nothing left, the server is disconnected (Owner) |
 | getDiscordAccount | `GET /api/me/discord-account` | Whether the Discord bot knows who you are (`linked`, `source`: `SignIn` or `Link`) for Save as card (sessions only) |
-| previewDiscordAccountLink | `GET /api/me/discord-account/links/{code}` | The Discord name behind a code from the bot's "Connect your PrikBoard account" button (sessions only) |
+| previewDiscordAccountLink | `GET /api/me/discord-account/links/{code}` | The Discord name and server behind a code from the bot's "Connect your PrikBoard account" button (sessions only) |
 | linkDiscordAccount | `POST /api/me/discord-account` | Link the Discord account behind `code` to you; once, for 10 minutes (sessions from PrikBoard's own pages only) |
 | unlinkDiscordAccount | `DELETE /api/me/discord-account` | Remove the link you made (sessions only) |
 | getSlackAccount | `GET /api/me/slack-account` | Whether the Slack app knows who you are (`linked`, `source`: `SignIn` or `Link`, `linkedAt`) for Save as card (sessions only) |
-| previewSlackAccountLink | `GET /api/me/slack-account/links/{code}` | The Slack name behind a code from the app's "Connect your PrikBoard account" link (sessions only) |
+| previewSlackAccountLink | `GET /api/me/slack-account/links/{code}` | The Slack name and workspace behind a code from the app's "Connect your PrikBoard account" link (sessions only) |
 | linkSlackAccount | `POST /api/me/slack-account` | Link the Slack account behind `code` to you; once, for 10 minutes (sessions from PrikBoard's own pages only) |
 | unlinkSlackAccount | `DELETE /api/me/slack-account` | Remove the link (sessions only) |
 | listSlackConnections | `GET /api/boards/{boardId}/slack` | Slack workspaces connected to the board: `wholeWorkspace` and the `channels` picked (Owner) |

@@ -412,7 +412,9 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
         Assert.Null(connect["callback_id"]);
         var code = System.Text.RegularExpressions.Regex.Match(connect.ToJsonString(Plain), "connect/slack-account\\?code=([A-Za-z0-9_-]+)").Groups[1].Value;
         Assert.NotEmpty(code);
-        Assert.Equal("Jimmy", (await owner.GetFromJsonAsync<SlackAccountLinkPreview>($"/api/me/slack-account/links/{code}"))!.SlackName);
+        var preview = (await owner.GetFromJsonAsync<SlackAccountLinkPreview>($"/api/me/slack-account/links/{code}"))!;
+        // With the workspace it came from, since display names can be anyone's.
+        Assert.Equal(("Jimmy", "Night owls"), (preview.SlackName, preview.WorkspaceName));
         Assert.Equal(HttpStatusCode.Forbidden, (await LinkAccount(owner, code, origin: "https://evil.example")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await LinkAccount(owner, code)).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await LinkAccount(owner, code)).StatusCode);

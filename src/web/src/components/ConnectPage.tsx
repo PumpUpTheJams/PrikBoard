@@ -16,6 +16,15 @@ function isLoopback(address: string) {
   }
 }
 
+/** Where on this computer the app listens, for the page to name: host and port only. */
+function appAddress(redirectUri: string | null) {
+  try {
+    return redirectUri ? new URL(redirectUri).host : 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
 /** The app's address with the outcome added, as an OAuth redirect would carry it. */
 function redirectTo(redirectUri: string, params: Record<string, string>) {
   const url = new URL(redirectUri)
@@ -100,8 +109,8 @@ export function ConnectPage({ request, user, onDone }: ConnectPageProps) {
             <h1>Paste this code into VS Code</h1>
             <CopyField label="Sign-in code" value={code} copier={copier} />
             <p className="sign-in-error" role="alert">
-              Only paste it into VS Code that you started yourself. PrikBoard never asks you to send it to anyone. It works once, for
-              5 minutes.
+              Only paste it into VS Code that you started yourself. Whoever has this code can use PrikBoard as you, and PrikBoard
+              never asks you to send it to anyone. It works once, for 5 minutes.
             </p>
             <div className="sign-in-providers">
               <button type="button" className="ghost" onClick={onDone}>
@@ -117,10 +126,13 @@ export function ConnectPage({ request, user, onDone }: ConnectPageProps) {
               see and change everything you can, on all your boards, for 90 days. You can revoke it any time under Account, Agents
               and access tokens.
             </p>
-            {paste && (
+            {paste ? (
               <p className="sign-in-error">
-                Only continue if you just started signing in from VS Code yourself. If someone sent you this link, cancel.
+                Only continue if you just started signing in from VS Code yourself. The next step shows a code that lets whoever
+                has it use PrikBoard as you. If someone sent you this link or asks you for that code, cancel.
               </p>
+            ) : (
+              <p>Allowing sends the sign-in to the app listening on this computer ({appAddress(request.redirectUri)}).</p>
             )}
             {error && (
               <p className="sign-in-error" role="alert">

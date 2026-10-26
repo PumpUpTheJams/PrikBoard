@@ -453,7 +453,8 @@ public sealed class SlackGateway(IServiceProvider services, IConfiguration confi
         var accountId = $"{teamId}:{slackUserId}";
         if (await accounts.FindUserAsync(db, ChatPlatform.Slack, accountId, ct) is not { } userId)
         {
-            var code = accounts.StartLink(ChatPlatform.Slack, accountId, Text(payload, "user", "name") ?? Text(payload, "user", "username") ?? slackUserId);
+            var workspace = (_identity?.TeamId == teamId ? _identity?.TeamName : null) ?? Text(payload, "team", "domain") ?? teamId;
+            var code = accounts.StartLink(ChatPlatform.Slack, accountId, Text(payload, "user", "name") ?? Text(payload, "user", "username") ?? slackUserId, workspace);
             await OpenAsync(botToken, triggerId, SlackBlocks.NoticeView(
                 $"PrikBoard doesn't know you yet. <{site.Url}/#/connect/slack-account?code={code}|Connect your PrikBoard account> once, " +
                 $"then use {SlackApp.SaveShortcut} again."), ct);

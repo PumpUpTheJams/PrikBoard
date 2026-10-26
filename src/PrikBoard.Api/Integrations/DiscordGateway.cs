@@ -372,7 +372,7 @@ public sealed class DiscordGateway(IServiceScopeFactory scopes, IConfiguration c
         var accounts = scope.ServiceProvider.GetRequiredService<ChatAccounts>();
         if (await accounts.FindUserAsync(db, ChatPlatform.Discord, command.User.Id.ToString(), ct) is not { } userId)
         {
-            var code = accounts.StartLink(ChatPlatform.Discord, command.User.Id.ToString(), NameOf(command.User));
+            var code = accounts.StartLink(ChatPlatform.Discord, command.User.Id.ToString(), NameOf(command.User), channel.Guild.Name);
             await command.FollowupAsync(
                 $"PrikBoard doesn't know you yet. Connect your PrikBoard account once, then use {SaveCommand} again.",
                 components: new ComponentBuilder()
