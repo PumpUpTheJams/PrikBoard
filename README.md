@@ -109,3 +109,14 @@ dotnet test --solution PrikBoard.slnx
 - Guide: [`docs/api.md`](docs/api.md)
 
 See [`docs/architecture.md`](docs/architecture.md) for how the pieces fit together.
+
+## Contributing and security
+
+Contributions are welcome: see [`CONTRIBUTING.md`](CONTRIBUTING.md). Please report security problems privately, as described in [`SECURITY.md`](SECURITY.md), not in a public issue.
+
+## License
+
+PrikBoard is licensed under the [MIT license with the Commons Clause](LICENSE). That makes it source-available rather than open source in the OSI sense:
+
+- Anyone, companies included, may use, change, self-host and build on PrikBoard, also for commercial work.
+- Nobody may sell PrikBoard itself, or a product or service (such as paid PrikBoard hosting or support) whose value comes entirely or substantially from it.
