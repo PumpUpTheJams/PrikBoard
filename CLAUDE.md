@@ -126,6 +126,6 @@ The tests are xUnit v3 integration tests over HTTP only, run by Microsoft.Testin
 
 ## Constraints
 
-- Nothing is deployed. `infra/compose` runs the one image (root `Dockerfile`; the API serves the SPA from `wwwroot`, with nginx's old cache and framing headers) next to PostgreSQL, published on localhost only because forwarded headers are trusted; Caddy (`https` profile) adds HTTPS. One instance only.
+- The maintainers run the official instance at prikboard.com (`docs/privacy-policy.md` and `docs/terms-of-service.md` cover only that one); everyone else self-hosts. `infra/compose` runs the one image (root `Dockerfile`; the API serves the SPA from `wwwroot`, with nginx's old cache and framing headers) next to PostgreSQL, published on localhost only because forwarded headers are trusted; Caddy (`https` profile) adds HTTPS. One instance only.
 - Connection string key: `ConnectionStrings:PrikBoard` (env var `ConnectionStrings__PrikBoard`). File store: `Storage:Path` (env var `Storage__Path`), required outside Development.
 - Logging is Serilog (`Telemetry.cs`): minimum levels in the `Serilog` section of appsettings.json (framework and EF Core at Warning, so no SQL), request logging only for 5xx and requests over 1 s. OpenTelemetry (logs, traces, metrics over OTLP) is on only when `OpenTelemetry:Endpoint` is set; an endpoint set in code is used as is, so HTTP needs `/v1/{signal}` (`OtlpSettings.Configure`).

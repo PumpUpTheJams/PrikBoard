@@ -10,6 +10,8 @@ This policy explains what the PrikBoard instance at [prikboard.com](https://prik
 
 The Service is run by the PrikBoard maintainers, reachable at prikboardinfo@gmail.com, who are the data controller.
 
+People who host their own copy of PrikBoard run their own service and are responsible for their own privacy policy; this one doesn't cover it.
+
 ## 1. What we keep about you
 
 PrikBoard is built to keep as little about you as it can.

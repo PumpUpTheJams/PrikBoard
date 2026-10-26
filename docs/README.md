@@ -8,3 +8,4 @@
 - [Slack integration](slack.md): setting up the Slack app (link previews that follow their cards, board updates, `/prikboard board`, Save as card, Sign in with Slack), its design, and how to test it without Slack (`tools/FakeSlack`)
 - [Infrastructure](../infra/README.md): hosting and deployment plans
 - [Scrum Board — Night shift](Scrum%20Board%20—%20Night%20shift.html): the visual design the web UI follows (open it in a browser)
+- [Privacy policy](privacy-policy.md) and [Terms of service](terms-of-service.md): for the official instance at prikboard.com only, not for self-hosted copies
