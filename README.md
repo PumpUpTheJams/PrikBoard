@@ -33,24 +33,57 @@ Stick cards anywhere on an endless canvas, draw buckets such as *To do*, *Doing*
 
 ## Quick start
 
-PrikBoard runs as one container next to PostgreSQL. With Docker installed:
+PrikBoard runs as one container next to PostgreSQL, on Linux, macOS or Windows, amd64 or arm64 (a Raspberry Pi works).
+
+**1. Check the prerequisites.** You need Git and Docker with Compose v2. This should print a version:
+
+```bash
+docker compose version
+```
+
+**2. Get the compose files.**
 
 ```bash
 git clone https://github.com/PumpUpTheJams/PrikBoard.git
 cd PrikBoard/infra/compose
-docker compose up -d
-docker compose logs app   # shows the setup key
 ```
 
-Open http://localhost:8080, enter the setup key, and follow the setup:
+**3. Set the database password.** Copy the example settings, then open `.env` and change `POSTGRES_PASSWORD`:
 
-1. Add a sign-in provider: GitHub in one click, or Google, Discord, Slack, Steam or any OpenID Connect provider.
-2. Sign in as the first admin.
-3. Download the recovery kit.
+```bash
+cp .env.example .env
+```
 
-PrikBoard is invite-only: after the admin, people join through board invites.
+Do this before the first start: PostgreSQL keeps the password it was created with. `.env` also sets the version (`PRIKBOARD_VERSION`, `latest` by default) and the port (`PRIKBOARD_PORT`, `8080`).
 
-For HTTPS on your own domain, see [`infra/README.md`](infra/README.md).
+**4. Pull the image and start.** This starts PostgreSQL and PrikBoard, which waits for the database and sets it up:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+**5. Get the setup key.** PrikBoard prints it in its log until it is set up, a new one on every start:
+
+```bash
+docker compose logs app | grep "setup key"
+```
+
+**6. Open PrikBoard** at http://localhost:8080, enter the setup key, and follow the setup:
+
+- Add a sign-in provider: GitHub in one click, or Google, Discord, Slack, Steam or any OpenID Connect provider.
+- Sign in as the first admin.
+- Download the recovery kit.
+
+PrikBoard is invite-only: after the admin, people join through board invites. It listens on localhost only; for HTTPS on your own domain, see [`infra/README.md`](infra/README.md).
+
+**7. Update later.** Back up both volumes first (`postgres-data` for the database, `data` for images and sign-in keys), then get the latest compose files and image. PrikBoard updates the database itself when it starts:
+
+```bash
+git pull
+docker compose pull
+docker compose up -d
+```
 
 <details>
 <summary><b>Without a checkout:</b> one <code>compose.yaml</code></summary>
