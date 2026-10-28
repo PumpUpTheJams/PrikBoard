@@ -6335,6 +6335,29 @@ button.picker-color:hover,
   padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
 }
 
+/* The board search on the buckets screen: how many it found, then the cards under each bucket's name. */
+.m-found {
+  margin: 0;
+  color: var(--muted);
+  font: 12px var(--mono);
+}
+
+.m-found-group {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.m-found-group h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 6px 0 0;
+  color: var(--text-2);
+  font-size: 15px;
+  font-weight: 600;
+}
+
 .m-heading {
   display: flex;
   flex-wrap: wrap;
