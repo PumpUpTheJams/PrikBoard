@@ -65,13 +65,16 @@ public sealed class ChatAccounts(KeyedHasher hasher, SignInProviders providers, 
             : (null, null);
     }
 
-    /// <summary>A new code for linking this chat user, for the bot's button.</summary>
-    public string StartLink(ChatPlatform platform, string chatUserId, string chatName)
+    /// <summary>
+    /// A new code for linking this chat user, for the bot's button. <paramref name="workspaceName"/> is the Slack workspace
+    /// or Discord server it was asked from, shown with the name since display names can be anyone's.
+    /// </summary>
+    public string StartLink(ChatPlatform platform, string chatUserId, string chatName, string workspaceName)
     {
         var now = time.GetUtcNow();
         foreach (var (key, old) in _codes) if (old.ExpiresAt <= now) _codes.TryRemove(key, out _);
         var code = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(24));
-        _codes[code] = new PendingLink(platform, chatUserId, chatName, now + CodeLifetime);
+        _codes[code] = new PendingLink(platform, chatUserId, chatName, workspaceName, now + CodeLifetime);
         return code;
     }
 
@@ -103,8 +106,11 @@ public sealed class ChatAccounts(KeyedHasher hasher, SignInProviders providers, 
         return providers.All.Where(p => p.Options.Type == type).Select(p => p.Id).ToList();
     }
 
-    /// <summary>A code waiting to be used: the chat user it links and their name, shown so people can check it is them.</summary>
-    public sealed record PendingLink(ChatPlatform Platform, string ChatUserId, string ChatName, DateTimeOffset ExpiresAt);
+    /// <summary>
+    /// A code waiting to be used: the chat user it links, their name and the workspace or server it came from, shown so
+    /// people can check it is them.
+    /// </summary>
+    public sealed record PendingLink(ChatPlatform Platform, string ChatUserId, string ChatName, string WorkspaceName, DateTimeOffset ExpiresAt);
 }
 
 /// <summary>How a user is known on a chat platform.</summary>

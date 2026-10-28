@@ -262,7 +262,7 @@ On any message, *Apps → Save as card* (a message command the bot registers whe
 
 - **A Discord sign-in.** Someone who signs in to PrikBoard with a Discord sign-in provider is known by that sign-in: their `UserIdentity` holds the keyed hash of their Discord id.
 - **A link.** Anyone else links once. The bot's button opens `#/connect/discord-account?code=…` with a code that works for 10 minutes, kept in memory.
-  - The page shows the Discord name the code is for and warns to link only one's own account. It calls previewDiscordAccountLink, then linkDiscordAccount (session, `SameOrigin`).
+  - The page shows the Discord name the code is for and the server it was asked from (display names can be anyone's), and warns to link only one's own account. It calls previewDiscordAccountLink, then linkDiscordAccount (session, `SameOrigin`).
   - The link (`ChatAccount`) keeps a keyed hash of the Discord id (`KeyedHasher.Subject("discord-bot", id)`), never the id.
   - Account → *Discord* shows the link and unlinks it (getDiscordAccount, unlinkDiscordAccount).
 

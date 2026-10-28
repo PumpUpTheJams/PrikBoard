@@ -207,7 +207,7 @@ public static class DiscordEndpoints
     {
         if (principal.IsToken()) return TypedResults.Forbid();
         return accounts.Peek(ChatPlatform.Discord, code) is { } pending
-            ? TypedResults.Ok(new DiscordAccountLinkPreview(pending.ChatName, pending.ExpiresAt))
+            ? TypedResults.Ok(new DiscordAccountLinkPreview(pending.ChatName, pending.WorkspaceName, pending.ExpiresAt))
             : TypedResults.NotFound();
     }
 

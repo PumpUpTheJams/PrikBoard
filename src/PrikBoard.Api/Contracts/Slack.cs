@@ -136,8 +136,9 @@ public sealed record SlackAccountStatus(bool Linked, SlackAccountSource? Source,
 
 /// <summary>The Slack user behind a link code, so you can check it is you before linking.</summary>
 /// <param name="SlackName">Their name in Slack, as Slack gave it to the app.</param>
+/// <param name="WorkspaceName">The Slack workspace the code was asked for in.</param>
 /// <param name="ExpiresAt">When the code stops working (UTC).</param>
-public sealed record SlackAccountLinkPreview(string SlackName, DateTimeOffset ExpiresAt);
+public sealed record SlackAccountLinkPreview(string SlackName, string WorkspaceName, DateTimeOffset ExpiresAt);
 
 /// <summary>Links the Slack account behind a code from the app to you.</summary>
 /// <param name="Code">The code from the app's "Connect your PrikBoard account" link.</param>

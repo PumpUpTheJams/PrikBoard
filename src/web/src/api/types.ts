@@ -1038,6 +1038,8 @@ export interface DiscordAccountStatus {
 /** The Discord user behind a link code from the bot, so you can check it is you. */
 export interface DiscordAccountLinkPreview {
   discordName: string
+  /** The Discord server the code was asked for in. */
+  serverName: string
   expiresAt: string
 }
 
@@ -1155,5 +1157,7 @@ export interface SlackAccountStatus {
 /** The Slack user behind a link code from the app, so you can check it is you. */
 export interface SlackAccountLinkPreview {
   slackName: string
+  /** The Slack workspace the code was asked for in. */
+  workspaceName: string
   expiresAt: string
 }

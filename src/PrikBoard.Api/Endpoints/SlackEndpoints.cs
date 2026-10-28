@@ -131,7 +131,7 @@ public static class SlackEndpoints
     {
         if (principal.IsToken()) return TypedResults.Forbid();
         return accounts.Peek(ChatPlatform.Slack, code) is { } pending
-            ? TypedResults.Ok(new SlackAccountLinkPreview(pending.ChatName, pending.ExpiresAt))
+            ? TypedResults.Ok(new SlackAccountLinkPreview(pending.ChatName, pending.WorkspaceName, pending.ExpiresAt))
             : TypedResults.NotFound();
     }
 

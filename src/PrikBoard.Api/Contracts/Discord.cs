@@ -117,9 +117,10 @@ public enum DiscordAccountSource
 public sealed record DiscordAccountStatus(bool Linked, DiscordAccountSource? Source, DateTimeOffset? LinkedAt);
 
 /// <summary>The Discord user behind a link code, so you can check it is you before linking.</summary>
-/// <param name="DiscordName">Their name in Discord, as Discord gave it to the bot.</param>
+/// <param name="DiscordName">Their name in Discord, as Discord gave it to the bot. Anyone can take any display name.</param>
+/// <param name="ServerName">The Discord server the code was asked for in.</param>
 /// <param name="ExpiresAt">When the code stops working (UTC).</param>
-public sealed record DiscordAccountLinkPreview(string DiscordName, DateTimeOffset ExpiresAt);
+public sealed record DiscordAccountLinkPreview(string DiscordName, string ServerName, DateTimeOffset ExpiresAt);
 
 /// <summary>Links the Discord account behind a code from the bot to you.</summary>
 /// <param name="Code">The code from the bot's "Connect your PrikBoard account" link.</param>

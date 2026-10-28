@@ -592,8 +592,9 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         Assert.Null(await accounts.FindUserAsync(db, ChatPlatform.Discord, discordUser, CancellationToken.None));
 
         // The bot's button opens PrikBoard with a code; the page shows whose Discord account it is, then links it.
-        var code = accounts.StartLink(ChatPlatform.Discord, discordUser, "jimmy_discord");
-        Assert.Equal("jimmy_discord", (await owner.GetFromJsonAsync<DiscordAccountLinkPreview>($"/api/me/discord-account/links/{code}"))!.DiscordName);
+        var code = accounts.StartLink(ChatPlatform.Discord, discordUser, "jimmy_discord", "Night owls");
+        var preview = (await owner.GetFromJsonAsync<DiscordAccountLinkPreview>($"/api/me/discord-account/links/{code}"))!;
+        Assert.Equal(("jimmy_discord", "Night owls"), (preview.DiscordName, preview.ServerName));
         Assert.Equal(HttpStatusCode.Forbidden, (await LinkAccount(owner, code, origin: "https://evil.example")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await LinkAccount(owner, code)).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await LinkAccount(owner, code)).StatusCode);

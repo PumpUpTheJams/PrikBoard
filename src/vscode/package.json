@@ -5,7 +5,7 @@
   "version": "0.0.1",
   "private": true,
   "publisher": "prikboard",
-  "license": "UNLICENSED",
+  "license": "SEE LICENSE IN LICENSE",
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -224,11 +224,13 @@
       "title": "PrikBoard",
       "properties": {
         "prikboard.serverUrl": {
+          "scope": "application",
           "type": "string",
           "default": "http://localhost:5080",
           "markdownDescription": "The address you open PrikBoard at, for example `https://prikboard.example.com` (the part before `/api`). **Sign In** asks for it the first time; **PrikBoard: Set PrikBoard Address** changes it. For local development use `http://localhost:5173`, whose proxy serves both the web app and the API."
         },
         "prikboard.webUrl": {
+          "scope": "application",
           "type": "string",
           "default": "",
           "markdownDescription": "Where the PrikBoard web app runs, used by **Sign In** and **Open in PrikBoard**. Leave empty to use `#prikboard.serverUrl#`."
@@ -240,26 +242,31 @@
           "markdownDescription": "How often the open view reloads its boards."
         },
         "prikboard.oidc.authority": {
+          "scope": "application",
           "type": "string",
           "default": "",
           "markdownDescription": "Optional. Issuer URL of an identity provider to sign in with instead of PrikBoard's own sign-in, for example `https://your-tenant.eu.auth0.com/`. It must be one of the API's trusted token issuers, with this extension's client id under `UserClients`."
         },
         "prikboard.oidc.clientId": {
+          "scope": "application",
           "type": "string",
           "default": "",
           "markdownDescription": "Client id of the extension's application at the identity provider (a public or native client with PKCE)."
         },
         "prikboard.oidc.scopes": {
+          "scope": "application",
           "type": "string",
           "default": "openid offline_access boards:read boards:write",
           "markdownDescription": "Scopes to request, space separated. Name them as your issuer does (Entra: `api://prikboard/boards:write`). `offline_access` lets the sign-in renew itself."
         },
         "prikboard.oidc.audience": {
+          "scope": "application",
           "type": "string",
           "default": "api://prikboard",
           "markdownDescription": "Sent as `audience` for issuers that take the API from it (Auth0). Leave empty for issuers that take it from the scopes (Entra)."
         },
         "prikboard.oidc.redirectPort": {
+          "scope": "application",
           "type": "number",
           "default": 0,
           "minimum": 0,
@@ -274,7 +281,7 @@
     "build": "tsc --noEmit && node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "lint": "oxlint",
-    "package": "npm run build -- --production && vsce package --no-dependencies --skip-license --allow-missing-repository"
+    "package": "npm run build -- --production && node -e \"require('fs').copyFileSync('../../LICENSE', 'LICENSE')\" && vsce package --no-dependencies --allow-missing-repository"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
