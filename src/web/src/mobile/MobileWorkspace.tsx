@@ -93,6 +93,8 @@ function MobileBoard({ board, run, undoHistory, moving, onDialog, onDesktop }: M
   }, [])
   /** A card just made here: its title is focused when it opens. */
   const [freshId, setFreshId] = useState<string | null>(null)
+  /** The board search on the buckets screen, kept here so it is still there coming back from a card it found (null: closed). */
+  const [boardQuery, setBoardQuery] = useState<string | null>(null)
 
   const [toast, setToast] = useState<ToastMessage | null>(null)
   const clearToast = useCallback(() => setToast(null), [])
@@ -152,7 +154,7 @@ function MobileBoard({ board, run, undoHistory, moving, onDialog, onDesktop }: M
   else if (card)
     screen = <CardScreen key={card.id} board={board} card={card} fresh={freshId === card.id} onFreshDone={() => setFreshId(null)} tagColors={tagColors} run={runRec} notify={notify} />
   else if (bucketId) screen = <BucketScreen board={board} bucketId={bucketId} tagColors={tagColors} run={runRec} onCreated={opened} actions={actions} />
-  else screen = <BucketList board={board} actions={actions} />
+  else screen = <BucketList board={board} tagColors={tagColors} query={boardQuery} onQuery={setBoardQuery} actions={actions} />
 
   return (
     <>
