@@ -6,7 +6,8 @@ interface ZoomOptions {
   /** Called before every zoom change. */
   onZoom?: () => void
   /**
-   * `always`: the wheel zooms (the board); Shift + wheel, or a mostly sideways swipe, scrolls instead.
+   * `always`: the wheel zooms (the board); Shift + wheel, a mostly sideways swipe or a trackpad's two-finger swipe
+   * scrolls instead.
    * `modifier` (default): only Ctrl/Cmd + wheel zooms, so the wheel still scrolls what is under it (a card's canvas).
    * A trackpad pinch counts as Ctrl + wheel either way.
    */
@@ -19,6 +20,22 @@ function wheelPixels(e: WheelEvent) {
   // A trackpad pinch sends many small, fractional steps (as Ctrl + wheel); speed those up so pinching feels direct.
   return (e.ctrlKey || e.metaKey) && !Number.isInteger(e.deltaY) ? pixels * 5 : pixels
 }
+
+/** Wheel events further apart than this (ms) start a new swipe, which is told apart from a mouse wheel anew. */
+const SWIPE_GAP = 250
+
+/**
+ * Whether a wheel event comes from a trackpad's two-finger swipe rather than a mouse wheel. Browsers don't say, so this
+ * guesses: Chrome and Safari report a trackpad's `wheelDeltaY` as exactly -3 times its `deltaY` (a mouse wheel's is a
+ * multiple of 120 or off by a fraction), and Firefox scrolls a mouse wheel in lines but a trackpad in pixels.
+ */
+function isTrackpadSwipe(e: WheelEvent) {
+  const legacy = (e as WheelEvent & { wheelDeltaY?: number }).wheelDeltaY
+  return legacy ? legacy === -3 * e.deltaY : e.deltaMode === WheelEvent.DOM_DELTA_PIXEL
+}
+
+/** How far (as a share of their distance) two fingers spread or close before they zoom, rather than only pan. */
+const PINCH_SLOP = 0.1
 
 /**
  * Zoom for a scrolling canvas scaled with a CSS transform, whose top-left corner sits `inset` screen pixels right of and
@@ -77,8 +94,16 @@ export function useZoom(scrollRef: RefObject<HTMLElement | null>, inset: Point, 
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
+    // A swipe is told apart from a mouse wheel by its first event, so it doesn't switch between zooming and scrolling
+    // halfway (or in the momentum that follows).
+    const swipe = { trackpad: false, at: -Infinity }
     function onWheel(e: WheelEvent) {
-      const zooms = e.ctrlKey || e.metaKey || (wheel === 'always' && !e.shiftKey && Math.abs(e.deltaY) >= Math.abs(e.deltaX))
+      const pinches = e.ctrlKey || e.metaKey
+      if (wheel === 'always' && !pinches) {
+        if (e.timeStamp - swipe.at > SWIPE_GAP) swipe.trackpad = isTrackpadSwipe(e)
+        swipe.at = e.timeStamp
+      }
+      const zooms = pinches || (wheel === 'always' && !e.shiftKey && !swipe.trackpad && Math.abs(e.deltaY) >= Math.abs(e.deltaX))
       if (!zooms || e.deltaY === 0) return
       e.preventDefault()
       const rect = el!.getBoundingClientRect()
@@ -102,8 +127,11 @@ export function useZoom(scrollRef: RefObject<HTMLElement | null>, inset: Point, 
     const el = scrollRef.current
     if (!el) return
     const fingers = new Map<number, Point>()
-    /** The canvas point under the middle of the two fingers as they went down, and the zoom and distance then. */
-    let pinch: { canvas: Point; zoom: number; distance: number } | null = null
+    /**
+     * The canvas point under the middle of the two fingers as they went down, and the zoom and distance then. They only
+     * pan until their distance changes by `PINCH_SLOP` (`zooming`), and zoom from there, so a pan doesn't wobble the zoom.
+     */
+    let pinch: { canvas: Point; zoom: number; distance: number; zooming: boolean } | null = null
     /** A pinch began, and not every finger has lifted since. */
     let pinching = false
 
@@ -119,7 +147,7 @@ export function useZoom(scrollRef: RefObject<HTMLElement | null>, inset: Point, 
       const { middle, distance } = twoFingers()
       const { zoom, inset } = latest.current
       const canvas = { x: (el!.scrollLeft + middle.x - inset.x) / zoom, y: (el!.scrollTop + middle.y - inset.y) / zoom }
-      pinch = { canvas, zoom, distance }
+      pinch = { canvas, zoom, distance, zooming: false }
     }
 
     function onDown(e: PointerEvent) {
@@ -148,6 +176,13 @@ export function useZoom(scrollRef: RefObject<HTMLElement | null>, inset: Point, 
       e.stopPropagation()
       if (!pinch || fingers.size < 2) return
       const { middle, distance } = twoFingers()
+      if (!pinch.zooming && Math.abs(distance / pinch.distance - 1) > PINCH_SLOP) {
+        pinch = { ...pinch, zoom: latest.current.zoom, distance, zooming: true }
+      }
+      if (!pinch.zooming) {
+        latest.current.zoomAt(latest.current.zoom, pinch.canvas, middle)
+        return
+      }
       const scaled = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, (pinch.zoom * distance) / pinch.distance))
       latest.current.zoomAt(Math.abs(scaled - 1) < 0.02 ? 1 : scaled, pinch.canvas, middle)
     }
