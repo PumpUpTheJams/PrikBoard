@@ -242,11 +242,14 @@ export interface DrawingTransform {
   pivotY?: number
 }
 
-/** New points for every stroke of a drawing (as many as it has, inks kept), measured from its new x/y on the grid. */
+/**
+ * New strokes for a drawing, measured from its new x/y on the grid: as many as it has without colors (inks kept), or any
+ * number with a color on every one (the drawing's inks become those).
+ */
 export interface DrawingStrokesChange {
   x: number
   y: number
-  strokes: DrawingStroke[]
+  strokes: (DrawingStroke & { color?: InkColor })[]
 }
 
 /** A PATCH of a drawing. x and y are on the canvas it ends up on (give both when attaching or detaching). */

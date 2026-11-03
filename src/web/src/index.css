@@ -837,6 +837,11 @@ main {
   pointer-events: none;
 }
 
+/* The eraser's ring is as wide as what it rubs out. */
+.pen-ring.eraser {
+  border-style: dashed;
+}
+
 .canvas.panning {
   cursor: grabbing;
 }
@@ -1671,6 +1676,33 @@ main {
   display: block;
   border-radius: 50%;
   background: var(--text);
+}
+
+/* While the pen erases, its sizes show as hollow rings: what each rubs out. */
+.pen-size span.eraser-dot {
+  border: 1.5px solid var(--text);
+  background: transparent;
+}
+
+.pen-eraser {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text);
+  background: transparent;
+  cursor: pointer;
+}
+
+.pen-eraser:hover {
+  background: var(--tool-hover);
+}
+
+.pen-eraser[aria-pressed='true'] {
+  background: var(--accent-bg);
 }
 
 /* The top center of the board: the search, then a tool hint or the view-only badge, stacked so they never overlap. */

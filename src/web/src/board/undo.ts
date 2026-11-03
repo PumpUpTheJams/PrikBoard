@@ -8,6 +8,7 @@ import type {
   DrawingStroke,
   DropBucket,
   ImageChanges,
+  InkColor,
   NewDrawingStroke,
   ImageDetail,
   CardComponent,
@@ -125,8 +126,11 @@ export const snap = {
   bucket: (b: BucketDetail): Snapshot => ({ name: b.name, x: b.x, y: b.y, width: b.width, height: b.height, collapsed: b.collapsed }),
   image: (i: ImageDetail): Snapshot => ({ cardId: i.cardId, x: i.x, y: i.y, bucketId: i.bucketId, width: i.width, caption: i.caption }),
   drawing: (d: DrawingDetail): Snapshot => ({ cardId: d.cardId, x: d.x, y: d.y, bucketId: d.bucketId, colors: d.colors }),
-  /** A drawing's corner and strokes as loaded here (strokes null when they aren't loaded, as after someone else changed them). */
-  shape: (d: DrawingDetail, strokes = loadedStrokes(d)): Snapshot => ({ x: d.x, y: d.y, strokes }),
+  /**
+   * A drawing's corner, strokes as loaded here (null when they aren't loaded, as after someone else changed them) and
+   * inks: erasing can change how many strokes it has, so writing it back sends the inks too.
+   */
+  shape: (d: DrawingDetail, strokes = loadedStrokes(d)): Snapshot => ({ x: d.x, y: d.y, strokes, colors: d.colors }),
   /** A stroke, if the drawing has it: whether it is still the drawing's last one (undo only takes off the last). */
   stroke: (d: DrawingDetail, index: number): Snapshot | null => (d.colors.length > index ? { last: d.colors.length === index + 1 } : null),
   tag: (t: BoardTag): Snapshot => ({ name: t.name, color: t.color }),
@@ -352,7 +356,9 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
   }
   if (t.kind === 'shape') {
     if (!from || !to) return
-    const after = await api.setDrawingStrokes(t.id, { x: to.x as number, y: to.y as number, strokes: to.strokes as DrawingStroke[] })
+    const colors = to.colors as InkColor[]
+    const strokes = (to.strokes as DrawingStroke[]).map((s, i) => ({ ...s, color: colors[i] }))
+    const after = await api.setDrawingStrokes(t.id, { x: to.x as number, y: to.y as number, strokes })
     // Loaded now, so the next step's check can compare them.
     await loadDrawingStrokes(after)
     return

@@ -2,7 +2,7 @@ import type { ComponentType, CSSProperties, PointerEvent, Ref } from 'react'
 import { cardColors, type InkColor, type CardColor } from '../api/types'
 import { inkColor } from './drawings'
 import { PenOptions } from './DrawingView'
-import { BucketToolIcon, ImageIcon, PenIcon, CardIcon, SearchIcon, SelectIcon, TrashIcon } from './icons'
+import { BucketToolIcon, EraserIcon, ImageIcon, PenIcon, CardIcon, SearchIcon, SelectIcon, TrashIcon } from './icons'
 import type { Tool } from './tools'
 
 interface ToolDef {
@@ -35,6 +35,9 @@ interface ToolRailProps {
   onInkChange: (ink: InkColor) => void
   strokeWidth: number
   onStrokeWidthChange: (width: number) => void
+  /** Whether the pen erases rather than draws, switched in its flyout. */
+  eraser: boolean
+  onEraserChange: (eraser: boolean) => void
   /** Opens the file picker to add images (an action, not a tool you stay in). */
   onAddImage: () => void
   /** Viewers only get Select and Search. */
@@ -47,7 +50,7 @@ interface ToolRailProps {
 /** The floating tool rail on the left of the board. */
 export function ToolRail(props: ToolRailProps) {
   const { tool, onToolChange, fill, onFillChange, onCardPointerDown, trash, trashRef, onAddImage, readOnly, searching, onSearch } = props
-  const { ink, onInkChange, strokeWidth, onStrokeWidthChange } = props
+  const { ink, onInkChange, strokeWidth, onStrokeWidthChange, eraser, onEraserChange } = props
   const button = (
     { tool: t, label, shortcut, Icon, title }: ToolDef,
     className = '',
@@ -113,10 +116,23 @@ export function ToolRail(props: ToolRailProps) {
             <ImageIcon />
           </button>
           <div className="rail-anchor">
-            {button({ tool: 'pen', label: 'Pen', shortcut: 'P', Icon: PenIcon }, 'pen-button', undefined, undefined, { '--pen-ink': inkColor[ink] } as CSSProperties)}
+            {button(
+              { tool: 'pen', label: 'Pen', shortcut: 'P', Icon: tool === 'pen' && eraser ? EraserIcon : PenIcon },
+              'pen-button',
+              undefined,
+              undefined,
+              { '--pen-ink': inkColor[ink] } as CSSProperties,
+            )}
             {tool === 'pen' && (
               <div className="fill-flyout pen-flyout" role="group" aria-label="Pen color and size">
-                <PenOptions ink={ink} onInkChange={onInkChange} width={strokeWidth} onWidthChange={onStrokeWidthChange} />
+                <PenOptions
+                  ink={ink}
+                  onInkChange={onInkChange}
+                  width={strokeWidth}
+                  onWidthChange={onStrokeWidthChange}
+                  eraser={eraser}
+                  onEraserChange={onEraserChange}
+                />
               </div>
             )}
           </div>

@@ -387,7 +387,10 @@ export const api = {
   deleteDrawingStroke: (drawingId: string, index: number) => request<DrawingDetail>('DELETE', `/drawings/${drawingId}/strokes/${index}`),
   /** Scales and turns a drawing about a pivot (default: the middle of its box); its points change, line widths stay. */
   transformDrawing: (drawingId: string, transform: DrawingTransform) => request<DrawingDetail>('POST', `/drawings/${drawingId}/transform`, transform),
-  /** Writes new points for every stroke of a drawing (inks kept), e.g. to put it back as it was before a transform. */
+  /**
+   * Writes new strokes for a drawing, e.g. to put it back as it was before a transform: the same number with inks kept,
+   * or any number with a color on each (what the eraser leaves).
+   */
   setDrawingStrokes: (drawingId: string, change: DrawingStrokesChange) => request<DrawingDetail>('PUT', `/drawings/${drawingId}/strokes`, change),
   updateDrawing: (drawingId: string, changes: DrawingChanges) =>
     request<DrawingDetail>('PATCH', `/drawings/${drawingId}`, changes),

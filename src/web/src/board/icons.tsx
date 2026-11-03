@@ -38,6 +38,15 @@ export const PenIcon = ({ size = 18 }: IconProps) => (
   </Icon>
 )
 
+/** A slanted eraser block on a line: the pen's eraser. */
+export const EraserIcon = ({ size = 18 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M8 20l-4-4L14 6l6 6-8 8z" />
+    <path d="M9 11l6 6" />
+    <path d="M12 20h8" />
+  </Icon>
+)
+
 /** A card with a frown, for pages with nothing to show. */
 export const SadCardIcon = ({ size = 18 }: IconProps) => (
   <Icon size={size}>

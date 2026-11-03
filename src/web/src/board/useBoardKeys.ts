@@ -13,6 +13,8 @@ interface BoardKeysOptions {
   /** A gesture, a pen stroke or a drag in the open card is in progress. */
   busy: { gesture: boolean; stroke: boolean; card: boolean }
   setTool: (tool: Tool) => void
+  /** While the pen is the tool: switches it between drawing and erasing (E). */
+  toggleEraser: (() => void) | null
   setSelection: (item: Selection | null) => void
   copySelected: (cut?: boolean) => void
   deleteSelected: () => void
@@ -23,9 +25,9 @@ interface BoardKeysOptions {
   undo: { undo: () => void; redo: () => void }
 }
 
-/** The board's keys: tools, Escape, select all, copy, cut, delete and duplicate, and undo and redo (also in the open card). */
+/** The board's keys: tools (E for the pen's eraser), Escape, select all, copy, cut, delete and duplicate, and undo and redo (also in the open card). */
 export function useBoardKeys(options: BoardKeysOptions) {
-  const { readOnly, cardOpen, selected, selection, busy, setTool, setSelection, copySelected, deleteSelected, deleteOne, duplicateCard, selectAll, addImagesFromPicker, undo } = options
+  const { readOnly, cardOpen, selected, selection, busy, setTool, toggleEraser, setSelection, copySelected, deleteSelected, deleteOne, duplicateCard, selectAll, addImagesFromPicker, undo } = options
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -64,6 +66,8 @@ export function useBoardKeys(options: BoardKeysOptions) {
         return
       } else if (e.key.toLowerCase() === 'i') {
         addImagesFromPicker()
+      } else if (e.key.toLowerCase() === 'e' && toggleEraser) {
+        if (!e.repeat && !busy.stroke) toggleEraser()
       } else if (toolKeys[e.key.toLowerCase()]) {
         setTool(toolKeys[e.key.toLowerCase()])
       }

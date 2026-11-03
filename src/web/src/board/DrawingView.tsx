@@ -1,8 +1,8 @@
 import { useMemo, useState, type CSSProperties, type PointerEvent, type Ref } from 'react'
 import { inkColors, type DrawingDetail, type DrawingStroke, type InkColor, type Point, type Rect, type StrokePoint } from '../api/types'
 import { keepPress } from './gesture'
-import { inkColor, MAX_SCALE, MIN_SCALE, reshapeStrokes, strokePaths, strokeSizes, useDrawingStrokes, type Reshape } from './drawings'
-import { TrashIcon } from './icons'
+import { eraserRadius, inkColor, MAX_SCALE, MIN_SCALE, reshapeStrokes, strokePaths, strokeSizes, useDrawingStrokes, type InkedStrokes, type Reshape } from './drawings'
+import { EraserIcon, TrashIcon } from './icons'
 
 /** A stroke's line being drawn, at its place. */
 export function StrokeSvg({ points, color, strokeWidth, at }: { points: StrokePoint[]; color: string; strokeWidth: number; at: Point }) {
@@ -56,6 +56,8 @@ interface DrawingViewProps {
    * board shows the new strokes.
    */
   onReshape?: (reshape: Reshape) => Promise<unknown>
+  /** What is left of it while the eraser works on it, until the board has the saved drawing (useEraser). */
+  erased?: InkedStrokes
 }
 
 type Corner = 'TopLeft' | 'TopRight' | 'BottomLeft' | 'BottomRight'
@@ -108,7 +110,7 @@ function reshapeOf(g: ReshapeGesture, rect: Rect, zoom: number): Reshape {
 const unchanged = (r: Reshape) => r.scaleX === 1 && r.scaleY === 1 && r.rotation === 0
 
 /** A drawing on a canvas; pressing any of its lines selects and moves all of it. Selected, its handles scale and turn it. */
-export function DrawingView({ drawing, rect, selected, lifted, onPointerDown, zoom = 1, onReshape }: DrawingViewProps) {
+export function DrawingView({ drawing, rect, selected, lifted, onPointerDown, zoom = 1, onReshape, erased }: DrawingViewProps) {
   const loaded = useDrawingStrokes(drawing)
   const [held, setGesture] = useState<ReshapeGesture | null>(null)
   // Once the drawing has a new content URL, its saved strokes replace the preview.
@@ -162,7 +164,11 @@ export function DrawingView({ drawing, rect, selected, lifted, onPointerDown, zo
       style={lifted ? ({ '--pivot': `${box.width / 2}px ${box.height / 2}px` } as CSSProperties) : undefined}
       onPointerDown={onPointerDown}
     >
-      {strokes && <DrawingSvg strokes={strokes} colors={drawing.colors} at={box} hit={!gesture} />}
+      {erased ? (
+        <DrawingSvg strokes={erased.strokes} colors={erased.colors} at={rect} />
+      ) : (
+        strokes && <DrawingSvg strokes={strokes} colors={drawing.colors} at={box} hit={!gesture} />
+      )}
       {selected && (
         <div className="drawing-box" aria-hidden="true" style={{ left: box.x - 6, top: box.y - 6, width: box.width + 12, height: box.height + 12 }}>
           {corners.map((corner) =>
@@ -246,40 +252,72 @@ export function InkSwatches({ value, onChange }: { value: InkColor | null; onCha
   )
 }
 
-/** The pen's flyout: its inks, then its three sizes. */
-export function PenOptions({ ink, onInkChange, width, onWidthChange }: { ink: InkColor; onInkChange: (ink: InkColor) => void; width: number; onWidthChange: (width: number) => void }) {
+interface PenOptionsProps {
+  ink: InkColor
+  onInkChange: (ink: InkColor) => void
+  width: number
+  onWidthChange: (width: number) => void
+  /** Whether the pen erases rather than draws; picking an ink goes back to drawing. */
+  eraser: boolean
+  onEraserChange: (eraser: boolean) => void
+}
+
+/** The pen's flyout: its inks, the eraser, then its three sizes (the eraser's while it is on). */
+export function PenOptions({ ink, onInkChange, width, onWidthChange, eraser, onEraserChange }: PenOptionsProps) {
   return (
     <>
-      <InkSwatches value={ink} onChange={onInkChange} />
+      <InkSwatches
+        value={eraser ? null : ink}
+        onChange={(c) => {
+          onInkChange(c)
+          onEraserChange(false)
+        }}
+      />
       <span className="toolbar-divider" aria-hidden="true" />
-      {strokeSizes.map((s) => (
-        <button
-          key={s.width}
-          type="button"
-          className="pen-size"
-          title={`${s.name} (${s.width} px)`}
-          aria-label={`${s.name} (${s.width} px)`}
-          aria-pressed={s.width === width}
-          onClick={() => onWidthChange(s.width)}
-        >
-          <span style={{ width: s.dot, height: s.dot }} />
-        </button>
-      ))}
+      <button
+        type="button"
+        className="pen-eraser"
+        title="Eraser (E): rub out parts of lines"
+        aria-label="Eraser"
+        aria-pressed={eraser}
+        onClick={() => onEraserChange(!eraser)}
+      >
+        <EraserIcon size={18} />
+      </button>
+      <span className="toolbar-divider" aria-hidden="true" />
+      {strokeSizes.map((s) => {
+        const label = eraser ? `${s.name} eraser (${eraserRadius[s.width] * 2} px)` : `${s.name} (${s.width} px)`
+        return (
+          <button
+            key={s.width}
+            type="button"
+            className="pen-size"
+            title={label}
+            aria-label={label}
+            aria-pressed={s.width === width}
+            onClick={() => onWidthChange(s.width)}
+          >
+            <span className={eraser ? 'eraser-dot' : undefined} style={{ width: s.dot, height: s.dot }} />
+          </button>
+        )
+      })}
     </>
   )
 }
 
 /**
  * The ring under the pointer that shows the pen's size, in place of the cursor: as wide as the line at medium pressure,
- * plus a little room, at the canvas's zoom like the line itself. Hidden until `movePenRing` puts it somewhere.
+ * plus a little room, at the canvas's zoom like the line itself. As an eraser, a dashed ring as wide as what it rubs
+ * out. Hidden until `movePenRing` puts it somewhere.
  */
-export function PenRing({ ringRef, width, zoom }: { ringRef: Ref<HTMLDivElement>; width: number; zoom: number }) {
+export function PenRing({ ringRef, width, zoom, eraser = false }: { ringRef: Ref<HTMLDivElement>; width: number; zoom: number; eraser?: boolean }) {
+  const size = eraser ? eraserRadius[width] * 2 : width + 8
   return (
     <div
       ref={ringRef}
-      className="pen-ring"
+      className={eraser ? 'pen-ring eraser' : 'pen-ring'}
       aria-hidden="true"
-      style={{ display: 'none', '--ring': `${width + 8}px`, borderWidth: 1.5 / zoom } as CSSProperties}
+      style={{ display: 'none', '--ring': `${size}px`, borderWidth: 1.5 / zoom } as CSSProperties}
     />
   )
 }

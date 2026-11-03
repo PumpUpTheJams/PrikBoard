@@ -70,9 +70,11 @@ public static class DrawingEndpoints
             .RequireBoardRole(BoardRole.Editor, BoardScope.Drawing)
             .WithName("setDrawingStrokes")
             .WithSummary("Replace a drawing's strokes")
-            .WithDescription("Writes new points for every stroke of a drawing, with its new top-left x and y (snapped to the grid), " +
-                             "for example to put it back as it was before transformDrawing. Give as many strokes as it has, in drawing " +
-                             "order; their inks stay. Points are relative to x and y, as in createDrawing.")
+            .WithDescription("Writes new strokes for a drawing, with its new top-left x and y (snapped to the grid), for example to " +
+                             "put it back as it was before transformDrawing, or to keep what is left after erasing part of it. Without " +
+                             "colors, give as many strokes as it has, in drawing order, and their inks stay; with a color on every " +
+                             "stroke, give any number of them (to delete every stroke, use deleteDrawing). Points are relative to x " +
+                             "and y, as in createDrawing.")
             .ProducesValidationProblem();
 
         drawings.MapPatch("/drawings/{drawingId:guid}", UpdateDrawing)
@@ -335,11 +337,19 @@ public static class DrawingEndpoints
     {
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         if (await LockedDrawingAsync(db, drawingId, ct) is not { } drawing) return TypedResults.NotFound();
-        if (request.Strokes.Count != drawing.Colors.Count)
+        // A color on every stroke: any number of strokes, with those inks. None: the same strokes, inks kept.
+        var colored = request.Strokes.Count(s => s.Color is not null);
+        if (colored > 0 && colored < request.Strokes.Count)
         {
-            return Problems.Invalid("strokes", $"The drawing has {drawing.Colors.Count} strokes; give the points of each.");
+            var missing = request.Strokes.FindIndex(s => s.Color is null);
+            return Problems.Invalid($"strokes[{missing}].color", "Give a color on every stroke, or on none.");
         }
-        var strokes = request.Strokes.Zip(drawing.Colors, (s, color) => (color, s.StrokeWidth, (IReadOnlyList<double[]>)s.Points)).ToList();
+        if (colored == 0 && request.Strokes.Count != drawing.Colors.Count)
+        {
+            return Problems.Invalid("strokes", $"The drawing has {drawing.Colors.Count} strokes; give the points of each, or a color on every stroke to change how many it has.");
+        }
+        var inks = colored == 0 ? drawing.Colors : [.. request.Strokes.Select(s => s.Color!.Value)];
+        var strokes = request.Strokes.Zip(inks, (s, color) => (color, s.StrokeWidth, (IReadOnlyList<double[]>)s.Points)).ToList();
         if (Build(drawing, strokes, request.X!.Value, request.Y!.Value, "") is { } invalid) return invalid;
         drawing.Revision++;
         await SettleAsync(db, drawing, ct);
