@@ -19,31 +19,36 @@ export const BOARD_PEN = { key: 'prikboard.pen', ink: 'Chalk' } as const
 /** The cards' pen keeps its own ink and size. An open card is dark inside like the board, so it starts light too. */
 export const CARD_PEN = { key: 'prikboard.cardPen', ink: 'Chalk' } as const
 
-function storedPen({ key, ink }: { key: string; ink: InkColor }): { ink: InkColor; width: number } {
+function storedPen({ key, ink }: { key: string; ink: InkColor }): { ink: InkColor; width: number; eraser: boolean } {
   try {
-    const value = JSON.parse(localStorage.getItem(key) ?? 'null') as { ink?: unknown; width?: unknown } | null
+    const value = JSON.parse(localStorage.getItem(key) ?? 'null') as { ink?: unknown; width?: unknown; eraser?: unknown } | null
     return {
       ink: inkColors.find((c) => c === value?.ink) ?? ink,
       width: strokeSizes.find((s) => s.width === value?.width)?.width ?? 4,
+      eraser: value?.eraser === true,
     }
   } catch {
-    return { ink, width: 4 }
+    return { ink, width: 4, eraser: false }
   }
 }
 
-/** A pen's ink and size, as last picked in this browser (default: its own ink, medium), kept as they change. */
+/**
+ * A pen's ink, size and whether it erases, as last picked in this browser (default: its own ink, medium, drawing), kept
+ * as they change. The eraser's size follows the pen's (`eraserRadius`).
+ */
 export function usePen(pen: { key: string; ink: InkColor }) {
   const [initial] = useState(() => storedPen(pen))
   const [ink, setInk] = useState<InkColor>(initial.ink)
   const [width, setWidth] = useState(initial.width)
+  const [eraser, setEraser] = useState(initial.eraser)
   useEffect(() => {
     try {
-      localStorage.setItem(pen.key, JSON.stringify({ ink, width }))
+      localStorage.setItem(pen.key, JSON.stringify({ ink, width, eraser }))
     } catch {
       // Storage can be unavailable (private windows, blocked site data); the pen then starts at the default.
     }
-  }, [pen.key, ink, width])
-  return { ink, setInk, width, setWidth }
+  }, [pen.key, ink, width, eraser])
+  return { ink, setInk, width, setWidth, eraser, setEraser }
 }
 
 /** The most points a stroke can have (BoardDrawing.MaxPoints), and how far apart (canvas px) points need to be to count. */
@@ -180,6 +185,135 @@ export function reshapeStrokes(at: Point, strokes: DrawingStroke[], { scaleX, sc
   const extent = (axis: 0 | 1) =>
     Math.max(...shifted.map((s) => Math.ceil(Math.max(...s.points.map((p) => p[axis]))) + Math.floor((s.strokeWidth + 1) / 2)))
   return { x, y, width: extent(0), height: extent(1), strokes: shifted }
+}
+
+/** A drawing's strokes with their inks, as the eraser works on them. */
+export interface InkedStrokes {
+  strokes: DrawingStroke[]
+  colors: InkColor[]
+}
+
+/** The eraser's radius (canvas px) for each of the pen's sizes. */
+export const eraserRadius: Record<number, number> = { 2: 8, 4: 16, 8: 32 }
+
+/** How far apart (canvas px) the eraser checks a line between two of its points, so it can't skip over a long piece. */
+const ERASE_STEP = 2
+
+/** Distance from p to the segment a–b. */
+function toSegment(p: { x: number; y: number }, a: Point, b: Point) {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const length = dx * dx + dy * dy
+  const t = length === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / length))
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+}
+
+/**
+ * Rubs out what the eraser covers moving from `a` to `b` (both measured from the drawing's corner): every bit of line
+ * within `radius` of that path, plus half the line's own width there. A stroke crossed in the middle becomes two, each
+ * ending exactly where the eraser's edge cut it; pieces of a single point left over from a longer stroke go. Returns
+ * the same object when nothing was touched, so callers can tell.
+ */
+export function eraseAlong(drawing: InkedStrokes, a: Point, b: Point, radius: number): InkedStrokes {
+  const reach = radius + maxWidth(8)
+  const left = Math.min(a.x, b.x) - reach
+  const right = Math.max(a.x, b.x) + reach
+  const top = Math.min(a.y, b.y) - reach
+  const bottom = Math.max(a.y, b.y) + reach
+  const strokes: DrawingStroke[] = []
+  const colors: InkColor[] = []
+  let changed = false
+  drawing.strokes.forEach((stroke, i) => {
+    const color = drawing.colors[i] ?? drawing.colors.at(-1) ?? 'Chalk'
+    // By the stroke's box, not its points: the eraser may cross a long piece between two far-off points.
+    const xs = stroke.points.map((p) => p[0])
+    const ys = stroke.points.map((p) => p[1])
+    const near = Math.min(...xs) <= right && Math.max(...xs) >= left && Math.min(...ys) <= bottom && Math.max(...ys) >= top
+    const pieces = near ? cut(stroke, a, b, radius) : null
+    if (!pieces) {
+      strokes.push(stroke)
+      colors.push(color)
+      return
+    }
+    changed = true
+    for (const points of pieces) {
+      strokes.push({ strokeWidth: stroke.strokeWidth, points })
+      colors.push(color)
+    }
+  })
+  return changed ? { strokes, colors } : drawing
+}
+
+/** The pieces of a stroke left outside the eraser's path a–b, or null when the eraser doesn't touch it. */
+function cut(stroke: DrawingStroke, a: Point, b: Point, radius: number): StrokePoint[][] | null {
+  const erased = ([x, y, pressure]: StrokePoint) => toSegment({ x, y }, a, b) < radius + widthAt(stroke.strokeWidth, pressure) / 2
+  const along = (p: StrokePoint, q: StrokePoint, t: number): StrokePoint => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t]
+  /** Where between p (kept) and q (erased) the eraser's edge is, found by halving. */
+  const edge = (p: StrokePoint, q: StrokePoint) => {
+    let [low, high] = [0, 1]
+    for (let i = 0; i < 10; i++) {
+      const mid = (low + high) / 2
+      if (erased(along(p, q, mid))) high = mid
+      else low = mid
+    }
+    return along(p, q, low)
+  }
+
+  const points = stroke.points
+  if (points.length === 1) return erased(points[0]) ? [] : null
+  const pieces: StrokePoint[][] = []
+  let piece: StrokePoint[] | null = erased(points[0]) ? null : [points[0]]
+  let touched = piece === null
+  for (let i = 1; i < points.length; i++) {
+    const from = points[i - 1]
+    const to = points[i]
+    // Checked in small steps between the two points, so a long straight piece the eraser crosses is cut too.
+    const steps = Math.max(1, Math.ceil(Math.hypot(to[0] - from[0], to[1] - from[1]) / ERASE_STEP))
+    let previous = from
+    for (let s = 1; s <= steps; s++) {
+      const here = s === steps ? to : along(from, to, s / steps)
+      const gone = erased(here)
+      if (piece && gone) {
+        touched = true
+        piece.push(edge(previous, here))
+        pieces.push(piece)
+        piece = null
+      } else if (!piece && !gone) {
+        piece = [edge(here, previous)]
+        if (s === steps) piece.push(here)
+      } else if (piece && s === steps) {
+        piece.push(here)
+      }
+      previous = here
+    }
+  }
+  if (piece) pieces.push(piece)
+  if (!touched) return null
+  // Rounded as the server keeps them, without a point twice in a row (a cut can land right on one); a crumb of one
+  // point is dropped.
+  const round = (p: StrokePoint): StrokePoint => [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10, Math.round(p[2] * 100) / 100]
+  const tidy = (piece: StrokePoint[]) =>
+    piece.map(round).filter((p, i, all) => i === 0 || p[0] !== all[i - 1][0] || p[1] !== all[i - 1][1])
+  return pieces.map(tidy).filter((p) => p.length > 1)
+}
+
+/**
+ * What is left of a drawing after erasing, as setDrawingStrokes takes it: the corner moved in as far as the strokes left
+ * allow (on the grid, as BoardDrawing.RemoveStroke does) but never outwards, so it stays on its canvas, and the points
+ * measured from there. Null when nothing is left.
+ */
+export function erasedDrawing(at: Point, left: InkedStrokes) {
+  if (left.strokes.length === 0) return null
+  const inset = (axis: 0 | 1) =>
+    Math.min(...left.strokes.map((s) => Math.floor((Math.min(...s.points.map((p) => p[axis])) - s.strokeWidth * 0.8) / GRID) * GRID))
+  const x = at.x + Math.max(0, inset(0))
+  const y = at.y + Math.max(0, inset(1))
+  const round = (v: number) => Math.round(v * 10) / 10
+  const strokes = left.strokes.map((s) => ({
+    strokeWidth: s.strokeWidth,
+    points: s.points.map(([px, py, p]): StrokePoint => [round(px + at.x - x), round(py + at.y - y), p]),
+  }))
+  return { x, y, strokes, colors: left.colors }
 }
 
 /** A drawing's strokes if they are loaded already (they are while it shows), else null. */

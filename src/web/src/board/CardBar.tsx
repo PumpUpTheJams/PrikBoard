@@ -2,10 +2,10 @@ import type { CSSProperties } from 'react'
 import type { InkColor, CardComponentKind } from '../api/types'
 import { inkColor } from './drawings'
 import { PenOptions } from './DrawingView'
-import { ImageIcon, PenIcon, TrashIcon } from './icons'
+import { EraserIcon, ImageIcon, PenIcon, TrashIcon } from './icons'
 import { componentKinds } from './componentKinds'
 
-/** The card's pen: whether it is on, and its ink and size. */
+/** The card's pen: whether it is on, its ink and size, and whether it erases. */
 export interface CardPen {
   on: boolean
   onToggle: () => void
@@ -13,6 +13,8 @@ export interface CardPen {
   onInkChange: (ink: InkColor) => void
   width: number
   onWidthChange: (width: number) => void
+  eraser: boolean
+  onEraserChange: (eraser: boolean) => void
 }
 
 interface CardBarProps {
@@ -50,11 +52,18 @@ export function CardBar({ onAdd, onAddImage, pen, onDelete }: CardBarProps) {
           style={{ '--pen-ink': inkColor[pen.ink] } as CSSProperties}
           onClick={pen.onToggle}
         >
-          <PenIcon />
+          {pen.on && pen.eraser ? <EraserIcon /> : <PenIcon />}
         </button>
         {pen.on && (
           <div className="card-pen-flyout" role="group" aria-label="Pen color and size">
-            <PenOptions ink={pen.ink} onInkChange={pen.onInkChange} width={pen.width} onWidthChange={pen.onWidthChange} />
+            <PenOptions
+              ink={pen.ink}
+              onInkChange={pen.onInkChange}
+              width={pen.width}
+              onWidthChange={pen.onWidthChange}
+              eraser={pen.eraser}
+              onEraserChange={pen.onEraserChange}
+            />
           </div>
         )}
       </div>

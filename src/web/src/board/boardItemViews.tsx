@@ -7,7 +7,7 @@ import { Card } from './Card'
 import { titleLines } from './cardFace'
 import { CARD_HEIGHT, CARD_WIDTH } from './layout'
 import { cardLabel } from './links'
-import type { Reshape } from './drawings'
+import type { InkedStrokes, Reshape } from './drawings'
 import { DrawingView } from './DrawingView'
 import type { SearchTerm } from './search'
 import { tagColorClass, type TagColors } from './tagColors'
@@ -150,11 +150,13 @@ interface BoardDrawingProps {
   lifted: boolean
   /** The board's zoom, while it is the one item selected and can be reshaped (its handles need it); else undefined. */
   reshapeZoom: number | undefined
+  /** What is left of it while the eraser works on it; undefined otherwise. */
+  erased: InkedStrokes | undefined
   handlers: BoardItemHandlers
 }
 
 /** A drawing on the board. */
-export const BoardDrawing = memo(function BoardDrawing({ drawing, rect, selected, lifted, reshapeZoom, handlers: h }: BoardDrawingProps) {
+export const BoardDrawing = memo(function BoardDrawing({ drawing, rect, selected, lifted, reshapeZoom, erased, handlers: h }: BoardDrawingProps) {
   return (
     <DrawingView
       drawing={drawing}
@@ -164,6 +166,7 @@ export const BoardDrawing = memo(function BoardDrawing({ drawing, rect, selected
       onPointerDown={(e) => h.pointerDown(e as PointerEvent<HTMLElement>, 'drawing', drawing.id)}
       zoom={reshapeZoom}
       onReshape={reshapeZoom === undefined ? undefined : (reshape) => h.reshapeDrawing(drawing, reshape)}
+      erased={erased}
     />
   )
 })

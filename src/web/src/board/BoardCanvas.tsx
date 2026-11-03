@@ -14,7 +14,7 @@ import { CardIndex } from './CardIndex'
 import { BoardBucket, BoardCard, BoardCollapsedBucket, BoardDrawing, BoardImage, type BoardItemHandlers } from './boardItemViews'
 import type { BucketCount } from './BucketView'
 import { usePan, useFileDrop } from './canvasHooks'
-import { BOARD_PEN, inkColor, movePenRing, usePen } from './drawings'
+import { BOARD_PEN, eraserRadius, inkColor, movePenRing, usePen } from './drawings'
 import { DrawingToolbar, PenRing, StrokeSvg } from './DrawingView'
 import { dropTargetsFor, NO_DROPS, released, useDropProbe, type DropTargets } from './dropTargets'
 import { ExpandedCard, type ExpandedCardHandle } from './ExpandedCard'
@@ -46,6 +46,7 @@ import { useBoardView, useCanvasExtent } from './useBoardView'
 import { useCardAddress } from './useCardAddress'
 import { useNewCardDrag } from './useNewCardDrag'
 import { useStableHandlers } from './useStableHandlers'
+import { useEraser } from './useEraser'
 import { useStroke } from './useStroke'
 import { useToast } from './useToast'
 import { describeMissingCard } from './missingCard'
@@ -164,7 +165,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [tool, setTool] = useState<Tool>('select')
   const [fill, setFill] = useState<CardColor>('Butter')
   /** The pen's ink and size, kept for the next visit. */
-  const { ink, setInk, width: strokeWidth, setWidth: setStrokeWidth } = usePen(BOARD_PEN)
+  const { ink, setInk, width: strokeWidth, setWidth: setStrokeWidth, eraser: penErases, setEraser: setPenErases } = usePen(BOARD_PEN)
   /** The ring under the pointer that shows the pen's size. */
   const penRing = useRef<HTMLDivElement>(null)
   const { selected, setSelected, selection, setSelection, unselect, isSelected } = useSelection<Selection>()
@@ -323,8 +324,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const { margin, zoom, zoomTo, toCanvas, boardPoint } = boardView
   /** The strokes being drawn with the pen and saved; while it is the tool, they all go into one drawing. */
   const pen = useStroke(toCanvas, tool === 'pen')
-  /** Whether a stroke is being drawn or saved. */
-  const stroke = pen.strokes.length > 0
+  /** The pen's eraser, on the board's own drawings (not those on cards). */
+  const rubber = useEraser(toCanvas, () => board.drawings.filter((d) => d.cardId === null))
+  /** Whether a stroke is being drawn or saved, or something erased is. */
+  const stroke = pen.strokes.length > 0 || rubber.erased.size > 0
 
   // Background refreshes would fight with a drag in progress.
   useEffect(() => setPaused(gesture !== null || stroke || cardBusy || trash.busy), [gesture, stroke, cardBusy, trash.busy, setPaused])
@@ -520,14 +523,17 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       pan.start(e)
       return
     }
-    if (e.button !== 0) return
+    // Button 5 is a stylus's eraser end, which always erases with the pen.
+    const eraserEnd = e.button === 5
+    if (e.button !== 0 && !(eraserEnd && tool === 'pen')) return
     if (tool === 'pen') {
       if (readOnly) return
       e.preventDefault()
       setQuickEdit(null)
       setSelection(null)
       canvasRef.current!.setPointerCapture(e.pointerId)
-      pen.start(e, ink, strokeWidth)
+      if (penErases || eraserEnd) rubber.start(e, eraserRadius[strokeWidth])
+      else pen.start(e, ink, strokeWidth)
     } else if (tool === 'bucket') {
       e.preventDefault()
       beginGesture(e, { kind: 'draw' })
@@ -555,6 +561,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       pen.extend(e)
       return
     }
+    if (rubber.erasing()) {
+      rubber.extend(e)
+      return
+    }
     if (!gesture || gesture.done) return
     const current = toCanvas(e)
     const next = { ...gesture, current, away: gesture.away || (!!gesture.home && !contains(gesture.home, current)), dragged: isDrag({ ...gesture, current }) }
@@ -578,6 +588,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     if (pan.end()) return
     if (pen.drawing()) {
       pen.finish(runRec, board.id)
+      return
+    }
+    if (rubber.erasing()) {
+      rubber.finish(runRec)
       return
     }
     if (!gesture || gesture.done) return
@@ -683,6 +697,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       selected={isSelected('drawing', drawing.id)}
       lifted={lifting(drawing.id)}
       reshapeZoom={readOnly || selection?.id !== drawing.id ? undefined : zoom}
+      erased={rubber.erased.get(drawing.id)}
       handlers={itemHandlers}
     />
   )
@@ -812,6 +827,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     selection,
     busy: { gesture: !!gesture, stroke, card: cardBusy },
     setTool,
+    toggleEraser: tool === 'pen' ? () => setPenErases((on) => !on) : null,
     setSelection,
     copySelected,
     deleteSelected: () => void deleteSelected(),
@@ -980,6 +996,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             onPointerCancel={() => {
               setGesture(null)
               pen.cancel()
+              rubber.cancel()
               pan.end()
               setDrops(NO_DROPS)
             }}
@@ -989,6 +1006,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               pan.end()
               setGesture((g) => (g && !g.done ? null : g))
               pen.cancel()
+              // After a release the eraser has already finished, so this only drops an unfinished one.
+              rubber.cancel()
               setDrops(released)
             }}
           >
@@ -1051,7 +1070,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               ))}
             </div>
 
-            {tool === 'pen' && !readOnly && <PenRing ringRef={penRing} width={strokeWidth} zoom={zoom} />}
+            {tool === 'pen' && !readOnly && <PenRing ringRef={penRing} width={strokeWidth} zoom={zoom} eraser={penErases} />}
 
             {selectedCardsRect && !readOnly && !gesture && <SelectionToolbar rect={selectedCardsRect} zoom={zoom} onSort={moves.sortCards} />}
 
@@ -1111,6 +1130,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         onInkChange={setInk}
         strokeWidth={strokeWidth}
         onStrokeWidthChange={setStrokeWidth}
+        eraser={penErases}
+        onEraserChange={setPenErases}
         onCardPointerDown={newCard.onPointerDown}
         trash={trashShown ? (overTrash ? 'over' : 'shown') : undefined}
         trashRef={trashRef}

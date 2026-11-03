@@ -494,6 +494,50 @@ public class DrawingApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     }
 
     [Fact]
+    public async Task Strokes_with_colors_can_change_how_many_a_drawing_has_as_erasing_does()
+    {
+        var board = await _client.CreateBoardAsync("Erased");
+        var drawing = await Create(board.Id, new { x = 100, y = 100, points = Neat, color = "Mint" });
+        var url = $"/api/drawings/{drawing.Id}/strokes";
+
+        // Erasing across the middle of the line leaves two pieces, each with its own ink.
+        var split = await _client.PutAsJsonAsync(url, new
+        {
+            x = 100,
+            y = 100,
+            strokes = new object[]
+            {
+                new { strokeWidth = 4, points = new[] { new[] { 10.0, 10.0, 0.5 }, new[] { 30.0, 20.0, 0.5 } }, color = "Mint" },
+                new { strokeWidth = 4, points = new[] { new[] { 70.0, 20.0, 0.5 }, new[] { 90.0, 10.0, 0.5 } }, color = "Sky" },
+            },
+        });
+        Assert.Equal(HttpStatusCode.OK, split.StatusCode);
+        var pieces = (await split.Content.ReadFromJsonAsync<DrawingDetail>())!;
+        Assert.Equal([InkColor.Mint, InkColor.Sky], pieces.Colors);
+        Assert.Equal(4, pieces.PointCount);
+        Assert.NotEqual(drawing.ContentUrl, pieces.ContentUrl);
+        var content = (await _client.GetFromJsonAsync<DrawingContentDetail>(pieces.ContentUrl))!;
+        Assert.Equal(2, content.Strokes.Count);
+        Assert.Equal([[10, 10, 0.5], [30, 20, 0.5]], content.Strokes[0].Points);
+        Assert.Equal([[70, 20, 0.5], [90, 10, 0.5]], content.Strokes[1].Points);
+
+        // Undo puts the one stroke back the same way.
+        var back = await _client.PutAsJsonAsync(url, new { x = 100, y = 100, strokes = new[] { new { strokeWidth = 4, points = Neat, color = "Mint" } } });
+        Assert.Equal(HttpStatusCode.OK, back.StatusCode);
+        Assert.Equal([InkColor.Mint], (await back.Content.ReadFromJsonAsync<DrawingDetail>())!.Colors);
+
+        // A color on some strokes but not all is refused, keyed on the first without one.
+        var mixed = await _client.PutAsJsonAsync(url, new
+        {
+            x = 100,
+            y = 100,
+            strokes = new object[] { new { strokeWidth = 4, points = Neat, color = "Mint" }, new { strokeWidth = 4, points = Line } },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, mixed.StatusCode);
+        Assert.Contains("\"strokes[1].color\"", await mixed.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task A_transform_is_checked_and_a_drawing_cannot_grow_past_its_limit()
     {
         var board = await _client.CreateBoardAsync("Transform checks");

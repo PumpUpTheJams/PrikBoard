@@ -116,12 +116,14 @@ public record TransformDrawingRequest(
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] double? PivotY = null);
 
 /// <summary>
-/// New points for every stroke of a drawing, for example to put it back as it was before transformDrawing. Give its new
-/// top-left (snapped to the 20 px grid) and the strokes in drawing order, as many as it has; their inks stay.
+/// New strokes for a drawing, for example to put it back as it was before transformDrawing, or what is left after
+/// erasing part of it. Give its new top-left (snapped to the 20 px grid) and the strokes in drawing order. Without
+/// colors, give as many strokes as it has and their inks stay. With a color on every stroke, give any number (erasing
+/// across a line leaves two); the drawing's inks become those colors.
 /// </summary>
 /// <param name="X">New left edge, on the drawing's canvas; snapped to the grid.</param>
 /// <param name="Y">New top edge, like x.</param>
-/// <param name="Strokes">Every stroke in drawing order, each with its base width and its points relative to x and y, as in createDrawing.</param>
+/// <param name="Strokes">Every stroke in drawing order, each with its base width, its points relative to x and y as in createDrawing, and either a color on all of them or on none.</param>
 public record SetDrawingStrokesRequest(
     [property: Required, Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X,
     [property: Required, Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y,
@@ -130,9 +132,11 @@ public record SetDrawingStrokesRequest(
 /// <summary>One stroke of a drawing to write.</summary>
 /// <param name="StrokeWidth">Base line width in pixels: 2, 4 or 8.</param>
 /// <param name="Points">1 to 5000 points in drawing order, each [x, y, pressure] relative to the drawing's x and y.</param>
+/// <param name="Color">The stroke's ink. Give it on every stroke to change how many strokes the drawing has, or on none to keep the inks.</param>
 public record NewDrawingStroke(
     [property: AllowedValues(2, 4, 8)] int StrokeWidth,
-    [property: Required, MinLength(1), MaxLength(BoardDrawing.MaxPoints)] List<double[]> Points);
+    [property: Required, MinLength(1), MaxLength(BoardDrawing.MaxPoints)] List<double[]> Points,
+    InkColor? Color = null);
 
 /// <summary>
 /// Moves or recolors a drawing, or moves it between the board and a card. Omitted (null) fields stay unchanged. X and Y

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { api } from '../api/client'
 import type { DrawingDetail, DropBucket, ImageDetail, InkColor, CardComponent, CardComponentKind, CardDetail, Point, Rect, ResizeHandle } from '../api/types'
 import { BoardImageView } from './BoardImageView'
-import { inkColor, movePenRing, CARD_PEN, usePen } from './drawings'
+import { eraserRadius, inkColor, movePenRing, CARD_PEN, usePen } from './drawings'
 import { DrawingGhost, DrawingToolbar, DrawingView, IncomingDrawingView, PenRing, StrokeSvg } from './DrawingView'
 import { delta, isDrag } from './gesture'
 import { ImageInspector } from './Inspector'
@@ -18,6 +18,7 @@ import { count } from './boardItems'
 import { useFileDrop, usePan, useScrollStore } from './canvasHooks'
 import { inField } from './keys'
 import { deleted, patched, snap, step, target, type RecordingRun, type UndoChange } from './undo'
+import { useEraser } from './useEraser'
 import { useStroke } from './useStroke'
 import { useZoom } from './useZoom'
 import { CardMapItems, ViewControls, type HistoryButtons } from './ViewControls'
@@ -150,7 +151,9 @@ export function CardCanvas(props: CardCanvasProps) {
 
   /** The strokes being drawn with the pen and saved; while it is on, they all go into one drawing. */
   const pen = useStroke((e) => toCard({ x: e.clientX, y: e.clientY }), drawingOn)
-  const penBusy = pen.strokes.length > 0
+  /** The pen's eraser, on this card's drawings. */
+  const rubber = useEraser((e) => toCard({ x: e.clientX, y: e.clientY }), () => drawings)
+  const penBusy = pen.strokes.length > 0 || rubber.erased.size > 0
   useEffect(() => onBusy(gesture !== null || penBusy), [gesture, penBusy, onBusy])
 
   const hits = (client: Point) => !!scrollRef.current && insideClient(scrollRef.current.getBoundingClientRect(), client)
@@ -362,14 +365,17 @@ export function CardCanvas(props: CardCanvasProps) {
 
   /** With the pen on, a press anywhere on the canvas (over components and images too) starts a stroke. */
   function onPenPointerDown(e: PointerEvent) {
-    if (!drawingOn || e.button !== 0) return
+    // Button 5 is a stylus's eraser end, which always erases with the pen.
+    const eraserEnd = e.button === 5
+    if (!drawingOn || (e.button !== 0 && !eraserEnd)) return
     e.stopPropagation()
     e.preventDefault()
     setSelection(null)
     if (document.activeElement instanceof HTMLElement && document.activeElement.closest('.card-scroll')) document.activeElement.blur()
     scrollRef.current!.focus({ preventScroll: true })
     canvasRef.current!.setPointerCapture(e.pointerId)
-    pen.start(e, cardPen.ink, cardPen.width)
+    if (cardPen.eraser || eraserEnd) rubber.start(e, eraserRadius[cardPen.width])
+    else pen.start(e, cardPen.ink, cardPen.width)
   }
 
   /** Turns the card's pen on or off. */
@@ -408,6 +414,8 @@ export function CardCanvas(props: CardCanvasProps) {
     if (drawingOn) movePenRing(penRing.current, toCard(client), e.pointerType)
     if (pen.drawing()) {
       pen.extend(e)
+    } else if (rubber.erasing()) {
+      rubber.extend(e)
     } else if (pan.move(e)) {
       // Scrolled along.
     } else if (gesture && !gesture.done) {
@@ -421,6 +429,10 @@ export function CardCanvas(props: CardCanvasProps) {
   function onPointerUp() {
     if (pen.drawing()) {
       pen.finish(run, card.boardId, card.id)
+      return
+    }
+    if (rubber.erasing()) {
+      rubber.finish(run)
       return
     }
     if (pan.end()) return
@@ -530,6 +542,11 @@ export function CardCanvas(props: CardCanvasProps) {
             e.preventDefault()
             e.stopPropagation()
             togglePen()
+          } else if (e.key.toLowerCase() === 'e' && penOn && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            // E switches the pen between drawing and erasing.
+            e.preventDefault()
+            e.stopPropagation()
+            if (!e.repeat && !penBusy) cardPen.setEraser((on) => !on)
           } else if (selected.length > 0 && (e.key === 'Delete' || e.key === 'Backspace')) {
             e.preventDefault()
             e.stopPropagation()
@@ -560,12 +577,14 @@ export function CardCanvas(props: CardCanvasProps) {
               setGesture(null)
               pan.end()
               pen.cancel()
+              rubber.cancel()
             }}
             // Losing the pointer without a release (another window took it) ends a pan or an unfinished drag.
             onLostPointerCapture={() => {
               pan.end()
               setGesture((g) => (g && !g.done ? null : g))
               pen.cancel()
+              rubber.cancel()
             }}
             onDoubleClick={() => {
               const [first, second] = imagePresses.current
@@ -645,6 +664,7 @@ export function CardCanvas(props: CardCanvasProps) {
                   onPointerDown={(e) => onItemPointerDown(e as PointerEvent<HTMLElement>, 'drawing', drawing.id)}
                   zoom={zoom}
                   onReshape={reshapable(drawing.id) ? (reshape) => settle(...ops.reshapeDrawing(drawing, reshape)) : undefined}
+                  erased={rubber.erased.get(drawing.id)}
                 />
               </div>
             ))}
@@ -671,7 +691,7 @@ export function CardCanvas(props: CardCanvasProps) {
 
             {drawingGhost && <IncomingDrawingView drawing={drawingGhost.drawing} at={drawingGhost.at} />}
 
-            {drawingOn && <PenRing ringRef={penRing} width={cardPen.width} zoom={zoom} />}
+            {drawingOn && <PenRing ringRef={penRing} width={cardPen.width} zoom={zoom} eraser={cardPen.eraser} />}
 
             {marquee && (
               <div className="marquee" aria-hidden="true" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />
@@ -713,6 +733,8 @@ export function CardCanvas(props: CardCanvasProps) {
             onInkChange: cardPen.setInk,
             width: cardPen.width,
             onWidthChange: cardPen.setWidth,
+            eraser: cardPen.eraser,
+            onEraserChange: cardPen.setEraser,
           }}
           onDelete={onDeleteCard}
         />
