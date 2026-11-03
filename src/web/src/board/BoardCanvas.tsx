@@ -967,9 +967,11 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               cursor: resizing?.handle ? resizeCursor[resizing.handle] : undefined,
             }}
             onPointerDown={onCanvasPointerDown}
+            // A double-click on a card opens it; anywhere else on the board it closes the open card.
             onDoubleClick={() => {
               const [first, second] = cardPresses.current
               if (second && first === second) expand(second)
+              else if (expanded) closeExpanded()
             }}
             onPointerMove={onCanvasPointerMove}
             onPointerLeave={() => {
