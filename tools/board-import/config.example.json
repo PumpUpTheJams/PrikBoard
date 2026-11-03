@@ -1,0 +1,25 @@
+{
+  "titleLength": 80,
+  "attachImagesToCards": true,
+  "inks": {},
+  "figma": {
+    "page": null,
+    "scale": 0.85,
+    "framesAsBuckets": true,
+    "includeAuthor": true,
+    "colorTags": {
+      "red": "bug"
+    },
+    "colors": {
+      "pink": "Lilac"
+    }
+  },
+  "miro": {
+    "scale": "auto",
+    "tidy": true,
+    "shapesAsBuckets": true,
+    "includeAuthor": false,
+    "colorTags": {},
+    "colors": {}
+  }
+}

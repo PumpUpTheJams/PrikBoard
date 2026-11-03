@@ -23,6 +23,7 @@ dotnet tool restore                               # pinned dotnet-ef from .confi
 dotnet ef migrations add <Name> --project src/PrikBoard.Api --output-dir Data/Migrations   # migrations were squashed into one InitialCreate for the first release
 
 node tools/perf/make-board.mjs --out=tools/perf/out/perf-board.json   # a big board as a clip, for measuring; paste-board.mjs pastes it (tools/perf/README.md)
+node tools/board-import/miro/fetch.mjs --board=<Miro URL>   # or figma/fetch.mjs --file=<FigJam URL>; then convert.mjs and paste.mjs: a Miro or FigJam board onto a PrikBoard board, one way (tools/board-import/README.md)
 PRIKBOARD_PERF=1 dotnet test --solution PrikBoard.slnx -c Release --filter "FullyQualifiedName~PerfBenchmarks"   # server timings; skipped without PRIKBOARD_PERF
 PRIKBOARD_STRESS=1 dotnet test --solution PrikBoard.slnx -c Release --filter "FullyQualifiedName~LayoutSearchTests"   # random layouts against LayoutReference; skipped without PRIKBOARD_STRESS
 ```
