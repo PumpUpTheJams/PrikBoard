@@ -37,7 +37,7 @@ public record BoardClip(
 {
     public const string FormatName = "prikboard-clip";
     /// <summary>Raise it with every change to the clip's fields, so an older server refuses a clip it can't fully read.</summary>
-    public const int CurrentVersion = 7;
+    public const int CurrentVersion = 8;
     /// <summary>A whole board fits in one clip.</summary>
     public const int MaxCards = 2000;
     public const int MaxImages = 200;
@@ -187,7 +187,9 @@ public record ClippedLabel(
     [property: Range(1, BoardLabel.MaxSize)] int? Width = null,
     [property: Range(1, BoardLabel.MaxSize)] int? Height = null,
     Guid? BucketId = null,
-    Guid? Id = null);
+    Guid? Id = null,
+    [property: Range(1, BoardLabel.MaxSize)] int? WrapWidth = null,
+    bool? Background = null);
 
 /// <summary>What to copy, all on the board in the path. A bucket comes with the cards, images, drawings and labels in it.</summary>
 /// <param name="CardIds">Cards.</param>

@@ -160,7 +160,9 @@ public static class CardEndpoints
         Card? numbered = null;
         if (!string.IsNullOrWhiteSpace(search))
         {
-            (cards, numbered) = Search(cards, search, board.Key);
+            var labels = (await db.Labels.AsNoTracking().Where(l => l.BoardId == boardId && l.CardId != null)
+                .Select(l => new { l.CardId, l.Text }).ToListAsync(ct)).ToLookup(l => l.CardId!.Value, l => l.Text);
+            (cards, numbered) = Search(cards, search, board.Key, labels);
         }
         if (tag is not null && CardTags.Normalize(tag) is { Count: > 0 } wanted)
         {
@@ -219,6 +221,7 @@ public static class CardEndpoints
         // An agent starting on a card right away works for its owner (or itself), as with setCardWorking.
         Guid? worksFor = principal.IsToken() && requests.Any(r => r.AgentWorking == true) ? await WorksForAsync(db, principal, ct) : null;
         var cards = new List<Card>();
+        var bodies = new List<BoardLabel>();
         for (var i = 0; i < requests.Count; i++)
         {
             var request = requests[i];
@@ -237,12 +240,24 @@ public static class CardEndpoints
                 return Keyed(unassignable, i);
             }
             if (ApplyLists(card, request.Tags, request.AssigneeIds) is { } invalid) return Keyed(invalid, i);
-            if (request.Components is not null && CardComponentEndpoints.BuildAll(card, request.Components) is { } invalidComponent)
+            BoardLabel? body = null;
+            if (!string.IsNullOrWhiteSpace(request.Body))
+            {
+                var (label, invalidBody) = await LabelEndpoints.CardBodyAsync(db, card, request.Body, principal, ct);
+                if (invalidBody is not null) return Keyed(invalidBody, i);
+                body = label;
+                bodies.Add(label!);
+            }
+            if (request.Components is not null && CardComponentEndpoints.BuildAll(card, request.Components, body: body) is { } invalidComponent)
             {
                 return Keyed(invalidComponent, i);
             }
             await CardComponentEndpoints.ShortenLinksAsync(db, boardId, card.Components, ct);
             cards.Add(card);
+        }
+        if (bodies.Count > 0 && await db.Labels.CountAsync(l => l.BoardId == boardId, ct) + bodies.Count > BoardLabel.MaxPerBoard)
+        {
+            return Problems.Invalid("body", $"A board holds at most {BoardLabel.MaxPerBoard} labels, and these would pass that. Delete some first.");
         }
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var tags = cards.SelectMany(c => c.Tags).Distinct().ToList();
@@ -266,6 +281,7 @@ public static class CardEndpoints
         var (number, board) = taken;
         foreach (var card in cards) card.Number = number++;
         db.Cards.AddRange(cards);
+        db.Labels.AddRange(bodies);
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         var principals = await PrincipalsOnAsync(db, cards, ct);
@@ -510,16 +526,17 @@ public static class CardEndpoints
     }
 
     /// <summary>Whether the title or any of the card's content contains <paramref name="text"/>, ignoring case.</summary>
-    internal static bool ContainsText(Card card, string text) =>
+    internal static bool ContainsText(Card card, string text, ILookup<Guid, string> labels) =>
         card.Title.Contains(text, StringComparison.OrdinalIgnoreCase)
-        || card.Components.Any(b => b.SearchText().Any(t => t.Contains(text, StringComparison.OrdinalIgnoreCase)));
+        || card.Components.Any(b => b.SearchText().Any(t => t.Contains(text, StringComparison.OrdinalIgnoreCase)))
+        || labels[card.Id].Any(t => t.Contains(text, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// The cards a search finds, as listCards and listDeletedCards search, and the one it names by its number. A number
     /// (<c>224</c>, leading zeros aside) finds that card and the cards with that text; <c>#224</c> or the readable id
     /// (<c>PRIK-224</c>, any case) finds only that card; anything else is looked for in the title and content.
     /// </summary>
-    internal static (List<Card> Found, Card? Numbered) Search(List<Card> cards, string search, string boardKey)
+    internal static (List<Card> Found, Card? Numbered) Search(List<Card> cards, string search, string boardKey, ILookup<Guid, string> labels)
     {
         var text = search.Trim();
         var only = text.StartsWith('#') || text.StartsWith($"{boardKey}-", StringComparison.OrdinalIgnoreCase);
@@ -529,7 +546,7 @@ public static class CardEndpoints
             : null;
         var numbered = number is null ? null : cards.FirstOrDefault(c => c.Number == number);
         if (number is not null && only) return (numbered is null ? [] : [numbered], numbered);
-        return (cards.Where(c => c == numbered || ContainsText(c, text)).ToList(), numbered);
+        return (cards.Where(c => c == numbered || ContainsText(c, text, labels)).ToList(), numbered);
     }
 
     /// <summary>The cards with the one a search named by its number (Search) first, when it is among them.</summary>
@@ -548,7 +565,13 @@ public static class CardEndpoints
         Card? numbered = null;
         if (!string.IsNullOrWhiteSpace(search))
         {
-            (cards, numbered) = Search(cards, search, board.Key);
+            // The labels that come back with them: deleted at the same moment.
+            var deletedAt = cards.ToDictionary(n => n.Id, n => n.DeletedAt);
+            var labels = (await db.Labels.AsNoTracking().WithDeleted().Where(l => l.BoardId == boardId && l.CardId != null && l.DeletedAt != null)
+                    .Select(l => new { l.CardId, l.Text, l.DeletedAt }).ToListAsync(ct))
+                .Where(l => deletedAt.GetValueOrDefault(l.CardId!.Value) == l.DeletedAt)
+                .ToLookup(l => l.CardId!.Value, l => l.Text);
+            (cards, numbered) = Search(cards, search, board.Key, labels);
         }
         cards = NumberedFirst(cards.OrderByDescending(n => n.DeletedAt).ThenByDescending(n => n.Id).ToList(), numbered);
 
@@ -561,10 +584,17 @@ public static class CardEndpoints
                 .ToListAsync(ct))
             .Where(i => i.DeletedAt == stamps[i.CardId!.Value])
             .ToList();
+        var trashedLabels = (await db.Labels.AsNoTracking().WithDeleted().Include(l => l.AddedBy)
+                .Where(l => l.CardId != null && ids.Contains(l.CardId.Value))
+                .OrderBy(l => l.CreatedAt).ThenBy(l => l.Id)
+                .ToListAsync(ct))
+            .Where(l => l.DeletedAt == stamps[l.CardId!.Value])
+            .ToList();
         var principals = await PrincipalsOnAsync(db, cards, ct);
         return TypedResults.Ok(new TrashContents(
             cards.Select(n => CardDetail.From(n, board, principals)).ToList(),
-            images.Select(ImageDetail.From).ToList()));
+            images.Select(ImageDetail.From).ToList(),
+            trashedLabels.Select(LabelDetail.From).ToList()));
     }
 
     internal static async Task<Results<Ok<CardDetail>, NotFound, ValidationProblem, ProblemHttpResult>> RestoreCard(

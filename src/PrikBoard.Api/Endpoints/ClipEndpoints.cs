@@ -314,7 +314,7 @@ public static class ClipEndpoints
 
     /// <summary>A label as a clip holds it; <paramref name="bucketId"/> is its copied bucket, if any.</summary>
     private static ClippedLabel ClipLabel(BoardLabel label, Guid? bucketId) =>
-        new(label.CardId, label.X, label.Y, label.Content, label.Ink, label.Size, label.Width, label.Height, bucketId, label.Id);
+        new(label.CardId, label.X, label.Y, label.Content, label.Ink, label.Size, label.Width, label.Height, bucketId, label.Id, label.WrapWidth, label.Background);
 
     private static ClippedBucket ClipBucket(Bucket bucket) =>
         new(bucket.Id, bucket.Name, bucket.X, bucket.Y, bucket.Width, bucket.Height, bucket.Collapsed);
@@ -331,6 +331,7 @@ public static class ClipEndpoints
     {
         var clip = request.Clip;
         if (InvalidClip(request) is { } invalidClip) return invalidClip;
+        clip = NotesAsLabels(clip);
 
         var board = await db.Boards.AsNoTracking().FirstOrDefaultAsync(b => b.Id == boardId, ct);
         if (board is null) return TypedResults.NotFound();
@@ -926,11 +927,29 @@ public static class ClipEndpoints
         Math.Min(Layout.MaxBucketSize, Layout.SnapSize(width, Layout.MinBucketWidth)),
         Math.Min(Layout.MaxBucketSize, Layout.SnapSize(height, Layout.MinBucketHeight)));
 
+    /// <summary>A clip from before text on a card became labels, with its notes as the labels they are now, as the migration of stored notes makes them.</summary>
+    private static BoardClip NotesAsLabels(BoardClip clip)
+    {
+        if (!clip.Cards.Any(c => c.Components?.Exists(b => b.Kind == CardComponentKind.Text) == true)) return clip;
+        var labels = (clip.Labels ?? []).ToList();
+        var cards = clip.Cards.Select(card =>
+        {
+            foreach (var note in (card.Components ?? []).Where(b => b.Kind == CardComponentKind.Text))
+            {
+                if (NoteMigration.BlocksOf(note.Title, note.Text).Blocks is not { } blocks) continue;
+                labels.Add(new ClippedLabel(card.Id, note.X ?? Layout.Grid, note.Y ?? Layout.Grid, blocks, InkColor.Theme, BoardLabel.CardTextSize,
+                    WrapWidth: note.Width ?? BoardLabel.DefaultWrapWidth, Background: true));
+            }
+            return card with { Components = card.Components?.Where(b => b.Kind != CardComponentKind.Text).ToList() };
+        }).ToList();
+        return clip with { Cards = cards, Labels = labels };
+    }
+
     /// <summary>A component as it goes in a clip: like a new component, with its place and only the content of its kind.</summary>
     private static NewCardComponent ClipComponent(CardComponent component)
     {
         var detail = CardComponentDetail.From(component);
-        return new NewCardComponent(component.Kind, component.Title, detail.Text, detail.Items?.ToList(), detail.Links?.ToList(),
+        return new NewCardComponent(component.Kind, component.Title, null, detail.Items?.ToList(), detail.Links?.ToList(),
             component.X, component.Y, component.Width, component.Height);
     }
 

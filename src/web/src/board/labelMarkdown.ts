@@ -5,12 +5,43 @@ import { isLabelLink } from './labels'
 
 type Style = Omit<LabelRun, 'text'>
 
-function listItem(line: string): { kind: 'Bullet' | 'Numbered'; text: string } | null {
+function listItem(line: string): { kind: 'Bullet' | 'Numbered' | 'Task'; text: string; done?: boolean } | null {
   const text = line.trimStart()
   const bullet = /^[-*] +(.*)$/.exec(text)
-  if (bullet) return { kind: 'Bullet', text: bullet[1] }
+  if (bullet) {
+    const task = /^\[( |x|X)\] +(.*)$/.exec(bullet[1])
+    return task ? { kind: 'Task', text: task[2], done: task[1] !== ' ' } : { kind: 'Bullet', text: bullet[1] }
+  }
   const numbered = /^\d+\. +(.*)$/.exec(text)
   return numbered ? { kind: 'Numbered', text: numbered[1] } : null
+}
+
+/** An http(s) address starting at `start` (see LabelMarkdown.BareLink). */
+function bareLinkAt(text: string, start: number): string | undefined {
+  if (start > 0 && /[\p{L}\p{N}]/u.test(text[start - 1])) return undefined
+  const found = /^https?:\/\/[^\s<>`|]+/.exec(text.slice(start))?.[0]
+  if (!found) return undefined
+  let url = found.replace(/[.,;:!?*~_"']+$/, '')
+  while (url.endsWith(')') && url.split(')').length > url.split('(').length) url = url.slice(0, -1)
+  return isLabelLink(url) ? url : undefined
+}
+
+/** The code span opened at `start`: closed by as many backticks as open it (see LabelMarkdown.CodeSpan). */
+function codeSpanAt(text: string, start: number): { text: string; end: number } | undefined {
+  let ticks = 0
+  while (text[start + ticks] === '`') ticks++
+  for (let j = start + ticks; j < text.length; j++) {
+    if (text[j] !== '`') continue
+    let closing = 0
+    while (text[j + closing] === '`') closing++
+    if (closing === ticks) {
+      let body = text.slice(start + ticks, j)
+      if (body.length > 2 && body.startsWith(' ') && body.endsWith(' ')) body = body.slice(1, -1)
+      return body ? { text: body, end: j + closing } : undefined
+    }
+    j += closing - 1
+  }
+  return undefined
 }
 
 /** Where the mark opened at `start` closes; undefined when it opens nothing there (see LabelMarkdown.Mark). */
@@ -57,9 +88,19 @@ function addInline(text: string, style: Style, runs: LabelRun[]) {
     const strike = end2 === undefined ? markEnd(text, i, '~~') : undefined
     const end1 = end2 === undefined && strike === undefined ? markEnd(text, i, '*') : undefined
     const link = text[i] === '[' ? linkAt(text, i) : undefined
+    const code = text[i] === '`' ? codeSpanAt(text, i) : undefined
+    const bare = !style.link && text[i] === 'h' ? bareLinkAt(text, i) : undefined
     if (text[i] === '\\' && /[\p{P}\p{S}]/u.test(text[i + 1] ?? '')) {
       plain += text[i + 1]
       i += 2
+    } else if (bare) {
+      flush()
+      runs.push({ ...style, text: bare, link: bare })
+      i += bare.length
+    } else if (code) {
+      flush()
+      runs.push({ ...style, text: code.text, code: true })
+      i = code.end
     } else if (end2 !== undefined) {
       flush()
       addInline(text.slice(i + 2, end2), { ...style, bold: true }, runs)
@@ -89,26 +130,112 @@ const inline = (text: string) => {
   return runs
 }
 
+function tableRow(line: string): LabelBlock {
+  let text = line.trim()
+  if (text.startsWith('|')) text = text.slice(1)
+  if (text.endsWith('|') && !text.endsWith('\\|')) text = text.slice(0, -1)
+  const cells: LabelRun[][] = []
+  let start = 0
+  for (let i = 0; i <= text.length; i++) {
+    if (text[i] === '\\') {
+      i++
+    } else if (i >= text.length || text[i] === '|') {
+      cells.push(inline(text.slice(start, i).trim()))
+      start = i + 1
+    }
+  }
+  return { kind: 'TableRow', runs: [], cells }
+}
+
+/** The fence a line opens code with, or null. */
+function fenceOf(line: string): string | null {
+  const text = line.trimStart()
+  const ticks = /^`{3,}/.exec(text)
+  if (ticks) return text.indexOf('`', ticks[0].length) < 0 ? ticks[0] : null
+  return /^~{3,}/.exec(text)?.[0] ?? null
+}
+
+const MAX_LIST_LEVEL = 5
+
 /** The blocks some Markdown holds. */
 export function parseLabelMarkdown(markdown: string): LabelBlock[] {
   const blocks: LabelBlock[] = []
   let paragraph: string[] = []
+  let quote: string[] = []
+  // The indents of the lists around the current item, outermost first.
+  let indents: number[] = []
+  let afterItem = false
   const endParagraph = () => {
     if (paragraph.length > 0) blocks.push({ kind: 'Paragraph', runs: inline(paragraph.join('\n')) })
     paragraph = []
   }
-  for (const line of markdown.replace(/\r\n/g, '\n').split('\n')) {
-    const trimmed = line.trimEnd()
-    const item = trimmed ? listItem(trimmed) : null
+  const endQuote = () => {
+    if (quote.length > 0) blocks.push({ kind: 'Quote', runs: inline(quote.join('\n')) })
+    quote = []
+  }
+  const lines = markdown.replace(/\r\n/g, '\n').split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimEnd()
+    const wasAfterItem = afterItem
+    afterItem = false
     if (!trimmed) {
       endParagraph()
+      endQuote()
+      continue
+    }
+    const fence = fenceOf(trimmed)
+    if (fence) {
+      endParagraph()
+      endQuote()
+      indents = []
+      const code: string[] = []
+      for (i++; i < lines.length && !lines[i].trim().startsWith(fence); i++) code.push(lines[i])
+      blocks.push({ kind: 'Code', runs: code.length > 0 ? [{ text: code.join('\n') }] : [] })
+      continue
+    }
+    if (trimmed.trimStart().startsWith('>')) {
+      endParagraph()
+      indents = []
+      const rest = trimmed.trimStart().slice(1).replace(/^ /, '')
+      if (rest) quote.push(rest)
+      else endQuote()
+      continue
+    }
+    endQuote()
+    const heading = /^ {0,3}(#{1,6}) +(.*?)(?: +#+)?$/.exec(trimmed)
+    const item = listItem(trimmed)
+    if (heading) {
+      endParagraph()
+      indents = []
+      blocks.push({ kind: 'Heading', level: heading[1].length, runs: inline(heading[2]) })
+    } else if (/^ {0,3}(?:-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      endParagraph()
+      indents = []
+      blocks.push({ kind: 'Rule', runs: [] })
+    } else if (trimmed.includes('|') && /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/.test(lines[i + 1]?.trimEnd() ?? '')) {
+      endParagraph()
+      indents = []
+      blocks.push(tableRow(trimmed))
+      for (i += 2; i < lines.length && lines[i].includes('|') && lines[i].trim(); i++) blocks.push(tableRow(lines[i].trimEnd()))
+      i--
     } else if (item) {
       endParagraph()
-      blocks.push({ kind: item.kind, runs: inline(item.text) })
+      const indent = trimmed.length - trimmed.trimStart().length
+      indents = indents.filter((at) => at <= indent)
+      if (indents.at(-1) !== indent) indents.push(indent)
+      const level = Math.min(indents.length - 1, MAX_LIST_LEVEL)
+      blocks.push({ kind: item.kind, runs: inline(item.text), ...(level > 0 ? { level } : {}), ...(item.done ? { done: true } : {}) })
+      afterItem = true
+    } else if (wasAfterItem) {
+      // A line right after a list item goes on with it.
+      blocks.at(-1)!.runs.push(...inline(`\n${trimmed.trimStart()}`))
+      afterItem = true
     } else {
+      indents = []
       paragraph.push(trimmed)
     }
   }
   endParagraph()
+  endQuote()
   return blocks
 }

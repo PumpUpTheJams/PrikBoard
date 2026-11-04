@@ -9,7 +9,8 @@ namespace PrikBoard.Api.Contracts;
 /// </summary>
 /// <param name="Cards">The deleted cards (matching the search, if one was given), most recently deleted first. Each keeps the place it had on the board (x, y), where restoreCard puts it back.</param>
 /// <param name="Images">Images deleted along with those cards. Download them from contentUrl.</param>
-public record TrashContents(IReadOnlyList<CardDetail> Cards, IReadOnlyList<ImageDetail> Images);
+/// <param name="Labels">Labels deleted along with those cards.</param>
+public record TrashContents(IReadOnlyList<CardDetail> Cards, IReadOnlyList<ImageDetail> Images, IReadOnlyList<LabelDetail> Labels);
 
 /// <summary>What emptyTrash did.</summary>
 /// <param name="Purged">How many cards were deleted for good (their images and drawings went with them).</param>

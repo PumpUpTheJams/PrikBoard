@@ -1,15 +1,11 @@
-import { lazy, Suspense, useEffect, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
+import { useState, type FormEvent, type PointerEvent, type ReactNode } from 'react'
 import type { ChecklistItem, CardComponent, CardDetail, CardLink, Rect, ResizeHandle } from '../api/types'
 import { componentKinds } from './componentKinds'
-import { EditableText } from './EditableText'
 import { Highlight } from './Highlight'
 import type { SearchTerm } from './search'
 import { CloseIcon, LinkIcon, CardIcon, PencilIcon, PullRequestIcon, TrashIcon } from './icons'
 import { isCardId, linkedCard, cardLabel, cardPath, cardRoute, type CardRoute } from './links'
 import { ResizeHandles } from './ResizeHandles'
-
-// Loaded on first use, so react-markdown stays out of the main bundle.
-const MarkdownView = lazy(() => import('../components/MarkdownView'))
 
 interface ComponentFrameProps {
   component: CardComponent
@@ -111,73 +107,6 @@ function ComponentTitle({ value, placeholder, readOnly, onSave }: { value: strin
         setDraft(null)
       }}
     />
-  )
-}
-
-interface TextComponentProps {
-  text: string
-  autoFocus: boolean
-  readOnly?: boolean
-  onChange: (text: string) => void
-}
-
-/**
- * A note, in Markdown: rendered while it isn't being edited, and a plain text area while it is. A click on the rendered
- * text edits it (unless it lands on a link or ends a text selection); an empty component is always the text area.
- */
-export function TextComponent({ text, autoFocus, readOnly, onChange }: TextComponentProps) {
-  const [editing, setEditing] = useState(false)
-  const field = useRef<HTMLInputElement & HTMLTextAreaElement>(null)
-
-  // Entering edit mode by clicking puts the text cursor at the end, rather than selecting everything like a new component.
-  useEffect(() => {
-    const area = field.current
-    if (!editing || !area) return
-    area.focus({ preventScroll: true })
-    area.setSelectionRange(area.value.length, area.value.length)
-  }, [editing])
-
-  function edit(e: MouseEvent<HTMLElement>) {
-    if (readOnly || (e.target as HTMLElement).closest('a')) return
-    if (!window.getSelection()?.isCollapsed) return
-    setEditing(true)
-  }
-
-  if (editing || (!text.trim() && !readOnly)) {
-    return (
-      <EditableText
-        className="component-text"
-        label="Note"
-        value={text}
-        maxLength={4000}
-        multiline
-        autoFocus={autoFocus && !editing}
-        readOnly={readOnly}
-        fieldRef={field}
-        placeholder="Add details in Markdown: context, decisions, anything that doesn't fit on the card."
-        onSave={onChange}
-        onDone={() => setEditing(false)}
-      />
-    )
-  }
-
-  return (
-    <div
-      className="component-text component-view"
-      title={readOnly ? undefined : 'Click to edit'}
-      tabIndex={readOnly ? undefined : 0}
-      onClick={edit}
-      onKeyDown={(e) => {
-        if (!readOnly && e.target === e.currentTarget && e.key === 'Enter') {
-          e.preventDefault()
-          setEditing(true)
-        }
-      }}
-    >
-      <Suspense fallback={<div className="component-plain">{text}</div>}>
-        <MarkdownView text={text} />
-      </Suspense>
-    </div>
   )
 }
 

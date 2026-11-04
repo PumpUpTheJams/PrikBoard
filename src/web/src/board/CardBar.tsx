@@ -43,7 +43,7 @@ interface CardBarProps {
 export function CardBar({ onAdd, onAddImage, pen, label, onDelete }: CardBarProps) {
   return (
     <div className="rail card-bar" role="toolbar" aria-label="Card tools">
-      {(['Text', 'Checklist', 'Links'] as const).map((kind) => {
+      {(['Checklist', 'Links'] as const).map((kind) => {
         const { label, Icon } = componentKinds[kind]
         return (
           <button key={kind} type="button" className="rail-button" aria-label={`Add ${label.toLowerCase()}`} title={`Add ${label.toLowerCase()}`} onClick={() => onAdd(kind)}>

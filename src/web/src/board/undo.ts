@@ -120,7 +120,6 @@ export const snap = {
   component: (b: CardComponent): Snapshot => ({
     kind: b.kind,
     title: b.title,
-    text: b.text,
     items: b.items,
     links: b.links,
     x: b.x,
@@ -131,7 +130,7 @@ export const snap = {
   bucket: (b: BucketDetail): Snapshot => ({ name: b.name, x: b.x, y: b.y, width: b.width, height: b.height, collapsed: b.collapsed }),
   image: (i: ImageDetail): Snapshot => ({ cardId: i.cardId, x: i.x, y: i.y, bucketId: i.bucketId, width: i.width, caption: i.caption }),
   drawing: (d: DrawingDetail): Snapshot => ({ cardId: d.cardId, x: d.x, y: d.y, bucketId: d.bucketId, colors: d.colors }),
-  label: (l: LabelDetail): Snapshot => ({ cardId: l.cardId, x: l.x, y: l.y, bucketId: l.bucketId, ink: l.ink, size: l.size, content: l.content, width: l.width, height: l.height }),
+  label: (l: LabelDetail): Snapshot => ({ cardId: l.cardId, x: l.x, y: l.y, bucketId: l.bucketId, ink: l.ink, size: l.size, content: l.content, width: l.width, height: l.height, wrapWidth: l.wrapWidth, background: l.background }),
   /**
    * A drawing's corner, strokes as loaded here (null when they aren't loaded, as after someone else changed them) and
    * inks: erasing can change how many strokes it has, so writing it back sends the inks too.
@@ -186,7 +185,7 @@ export function cardEdit(before: CardDetail, after: CardDetail, changes: CardCha
   })
 }
 
-const componentLabels: Record<string, string> = { title: 'Edit component title', text: 'Edit text', items: 'Edit checklist', links: 'Edit links' }
+const componentLabels: Record<string, string> = { title: 'Edit component title', items: 'Edit checklist', links: 'Edit links' }
 
 /** The step for an edit of a component's content (updateCardComponent). */
 export function componentEdit(cardId: string, before: CardComponent, after: CardComponent, changes: CardComponentChanges): UndoEntry | null {
@@ -388,7 +387,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
     if (t.kind === 'card') await api.restoreCard(t.id)
     else if (t.kind === 'component') {
       const b = to as unknown as CardComponent
-      await api.addCardComponent(t.cardId, { id: t.id, kind: b.kind, title: b.title, text: b.text, items: b.items, links: b.links, x: b.x, y: b.y, width: b.width, height: b.height })
+      await api.addCardComponent(t.cardId, { id: t.id, kind: b.kind, title: b.title, items: b.items, links: b.links, x: b.x, y: b.y, width: b.width, height: b.height })
     } else if (t.kind === 'bucket') await api.restoreBucket(t.id)
     else if (t.kind === 'image') await api.restoreImage(t.id)
     else if (t.kind === 'drawing') await api.restoreDrawing(t.id)
@@ -406,7 +405,6 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
     case 'component': {
       const changes = { ...to } as CardComponentChanges
       if ('title' in to) changes.title = text(to.title)
-      if ('text' in to) changes.text = text(to.text)
       await api.updateCardComponent(t.cardId, t.id, changes)
       return
     }
@@ -462,6 +460,8 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
       if ('ink' in to) changes.ink = to.ink as LabelChanges['ink']
       if ('size' in to) changes.size = to.size as LabelChanges['size']
       if ('content' in to) changes.content = to.content as LabelChanges['content']
+      if ('wrapWidth' in to) changes.wrapWidth = (to.wrapWidth as number | null) ?? 0
+      if ('background' in to) changes.background = to.background as boolean
       // Measured with the text, so they go back with it.
       if ('width' in to) Object.assign(changes, { width: to.width, height: to.height ?? board.labels.find((l) => l.id === t.id)?.height })
       else if ('height' in to) Object.assign(changes, { height: to.height, width: board.labels.find((l) => l.id === t.id)?.width })

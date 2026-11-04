@@ -360,7 +360,7 @@ public static class ImageEndpoints
             var attached = await db.Images.AsNoTracking().Where(i => i.CardId == card.Id && i.Id != image.Id).ToListAsync(ct);
             (image.X, image.Y) = x is { } cardX && y is { } cardY
                 ? Layout.OnCardCanvas(cardX, cardY, image.Width, image.Height)
-                : Layout.NextCardSpot(Layout.TakenOnCard(card, attached), image.Width, image.Height);
+                : Layout.NextCardSpot(Layout.TakenOnCard(card, attached, await db.Labels.AsNoTracking().Where(l => l.CardId == card.Id).ToListAsync(ct)), image.Width, image.Height);
             return;
         }
         (image.X, image.Y) = x is { } boardX && y is { } boardY

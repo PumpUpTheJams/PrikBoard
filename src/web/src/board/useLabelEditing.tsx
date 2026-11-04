@@ -2,7 +2,8 @@ import { useCallback, useRef, useState, type RefObject } from 'react'
 import type { DropBucket, InkColor, LabelBlock, LabelDetail, LabelSize, Point } from '../api/types'
 import { LabelEditing } from './LabelEditing'
 import { LabelView } from './LabelView'
-import { allHave, isBlankLabel, measureLabel, toggleAll, type LabelFormat, type LabelListKind } from './labels'
+import { isBlankLabel, sameContent } from './labels'
+import { measureLabel } from './measureLabel'
 import { ops } from './ops'
 import type { RecordingRun } from './undo'
 
@@ -13,11 +14,11 @@ export interface LabelDraft {
   cardId: string | null
   ink: InkColor
   size: LabelSize
+  wrapWidth: number | null
+  background: boolean
   content: LabelBlock[]
   /** The bucket a new label on the board joins, by where it was clicked. */
   drop?: DropBucket
-  /** What the toolbar of a selected label asked for: done on all of its text once the editor is there. */
-  then?: LabelListKind | 'link'
 }
 
 interface LabelEditingOptions {
@@ -27,6 +28,17 @@ interface LabelEditingOptions {
   canvasRef: RefObject<HTMLElement | null>
 }
 
+const draftOf = (label: LabelDetail): LabelDraft => ({
+  label,
+  at: label,
+  cardId: label.cardId,
+  ink: label.ink,
+  size: label.size,
+  wrapWidth: label.wrapWidth,
+  background: label.background,
+  content: label.content,
+})
+
 /** Editing labels on a canvas (the board's or a card's): the draft, the save when done, and what a selected label's toolbar does. */
 export function useLabelEditing({ boardId, settle, canvasRef }: LabelEditingOptions) {
   const [draft, setDraft] = useState<LabelDraft | null>(null)
@@ -35,28 +47,29 @@ export function useLabelEditing({ boardId, settle, canvasRef }: LabelEditingOpti
   /** Ends the edit in progress, from outside the editor (a press elsewhere). */
   const commit = useRef<(() => void) | null>(null)
 
-  const measure = (content: LabelBlock[], size: LabelSize) => measureLabel(canvasRef.current!, content, size)
+  const measure = (content: LabelBlock[], size: LabelSize, wrapWidth: number | null) => measureLabel(canvasRef.current!, content, size, wrapWidth)
 
-  function finish(from: LabelDraft, content: LabelBlock[], ink: InkColor, size: LabelSize) {
-    setDraft(null)
+  function finish(from: LabelDraft, content: LabelBlock[], ink: InkColor, size: LabelSize, background: boolean) {
     const blank = isBlankLabel(content)
+    // Measured first: it renders at once, and the editor is still there until the draft goes.
+    const box = blank ? null : measure(content, size, from.wrapWidth)
+    setDraft(null)
     if (from.label) {
       if (blank) {
         void settle(...ops.deleteLabel(from.label))
         return
       }
-      const unchanged = ink === from.label.ink && size === from.label.size && JSON.stringify(content) === JSON.stringify(from.label.content)
+      const unchanged = ink === from.label.ink && size === from.label.size && background === from.label.background && sameContent(content, from.label.content)
       if (unchanged) return
     } else if (blank) {
       return
     }
-    const box = measure(content, size)
-    const shown = { ...from, content, ink, size }
+    const shown = { ...from, content, ink, size, background }
     setSaving(shown)
     const done = () => setSaving((s) => (s === shown ? null : s))
     const saved = from.label
-      ? settle(...ops.editLabel(from.label, { content, ink, size, ...box }, 'Edit label', ['content', 'ink', 'size', 'width', 'height']))
-      : settle(...ops.addLabel(boardId, { content, ink, size, ...from.at, ...box, ...(from.cardId ? { cardId: from.cardId } : {}), ...from.drop }))
+      ? settle(...ops.editLabel(from.label, { content, ink, size, background, ...box! }, 'Edit label', ['content', 'ink', 'size', 'background', 'width', 'height']))
+      : settle(...ops.addLabel(boardId, { content, ink, size, background, ...from.at, ...box!, ...(from.cardId ? { cardId: from.cardId } : {}), ...from.drop }))
     void saved.finally(done)
   }
 
@@ -67,10 +80,10 @@ export function useLabelEditing({ boardId, settle, canvasRef }: LabelEditingOpti
     commit: () => commit.current?.(),
     /** A new label at a canvas point. */
     startNew: useCallback((at: Point, style: { ink: InkColor; size: LabelSize }, cardId: string | null, drop?: DropBucket) => {
-      setDraft({ label: null, at, cardId, ...style, content: [], drop })
+      setDraft({ label: null, at, cardId, ...style, wrapWidth: null, background: cardId !== null, content: [], drop })
     }, []),
-    edit: useCallback((label: LabelDetail, then?: LabelDraft['then']) => {
-      setDraft({ label, at: label, cardId: label.cardId, ink: label.ink, size: label.size, content: label.content, then })
+    edit: useCallback((label: LabelDetail) => {
+      setDraft(draftOf(label))
     }, []),
     /** The editor and its toolbar, on the canvas. */
     editor: (zoom: number, onDelete: (label: LabelDetail) => void) =>
@@ -80,7 +93,7 @@ export function useLabelEditing({ boardId, settle, canvasRef }: LabelEditingOpti
           draft={draft}
           zoom={zoom}
           commitRef={commit}
-          onFinish={(content, ink, size) => finish(draft, content, ink, size)}
+          onFinish={(content, ink, size, background) => finish(draft, content, ink, size, background)}
           onDelete={() => {
             setDraft(null)
             if (draft.label) onDelete(draft.label)
@@ -88,22 +101,20 @@ export function useLabelEditing({ boardId, settle, canvasRef }: LabelEditingOpti
         />
       ),
     /** What was just saved, on the canvas until the reload brings it. */
-    savingView: () => saving && <LabelView label={{ id: saving.label?.id ?? 'new', ink: saving.ink, size: saving.size, content: saving.content }} at={saving.at} />,
-    /** What the toolbar of a selected label (not being edited) does to all of its text. Ink and size are only for editing. */
-    selectedActions: (label: LabelDetail, onDelete: () => void) => {
-      return {
-        isActive: (format: LabelFormat) => allHave(label.content, format),
-        onToggle: (format: LabelFormat) => {
-          const content = toggleAll(label.content, format)
-          void settle(...ops.editLabel(label, { content, ...measure(content, label.size) }, 'Change format', ['content', 'width', 'height']))
-        },
-        listActive: (kind: LabelListKind) => label.content.every((b) => b.kind === kind),
-        // These need the text selected in the editor: they start it, and it does them.
-        onToggleList: (kind: LabelListKind) => setDraft({ label, at: label, cardId: label.cardId, ink: label.ink, size: label.size, content: label.content, then: kind }),
-        linkActive: label.content.some((b) => b.runs.some((r) => r.link)),
-        onLink: () => setDraft({ label, at: label, cardId: label.cardId, ink: label.ink, size: label.size, content: label.content, then: 'link' }),
-        onDelete,
-      }
+    savingView: () => saving && <LabelView label={{ id: saving.label?.id ?? 'new', ink: saving.ink, size: saving.size, content: saving.content, wrapWidth: saving.wrapWidth, background: saving.background }} at={saving.at} />,
+    /** Wraps a selected label's text at a width; 0 stops wrapping. */
+    wrap: (label: LabelDetail, width: number) => {
+      const box = measure(label.content, label.size, width || null)
+      void settle(...ops.editLabel(label, { wrapWidth: width, ...box }, width ? 'Wrap label' : 'Stop wrapping label', ['wrapWidth', 'width', 'height']))
     },
+    /** What the bar of a selected label (not being edited) does. Everything else is for editing. */
+    selectedActions: (label: LabelDetail, onDelete: () => void) => ({
+      background: {
+        on: label.background,
+        onToggle: () => void settle(...ops.editLabel(label, { background: !label.background }, 'Change background', ['background'])),
+      },
+      onEdit: () => setDraft(draftOf(label)),
+      onDelete,
+    }),
   }
 }

@@ -1,35 +1,39 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { lazy, Suspense, useEffect, useRef, type RefObject } from 'react'
 import type { InkColor, LabelBlock, LabelSize } from '../api/types'
 import { inkColor } from './drawings'
 import { LabelText } from './LabelText'
 import { LabelToolbar } from './LabelView'
-import { labelPixels, type LabelEditorHandle } from './labels'
+import { labelPixels } from './labels'
 import type { LabelDraft } from './useLabelEditing'
+import { useLabelTools } from './useLabelTools'
 
-const LabelEditor = lazy(() => import('./LabelEditor'))
+export const LabelEditor = lazy(() => import('./LabelEditor'))
 
 interface LabelEditingProps {
   draft: LabelDraft
   zoom: number
   commitRef: RefObject<(() => void) | null>
-  onFinish: (content: LabelBlock[], ink: InkColor, size: LabelSize) => void
+  onFinish: (content: LabelBlock[], ink: InkColor, size: LabelSize, background: boolean) => void
   onDelete: () => void
 }
 
 /** A label being edited, in place on the canvas, with its toolbar above it. */
 export function LabelEditing({ draft, zoom, commitRef, onFinish, onDelete }: LabelEditingProps) {
-  const [handle, setHandle] = useState<LabelEditorHandle | null>(null)
-  const [ink, setInk] = useState(draft.ink)
-  const [size, setSize] = useState(draft.size)
-  /** The selection changed: what the toolbar shows follows it. */
-  const [, setTick] = useState(0)
-  const [link, setLink] = useState<{ value: string; error: boolean; existing: boolean } | null>(null)
   const finished = useRef(false)
+  const { handle, ink, size, background, onReady, onChange, tools } = useLabelTools({
+    ink: draft.ink,
+    size: draft.size,
+    background: draft.background,
+    onDelete: () => {
+      finished.current = true
+      onDelete()
+    },
+  })
 
   function finish() {
     if (finished.current) return
     finished.current = true
-    onFinish(handle?.blocks() ?? draft.content, ink, size)
+    onFinish(handle?.blocks() ?? draft.content, ink, size, background)
   }
   // The owner calls the latest one when something else is pressed.
   useEffect(() => {
@@ -38,35 +42,6 @@ export function LabelEditing({ draft, zoom, commitRef, onFinish, onDelete }: Lab
       commitRef.current = null
     }
   })
-
-  const openLink = (from: LabelEditorHandle | null) => {
-    const href = from?.linkHref() ?? null
-    setLink({ value: href ?? '', error: false, existing: !!href })
-  }
-
-  // Once the editor is there, what the selected label's toolbar asked for.
-  const then = draft.then
-  const onReady = useCallback((ready: LabelEditorHandle) => {
-    setHandle(ready)
-    if (!then) return
-    ready.selectAll()
-    if (then === 'link') openLink(ready)
-    else ready.toggleList(then)
-  }, [then])
-
-  const onChange = useCallback(() => setTick((t) => t + 1), [])
-
-  function applyLink() {
-    if (!link) return
-    const url = link.value.trim()
-    if (!handle?.setLink(url)) {
-      setLink({ ...link, error: true })
-      return
-    }
-    setLink(null)
-  }
-
-  const here = handle ? handle.styleHere({ ink, size }) : { ink, size }
 
   return (
     <div
@@ -81,47 +56,12 @@ export function LabelEditing({ draft, zoom, commitRef, onFinish, onDelete }: Lab
         finish()
       }}
     >
-      <div className="label editing" style={{ color: inkColor[ink], fontSize: labelPixels[size] }}>
+      <div className={`label editing${draft.wrapWidth ? ' wraps' : ''}${background ? ' with-background' : ''}`} style={{ color: inkColor[ink], fontSize: labelPixels[size], width: draft.wrapWidth ?? undefined }}>
         <Suspense fallback={<LabelText content={draft.content} />}>
           <LabelEditor content={draft.content} onReady={onReady} onChange={onChange} onDone={finish} />
         </Suspense>
       </div>
-      <LabelToolbar
-        rect={{ x: 0, y: 0, width: 0, height: 0 }}
-        zoom={zoom}
-        isActive={(format) => !!handle?.isActive(format)}
-        onToggle={(format) => handle?.toggle(format)}
-        listActive={(kind) => !!handle?.listActive(kind)}
-        onToggleList={(kind) => handle?.toggleList(kind)}
-        linkActive={!!handle?.linkHref()}
-        onLink={() => (link ? setLink(null) : openLink(handle))}
-        style={{
-          ink: here.ink,
-          size: here.size,
-          // For the text selected, or what is typed next at the cursor; only a label with no text yet takes it as its own.
-          onInk: (value) => (handle && !handle.isEmpty() ? handle.setInk(value) : setInk(value)),
-          onSize: (value) => (handle && !handle.isEmpty() ? handle.setSize(value) : setSize(value)),
-        }}
-        onDelete={() => {
-          finished.current = true
-          onDelete()
-        }}
-        link={
-          link && {
-            ...link,
-            onChange: (value) => setLink({ ...link, value, error: false }),
-            onApply: applyLink,
-            onRemove: () => {
-              handle?.unsetLink()
-              setLink(null)
-            },
-            onCancel: () => {
-              setLink(null)
-              handle?.focus()
-            },
-          }
-        }
-      />
+      <LabelToolbar rect={{ x: 0, y: 0, width: 0, height: 0 }} zoom={zoom} {...tools} />
     </div>
   )
 }

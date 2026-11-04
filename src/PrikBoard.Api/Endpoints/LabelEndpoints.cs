@@ -18,7 +18,7 @@ public static class LabelEndpoints
             .RequireBoardRole(BoardRole.Editor)
             .WithName("createLabel")
             .WithSummary("Add a label")
-            .WithDescription("Adds rich text without a background to the board, or to a card's own canvas with cardId. Give its text as content " +
+            .WithDescription("Adds rich text to the board, without a background unless you ask for one, or to a card's own canvas with cardId, with one unless you say otherwise. Give its text as content " +
                              "or markdown, and x and y (snapped to the 20 px grid), or leave them out for a free spot. Give the width and " +
                              "height you measured, if you can; otherwise the server estimates them from the text. " +
                              $"A board holds at most {BoardLabel.MaxPerBoard} labels (409 beyond that).")
@@ -29,7 +29,7 @@ public static class LabelEndpoints
             .RequireBoardRole(BoardRole.Editor, BoardScope.Label)
             .WithName("updateLabel")
             .WithSummary("Change or move a label")
-            .WithDescription("Changes its text, position, ink or size, puts it on a card's canvas (cardId, with x and y on that canvas), or puts a " +
+            .WithDescription("Changes its text, position, ink, size or background, puts it on a card's canvas (cardId, with x and y on that canvas), or puts a " +
                              "label on a card back on the board (detach, with x and y on the board). Omitted fields stay unchanged. New " +
                              "markdown keeps the label's own ink and size, but loses underline and any ink or size on single words.")
             .ProducesValidationProblem();
@@ -81,8 +81,10 @@ public static class LabelEndpoints
             CardId = request.CardId,
             Ink = request.Ink,
             Size = request.Size,
+            Background = request.Background ?? request.CardId is not null,
             AddedBy = await db.Principals.FindAsync([principal.PrincipalId()], ct),
         };
+        label.SetWrap(request.WrapWidth);
         label.SetContent(await ShortenLinksAsync(db, boardId, blocks!, ct));
         Measure(label, request.Width, request.Height);
 
@@ -117,6 +119,12 @@ public static class LabelEndpoints
         if (request.CardId is not null && detach) return Problems.Invalid("detach", "Give either a cardId or detach, not both.");
         if (SizeProblem(request.Width, request.Height) is { } halfSize) return halfSize;
         if (Blocks(request.Content, request.Markdown, required: false, out var blocks) is { } invalid) return invalid;
+        if (!string.IsNullOrWhiteSpace(request.AppendText))
+        {
+            var (appended, tooMuch) = BoardLabel.Check([.. blocks ?? label.Content, .. LabelMarkdown.Parse(request.AppendText)]);
+            if (tooMuch is { } bad) return Problems.Invalid("appendText", bad.Message);
+            blocks = appended;
+        }
 
         var moving = (request.CardId is { } to && to != label.CardId) || (detach && label.CardId is not null);
         // Onto a card, it finds a free spot by itself without a place (as an image does); onto the board, it needs one.
@@ -143,8 +151,12 @@ public static class LabelEndpoints
         if (blocks is not null) label.SetContent(await ShortenLinksAsync(db, label.BoardId, blocks, ct));
         if (request.Ink is { } ink) label.Ink = ink;
         if (request.Size is { } size) label.Size = size;
+        if (request.WrapWidth is { } wrap) label.SetWrap(wrap);
+        if (request.Background is { } background) label.Background = background;
         if (request.Width is not null) Measure(label, request.Width, request.Height);
-        else if (blocks is not null || request.Size is not null) label.Estimate();
+        // Someone who just stopped it wrapping means it.
+        else if (request.WrapWidth == 0) label.Estimate();
+        else if (blocks is not null || request.Size is not null || request.WrapWidth is not null) label.EstimateAndWrap();
 
         if (moving && !detach && request.X is null) await FreeSpotAsync(db, label, ct);
         else Place(label, request.X ?? label.X, request.Y ?? label.Y);
@@ -214,10 +226,35 @@ public static class LabelEndpoints
         label.SetContent(blocks!);
         label.Ink = source.Ink;
         label.Size = source.Size;
+        label.SetWrap(source.WrapWidth);
+        label.Background = source.Background ?? source.CardId is not null;
         if (source.Width is { } width && source.Height is { } height) label.SetSize(width, height);
         else label.Estimate();
         Place(label, source.X, source.Y);
         return null;
+    }
+
+    /// <summary>
+    /// A new card's text as a label at the top of its canvas, not yet added to the database: what createCard's body and agents' and
+    /// chats' cards get.
+    /// </summary>
+    internal static async Task<(BoardLabel? Label, ValidationProblem? Problem)> CardBodyAsync(PrikBoardDbContext db, Card card, string markdown, ClaimsPrincipal principal, CancellationToken ct)
+    {
+        var (blocks, problem) = BoardLabel.Check(LabelMarkdown.Parse(markdown));
+        if (problem is { } bad) return (null, Problems.Invalid("body", bad.Message));
+        var label = new BoardLabel
+        {
+            BoardId = card.BoardId,
+            CardId = card.Id,
+            X = Layout.Grid,
+            Y = Layout.Grid,
+            Size = BoardLabel.CardTextSize,
+            Background = true,
+            AddedById = principal.PrincipalId(),
+        };
+        label.SetContent(await ShortenLinksAsync(db, card.BoardId, blocks!, ct));
+        label.EstimateAndWrap();
+        return (label, null);
     }
 
     /// <summary>The blocks a request gives, as content or markdown, checked; null with none (a problem when <paramref name="required"/>).</summary>
@@ -241,7 +278,7 @@ public static class LabelEndpoints
     private static void Measure(BoardLabel label, int? width, int? height)
     {
         if (width is { } w && height is { } h) label.SetSize(w, h);
-        else label.Estimate();
+        else label.EstimateAndWrap();
     }
 
     /// <summary>Snaps x and y; on a card, also keeps the label on its canvas, at the last grid line that fits.</summary>
@@ -276,7 +313,7 @@ public static class LabelEndpoints
     private static async Task<List<LabelBlock>> ShortenLinksAsync(PrikBoardDbContext db, Guid boardId, List<LabelBlock> blocks, CancellationToken ct)
     {
         var ids = new List<Guid>();
-        foreach (var run in blocks.SelectMany(b => b.Runs))
+        foreach (var run in blocks.SelectMany(b => b.AllRuns()))
         {
             if (run.Link is { } link && CardLinks.TryParse(link, out var target) && !target.ByNumber) ids.Add(target.CardId);
         }
@@ -288,5 +325,12 @@ public static class LabelEndpoints
 
     /// <summary>The blocks with each link replaced; a null drops the link and keeps its text.</summary>
     internal static List<LabelBlock> MapLinks(List<LabelBlock> blocks, Func<string, string?> map) =>
-        [.. blocks.Select(block => block with { Runs = [.. block.Runs.Select(run => run.Link is { } link ? run with { Link = map(link) } : run)] })];
+        [.. blocks.Select(block => block with
+        {
+            Runs = MapRunLinks(block.Runs, map),
+            Cells = block.Cells?.ConvertAll(cell => MapRunLinks(cell, map)),
+        })];
+
+    private static List<LabelRun> MapRunLinks(List<LabelRun> runs, Func<string, string?> map) =>
+        [.. runs.Select(run => run.Link is { } link ? run with { Link = map(link) } : run)];
 }

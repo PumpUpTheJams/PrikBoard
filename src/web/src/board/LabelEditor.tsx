@@ -1,12 +1,14 @@
 import { useEffect, useMemo } from 'react'
+import { TaskItem, TaskList } from '@tiptap/extension-list'
+import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { TextStyleKit } from '@tiptap/extension-text-style'
 import { EditorContent, useEditor, type Editor, type JSONContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import { inkColors, labelSizes, type InkColor, type LabelBlock, type LabelSize } from '../api/types'
+import { labelInks, labelSizes, type InkColor, type LabelBlock, type LabelSize } from '../api/types'
 import { inkColor } from './drawings'
 import { blocksOf, docOf, type DocNode } from './labelDoc'
 import { parseLabelMarkdown } from './labelMarkdown'
-import { isLabelLink, labelPixels, type LabelEditorHandle, type LabelFormat } from './labels'
+import { isLabelLink, labelPixels, type LabelBlockTool, type LabelEditorHandle, type LabelFormat } from './labels'
 
 interface LabelEditorProps {
   content: LabelBlock[]
@@ -18,25 +20,30 @@ interface LabelEditorProps {
   onDone: () => void
 }
 
+const blockNodes: Record<LabelBlockTool, string> = { Heading: 'heading', Task: 'taskList', Quote: 'blockquote', Code: 'codeBlock', Table: 'table' }
+
 /** Lazy loaded: Tiptap is big, and only those who edit a label need it. Viewing one takes `LabelText`. */
 export default function LabelEditor({ content, onReady, onChange, onDone }: LabelEditorProps) {
   const editor: Editor = useEditor({
     extensions: [
       StarterKit.configure({
-        heading: false,
-        codeBlock: false,
-        code: false,
-        blockquote: false,
-        horizontalRule: false,
         dropcursor: false,
         gapcursor: false,
         trailingNode: false,
         link: { openOnClick: false, autolink: false, linkOnPaste: false, enableClickSelection: false, isAllowedUri: (url) => isLabelLink(url), HTMLAttributes: { target: null, rel: null } },
       }),
       TextStyleKit.configure({ backgroundColor: false, fontFamily: false, lineHeight: false }),
+      TaskList,
+      TaskItem.configure({ nested: true }),
+      Table.configure({ resizable: false, cellMinWidth: 0 }),
+      TableRow,
+      TableHeader,
+      TableCell,
     ],
     content: docOf(content) as JSONContent,
-    autofocus: 'end',
+    // Not by the autofocus option, which scrolls to the end: the board stays where it is until something is typed. And not from
+    // an effect, which can get an editor already destroyed: Tiptap drops the one of a render React gave up on.
+    onCreate: ({ editor: created }) => void created.commands.focus('end', { scrollIntoView: false }),
     onSelectionUpdate: onChange,
     onTransaction: onChange,
     editorProps: {
@@ -48,9 +55,15 @@ export default function LabelEditor({ content, onReady, onChange, onDone }: Labe
           onDone()
           return true
         }
-        // Labels' lists are flat, so Tab doesn't nest them; it stays out of the way rather than leaving the label.
+        // Tab nests a list item and moves through a table; anywhere else it stays out of the way rather than leaving the label.
         if (event.key === 'Tab') {
           event.preventDefault()
+          const chain = editor.chain()
+          if (editor.isActive('table')) void (event.shiftKey ? chain.goToPreviousCell() : chain.goToNextCell()).run()
+          else {
+            const item = editor.isActive('taskItem') ? 'taskItem' : 'listItem'
+            if (editor.isActive(item)) void (event.shiftKey ? chain.liftListItem(item) : chain.sinkListItem(item)).run()
+          }
           return true
         }
         return false
@@ -60,7 +73,7 @@ export default function LabelEditor({ content, onReady, onChange, onDone }: Labe
         // What another editor copied has its own formatting; plain text is read as Markdown.
         if (!data || data.getData('text/html')) return false
         const text = data.getData('text/plain')
-        if (!text.includes('\n') && !/[*~[\]]/.test(text) && !/^\s*(?:[-*]|\d+\.) /.test(text)) return false
+        if (!text.includes('\n') && !/[*~`[\]]/.test(text) && !/^\s*(?:[-*>#]|\d+\.) /.test(text)) return false
         const parsed = parseLabelMarkdown(text)
         if (parsed.length === 0) return false
         const single = parsed.length === 1 && parsed[0].kind === 'Paragraph'
@@ -73,11 +86,10 @@ export default function LabelEditor({ content, onReady, onChange, onDone }: Labe
   const handle = useMemo((): LabelEditorHandle => ({
     blocks: () => blocksOf(editor.getJSON() as DocNode),
     focus: () => editor.commands.focus(),
-    selectAll: () => editor.commands.selectAll(),
     isEmpty: () => editor.isEmpty,
     styleHere(base) {
       const styleOf = (attrs: Record<string, unknown>) => ({
-        ink: inkColors.find((c) => inkColor[c] === attrs.color) ?? base.ink,
+        ink: labelInks.find((c) => inkColor[c] === attrs.color) ?? base.ink,
         size: labelSizes.find((s) => `${labelPixels[s]}px` === attrs.fontSize) ?? base.size,
       })
       const { empty, from, to } = editor.state.selection
@@ -98,6 +110,7 @@ export default function LabelEditor({ content, onReady, onChange, onDone }: Labe
       if (format === 'bold') chain.toggleBold().run()
       else if (format === 'italic') chain.toggleItalic().run()
       else if (format === 'underline') chain.toggleUnderline().run()
+      else if (format === 'code') chain.toggleCode().run()
       else chain.toggleStrike().run()
     },
     listActive: (kind) => editor.isActive(kind === 'Bullet' ? 'bulletList' : 'orderedList'),
@@ -105,6 +118,16 @@ export default function LabelEditor({ content, onReady, onChange, onDone }: Labe
       const chain = editor.chain().focus()
       if (kind === 'Bullet') chain.toggleBulletList().run()
       else chain.toggleOrderedList().run()
+    },
+    blockActive: (kind: LabelBlockTool) => editor.isActive(blockNodes[kind]),
+    toggleBlock(kind) {
+      const chain = editor.chain().focus()
+      if (kind === 'Heading') chain.toggleHeading({ level: 2 }).run()
+      else if (kind === 'Task') chain.toggleTaskList().run()
+      else if (kind === 'Quote') chain.toggleBlockquote().run()
+      else if (kind === 'Code') chain.toggleCodeBlock().run()
+      else if (editor.isActive('table')) chain.deleteTable().run()
+      else chain.insertTable({ rows: 3, cols: 2, withHeaderRow: true }).run()
     },
     setInk: (ink) => void editor.chain().focus().setColor(inkColor[ink]).run(),
     setSize: (size) => void editor.chain().focus().setFontSize(`${labelPixels[size]}px`).run(),

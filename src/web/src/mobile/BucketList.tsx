@@ -3,7 +3,7 @@ import type { BoardDetail, CardDetail } from '../api/types'
 import { Card } from '../board/Card'
 import { BucketIcon, ChevronRightIcon, CloseIcon, SearchIcon, SparkleIcon } from '../board/icons'
 import { bucketPath, cardLabel, LOOSE } from '../board/links'
-import { foundByNumber, matchCard, searchTerms, type SearchTerm } from '../board/search'
+import { foundByNumber, labelsByCard, matchCard, searchTerms, type SearchTerm } from '../board/search'
 import type { TagColors } from '../board/tagColors'
 import { bucketItems, bucketsInOrder, hasLoose, itemCount } from './items'
 import { navigate } from './nav'
@@ -99,9 +99,10 @@ export function BucketList({ board, tagColors, query, onQuery, actions }: Bucket
 
 /** The cards on the board that match, under the bucket each is in (in the buckets' order), a card found by its number first. */
 function SearchResults({ board, terms, tagColors }: { board: BoardDetail; terms: SearchTerm[]; tagColors: TagColors }) {
+  const cardLabels = labelsByCard(board.labels)
   const groups = [...bucketsInOrder(board).map((b) => ({ id: b.id, name: b.name })), { id: LOOSE, name: 'Not in a bucket' }]
     .map((group) => {
-      const cards = bucketItems(board, group.id).flatMap((i) => (i.kind === 'card' && matchCard(i.card, terms) ? [i.card] : []))
+      const cards = bucketItems(board, group.id).flatMap((i) => (i.kind === 'card' && matchCard(i.card, terms, cardLabels) ? [i.card] : []))
       return { ...group, cards: [...cards.filter((c) => foundByNumber(c, terms)), ...cards.filter((c) => !foundByNumber(c, terms))] }
     })
     .filter((g) => g.cards.length > 0)
@@ -121,6 +122,7 @@ function SearchResults({ board, terms, tagColors }: { board: BoardDetail; terms:
               key={card.id}
               card={card}
               images={attached(card)}
+              labels={cardLabels.get(card.id)?.length ?? 0}
               tagColors={tagColors}
               selected={false}
               lifted={false}

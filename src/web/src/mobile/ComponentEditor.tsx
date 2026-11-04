@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { CardComponent, CardComponentKind, CardDetail } from '../api/types'
-import { ChecklistComponent, ComponentFrame, LinksComponent, TextComponent } from '../board/CardComponents'
+import { ChecklistComponent, ComponentFrame, LinksComponent } from '../board/CardComponents'
 import { componentKinds } from '../board/componentKinds'
 import { TrashIcon } from '../board/icons'
 
@@ -29,7 +29,6 @@ export function ComponentEditor({ kind, card, cards, component, onCancel, onSave
   const [draft, setDraft] = useState<ComponentDraft>(() => ({
     kind,
     title: component?.title ?? null,
-    text: component?.text ?? null,
     items: component?.items ?? (kind === 'Checklist' ? [] : null),
     links: component?.links ?? (kind === 'Links' ? [] : null),
   }))
@@ -81,16 +80,11 @@ export function ComponentEditor({ kind, card, cards, component, onCancel, onSave
           onTitle={(title) => void change({ title: title || null })}
           onRemove={onRemove ?? onCancel}
         >
-          {kind === 'Text' && <TextComponent text={draft.text ?? ''} autoFocus onChange={(text) => void change({ text })} />}
           {kind === 'Checklist' && <ChecklistComponent items={draft.items ?? []} autoFocus onChange={(items) => change({ items })} />}
           {kind === 'Links' && <LinksComponent links={draft.links ?? []} card={card} cards={cards} autoFocus onChange={(links) => change({ links })} />}
         </ComponentFrame>
         <p className="m-note">
-          {kind === 'Checklist'
-            ? 'Enter adds an item and keeps the field open for the next.'
-            : kind === 'Links'
-              ? 'Paste an http(s) address, or type to find a card on this board.'
-              : 'Markdown works: **bold**, lists, links.'}
+          {kind === 'Checklist' ? 'Enter adds an item and keeps the field open for the next.' : 'Paste an http(s) address, or type to find a card on this board.'}
         </p>
         {component && onRemove && (
           <button type="button" className="m-action danger" onClick={onRemove}>

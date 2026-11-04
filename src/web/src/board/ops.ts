@@ -162,7 +162,7 @@ export function bucketDelete(board: BoardDetail, bucket: BucketDetail): (UndoCha
 }
 
 /** Whether a component is empty. Removing an empty one shows no undo toast, though it can still be undone. */
-export const isEmptyComponent = (c: CardComponent) => !c.text && !c.items?.length && !c.links?.length && !c.title
+export const isEmptyComponent = (c: CardComponent) => !c.items?.length && !c.links?.length && !c.title
 
 const blank = (text: string | null | undefined) => !text?.trim()
 
@@ -172,7 +172,7 @@ const blank = (text: string | null | undefined) => !text?.trim()
  */
 export function isBlankCard(board: Pick<BoardDetail, 'images' | 'drawings' | 'labels'>, card: CardDetail) {
   const blankComponent = (c: CardComponent) =>
-    blank(c.title) && blank(c.text) && (c.items ?? []).every((i) => blank(i.text)) && (c.links ?? []).every((l) => blank(l.title) && blank(l.url))
+    blank(c.title) && (c.items ?? []).every((i) => blank(i.text)) && (c.links ?? []).every((l) => blank(l.title) && blank(l.url))
   return (
     blank(card.title) &&
     card.tags.length === 0 &&

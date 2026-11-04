@@ -1,32 +1,38 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { labelSizes, type InkColor, type LabelDetail, type LabelSize, type Point, type Rect } from '../api/types'
+import { labelInks, labelSizes, type InkColor, type LabelDetail, type LabelSize, type Point, type Rect } from '../api/types'
 import { inkColor } from './drawings'
 import { keepPress } from './gesture'
 import { LabelText } from './LabelText'
 import { LinkIcon, ListBulletIcon, ListNumberIcon, TrashIcon } from './icons'
 import { InkSwatches } from './DrawingView'
-import { labelPixels, type LabelFormat, type LabelListKind } from './labels'
+import { labelPixels, type LabelBlockTool, type LabelFormat, type LabelListKind } from './labels'
 
 interface LabelViewProps {
-  label: Pick<LabelDetail, 'id' | 'ink' | 'size' | 'content'>
-  /** Where it is shown; its size comes from its text. */
-  at: Point
+  label: Pick<LabelDetail, 'id' | 'ink' | 'size' | 'content' | 'wrapWidth' | 'background'>
+  /** Where it is shown; its size comes from its text. Without a place it takes its turn in a list, as in the mobile layout. */
+  at?: Point
   selected?: boolean
   lifted?: boolean
+  /** A search found something in it. */
+  matched?: boolean
   /** Viewers follow its links by the browser's own click; for others a click selects, and the canvas decides. */
   readOnly?: boolean
   onPointerDown?: (e: PointerEvent<HTMLDivElement>) => void
+  /** A mouse came over it or left it (a touch has nothing to hover with). */
+  onHover?: (over: boolean) => void
 }
 
 /** A label on the board or on a card's canvas. */
-export function LabelView({ label, at, selected, lifted, readOnly, onPointerDown }: LabelViewProps) {
+export function LabelView({ label, at, selected, lifted, matched, readOnly, onPointerDown, onHover }: LabelViewProps) {
   return (
     <div
-      className={`label${selected ? ' selected' : ''}${lifted ? ' lifted' : ''}`}
+      className={`label${selected ? ' selected' : ''}${lifted ? ' lifted' : ''}${matched ? ' matched' : ''}${label.wrapWidth ? ' wraps' : ''}${label.background ? ' with-background' : ''}`}
       data-label={label.id}
-      style={{ left: at.x, top: at.y, color: inkColor[label.ink], fontSize: labelPixels[label.size] }}
+      style={{ left: at?.x, top: at?.y, width: label.wrapWidth ?? undefined, color: inkColor[label.ink], fontSize: labelPixels[label.size] }}
       onPointerDown={onPointerDown}
+      onPointerEnter={onHover && ((e) => e.pointerType !== 'touch' && onHover(true))}
+      onPointerLeave={onHover && ((e) => e.pointerType !== 'touch' && onHover(false))}
       onClick={readOnly ? undefined : (e) => e.preventDefault()}
     >
       <LabelText content={label.content} />
@@ -49,6 +55,15 @@ const FORMATS: { format: LabelFormat; letter: string; name: string; className: s
   { format: 'italic', letter: 'I', name: 'Italic', className: 'label-italic' },
   { format: 'underline', letter: 'U', name: 'Underline', className: 'label-underline' },
   { format: 'strike', letter: 'S', name: 'Strikethrough', className: 'label-strike' },
+  { format: 'code', letter: '</>', name: 'Code', className: 'label-code' },
+]
+
+const BLOCKS: { kind: LabelBlockTool; letter: string; name: string }[] = [
+  { kind: 'Heading', letter: 'H', name: 'Heading' },
+  { kind: 'Task', letter: '☑', name: 'Task list' },
+  { kind: 'Quote', letter: '❝', name: 'Quote' },
+  { kind: 'Code', letter: '{ }', name: 'Code block' },
+  { kind: 'Table', letter: '▦', name: 'Table' },
 ]
 
 /** The sizes a label's text can have, as buttons. */
@@ -64,7 +79,7 @@ export function LabelSizes({ value, onChange }: { value: LabelSize | null; onCha
 export function LabelOptions({ ink, onInkChange, size, onSizeChange }: { ink: InkColor; onInkChange: (ink: InkColor) => void; size: LabelSize; onSizeChange: (size: LabelSize) => void }) {
   return (
     <>
-      <InkSwatches value={ink} onChange={onInkChange} />
+      <InkSwatches value={ink} onChange={onInkChange} inks={labelInks} />
       <span className="toolbar-divider" aria-hidden="true" />
       <LabelSizes value={size} onChange={onSizeChange} />
     </>
@@ -82,9 +97,7 @@ export interface LabelLinkField {
   onCancel: () => void
 }
 
-interface LabelToolbarProps {
-  rect: Rect
-  zoom: number
+export interface LabelToolsProps {
   isActive: (format: LabelFormat) => boolean
   onToggle: (format: LabelFormat) => void
   listActive: (kind: LabelListKind) => boolean
@@ -95,6 +108,15 @@ interface LabelToolbarProps {
   link?: LabelLinkField | null
   /** Ink and size, only while the label is being edited. */
   style?: LabelToolbarStyle
+  /** Its background, on or off. */
+  background: { on: boolean; onToggle: () => void }
+  /** Turning text into other blocks, only while the label is being edited. */
+  blocks?: { isActive: (kind: LabelBlockTool) => boolean; onToggle: (kind: LabelBlockTool) => void }
+}
+
+interface LabelToolbarProps extends LabelToolsProps {
+  rect: Rect
+  zoom: number
 }
 
 interface LabelToolbarStyle {
@@ -148,7 +170,8 @@ function clearOfFloating(box: Box, floating: Box[], view: Box) {
 
 /** The toolbar above a selected label or one being edited, at the same size on screen at any zoom. */
 export function LabelToolbar(props: LabelToolbarProps) {
-  const { rect, zoom, isActive, onToggle, listActive, onToggleList, linkActive, onLink, onDelete, link, style } = props
+  const { rect, zoom, ...tools } = props
+  const { link } = tools
   const toolbar = useRef<HTMLDivElement>(null)
   /** How far it slides to stay in view and clear of what floats over the canvas, in screen pixels, and whether it goes below the label for lack of room above. */
   const [place, setPlace] = useState({ x: 0, y: 0, below: 0 })
@@ -194,6 +217,15 @@ export function LabelToolbar(props: LabelToolbarProps) {
         if (!(e.target instanceof HTMLInputElement)) e.preventDefault()
       }}
     >
+      <LabelTools {...tools} />
+    </div>
+  )
+}
+
+/** The buttons of a label's toolbar, on a canvas or on the mobile layout's own screen. */
+export function LabelTools({ isActive, onToggle, listActive, onToggleList, linkActive, onLink, onDelete, link, style, blocks, background }: LabelToolsProps) {
+  return (
+    <>
       {FORMATS.map(({ format, letter, name, className }) => (
         <button key={format} type="button" className={`label-tool ${className}`} title={name} aria-label={name} aria-pressed={isActive(format)} onClick={() => onToggle(format)}>
           {letter}
@@ -209,10 +241,18 @@ export function LabelToolbar(props: LabelToolbarProps) {
       <button type="button" className="label-tool" title="Link" aria-label="Link" aria-pressed={linkActive} onClick={onLink}>
         <LinkIcon />
       </button>
+      <button type="button" className="label-tool label-text-tool" aria-pressed={background.on} onClick={background.onToggle}>
+        Background
+      </button>
+      {blocks && BLOCKS.map(({ kind, letter, name }) => (
+        <button key={kind} type="button" className="label-tool" title={name} aria-label={name} aria-pressed={blocks.isActive(kind)} onClick={() => blocks.onToggle(kind)}>
+          {letter}
+        </button>
+      ))}
       <span className="toolbar-divider" aria-hidden="true" />
       {style && (
         <>
-          <InkSwatches value={style.ink} onChange={style.onInk} />
+          <InkSwatches value={style.ink} onChange={style.onInk} inks={labelInks} />
           <span className="toolbar-divider" aria-hidden="true" />
           <LabelSizes value={style.size} onChange={style.onSize} />
           <span className="toolbar-divider" aria-hidden="true" />
@@ -246,6 +286,135 @@ export function LabelToolbar(props: LabelToolbarProps) {
           {link.error && <span className="label-link-error">Enter an http(s) link or a card link.</span>}
         </div>
       )}
+    </>
+  )
+}
+
+/** Screen pixels between the bar of a label and the label's corner. */
+const BAR_INSET = 8
+
+interface LabelBarProps {
+  rect: Rect
+  zoom: number
+  background: { on: boolean; onToggle: () => void }
+  onEdit: () => void
+  onDelete: () => void
+  onPointerEnter?: () => void
+  onPointerLeave?: () => void
+}
+
+/**
+ * The bar of a selected or hovered label, in its top-right corner like the delete button of an image, at the same size on screen at any
+ * zoom: styling is for editing. It goes above a label too small to hold it, whose text it would cover.
+ */
+export function LabelBar({ rect, zoom, background, onEdit, onDelete, onPointerEnter, onPointerLeave }: LabelBarProps) {
+  const bar = useRef<HTMLDivElement>(null)
+  const [place, setPlace] = useState({ x: 0, y: 0, above: false })
+  const [, rendered] = useReducer((n: number) => n + 1, 0)
+  // Scrolling doesn't render the canvas, but it changes what the bar has to keep clear of.
+  useEffect(() => {
+    const scroller = bar.current!.closest('.board-scroll, .card-scroll')
+    scroller?.addEventListener('scroll', rendered, { passive: true })
+    return () => scroller?.removeEventListener('scroll', rendered)
+  }, [])
+  useLayoutEffect(() => {
+    const el = bar.current!
+    const scroller = el.closest('.board-scroll, .card-scroll')
+    if (!scroller) return
+    const box = el.getBoundingClientRect()
+    const above = rect.height * zoom < box.height + 2 * BAR_INSET || rect.width * zoom < box.width + 2 * BAR_INSET
+    // Where it would be with nothing moving it.
+    const left = box.left - place.x
+    const top = box.top - place.y + (above === place.above ? 0 : above ? -box.height - 2 * BAR_INSET : box.height + 2 * BAR_INSET)
+    const view = scroller.getBoundingClientRect()
+    const floating = [...scroller.parentElement!.querySelectorAll(FLOATING)].map((f) => f.getBoundingClientRect())
+    const clear = clearOfFloating({ left, top, right: left + box.width, bottom: top + box.height }, floating, { left: view.left, top: view.top, right: view.left + scroller.clientWidth, bottom: view.bottom })
+    const x = Math.round(clear.x)
+    const y = Math.round(clear.y)
+    if (x !== place.x || y !== place.y || above !== place.above) setPlace({ x, y, above })
+  })
+  return (
+    <div
+      ref={bar}
+      className="drawing-toolbar label-bar"
+      role="toolbar"
+      aria-label="Label"
+      style={{
+        left: rect.x + rect.width,
+        top: rect.y,
+        transform: `scale(${1 / zoom}) translate(calc(-100% - ${BAR_INSET}px + ${place.x}px), calc(${place.above ? '-100% - ' : ''}${BAR_INSET}px + ${place.y}px))`,
+      }}
+      onPointerDown={keepPress}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
+    >
+      <button type="button" className="label-tool label-text-tool" aria-pressed={background.on} onClick={background.onToggle}>
+        Background
+      </button>
+      <button type="button" className="label-tool label-text-tool" onClick={onEdit}>
+        Edit
+      </button>
+      <button type="button" className="drawing-delete" aria-label="Delete label" title="Delete label (Del)" onClick={onDelete}>
+        <TrashIcon size={15} />
+      </button>
     </div>
   )
 }
+
+/** Screen pixels of the handle that sets where a selected label's text wraps. */
+const WRAP_HANDLE = 10
+
+/**
+ * The handle on the right edge of a selected label: dragged, the text wraps at that width (shown on the label itself until
+ * the reload brings it), and double-clicked it stops wrapping.
+ */
+export function LabelWrapHandle({ id, rect, zoom, onWrap }: { id: string; rect: Rect; zoom: number; onWrap: (width: number) => void }) {
+  const handle = useRef<HTMLDivElement>(null)
+  const drag = useRef<{ startX: number; width: number; moved: boolean } | null>(null)
+  const labelEl = () => handle.current?.parentElement?.querySelector<HTMLElement>(`[data-label="${id}"]`) ?? null
+  // As tall as the label is on the page: what an agent wrote only has an estimate stored.
+  useLayoutEffect(() => {
+    const el = labelEl()
+    if (el && handle.current) handle.current.style.height = `${el.offsetHeight}px`
+  })
+  return (
+    <div
+      ref={handle}
+      className="label-wrap-handle"
+      title="Drag to wrap the text; double-click to stop wrapping"
+      style={{ left: rect.x + rect.width, top: rect.y, height: rect.height, width: WRAP_HANDLE / zoom }}
+      onPointerDown={(e) => {
+        keepPress(e)
+        if (e.button !== 0) return
+        e.currentTarget.setPointerCapture(e.pointerId)
+        drag.current = { startX: e.clientX, width: rect.width, moved: false }
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current
+        if (!d) return
+        const width = Math.max(MIN_WRAP_WIDTH, Math.round(rect.width + (e.clientX - d.startX) / zoom))
+        if (width === d.width) return
+        drag.current = { ...d, width, moved: true }
+        const el = labelEl()
+        if (el) {
+          el.classList.add('wraps')
+          el.style.width = `${width}px`
+        }
+        e.currentTarget.style.left = `${rect.x + width}px`
+        e.currentTarget.style.height = `${el?.offsetHeight ?? rect.height}px`
+      }}
+      onPointerUp={() => {
+        const d = drag.current
+        drag.current = null
+        if (d?.moved) onWrap(d.width)
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation()
+        onWrap(0)
+      }}
+    />
+  )
+}
+
+/** BoardLabel.MinWrapWidth on the server. */
+const MIN_WRAP_WIDTH = 60

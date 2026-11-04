@@ -99,15 +99,12 @@ public sealed class ChatSaves(IHttpClientFactory http, FileStore files, BoardEve
         var quote = string.Join('\n', message.Text.Split('\n').Select(l => "> " + l));
         var text = (message.Text.Length > 0 ? quote + "\n\n" : "") +
                    $"From **{message.AuthorName}** in #{message.ChannelName}, {message.SentAt:yyyy-MM-dd HH:mm} UTC";
-        if (text.Length > CardComponent.MaxTextLength) text = text[..(CardComponent.MaxTextLength - 1)] + "…";
+        if (text.Length > BoardLabel.MaxTextLength) text = text[..(BoardLabel.MaxTextLength - 1)] + "…";
         var request = new CreateCardRequest(
             title.Trim().Length == 0 ? TitleFor(message) : title.Trim(),
             BucketId: bucketId,
-            Components:
-            [
-                new NewCardComponent(CardComponentKind.Text, Text: text),
-                new NewCardComponent(CardComponentKind.Links, Links: [new CardLink($"Message in {message.Platform}", message.JumpUrl)]),
-            ]);
+            Body: text,
+            Components: [new NewCardComponent(CardComponentKind.Links, Links: [new CardLink($"Message in {message.Platform}", message.JumpUrl)])]);
 
         var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(UserPrincipal.IdClaim, userId.ToString())], "chat", UserPrincipal.IdClaim, null));
         CardDetail card;

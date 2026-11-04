@@ -1639,6 +1639,16 @@ main {
   gap: 8px;
 }
 
+.ink-swatches.with-theme {
+  grid-template-columns: repeat(7, 20px);
+}
+
+.ink-swatches.with-theme .ink-theme {
+  grid-row: span 2;
+  align-self: center;
+}
+
+.ink-theme { --fill: var(--text); }
 .ink-chalk { --fill: var(--ink-chalk); }
 .ink-butter { --fill: var(--ink-butter); }
 .ink-mint { --fill: var(--ink-mint); }
@@ -2471,39 +2481,6 @@ input.editable {
 
 .kind-text .component-body {
   padding: 0;
-}
-
-.component-text {
-  flex: 1;
-  min-height: 0;
-  padding: 2px 14px 14px;
-  overflow-y: auto;
-  border-radius: 0 0 12px 12px;
-  color: var(--text-body);
-  font-size: 14px;
-  line-height: 1.55;
-}
-
-.component-text:focus-visible {
-  outline: none;
-}
-
-.component-text::-webkit-scrollbar-track {
-  margin-bottom: 10px;
-}
-
-.component-text::placeholder {
-  color: var(--subtle);
-}
-
-/* A text component's rendered Markdown; a click edits it. */
-.component-view {
-  cursor: text;
-}
-
-.component-view .markdown {
-  font-size: inherit;
-  line-height: inherit;
 }
 
 .component-plain {
@@ -3462,11 +3439,13 @@ a.button.primary:hover {
 }
 
 /* Labels: text placed freely, without a background. Drawn at their own size from the font size set on them. */
+/* The same padding and border with a background or without, so its text stays where it is when that is switched. */
 .label {
   position: absolute;
   width: max-content;
-  padding: 2px 4px;
-  border-radius: 6px;
+  padding: 10px 14px;
+  border: 1px solid transparent;
+  border-radius: 12px;
   font-weight: 500;
   line-height: 1.15;
   white-space: pre;
@@ -3474,14 +3453,17 @@ a.button.primary:hover {
   user-select: none;
 }
 
-.label p {
+/* Whatever a label holds is spaced alike whether it is drawn or being edited; only the gap between blocks has a margin. */
+.label :where(p, ul, ol, h1, h2, h3, h4, h5, h6, blockquote, pre, table, hr) {
   margin: 0;
+}
+
+.label p {
   min-height: 1lh;
 }
 
 .label ul,
 .label ol {
-  margin: 0;
   padding-left: 1.3em;
 }
 
@@ -3489,6 +3471,130 @@ a.button.primary:hover {
   color: inherit;
   text-decoration: underline;
   cursor: pointer;
+}
+
+.label.wraps,
+.label.wraps .tiptap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.label > * + *,
+.label .tiptap > * + * {
+  margin-top: 0.4em;
+}
+
+.label h1,
+.label h2,
+.label h3,
+.label h4,
+.label h5,
+.label h6 {
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* BoardLabel.HeadingScale on the server. */
+.label h1 { font-size: 1.6em; }
+.label h2 { font-size: 1.35em; }
+.label h3 { font-size: 1.15em; }
+.label h4,
+.label h5,
+.label h6 { font-size: 1em; }
+
+.label code {
+  padding: 0 0.25em;
+  border-radius: 4px;
+  background: var(--chip);
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+
+.label pre {
+  padding: 0.4em 0.6em;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  white-space: pre-wrap;
+}
+
+.label pre code {
+  padding: 0;
+  background: none;
+}
+
+.label blockquote {
+  padding-left: 0.6em;
+  border-left: 3px solid var(--line-strong);
+  color: var(--muted);
+}
+
+.label hr {
+  min-width: 40px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.label table {
+  border-collapse: collapse;
+}
+
+.label th,
+.label td {
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  font-weight: inherit;
+  text-align: left;
+  vertical-align: top;
+}
+
+.label th {
+  background: var(--panel-2);
+  font-weight: 700;
+}
+
+.label li.task,
+.label ul[data-type='taskList'] > li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3em;
+  margin-left: -1.3em;
+  list-style: none;
+}
+
+.label ul[data-type='taskList'] > li > label {
+  display: flex;
+}
+
+.label input[type='checkbox'] {
+  width: auto;
+  height: auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.label.matched {
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+
+.label-wrap-handle {
+  position: absolute;
+  cursor: ew-resize;
+  background: var(--accent);
+  border-radius: 0 3px 3px 0;
+  opacity: 0.5;
+  touch-action: none;
+}
+
+.label-wrap-handle:hover {
+  opacity: 1;
+}
+
+/* The panel a card's components have. */
+.label.with-background {
+  border-color: var(--line);
+  background: var(--panel-2);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
 }
 
 .label.selected,
@@ -3519,6 +3625,10 @@ a.button.primary:hover {
   white-space: pre;
 }
 
+.label.editing.wraps .tiptap {
+  white-space: pre-wrap;
+}
+
 .label-ghost {
   transform-origin: top left;
   color: var(--text);
@@ -3541,9 +3651,16 @@ a.button.primary:hover {
   opacity: 0.4;
 }
 
+.label-bar {
+  width: max-content;
+  gap: 4px;
+  padding: 4px;
+}
+
 .label-toolbar {
   width: max-content;
-  flex-wrap: nowrap;
+  max-width: 600px;
+  flex-wrap: wrap;
   transform-origin: top left;
 }
 
@@ -3565,6 +3682,11 @@ a.button.primary:hover {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.label-text-tool {
+  width: auto;
+  padding: 0 8px;
 }
 
 .label-tool:hover {
@@ -6993,11 +7115,6 @@ button.picker-color:hover,
   overflow: visible;
 }
 
-.card-component.stacked .component-text {
-  min-height: 120px;
-  overflow: visible;
-}
-
 .card-component.stacked .checklist label {
   min-height: 44px;
   align-items: center;
@@ -7064,10 +7181,6 @@ button.picker-color:hover,
 
 .m-editor .component-remove {
   display: none;
-}
-
-.m-editor .card-component.stacked .component-text {
-  min-height: 40dvh;
 }
 
 /* Sheets from the bottom: add to a card, move it. */
@@ -7373,4 +7486,54 @@ button.picker-color:hover,
   .avatar.agent-at-work {
     animation: none;
   }
+}
+
+/* A label on the mobile layout's card: in its turn in the list, at the width of the screen. */
+.m-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.m-label .label {
+  position: static;
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: default;
+}
+
+.m-label .band-button {
+  color: var(--text);
+}
+
+.m-label-editor {
+  flex: 1;
+  min-height: 160px;
+}
+
+.m-label-editor .label {
+  position: static;
+  width: auto;
+  cursor: text;
+  user-select: text;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.m-label-editor .tiptap {
+  min-height: 160px;
+  outline: none;
+  white-space: pre-wrap;
+}
+
+.m-label-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
 }

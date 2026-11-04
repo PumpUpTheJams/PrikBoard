@@ -35,7 +35,7 @@ const MAX_DRAWING_SIZE = 10_000
 const MAX_STROKES = 1000
 const MAX_DRAWING_POINTS = 50_000
 const LIMITS = { cards: 2000, images: 200, buckets: 100, drawings: 5000, imageBytes: 150 * 1024 * 1024 }
-const CLIP_VERSION = 6
+const CLIP_VERSION = 8
 // Card links in a clip name cards by id under some board id; the paste points them at the new cards.
 const CLIP_BOARD_ID = uuidFrom('figjam-import-board')
 
@@ -133,14 +133,26 @@ export function writeClips(model, options) {
       bucketId: bucketId(c.bucket),
     }
     let y = 20
+    const labels = []
     for (const chunk of split(c.text ?? '', MAX_TEXT)) {
       // About 50 characters a line at 400 px wide, 20 px a line.
       const rows = chunk.split('\n').reduce((n, line) => n + Math.max(1, Math.ceil(line.length / 50)), 0)
       const height = clamp(rows * 20 + 60, 80, 2000)
-      card.components.push({ kind: 'Text', text: chunk, x: 20, y, width: 400, height })
+      labels.push({
+        cardId: card.id,
+        x: 20,
+        y,
+        width: 400,
+        height,
+        wrapWidth: 400,
+        background: true,
+        ink: 'Theme',
+        size: 'S',
+        content: chunk.split(/\n{2,}/).map((text) => ({ kind: 'Paragraph', runs: text ? [{ text }] : [] })),
+      })
       y += height + 20
     }
-    const item = { card, source: c, images: [], links: [] }
+    const item = { card, source: c, images: [], links: [], labels }
     cardOf.set(c.key, item)
     return item
   })
@@ -312,6 +324,7 @@ export function writeClips(model, options) {
       }),
       images: partImages.map((img) => img.image),
       drawings: part.units.flatMap((u) => u.drawings.map((d) => d.drawing)),
+      labels: partCards.flatMap((item) => item.labels),
       ...(Object.keys(colors).length > 0 ? { tagColors: colors } : {}),
       buckets: part.units.flatMap((u) => u.buckets.map((b) => b.bucket)),
     }

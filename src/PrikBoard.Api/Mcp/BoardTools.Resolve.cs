@@ -83,13 +83,18 @@ public sealed partial class BoardTools
         return await McpCall.AuthorizeAsync(http, shortId, minimum);
     }
 
+    /// <summary>The cards on a board with labels on them.</summary>
+    private static async Task<HashSet<Guid>> LabeledCardsAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
+        (await db.Labels.AsNoTracking().Where(l => l.BoardId == boardId && l.CardId != null).Select(l => l.CardId!.Value).Distinct().ToListAsync(ct)).ToHashSet();
+
     /// <summary>A card for a tool result, with its bucket's name.</summary>
     private static async Task<CardView> ViewAsync(HttpContext http, CardDetail card, bool content, CancellationToken ct)
     {
         var bucket = card.BucketId is { } id
             ? (await BucketsAsync(http, Db(http), card.BoardId, ct)).Find(b => b.Id == id)?.Name
             : null;
-        return CardView.From(card, bucket, content);
+        var labels = await Db(http).Labels.AsNoTracking().Where(l => l.CardId == card.Id).OrderBy(l => l.Y).ThenBy(l => l.X).ToListAsync(ct);
+        return CardView.From(card, bucket, content, labels);
     }
 
     private sealed record BucketName(Guid Id, string Name);
@@ -201,6 +206,24 @@ public sealed partial class BoardTools
     }
 
     /// <summary>A component of the card by id, (case-insensitive) title, or kind when the card has exactly one component of that kind.</summary>
+    /// <summary>
+    /// The label on the card that <paramref name="component"/> names, or null when it names a component: by its id, or as "Text" or "Label"
+    /// when the card has one label. Several labels need the id; with none, NoLabelYet says so.
+    /// </summary>
+    private static async Task<(Guid? Label, bool NoLabelYet)> ResolveTextLabelAsync(PrikBoardDbContext db, Guid cardId, string component, CancellationToken ct)
+    {
+        var value = component.Trim();
+        var labels = await db.Labels.AsNoTracking().Where(l => l.CardId == cardId).OrderBy(l => l.Y).ThenBy(l => l.X).ToListAsync(ct);
+        if (Guid.TryParse(value, out var id)) return (labels.Find(l => l.Id == id)?.Id, false);
+        if (!value.Equals("Text", StringComparison.OrdinalIgnoreCase) && !value.Equals("Label", StringComparison.OrdinalIgnoreCase)) return (null, false);
+
+        if (labels.Count > 1)
+        {
+            throw new McpException($"Several labels on this card; use the label's id. Labels: {string.Join(", ", labels.Select(l => $"{l.Id} (\"{CardPreview.Cut(l.Text, 40)}\")"))}.");
+        }
+        return labels.Count == 1 ? (labels[0].Id, false) : (null, true);
+    }
+
     private static async Task<Guid> ResolveComponentAsync(PrikBoardDbContext db, Guid cardId, string component, CancellationToken ct)
     {
         var components = await db.Cards.AsNoTracking().Where(n => n.Id == cardId).Select(n => n.Components).FirstAsync(ct);

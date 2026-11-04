@@ -41,7 +41,7 @@ In PowerShell, set a token for the open window with `$env:FIGMA_TOKEN = "figd_..
 | FigJam | Miro | PrikBoard |
 | --- | --- | --- |
 | Section, frame | Frame | Bucket at the same place, nested ones on top |
-| Sticky | Sticky note | Card in its bucket, centered where it was. The first line is the title, and the full text goes in a Text component |
+| Sticky | Sticky note | Card in its bucket, centered where it was. The first line is the title, and the full text goes in a label on its canvas |
 | — | Card | Card: title and description, plus the due date and assignee's name as text (PrikBoard's people are its own) |
 | Sticky color | Sticky note color, card color | Card fill (`colors` changes it) |
 | `#hashtag` | Tag (with its color), `#hashtag` | Tag; `colorTags` adds a tag per color |

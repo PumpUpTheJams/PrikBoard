@@ -29,11 +29,24 @@ public static class LabelContentJson
         {
             var (x, y) = (a[i], b[i]);
             if (ReferenceEquals(x, y)) continue;
-            if (x.Kind != y.Kind || x.Runs.Count != y.Runs.Count) return false;
-            for (var r = 0; r < x.Runs.Count; r++)
+            if (x.Kind != y.Kind || x.Level != y.Level || x.Done != y.Done || !SameRuns(x.Runs, y.Runs)) return false;
+            if (x.Cells is null != y.Cells is null) return false;
+            if (x.Cells is null) continue;
+            if (x.Cells.Count != y.Cells!.Count) return false;
+            for (var c = 0; c < x.Cells.Count; c++)
             {
-                if (x.Runs[r] != y.Runs[r]) return false;
+                if (!SameRuns(x.Cells[c], y.Cells[c])) return false;
             }
+        }
+        return true;
+    }
+
+    private static bool SameRuns(List<LabelRun> a, List<LabelRun> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (var r = 0; r < a.Count; r++)
+        {
+            if (a[r] != b[r]) return false;
         }
         return true;
     }

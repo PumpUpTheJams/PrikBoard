@@ -1,17 +1,20 @@
 import { useState } from 'react'
 import { api } from '../api/client'
-import type { BoardDetail, CardChanges, CardComponent, CardComponentChanges, CardComponentKind, CardDetail, ImageDetail } from '../api/types'
+import type { BoardDetail, CardChanges, CardComponent, CardComponentChanges, CardComponentKind, CardDetail, ImageDetail, InkColor, LabelBlock, LabelDetail, LabelSize } from '../api/types'
 import { AssigneePicker } from '../board/AssigneePicker'
 import { BoardImageView } from '../board/BoardImageView'
-import { ChecklistComponent, ComponentFrame, LinksComponent, TextComponent } from '../board/CardComponents'
+import { ChecklistComponent, ComponentFrame, LinksComponent } from '../board/CardComponents'
 import { componentKinds } from '../board/componentKinds'
 import { shortDate } from '../board/dates'
 import { EditableText } from '../board/EditableText'
 import { CardIdButton, FillPicker, TagChips } from '../board/ExpandedCard'
 import { pickImageFiles } from '../board/files'
-import { BucketIcon, ChevronDownIcon, ChevronLeftIcon, CloseIcon, ImageIcon, SparkleIcon, TrashIcon } from '../board/icons'
+import { BucketIcon, ChevronDownIcon, ChevronLeftIcon, CloseIcon, ImageIcon, LabelIcon, PencilIcon, SparkleIcon, TrashIcon } from '../board/icons'
 import { belowAll, defaultComponentSize, readingOrder } from '../board/layout'
+import { DEFAULT_WRAP_WIDTH, isBlankLabel } from '../board/labels'
+import { LabelView } from '../board/LabelView'
 import { bucketPath, cardLabel, imagePath, TITLE_SUGGESTION } from '../board/links'
+import { measureLabel } from '../board/measureLabel'
 import { ops } from '../board/ops'
 import { MAX_ASSIGNEES } from '../board/tags'
 import type { TagColors } from '../board/tagColors'
@@ -20,6 +23,7 @@ import { created, snap, step, target, type RecordingRun } from '../board/undo'
 import { AvatarStack } from '../components/Avatar'
 import { ComponentEditor, type ComponentDraft } from './ComponentEditor'
 import { bucketItems, bucketsInOrder } from './items'
+import { LabelScreen } from './LabelScreen'
 import { back, navigate } from './nav'
 import { AddButton, Sheet } from './parts'
 
@@ -50,12 +54,16 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
   const [sheet, setSheet] = useState<'add' | 'move' | null>(null)
   /** The editor open over the card: a new component of a kind, or an existing one. */
   const [editing, setEditing] = useState<{ kind: CardComponentKind; component?: CardComponent } | null>(null)
+  /** The label open over the card: a new one (null), or an existing one. */
+  const [editingLabel, setEditingLabel] = useState<LabelDetail | null | undefined>(undefined)
   const bucket = board.buckets.find((b) => b.id === card.bucketId)
   const up = bucketPath(board.shortId, card.bucketId)
   const images = board.images.filter((i) => i.cardId === card.id)
+  const labels = board.labels.filter((l) => l.cardId === card.id)
   const stack = readingOrder([
-    ...card.components.map((component) => ({ component, image: null, x: component.x, y: component.y })),
-    ...images.map((image) => ({ component: null, image, x: image.x, y: image.y })),
+    ...card.components.map((component) => ({ component, image: null, label: null, x: component.x, y: component.y })),
+    ...images.map((image) => ({ component: null, image, label: null, x: image.x, y: image.y })),
+    ...labels.map((label) => ({ component: null, image: null, label, x: label.x, y: label.y })),
   ])
 
   const edit = (changes: CardChanges) => run(...ops.editCard(card, changes))
@@ -63,7 +71,7 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
 
   /** Where something new goes: below everything on the card's canvas, so it is last in the list too. */
   const spotFor = (size: { width: number; height: number }, also: ImageDetail[] = []) =>
-    belowAll([...card.components, ...images, ...also], size)
+    belowAll([...card.components, ...images, ...labels, ...also], size)
 
   async function addComponent(draft: ComponentDraft) {
     const [add, describe] = ops.addComponent(card.id, { ...draft, ...spotFor(defaultComponentSize(draft.kind)) })
@@ -74,7 +82,6 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
   async function saveEdits(component: CardComponent, draft: ComponentDraft) {
     const changes: CardComponentChanges = {}
     if ((draft.title ?? '') !== (component.title ?? '')) changes.title = draft.title ?? ''
-    if (component.kind === 'Text' && (draft.text ?? '') !== (component.text ?? '')) changes.text = draft.text ?? ''
     if (component.kind === 'Checklist' && JSON.stringify(draft.items) !== JSON.stringify(component.items)) changes.items = draft.items ?? []
     if (component.kind === 'Links' && JSON.stringify(draft.links) !== JSON.stringify(component.links)) changes.links = draft.links ?? []
     if (Object.keys(changes).length === 0 || (await saveComponent(component, changes))) setEditing(null)
@@ -83,6 +90,22 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
   async function removeComponent(component: CardComponent) {
     setEditing(null)
     await run(...ops.removeComponent(card.id, component))
+  }
+
+  /** Saves a label from its screen; one left with no text isn't added, and one emptied goes. */
+  async function saveLabel(content: LabelBlock[], ink: InkColor, size: LabelSize, background: boolean) {
+    const label = editingLabel
+    if (isBlankLabel(content)) {
+      setEditingLabel(undefined)
+      if (label) await run(...ops.deleteLabel(label))
+      return
+    }
+    const wrapWidth = label ? label.wrapWidth : DEFAULT_WRAP_WIDTH
+    const box = measureLabel(document.body, content, size, wrapWidth)
+    const saved = label
+      ? await run(...ops.editLabel(label, { content, ink, size, background, ...box }, 'Edit label', ['content', 'ink', 'size', 'background', 'width', 'height']))
+      : await run(...ops.addLabel(board.id, { content, ink, size, background, cardId: card.id, wrapWidth: DEFAULT_WRAP_WIDTH, ...spotFor(box), ...box }))
+    if (saved) setEditingLabel(undefined)
   }
 
   async function addImages() {
@@ -108,6 +131,24 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
     if (bucketId === card.bucketId) return
     const name = board.buckets.find((b) => b.id === bucketId)?.name ?? 'the bucket'
     await run(...ops.moveCardInto(card, bucketId, `Moved to ${name}`))
+  }
+
+  if (editingLabel !== undefined) {
+    return (
+      <LabelScreen
+        card={card}
+        label={editingLabel ?? undefined}
+        ink="Theme"
+        size="S"
+        onCancel={() => setEditingLabel(undefined)}
+        onSave={saveLabel}
+        onRemove={() => {
+          const label = editingLabel
+          setEditingLabel(undefined)
+          if (label) void run(...ops.deleteLabel(label))
+        }}
+      />
+    )
   }
 
   if (editing) {
@@ -203,8 +244,18 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
       </header>
 
       <div className="m-scroll m-stack">
-        {stack.map(({ component, image }) =>
-          component ? (
+        {stack.map(({ component, image, label }) =>
+          label ? (
+            <div key={label.id} className="m-label">
+              {/* Links work by the browser's own click here, and the text takes the width of the screen. */}
+              <LabelView label={{ ...label, wrapWidth: null }} readOnly />
+              {!readOnly && (
+                <button type="button" className="band-button icon" aria-label="Edit label" title="Edit label" onClick={() => setEditingLabel(label)}>
+                  <PencilIcon />
+                </button>
+              )}
+            </div>
+          ) : component ? (
             // Shown, not edited, here: its edit button opens it in the editor. Checklist items can still be ticked off.
             <ComponentFrame
               key={component.id}
@@ -217,7 +268,6 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
               onRemove={() => {}}
               onEdit={readOnly ? undefined : () => setEditing({ kind: component.kind, component })}
             >
-              {component.kind === 'Text' && <TextComponent text={component.text ?? ''} autoFocus={false} readOnly onChange={() => {}} />}
               {component.kind === 'Checklist' && (
                 <ChecklistComponent
                   items={component.items ?? []}
@@ -243,7 +293,7 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
             )
           ),
         )}
-        {stack.length === 0 && <p className="m-empty">{readOnly ? 'Nothing on this card yet.' : 'Nothing on this card yet. Add a note, a checklist, links or an image.'}</p>}
+        {stack.length === 0 && <p className="m-empty">{readOnly ? 'Nothing on this card yet.' : 'Nothing on this card yet. Add a label, a checklist, links or an image.'}</p>}
       </div>
 
       {!readOnly && <AddButton label="Add" onClick={() => setSheet('add')} />}
@@ -251,7 +301,7 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
       {sheet === 'add' && (
         <Sheet title="Add to the card" aside={<span className="m-sheet-aside">{card.readableId}</span>} onClose={() => setSheet(null)}>
           <ul className="m-list">
-            {(['Text', 'Checklist', 'Links'] as const).map((kind) => {
+            {(['Checklist', 'Links'] as const).map((kind) => {
               const { label, Icon } = componentKinds[kind]
               return (
                 <li key={kind}>
@@ -274,6 +324,24 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
                 </li>
               )
             })}
+            <li>
+              <button
+                type="button"
+                className="m-row"
+                onClick={() => {
+                  setSheet(null)
+                  setEditingLabel(null)
+                }}
+              >
+                <span className="m-row-icon">
+                  <LabelIcon />
+                </span>
+                <span className="m-row-text">
+                  <span className="m-row-name">Label</span>
+                  <span className="m-row-detail">Rich text, with or without a background</span>
+                </span>
+              </button>
+            </li>
             <li>
               <button
                 type="button"
@@ -343,7 +411,6 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
 }
 
 const kindHint: Record<CardComponentKind, string> = {
-  Text: 'Text in Markdown',
   Checklist: 'Items to tick off',
   Links: 'Web pages or other cards',
 }

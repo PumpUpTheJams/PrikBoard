@@ -27,6 +27,8 @@ export interface BoardItemHandlers {
   titleDone: () => void
   quickEdit: (cardId: string, kind: 'tags' | 'people', anchor: DOMRect) => void
   deleteImage: (imageId: string) => void
+  /** A mouse came over a label or left it. */
+  hoverLabel: (labelId: string, over: boolean) => void
   reshapeDrawing: (drawing: DrawingDetail, reshape: Reshape) => Promise<unknown>
   /** A press inside a bucket, away from its rim. */
   bucketPress: (e: PointerEvent<HTMLElement>, bucket: BucketDetail) => void
@@ -38,6 +40,7 @@ interface BoardCardProps {
   card: CardDetail
   point: Point
   images: number | undefined
+  labels: number | undefined
   tagColors: TagColors
   selected: boolean
   lifted: boolean
@@ -174,7 +177,7 @@ export const BoardDrawing = memo(function BoardDrawing({ drawing, rect, selected
 
 /** A label on the board. Its place comes from `x` and `y`, so what doesn't move keeps equal props. */
 export const BoardLabel = memo(function BoardLabel({ label, x, y, selected, lifted, readOnly, handlers: h }: { label: LabelDetail; x: number; y: number; selected: boolean; lifted: boolean; readOnly: boolean; handlers: BoardItemHandlers }) {
-  return <LabelView label={label} at={{ x, y }} selected={selected} lifted={lifted} readOnly={readOnly} onPointerDown={(e) => h.pointerDown(e, 'label', label.id)} />
+  return <LabelView label={label} at={{ x, y }} selected={selected} lifted={lifted} readOnly={readOnly} onPointerDown={(e) => h.pointerDown(e, 'label', label.id)} onHover={(over) => h.hoverLabel(label.id, over)} />
 })
 
 interface BoardBucketProps {

@@ -12,7 +12,7 @@ import { writeFileSync } from 'node:fs'
 import { deflateSync } from 'node:zlib'
 
 /** Mirrors BoardClip.CurrentVersion and its limits (src/PrikBoard.Api/Contracts/Clips.cs). */
-const VERSION = 6
+const VERSION = 8
 const MAX_CARDS = 2000
 const MAX_IMAGES = 200
 const MAX_IMAGE_BYTES = 150 * 1024 * 1024
@@ -54,13 +54,26 @@ const tagColors = { bug: 'Brick', feature: 'Moss', perf: 'Ochre', design: 'Viole
 const words = 'the board card bucket drag drop image drawing tag person agent search filter zoom scroll pointer live server'.split(' ')
 const sentence = (n) => Array.from({ length: n }, () => pick(words)).join(' ')
 
+const clippedLabels = []
+
 function card(i, x, y, bucketId = null) {
-  const components = [{ kind: 'Text', text: `${sentence(12)}.\n\n${sentence(30)}.` }]
+  const id = randomUUID()
+  clippedLabels.push({
+    cardId: id,
+    x: 20,
+    y: 20,
+    wrapWidth: 340,
+    background: true,
+    ink: 'Theme',
+    size: 'S',
+    content: [12, 30].map((n) => ({ kind: 'Paragraph', runs: [{ text: `${sentence(n)}.` }] })),
+  })
+  const components = []
   if (i % 4 === 0) {
     components.push({ kind: 'Checklist', title: 'Steps', items: Array.from({ length: 5 }, (_, j) => ({ text: sentence(4), done: j < 2 })) })
   }
   const cardTags = [...new Set(Array.from({ length: i % 4 }, () => pick(tags)))]
-  return { id: randomUUID(), number: i + 1, title: `${sentence(5)} ${i + 1}`, color: pick(fills), tags: cardTags, x, y, components, bucketId }
+  return { id, number: i + 1, title: `${sentence(5)} ${i + 1}`, color: pick(fills), tags: cardTags, x, y, components, bucketId }
 }
 
 // Six buckets side by side, four card columns each, holding 60% of the cards.
@@ -174,6 +187,7 @@ const clip = {
   cards: clippedCards,
   images: clippedImages,
   drawings: clippedDrawings,
+  labels: clippedLabels,
 }
 const json = JSON.stringify(clip)
 writeFileSync(out, json)

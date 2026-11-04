@@ -377,6 +377,9 @@ namespace PrikBoard.Api.Data.Migrations
                     b.Property<Guid?>("AddedById")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("Background")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid>("BoardId")
                         .HasColumnType("uuid");
 
@@ -417,6 +420,9 @@ namespace PrikBoard.Api.Data.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("Width")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("WrapWidth")
                         .HasColumnType("integer");
 
                     b.Property<int>("X")
@@ -889,6 +895,49 @@ namespace PrikBoard.Api.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("ImageUploads");
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.NoteBackup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BoardId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CardId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("LabelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("MigratedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Text")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("X")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Y")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CardId");
+
+                    b.ToTable("NoteBackups");
                 });
 
             modelBuilder.Entity("PrikBoard.Api.Domain.Principal", b =>
@@ -1444,6 +1493,15 @@ namespace PrikBoard.Api.Data.Migrations
                     b.HasOne("PrikBoard.Api.Domain.Principal", null)
                         .WithMany()
                         .HasForeignKey("PrincipalId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PrikBoard.Api.Domain.NoteBackup", b =>
+                {
+                    b.HasOne("PrikBoard.Api.Domain.Card", null)
+                        .WithMany()
+                        .HasForeignKey("CardId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

@@ -174,7 +174,8 @@ public static partial class LinkPreviews
         var ids = card.AssigneeIds.Append(card.AgentWorkingForId ?? Guid.Empty).Where(i => i != Guid.Empty).Distinct().ToList();
         var names = await db.Principals.AsNoTracking().Where(p => ids.Contains(p.Id)).ToDictionaryAsync(p => p.Id, p => p.ShownName, ct);
 
-        var description = CardPreview.Describe(card);
+        var labels = await db.Labels.AsNoTracking().Where(l => l.CardId == card.Id).ToListAsync(ct);
+        var description = CardPreview.Describe(card, labels);
         var items = card.Components.Where(c => c.Kind == CardComponentKind.Checklist).SelectMany(c => c.Items).ToList();
         var progress = $"{items.Count(i => i.Done)}/{items.Count}";
         return new LinkPreview(LinkPreviewKind.Card, board.Name,

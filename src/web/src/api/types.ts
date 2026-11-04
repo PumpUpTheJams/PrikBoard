@@ -163,7 +163,9 @@ export interface DropBucket {
  * light fill. Mirrored as `--ink-*` tokens in index.css.
  */
 export const inkColors = ['Chalk', 'Butter', 'Mint', 'Sky', 'Coral', 'Lilac', 'Ink', 'Ochre', 'Pine', 'Ocean', 'Brick', 'Violet'] as const
-export type InkColor = (typeof inkColors)[number]
+/** Theme is the theme's own text color, only for labels; the others are the pen's and keep their colors in every theme. */
+export type InkColor = (typeof inkColors)[number] | 'Theme'
+export const labelInks = ['Theme', ...inkColors] as const
 
 /** Sizes of a label's text; the web app maps them to pixels (`labelPixels`). */
 export const labelSizes = ['S', 'M', 'L', 'XL'] as const
@@ -181,12 +183,19 @@ export interface LabelRun {
   size?: LabelSize | null
   /** An absolute http(s) URL, or another card's path. */
   link?: string | null
+  code?: boolean | null
 }
 
-/** A paragraph or list item of a label. Neighboring items of one kind form one list; lists don't nest. */
+/** A block of a label. Neighboring list items form one list, neighboring Quote blocks one quote and neighboring TableRow blocks one table. */
 export interface LabelBlock {
-  kind: 'Paragraph' | 'Bullet' | 'Numbered'
+  kind: 'Paragraph' | 'Heading' | 'Bullet' | 'Numbered' | 'Task' | 'Quote' | 'Code' | 'TableRow' | 'Rule'
   runs: LabelRun[]
+  /** A heading's level (1 to 6), or how deep a list item is nested (from 0). */
+  level?: number | null
+  /** Whether a Task is ticked. */
+  done?: boolean | null
+  /** A TableRow's cells; a table's first row is its header. */
+  cells?: LabelRun[][] | null
 }
 
 /** Rich text placed freely, without a background, on the board or on a card's canvas. */
@@ -200,6 +209,10 @@ export interface LabelDetail {
   /** As last measured by the web app, or an estimate. */
   width: number
   height: number
+  /** The width its text wraps at; null when each line is as long as it is. */
+  wrapWidth: number | null
+  /** Whether it has a background of its own. */
+  background: boolean
   ink: InkColor
   size: LabelSize
   content: LabelBlock[]
@@ -221,6 +234,9 @@ export interface NewLabel extends DropBucket {
   width?: number
   height?: number
   cardId?: string
+  wrapWidth?: number
+  /** Without it: on on a card, off on the board. */
+  background?: boolean
 }
 
 /** A PATCH of a label. x and y are on the canvas it ends up on (give both when detaching). */
@@ -234,6 +250,9 @@ export interface LabelChanges extends DropBucket {
   height?: number
   cardId?: string
   detach?: boolean
+  /** 0 stops wrapping. */
+  wrapWidth?: number
+  background?: boolean
 }
 
 /** Base line widths: fine, medium and bold. */
@@ -471,6 +490,8 @@ export interface ClippedLabel {
   y: number
   width?: number | null
   height?: number | null
+  wrapWidth?: number | null
+  background?: boolean | null
 }
 
 /** What copyItems copies, all on one board. A bucket comes with what is in it. */
@@ -567,7 +588,7 @@ export interface CardLink {
   url: string
 }
 
-export type CardComponentKind = 'Text' | 'Checklist' | 'Links'
+export type CardComponentKind = 'Checklist' | 'Links'
 
 /** A component of a card's content on its own canvas, in card pixels. Only the content field of its kind is set. */
 export interface CardComponent {
@@ -578,7 +599,6 @@ export interface CardComponent {
   width: number
   height: number
   title: string | null
-  text: string | null
   items: ChecklistItem[] | null
   links: CardLink[] | null
 }
@@ -587,7 +607,6 @@ export interface CardComponent {
 export interface NewCardComponent {
   kind: CardComponentKind
   title?: string | null
-  text?: string | null
   items?: ChecklistItem[] | null
   links?: CardLink[] | null
   x?: number
@@ -601,15 +620,12 @@ export interface NewCardComponent {
 /** A PATCH of a component: omitted fields stay unchanged, a given list replaces the component's whole list. */
 export interface CardComponentChanges {
   title?: string
-  text?: string
   items?: ChecklistItem[]
   links?: CardLink[]
   x?: number
   y?: number
   width?: number
   height?: number
-  /** Added to the end of a Text component, as a new paragraph. */
-  appendText?: string
   /** Added to the end of a Checklist component. */
   addItems?: ChecklistItem[]
   /** Texts of checklist items to tick off (whole text, ignoring case). */
@@ -665,6 +681,7 @@ export type CardChangeKind =
   | 'DrawingRemoved'
   | 'LabelAdded'
   | 'LabelRemoved'
+  | 'LabelChanged'
   | 'Deleted'
   | 'Restored'
   /** Added as a copy: before is the original's readable id, after its link (a full URL when it was on another server). */
@@ -702,6 +719,7 @@ export interface CardChange {
 export interface TrashContents {
   cards: CardDetail[]
   images: ImageDetail[]
+  labels: LabelDetail[]
 }
 
 /** What emptyTrash did: how many cards were deleted for good. */

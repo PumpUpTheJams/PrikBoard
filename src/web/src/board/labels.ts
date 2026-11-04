@@ -1,21 +1,24 @@
 import { useEffect, useState } from 'react'
 import { cardRoute, cardPath } from '../api/cardLinks'
-import { inkColors, labelSizes, type InkColor, type LabelBlock, type LabelRun, type LabelSize } from '../api/types'
+import { labelInks, labelSizes, type InkColor, type LabelBlock, type LabelRun, type LabelSize } from '../api/types'
 import { inkColor } from './drawings'
-import type { Size } from './layout'
 
 /** The font size of a label size, in canvas pixels (BoardLabel.Pixels on the server). */
-export const labelPixels: Record<LabelSize, number> = { S: 16, M: 24, L: 40, XL: 64 }
+export const labelPixels: Record<LabelSize, number> = { S: 14, M: 21, L: 35, XL: 56 }
 
 /** What can be switched on and off for a label's text. */
-export type LabelFormat = 'bold' | 'italic' | 'underline' | 'strike'
+export type LabelFormat = 'bold' | 'italic' | 'underline' | 'strike' | 'code'
 export type LabelListKind = 'Bullet' | 'Numbered'
+/** The kinds of block the toolbar turns text into while editing. */
+export type LabelBlockTool = 'Heading' | 'Task' | 'Quote' | 'Code' | 'Table'
+
+/** What text wraps at when nobody chose a width: the mobile layout's new labels. BoardLabel.DefaultWrapWidth on the server. */
+export const DEFAULT_WRAP_WIDTH = 340
 
 /** What the toolbar asks of the editor (`LabelEditor`), which is loaded only when someone edits a label. */
 export interface LabelEditorHandle {
   blocks: () => LabelBlock[]
   focus: () => void
-  selectAll: () => void
   isEmpty: () => boolean
   /** The ink and size of the text selected, or of what is typed at the cursor; null where the selected text has several. */
   styleHere: (base: { ink: InkColor; size: LabelSize }) => { ink: InkColor | null; size: LabelSize | null }
@@ -23,6 +26,8 @@ export interface LabelEditorHandle {
   toggle: (format: LabelFormat) => void
   listActive: (kind: LabelListKind) => boolean
   toggleList: (kind: LabelListKind) => void
+  blockActive: (kind: LabelBlockTool) => boolean
+  toggleBlock: (kind: LabelBlockTool) => void
   setInk: (ink: InkColor) => void
   setSize: (size: LabelSize) => void
   linkHref: () => string | null
@@ -48,15 +53,20 @@ export function followLabelLink(href: string) {
   else window.open(href, '_blank', 'noopener')
 }
 
-export const isBlankLabel = (blocks: LabelBlock[]) => blocks.every((b) => b.runs.every((r) => !r.text.trim()))
+/** Every run of text in a block, those in table cells too. */
+export const runsOf = (block: LabelBlock) => [...block.runs, ...(block.cells ?? []).flat()]
 
-/** Whether all of a label's text has a format. */
-export const allHave = (blocks: LabelBlock[], format: LabelFormat) => blocks.every((b) => b.runs.every((r) => r[format] === true))
+export const isBlankLabel = (blocks: LabelBlock[]) => blocks.every((b) => b.kind !== 'Rule' && runsOf(b).every((r) => !r.text.trim()))
 
-/** A label's text with a format switched on or off for all of it. */
-export function toggleAll(blocks: LabelBlock[], format: LabelFormat): LabelBlock[] {
-  const on = !allHave(blocks, format)
-  return blocks.map((b) => ({ ...b, runs: b.runs.map((r): LabelRun => ({ ...r, [format]: on ? true : undefined })) }))
+/** Whether two labels' content is the same, whichever order their fields are in. */
+export function sameContent(a: LabelBlock[], b: LabelBlock[]) {
+  const canonical = (blocks: LabelBlock[]) =>
+    JSON.stringify(blocks, (_, value: unknown) =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? Object.fromEntries(Object.entries(value).filter(([, v]) => v !== null && v !== undefined).sort(([x], [y]) => (x < y ? -1 : 1)))
+        : value,
+    )
+  return canonical(a) === canonical(b)
 }
 
 /** The style of a run's text, for what it sets itself. */
@@ -68,70 +78,35 @@ export const runStyle = (run: LabelRun) => ({
   fontSize: run.size ? labelPixels[run.size] : undefined,
 })
 
+/** A block is a list item. */
+export const isListItem = (block: LabelBlock) => block.kind === 'Bullet' || block.kind === 'Numbered' || block.kind === 'Task'
+
 /**
- * Neighboring blocks of one kind of list as one list: what `LabelText` draws. Each entry is a paragraph, or the
- * items of a list.
+ * Neighboring blocks that are drawn as one: what `LabelText` draws. Each entry is one block, or the items of a list
+ * (nested ones too), the paragraphs of a quote or the rows of a table.
  */
 export function groupedBlocks(blocks: LabelBlock[]) {
-  const groups: { kind: LabelBlock['kind']; blocks: LabelBlock[] }[] = []
+  const groups: { kind: 'List' | 'Quote' | 'Table' | 'One'; blocks: LabelBlock[] }[] = []
   for (const block of blocks) {
+    const kind = isListItem(block) ? 'List' : block.kind === 'Quote' ? 'Quote' : block.kind === 'TableRow' ? 'Table' : 'One'
     const last = groups.at(-1)
-    if (last && block.kind !== 'Paragraph' && last.kind === block.kind) last.blocks.push(block)
-    else groups.push({ kind: block.kind, blocks: [block] })
+    if (last && kind !== 'One' && last.kind === kind) last.blocks.push(block)
+    else groups.push({ kind, blocks: [block] })
   }
   return groups
 }
 
-/**
- * The size of a label's text, measured the only way there is: laid out, out of sight, in `parent` (the canvas, for its
- * font). The server keeps it, for bucket joins and hit-testing; nothing here reads the page for those.
- */
-export function measureLabel(parent: HTMLElement, content: LabelBlock[], size: LabelSize): Size {
-  const el = document.createElement('div')
-  el.className = 'label'
-  el.style.cssText = `visibility: hidden; font-size: ${labelPixels[size]}px`
-  const fill = (into: HTMLElement, block: LabelBlock) => {
-    for (const run of block.runs) {
-      const span = document.createElement('span')
-      span.textContent = run.text
-      const { fontWeight, fontStyle, textDecorationLine, fontSize } = runStyle(run)
-      if (fontWeight) span.style.fontWeight = String(fontWeight)
-      if (fontStyle) span.style.fontStyle = fontStyle
-      if (textDecorationLine) span.style.textDecorationLine = textDecorationLine
-      if (fontSize) span.style.fontSize = `${fontSize}px`
-      into.appendChild(span)
-    }
-    if (block.runs.length === 0) into.appendChild(document.createElement('br'))
-  }
-  for (const group of groupedBlocks(content)) {
-    if (group.kind === 'Paragraph') {
-      const p = document.createElement('p')
-      fill(p, group.blocks[0])
-      el.appendChild(p)
-    } else {
-      const list = document.createElement(group.kind === 'Bullet' ? 'ul' : 'ol')
-      for (const block of group.blocks) {
-        const item = document.createElement('li')
-        fill(item, block)
-        list.appendChild(item)
-      }
-      el.appendChild(list)
-    }
-  }
-  parent.appendChild(el)
-  const measured = { width: Math.ceil(el.offsetWidth), height: Math.ceil(el.offsetHeight) }
-  el.remove()
-  return measured
-}
+/** Where a label's text starts from its corner: its border and padding (`.label`; BoardLabel.PaddingX and PaddingY on the server). */
+export const LABEL_INSET = { x: 15, y: 11 }
 
 /** The ink and size new labels get, kept for the next visit. */
 export function useLabelStyle(key: string) {
   const [style, setStyle] = useState<{ ink: InkColor; size: LabelSize }>(() => {
     try {
       const value = JSON.parse(localStorage.getItem(key) ?? 'null') as { ink?: unknown; size?: unknown } | null
-      return { ink: inkColors.find((c) => c === value?.ink) ?? 'Chalk', size: labelSizes.find((s) => s === value?.size) ?? 'M' }
+      return { ink: labelInks.find((c) => c === value?.ink) ?? 'Theme', size: labelSizes.find((s) => s === value?.size) ?? 'M' }
     } catch {
-      return { ink: 'Chalk', size: 'M' }
+      return { ink: 'Theme', size: 'M' }
     }
   })
   useEffect(() => {

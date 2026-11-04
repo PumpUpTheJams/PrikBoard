@@ -21,7 +21,7 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
     public static readonly TimeSpan MergeWithin = TimeSpan.FromMinutes(2);
 
     private static bool Mergeable(CardChangeEntry entry) =>
-        entry.Kind is CardChangeKind.Title or CardChangeKind.Color or CardChangeKind.ComponentChanged;
+        entry.Kind is CardChangeKind.Title or CardChangeKind.Color or CardChangeKind.ComponentChanged or CardChangeKind.LabelChanged;
 
     public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
         DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
@@ -167,6 +167,15 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
         Attachments(db.ChangeTracker.Entries<BoardImage>(), i => i.Caption ?? i.File?.FileName, CardChangeKind.ImageAdded, CardChangeKind.ImageRemoved);
         Attachments(db.ChangeTracker.Entries<BoardDrawing>(), _ => null, CardChangeKind.DrawingAdded, CardChangeKind.DrawingRemoved);
         Attachments(db.ChangeTracker.Entries<BoardLabel>(), _ => null, CardChangeKind.LabelAdded, CardChangeKind.LabelRemoved);
+        foreach (var entry in db.ChangeTracker.Entries<BoardLabel>())
+        {
+            var label = entry.Entity;
+            if (entry.State == EntityState.Modified && label.CardId is { } cardId && entry.Property(l => l.CardId).OriginalValue == cardId
+                && entry.Property(l => l.Content).IsModified)
+            {
+                Add(cardId, label.BoardId, new(CardChangeKind.LabelChanged, Ref: label.Id));
+            }
+        }
 
         if (moves.Count > 0)
         {
@@ -245,7 +254,7 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
         }
     }
 
-    private static string Content(CardComponent component) => JsonSerializer.Serialize(new { component.Title, component.Text, component.Items, component.Links });
+    private static string Content(CardComponent component) => JsonSerializer.Serialize(new { component.Title, component.Items, component.Links });
 
     /// <summary>Folds <paramref name="next"/> into <paramref name="entries"/>, dropping titles and colors that are back where they started.</summary>
     private static List<CardChangeEntry> Merge(List<CardChangeEntry> entries, List<CardChangeEntry> next)

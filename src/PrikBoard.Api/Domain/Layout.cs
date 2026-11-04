@@ -434,7 +434,7 @@ public static class Layout
 
     /// <summary>
     /// The first grid slot on a card's canvas, row by row, where a <paramref name="width"/> by <paramref name="height"/>
-    /// rectangle keeps a gap from everything already there (its components and attached images).
+    /// rectangle keeps a gap from everything already there (its components, attached images and labels).
     /// </summary>
     public static (int X, int Y) NextCardSpot(IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, int width, int height)
     {
@@ -449,9 +449,13 @@ public static class Layout
         return (Gap, Gap);
     }
 
-    /// <summary>What is on a card's canvas: its components, and the images attached to it.</summary>
-    public static List<(int X, int Y, int Width, int Height)> TakenOnCard(Card card, IEnumerable<BoardImage> attached) =>
-        [.. card.Components.Select(b => (b.X, b.Y, b.Width, b.Height)), .. attached.Select(i => (i.X, i.Y, i.Width, i.Height))];
+    /// <summary>What is on a card's canvas: its components, the images attached to it, and its labels.</summary>
+    public static List<(int X, int Y, int Width, int Height)> TakenOnCard(Card card, IEnumerable<BoardImage> attached, IEnumerable<BoardLabel>? labels = null) =>
+        [
+            .. card.Components.Select(b => (b.X, b.Y, b.Width, b.Height)),
+            .. attached.Select(i => (i.X, i.Y, i.Width, i.Height)),
+            .. (labels ?? []).Select(l => (l.X, l.Y, l.Width, l.Height)),
+        ];
 
     public static bool Intersects((int X, int Y, int Width, int Height) a, (int X, int Y, int Width, int Height) b) =>
         a.X < b.X + b.Width && b.X < a.X + a.Width && a.Y < b.Y + b.Height && b.Y < a.Y + a.Height;

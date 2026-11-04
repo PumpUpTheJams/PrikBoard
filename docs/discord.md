@@ -211,7 +211,7 @@ Everything else gets nothing, and it all looks the same:
 
 The individual rules:
 
-- **Card description.** Cards have no description field. The description is the first Text component on the card's canvas, top to bottom and then left to right. Its Markdown is reduced to plain text and cut to 300 characters at a word, with an ellipsis. A card whose content is only checklists gets `3/7 done` instead (`CardPreview.Describe`).
+- **Card description.** Cards have no description field. The description is the first label on the card's canvas, top to bottom and then left to right, as plain text, cut to 300 characters at a word, with an ellipsis. A card whose content is only checklists gets `3/7 done` instead (`CardPreview.Describe`).
 - **Board description.** `Board.Description`, cut the same way, or nothing.
 - **Invites** reuse `previewInvite`'s lookup and are never spent. They need no membership or channel, since anyone holding the link is meant to see the board's name. They do need a server where the bot is connected to some board.
 - **Host check.** A link counts only when its origin and path match the public address, so a look-alike host isn't previewed as PrikBoard.
@@ -249,7 +249,7 @@ On any message, *Apps → Save as card* (a message command the bot registers whe
 2. **Where it can go.** The boards the person can edit (Editor or Owner) that are connected to this server (`ChatSaves.TargetsAsync`). Boards connected to this channel come first, each with the channel's save bucket or the board's first bucket. With no such board, the bot says so privately.
 3. **Choosing.** A private reply with a board menu (when there are several), a bucket menu, the title (the message's first line, editable in a small form) and *Save*. The choices wait for 15 minutes.
 4. **Saving.** `ChatSaves.SaveAsync` creates the card through createCard as the person, with `CardHistory.ActingAs`, so their role decides and the card's history names them. The card gets:
-   - the message quoted in a Text component, with "From **author** in #channel, time"
+   - the message quoted in a label, with "From **author** in #channel, time"
    - a link back to the message
    - up to four of its images, fetched from Discord's file hosts only (`cdn.discordapp.com`, `media.discordapp.net`)
 5. **Telling the channel.** The private reply then shows the new card's preview with an *Open in PrikBoard* button. The bot reacts 📌 on the message, which needs *Add Reactions* (in the invite's permissions, 93248), so the channel sees it was saved.

@@ -1,9 +1,9 @@
-import { inkColors, labelSizes, type LabelBlock, type LabelRun } from '../api/types'
+import { labelInks, labelSizes, type LabelBlock, type LabelRun } from '../api/types'
 import { inkColor } from './drawings'
-import { isLabelLink, labelPixels } from './labels'
+import { isLabelLink, isListItem, labelPixels } from './labels'
 
 // A label's blocks as the editor's document and back. Only what labels have survives the way back, so whatever got
-// into the editor (pasted colors, nested lists) can't reach the server.
+// into the editor (pasted colors) can't reach the server.
 
 interface DocMark {
   type: string
@@ -24,6 +24,7 @@ function marksOf(run: LabelRun): DocMark[] | undefined {
   if (run.italic) marks.push({ type: 'italic' })
   if (run.underline) marks.push({ type: 'underline' })
   if (run.strike) marks.push({ type: 'strike' })
+  if (run.code) marks.push({ type: 'code' })
   if (run.link) marks.push({ type: 'link', attrs: { href: run.link } })
   if (run.ink || run.size) {
     marks.push({ type: 'textStyle', attrs: { color: run.ink ? inkColor[run.ink] : null, fontSize: run.size ? `${labelPixels[run.size]}px` : null } })
@@ -48,19 +49,57 @@ const paragraphOf = (block: LabelBlock): DocNode => {
   return { type: 'paragraph', ...(content.length > 0 ? { content } : {}) }
 }
 
+const listTypes = { Bullet: 'bulletList', Numbered: 'orderedList', Task: 'taskList' } as const
+
+function cellOf(cell: LabelRun[], type: string): DocNode {
+  const content = inlineOf(cell)
+  return { type, content: [{ type: 'paragraph', ...(content.length > 0 ? { content } : {}) }] }
+}
+
 /** Blocks as a document. */
 export function docOf(blocks: LabelBlock[]): DocNode {
   const content: DocNode[] = []
+  // The lists the last list item is in, outermost first.
+  let lists: { node: DocNode; level: number }[] = []
   for (const block of blocks) {
-    if (block.kind === 'Paragraph') {
-      content.push(paragraphOf(block))
+    const last = content.at(-1)
+    if (isListItem(block)) {
+      const type = listTypes[block.kind as keyof typeof listTypes]
+      const level = block.level ?? 0
+      lists = lists.filter((l) => l.level < level || (l.level === level && l.node.type === type))
+      if (lists.at(-1)?.level !== level) {
+        const node: DocNode = { type, content: [] }
+        const around = lists.at(-1)?.node.content!.at(-1)
+        if (around) around.content!.push(node)
+        else content.push(node)
+        lists.push({ node, level })
+      }
+      lists.at(-1)!.node.content!.push(
+        block.kind === 'Task'
+          ? { type: 'taskItem', attrs: { checked: block.done === true }, content: [paragraphOf(block)] }
+          : { type: 'listItem', content: [paragraphOf(block)] },
+      )
       continue
     }
-    const type = block.kind === 'Bullet' ? 'bulletList' : 'orderedList'
-    const item: DocNode = { type: 'listItem', content: [paragraphOf(block)] }
-    const last = content.at(-1)
-    if (last?.type === type) last.content!.push(item)
-    else content.push({ type, content: [item] })
+    lists = []
+    if (block.kind === 'Quote') {
+      if (last?.type === 'blockquote') last.content!.push(paragraphOf(block))
+      else content.push({ type: 'blockquote', content: [paragraphOf(block)] })
+    } else if (block.kind === 'TableRow') {
+      const header = last?.type !== 'table'
+      const row: DocNode = { type: 'tableRow', content: (block.cells ?? []).map((cell) => cellOf(cell, header ? 'tableHeader' : 'tableCell')) }
+      if (header) content.push({ type: 'table', content: [row] })
+      else last.content!.push(row)
+    } else if (block.kind === 'Heading') {
+      content.push({ ...paragraphOf(block), type: 'heading', attrs: { level: block.level ?? 1 } })
+    } else if (block.kind === 'Code') {
+      const text = block.runs.map((r) => r.text).join('')
+      content.push({ type: 'codeBlock', ...(text ? { content: [{ type: 'text', text }] } : {}) })
+    } else if (block.kind === 'Rule') {
+      content.push({ type: 'horizontalRule' })
+    } else {
+      content.push(paragraphOf(block))
+    }
   }
   return { type: 'doc', content: content.length > 0 ? content : [{ type: 'paragraph' }] }
 }
@@ -72,9 +111,10 @@ function runStyleOf(marks: DocMark[] | undefined): Omit<LabelRun, 'text'> {
     else if (mark.type === 'italic') style.italic = true
     else if (mark.type === 'underline') style.underline = true
     else if (mark.type === 'strike') style.strike = true
+    else if (mark.type === 'code') style.code = true
     else if (mark.type === 'link' && typeof mark.attrs?.href === 'string' && isLabelLink(mark.attrs.href)) style.link = mark.attrs.href
     else if (mark.type === 'textStyle') {
-      const ink = inkColors.find((c) => inkColor[c] === mark.attrs?.color)
+      const ink = labelInks.find((c) => inkColor[c] === mark.attrs?.color)
       const size = labelSizes.find((s) => `${labelPixels[s]}px` === mark.attrs?.fontSize)
       if (ink) style.ink = ink
       if (size) style.size = size
@@ -96,17 +136,30 @@ function runsOf(nodes: DocNode[] | undefined): LabelRun[] {
   return runs
 }
 
-/** A document as blocks: a list nested in another becomes more items of the outer kind's level, since labels' lists are flat. */
+/** A document as blocks; nesting becomes the level of each list item. */
 export function blocksOf(doc: DocNode): LabelBlock[] {
   const blocks: LabelBlock[] = []
-  const walk = (nodes: DocNode[] | undefined, kind: LabelBlock['kind']) => {
+  const withLevel = (kind: LabelBlock['kind'], level: number) => (level > 0 ? { kind, level } : { kind })
+  const walk = (nodes: DocNode[] | undefined, kind: LabelBlock['kind'], level: number, done?: boolean) => {
     for (const node of nodes ?? []) {
-      if (node.type === 'paragraph') blocks.push({ kind, runs: runsOf(node.content) })
-      else if (node.type === 'bulletList') walk(node.content, 'Bullet')
-      else if (node.type === 'orderedList') walk(node.content, 'Numbered')
-      else if (node.type === 'listItem') walk(node.content, kind)
+      if (node.type === 'paragraph') blocks.push({ ...withLevel(kind, level), ...(done ? { done } : {}), runs: runsOf(node.content) })
+      else if (node.type === 'heading') blocks.push({ kind: 'Heading', level: Number(node.attrs?.level ?? 1), runs: runsOf(node.content) })
+      else if (node.type === 'codeBlock') blocks.push({ kind: 'Code', runs: runsOf(node.content).map(({ text }) => ({ text })) })
+      else if (node.type === 'horizontalRule') blocks.push({ kind: 'Rule', runs: [] })
+      else if (node.type === 'blockquote') walk(node.content, 'Quote', 0)
+      else if (node.type === 'table') {
+        for (const row of node.content ?? []) {
+          // A cell's paragraphs become lines of one cell.
+          const cells = (row.content ?? []).map((cell) => (cell.content ?? []).flatMap((p, i) => [...(i > 0 ? [{ text: '\n' }] : []), ...runsOf(p.content)]))
+          blocks.push({ kind: 'TableRow', runs: [], cells })
+        }
+      } else if (node.type === 'bulletList' || node.type === 'orderedList' || node.type === 'taskList') {
+        const inner = node.type === 'bulletList' ? 'Bullet' : node.type === 'orderedList' ? 'Numbered' : 'Task'
+        const nested = kind === 'Bullet' || kind === 'Numbered' || kind === 'Task'
+        for (const item of node.content ?? []) walk(item.content, inner, nested ? level + 1 : 0, item.attrs?.checked === true)
+      }
     }
   }
-  walk(doc.content, 'Paragraph')
+  walk(doc.content, 'Paragraph', 0)
   return blocks
 }

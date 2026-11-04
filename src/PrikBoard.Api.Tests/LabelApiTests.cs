@@ -55,9 +55,9 @@ public class LabelApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
 
         // Without a measured size it estimates one from the text; ink and size have defaults.
         var plain = await Create(board.Id, new { x = 0, y = 0, content = Words("Short") });
-        Assert.Equal((InkColor.Chalk, LabelSize.M), (plain.Ink, plain.Size));
+        Assert.Equal((InkColor.Theme, LabelSize.M), (plain.Ink, plain.Size));
         Assert.InRange(plain.Width, 40, 120);
-        Assert.InRange(plain.Height, 20, 40);
+        Assert.InRange(plain.Height, 40, 60);
     }
 
     [Fact]
@@ -478,6 +478,23 @@ public class LabelApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     [InlineData("first\n\nsecond", "first\n\nsecond")]
     [InlineData("one\ntwo", "one\ntwo")]
     [InlineData("before\n- item\n\nafter", "before\n\n- item\n\nafter")]
+    [InlineData("## Status\nIn review", "## Status\n\nIn review")]
+    [InlineData("Use `dotnet test` here", "Use `dotnet test` here")]
+    [InlineData("`` a`b ``", "``a`b``")]
+    [InlineData("- a\n  - b\n    - c\n- d", "- a\n    - b\n        - c\n- d")]
+    [InlineData("1. a\n   - b\n2. c", "1. a\n    - b\n2. c")]
+    [InlineData("- [ ] open\n- [x] done", "- [ ] open\n- [x] done")]
+    [InlineData("- item\n  goes on", "- item\ngoes on")]
+    [InlineData("> quoted\n> more\n>\n> again", "> quoted\n> more\n>\n> again")]
+    [InlineData("```js\nconst a = 1\n\n  b *not bold*\n```", "```\nconst a = 1\n\n  b *not bold*\n```")]
+    [InlineData("a\n\n---\n\nb", "a\n\n---\n\nb")]
+    [InlineData("| a | b |\n|---|:-:|\n| **c** | d\\|e |", "| a | b |\n| --- | --- |\n| **c** | d\\|e |")]
+    [InlineData("\\# not a heading", "\\# not a heading")]
+    [InlineData("See https://example.com/a_b?c=1, (or https://example.com/x).", "See https://example.com/a_b?c=1, (or https://example.com/x).")]
+    [InlineData("**https://example.com/b**", "**https://example.com/b**")]
+    [InlineData("xhttps://example.com", "xhttps://example.com")]
+    [InlineData("\\> not a quote", "\\> not a quote")]
+    [InlineData("\\---", "\\---")]
     public void Markdown_goes_both_ways(string markdown, string back) =>
         Assert.Equal(back, LabelMarkdown.From(LabelMarkdown.Parse(markdown)));
 
@@ -508,6 +525,226 @@ public class LabelApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     {
         var label = labels.Single(l => l.Id == id);
         return (label.X, label.Y, label.BucketId);
+    }
+
+    [Fact]
+    public void Markdown_reads_each_kind_of_block()
+    {
+        var blocks = LabelMarkdown.Parse("### Head\n\n- [x] done\n  - inner\n\n> said\n\n```\ncode\n```\n\n| a | b |\n|---|---|\n| [c](https://example.com) | `d` |\n\n---");
+        Assert.Equal(
+            [LabelBlockKind.Heading, LabelBlockKind.Task, LabelBlockKind.Bullet, LabelBlockKind.Quote, LabelBlockKind.Code, LabelBlockKind.TableRow, LabelBlockKind.TableRow, LabelBlockKind.Rule],
+            blocks.Select(b => b.Kind));
+        Assert.Equal(3, blocks[0].Level);
+        Assert.True(blocks[1].Done);
+        Assert.Equal(1, blocks[2].Level);
+        Assert.Equal("https://example.com", blocks[6].Cells![0][0].Link);
+        Assert.True(blocks[6].Cells![1][0].Code);
+    }
+
+    [Fact]
+    public async Task Every_kind_of_block_is_kept_and_checked()
+    {
+        var board = await _client.CreateBoardAsync("Blocks");
+        var label = await Create(board.Id, new
+        {
+            content = new object[]
+            {
+                new { kind = "Heading", level = 2, runs = new[] { new { text = "Head" } } },
+                new { kind = "Task", done = true, level = 1, runs = new[] { new { text = "Tick" } } },
+                new { kind = "Code", runs = new object[] { new { text = "a" }, new { text = "b", bold = true } } },
+                new { kind = "TableRow", cells = new[] { new[] { new { text = "x" } }, new[] { new { text = "y" } } } },
+                new { kind = "Rule", runs = new[] { new { text = "dropped" } } },
+            },
+        });
+        Assert.Equal(2, label.Content[0].Level);
+        Assert.Equal((true, 1), (label.Content[1].Done, label.Content[1].Level));
+        Assert.Equal(new LabelRun("ab"), Assert.Single(label.Content[2].Runs));
+        Assert.Equal("x | y", label.Text.Split('\n')[3]);
+        Assert.Empty(label.Content[4].Runs);
+
+        await AssertInvalid($"/api/boards/{board.Id}/labels", new { content = new[] { new { kind = "Heading", level = 7, runs = new[] { new { text = "a" } } } } }, "content[0].level");
+        await AssertInvalid($"/api/boards/{board.Id}/labels", new { content = new[] { new { kind = "Bullet", level = 6, runs = new[] { new { text = "a" } } } } }, "content[0].level");
+        await AssertInvalid($"/api/boards/{board.Id}/labels", new { content = new[] { new { kind = "TableRow", runs = new[] { new { text = "a" } } } } }, "content[0].cells");
+        await AssertInvalid($"/api/boards/{board.Id}/labels", new { content = new[] { new { kind = "TableRow", cells = new[] { new[] { new { text = "a", link = "javascript:alert(1)" } } } } } }, "content[0].cells[0][0].link");
+    }
+
+    [Fact]
+    public async Task Long_text_nobody_measured_wraps_and_a_chosen_width_stays()
+    {
+        var board = await _client.CreateBoardAsync("Wrapping");
+        var longText = string.Join(' ', Enumerable.Repeat("word", 200));
+
+        var agent = await Create(board.Id, new { markdown = longText, size = "S" });
+        Assert.Equal((BoardLabel.DefaultWrapWidth, BoardLabel.DefaultWrapWidth), (agent.WrapWidth, agent.Width));
+        Assert.True(agent.Height > 100, $"Height {agent.Height}");
+
+        var measured = await Create(board.Id, new { markdown = longText, width = 900, height = 30 });
+        Assert.Null(measured.WrapWidth);
+
+        var chosen = await Create(board.Id, new { markdown = longText, wrapWidth = 500 });
+        Assert.Equal((500, 500), (chosen.WrapWidth, chosen.Width));
+
+        var unwrapped = await Update(chosen.Id, new { wrapWidth = 0 });
+        Assert.Null(unwrapped.WrapWidth);
+        Assert.True(unwrapped.Width > 500, $"Width {unwrapped.Width}");
+        Assert.Equal(BoardLabel.MinWrapWidth, (await Update(chosen.Id, new { wrapWidth = 1 })).WrapWidth);
+    }
+
+    [Fact]
+    public async Task A_label_has_a_background_on_a_card_and_none_on_the_board_unless_asked()
+    {
+        var board = await _client.CreateBoardAsync("Backgrounds");
+        var card = await _client.CreateCardAsync(board.Id, "With labels");
+
+        var loose = await Create(board.Id, new { markdown = "loose" });
+        var onCard = await Create(board.Id, new { cardId = card.Id, markdown = "on a card" });
+        Assert.False(loose.Background);
+        Assert.True(onCard.Background);
+        Assert.Equal(loose.Height, (await Create(board.Id, new { markdown = "loose", background = true })).Height);
+
+        Assert.True((await Create(board.Id, new { markdown = "asked", background = true })).Background);
+        Assert.False((await Create(board.Id, new { cardId = card.Id, markdown = "asked", background = false })).Background);
+
+        Assert.True((await Update(loose.Id, new { background = true })).Background);
+        Assert.False((await Update(onCard.Id, new { background = false })).Background);
+
+        // Moving it between the board and a card leaves it as it is.
+        Assert.True((await Update(loose.Id, new { cardId = card.Id })).Background);
+        Assert.False((await Update(onCard.Id, new { detach = true, x = 0, y = 0 })).Background);
+    }
+
+    private async Task<Guid> CardWithRawComponents(Guid boardId, string title, string componentsJson, bool deleted = false)
+    {
+        var card = await _client.CreateCardAsync(boardId, title);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+        await db.Database.ExecuteSqlAsync($"UPDATE \"Cards\" SET \"Components\" = {componentsJson}::jsonb WHERE \"Id\" = {card.Id}");
+        if (deleted) (await _client.DeleteAsync($"/api/cards/{card.Id}")).EnsureSuccessStatusCode();
+        return card.Id;
+    }
+
+    private static string Note(Guid id, int x, int y, int width, int height, string text, string? title = null) =>
+        System.Text.Json.JsonSerializer.Serialize(new { id, kind = "Text", x, y, width, height, title, text, items = Array.Empty<object>(), links = Array.Empty<object>() });
+
+    [Fact]
+    public async Task Migrating_notes_keeps_their_text_formatting_and_place_with_a_backup()
+    {
+        var board = await _client.CreateBoardAsync("Old notes");
+        var (rich, empty, kept) = (Guid.CreateVersion7(), Guid.CreateVersion7(), Guid.CreateVersion7());
+        const string markdown = "## Status\nIn **review**: `free-text`.\n\n- first\n  - nested\n\n- [x] done\n\n> quoted\n\n```\ncode()\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n---\n\n[link](https://example.com)";
+        var checklist = $$"""{"id":"{{kept}}","kind":"Checklist","x":20,"y":300,"width":340,"height":200,"items":[{"text":"Keep me","done":true}],"links":[]}""";
+        var cardId = await CardWithRawComponents(board.Id, "Old card", $"[{Note(rich, 20, 20, 400, 100, markdown, "Why")},{Note(empty, 500, 20, 340, 220, "")},{checklist}]");
+        var deletedCard = await CardWithRawComponents(board.Id, "In the trash", $"[{Note(Guid.CreateVersion7(), 20, 20, 340, 220, "from the trash")}]", deleted: true);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
+        var report = await NoteMigration.RunAsync(db, TestContext.Current.CancellationToken);
+        Assert.True(report.Cards >= 2 && report.Labels >= 2 && report.Empty >= 1, report.ToString());
+        Assert.Equal(0, (await NoteMigration.RunAsync(db, TestContext.Current.CancellationToken)).Cards);
+
+        var label = Assert.Single(await db.Labels.AsNoTracking().Where(l => l.CardId == cardId).ToListAsync(TestContext.Current.CancellationToken));
+        Assert.Equal((20, 20, 400, 400, true, InkColor.Theme, LabelSize.S), (label.X, label.Y, label.Width, label.WrapWidth!.Value, label.Background, label.Ink, label.Size));
+        Assert.Equal(
+            [LabelBlockKind.Heading, LabelBlockKind.Heading, LabelBlockKind.Paragraph, LabelBlockKind.Bullet, LabelBlockKind.Bullet, LabelBlockKind.Task, LabelBlockKind.Quote, LabelBlockKind.Code, LabelBlockKind.TableRow, LabelBlockKind.TableRow, LabelBlockKind.Rule, LabelBlockKind.Paragraph],
+            label.Content.Select(b => b.Kind));
+        Assert.Contains("### Why", LabelMarkdown.From(label.Content));
+        Assert.Contains("[link](https://example.com)", LabelMarkdown.From(label.Content));
+
+        // The note grew past its old height, so the checklist below it moved; only the checklist is left in the components.
+        var card = (await _client.GetFromJsonAsync<CardDetail>($"/api/cards/{cardId}"))!;
+        var left = Assert.Single(card.Components);
+        Assert.Equal((kept, CardComponentKind.Checklist, "Keep me"), (left.Id, left.Kind, left.Items![0].Text));
+        Assert.True(left.Y >= label.Y + label.Height, $"Checklist at {left.Y}, label to {label.Y + label.Height}");
+        Assert.Equal(0, left.Y % Layout.Grid);
+
+        var backups = await db.NoteBackups.AsNoTracking().Where(b => b.CardId == cardId).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, backups.Count);
+        var backup = backups.Single(b => b.Id == rich);
+        Assert.Equal((markdown, "Why", label.Id, 20, 100), (backup.Text, backup.Title, backup.LabelId!.Value, backup.Y, backup.Height));
+        Assert.Null(backups.Single(b => b.Id == empty).LabelId);
+
+        // The trash's note comes back with its card.
+        var hidden = await db.Labels.AsNoTracking().WithDeleted().SingleAsync(l => l.CardId == deletedCard, TestContext.Current.CancellationToken);
+        Assert.NotNull(hidden.DeletedAt);
+        (await _client.PostAsJsonAsync($"/api/cards/{deletedCard}/restore", new { })).EnsureSuccessStatusCode();
+        Assert.Contains((await Board(board.Id)).Labels, l => l.CardId == deletedCard && l.Text == "from the trash");
+    }
+
+    [Fact]
+    public void Migrating_a_note_too_long_with_its_title_or_with_a_bad_link_never_fails()
+    {
+        var (longOne, plain) = NoteMigration.BlocksOf("Title", new string('x', BoardLabel.MaxTextLength));
+        Assert.False(plain);
+        Assert.Equal(BoardLabel.MaxTextLength, longOne![1].Runs[0].Text.Length);
+
+        Assert.Null(NoteMigration.BlocksOf("  ", "\n").Blocks);
+
+        var (bad, fellBack) = NoteMigration.BlocksOf(null, $"[a](https://example.com/{new string('x', BoardLabel.MaxLinkLength)})");
+        Assert.True(fellBack);
+        Assert.Contains("https://example.com/", Assert.Single(bad!).Runs[0].Text);
+    }
+
+    [Fact]
+    public async Task A_clip_from_before_labels_pastes_its_notes_as_labels()
+    {
+        var board = await _client.CreateBoardAsync("Old clip");
+        var card = await _client.CreateCardAsync(board.Id, "Noted");
+        var response = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/copy", new { cardIds = new[] { card.Id } });
+        var clip = System.Text.Json.Nodes.JsonNode.Parse(await response.Content.ReadAsStringAsync())!.AsObject();
+        clip["version"] = 6;
+        clip["cards"]![0]!["components"] = new System.Text.Json.Nodes.JsonArray(new System.Text.Json.Nodes.JsonObject
+        {
+            ["kind"] = "Text", ["title"] = "Why", ["text"] = "**Because** of this.", ["x"] = 40, ["y"] = 60, ["width"] = 400, ["height"] = 200,
+        });
+
+        var pasted = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/paste", new { clip, x = 0, y = 0 });
+        var body = await pasted.Content.ReadAsStringAsync();
+        Assert.True(pasted.IsSuccessStatusCode, body);
+        var items = System.Text.Json.JsonSerializer.Deserialize<PastedItems>(body, System.Text.Json.JsonSerializerOptions.Web)!;
+        var copy = Assert.Single(items.Cards);
+        Assert.Empty(copy.Components);
+        var label = Assert.Single((await Board(board.Id)).Labels, l => l.CardId == copy.Id);
+        Assert.Equal((40, 60, 400, true), (label.X, label.Y, label.WrapWidth!.Value, label.Background));
+        Assert.Equal("### Why\n\n**Because** of this.", LabelMarkdown.From(label.Content));
+    }
+
+    [Fact]
+    public async Task Card_search_finds_the_text_of_labels_on_cards_also_in_the_trash()
+    {
+        var board = await _client.CreateBoardAsync("Finding");
+        var card = await _client.CreateCardAsync(board.Id, "Plain title");
+        await _client.CreateCardAsync(board.Id, "Another");
+        await Create(board.Id, new { cardId = card.Id, markdown = "the **needle** here" });
+        await Create(board.Id, new { x = 0, y = 0, markdown = "needle on the board" });
+
+        var found = (await _client.GetFromJsonAsync<List<CardDetail>>($"/api/boards/{board.Id}/cards?search=needle"))!;
+        Assert.Equal(card.Id, Assert.Single(found).Id);
+
+        (await _client.DeleteAsync($"/api/cards/{card.Id}")).EnsureSuccessStatusCode();
+        var trash = (await _client.GetFromJsonAsync<TrashContents>($"/api/boards/{board.Id}/trash?search=needle"))!;
+        Assert.Equal(card.Id, Assert.Single(trash.Cards).Id);
+    }
+
+    [Fact]
+    public async Task A_change_of_text_on_a_card_is_in_its_history()
+    {
+        var board = await _client.CreateBoardAsync("Told");
+        var card = await _client.CreateCardAsync(board.Id, "With a label");
+        var onCard = await Create(board.Id, new { cardId = card.Id, markdown = "first" });
+        await Update(onCard.Id, new { markdown = "second" });
+        await Update(onCard.Id, new { markdown = "third" });
+        await Update(onCard.Id, new { x = 200, y = 200 });
+
+        var history = (await _client.GetFromJsonAsync<List<CardChangeDetail>>($"/api/cards/{card.Id}/history"))!;
+        Assert.Equal(1, history.SelectMany(h => h.Entries).Count(e => e.Kind == CardChangeKind.LabelChanged));
+    }
+
+    private async Task<LabelDetail> Update(Guid labelId, object request)
+    {
+        var response = await _client.PatchAsJsonAsync($"/api/labels/{labelId}", request);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.True(response.IsSuccessStatusCode, body);
+        return System.Text.Json.JsonSerializer.Deserialize<LabelDetail>(body, System.Text.Json.JsonSerializerOptions.Web)!;
     }
 
     private async Task<BoardDetail> Board(Guid boardId) => (await _client.GetFromJsonAsync<BoardDetail>($"/api/boards/{boardId}"))!;

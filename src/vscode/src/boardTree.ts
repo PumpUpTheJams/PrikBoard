@@ -303,7 +303,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
     // appendText escapes markdown, so a card cannot format or link its own tooltip.
     const tooltip = new vscode.MarkdownString()
     tooltip.appendText(titleOf(card))
-    for (const component of card.components) if (component.kind === 'Text' && component.text) tooltip.appendText(`\n\n${component.text}`)
+    for (const label of this.details.get(card.boardId)?.labels ?? []) if (label.cardId === card.id) tooltip.appendText(`\n\n${label.text}`)
     item.tooltip = tooltip
     return item
   }

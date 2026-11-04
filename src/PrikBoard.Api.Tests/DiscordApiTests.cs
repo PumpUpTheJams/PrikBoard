@@ -279,8 +279,8 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         (await owner.PatchAsJsonAsync($"/api/boards/{board.Id}", new { description = "Where **we** plan." })).EnsureSuccessStatusCode();
         var plain = await owner.CreateCardAsync(board.Id, "Empty card");
         var noted = await owner.CreateCardAsync(board.Id, "Retry uploads");
-        await AddComponent(owner, noted.Id, new { kind = "Text", text = "Second note", x = 20, y = 300 });
-        await AddComponent(owner, noted.Id, new { kind = "Text", text = "## Why\n\nUploads **fail** on [flaky](https://x.example) networks.", x = 20, y = 20 });
+        (await owner.PostAsJsonAsync($"/api/boards/{board.Id}/labels", new { cardId = noted.Id, markdown = "Second label", x = 20, y = 300 })).EnsureSuccessStatusCode();
+        (await owner.PostAsJsonAsync($"/api/boards/{board.Id}/labels", new { cardId = noted.Id, markdown = "## Why\n\nUploads **fail** on [flaky](https://x.example) networks.", x = 20, y = 20 })).EnsureSuccessStatusCode();
         var checklist = await owner.CreateCardAsync(board.Id, "Launch");
         await AddComponent(owner, checklist.Id, new { kind = "Checklist", items = new[] { new { text = "a", done = true }, new { text = "b", done = false } } });
         var guildId = BotJoinsServer();
@@ -450,7 +450,7 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         var board = await owner.CreateBoardAsync("Rich previews");
         var card = await owner.CreateCardAsync(board.Id, "Ship it");
         (await owner.PatchAsJsonAsync($"/api/cards/{card.Id}", new { tags = new[] { "release" }, assigneeIds = new[] { me } })).EnsureSuccessStatusCode();
-        await AddComponent(owner, card.Id, new { kind = "Text", text = "Before Friday." });
+        (await owner.PostAsJsonAsync($"/api/boards/{board.Id}/labels", new { cardId = card.Id, markdown = "Before Friday." })).EnsureSuccessStatusCode();
         await AddComponent(owner, card.Id, new { kind = "Checklist", items = new[] { new { text = "a", done = true }, new { text = "b", done = false } } });
         var guildId = BotJoinsServer();
         await ConnectAsync(owner, board.Id, guildId, Channel);
@@ -617,7 +617,7 @@ public class DiscordApiTests(DiscordApiFactory factory) : IClassFixture<DiscordA
         Assert.Null(problem);
         var card = (await owner.GetFromJsonAsync<CardDetail>($"/api/cards/{saved!.Id}"))!;
         Assert.Equal(("Safari login", doing.Id), (card.Title, card.BucketId));
-        var text = card.Components.Single(c => c.Kind == CardComponentKind.Text).Text!;
+        var text = LabelMarkdown.From((await db.Labels.SingleAsync(l => l.CardId == card.Id)).Content);
         Assert.StartsWith("> Login breaks on **Safari**\n> Steps: open it", text);
         Assert.Contains("From **Robin** in #general", text);
         Assert.Equal("https://discord.com/channels/1/2/3", card.Components.Single(c => c.Kind == CardComponentKind.Links).Links![0].Url);
@@ -727,13 +727,12 @@ public class CardPreviewTests
             Title = "t",
             Components =
             [
-                new CardComponent { Kind = CardComponentKind.Text, X = 400, Y = 20, Text = "Right" },
                 new CardComponent { Kind = CardComponentKind.Checklist, Y = 0, Items = [new ChecklistEntry { Text = "x" }] },
-                new CardComponent { Kind = CardComponentKind.Text, X = 20, Y = 20, Text = "   " },
-                new CardComponent { Kind = CardComponentKind.Text, X = 20, Y = 40, Text = "Below" },
             ],
         };
-        Assert.Equal("Right", CardPreview.Describe(card));
+        BoardLabel[] labels = [new() { X = 400, Y = 20, Text = "Right" }, new() { X = 20, Y = 20, Text = "   " }, new() { X = 20, Y = 40, Text = "Below" }];
+        Assert.Equal("Right", CardPreview.Describe(card, labels));
+        Assert.Equal("A label above it", CardPreview.Describe(card, [.. labels, new BoardLabel { X = 0, Y = 0, Text = "A label\nabove it" }]));
     }
 
     [Theory]

@@ -7,14 +7,14 @@ import { eraserRadius, inkColor, movePenRing, CARD_PEN, usePen } from './drawing
 import { DrawingGhost, DrawingToolbar, DrawingView, IncomingDrawingView, PenRing, StrokeSvg } from './DrawingView'
 import { delta, isDrag } from './gesture'
 import { ImageInspector } from './Inspector'
-import { followLabelLink, LABEL_CARD_STYLE, labelPixels, useLabelStyle } from './labels'
-import { LabelGhost, LabelToolbar, LabelView } from './LabelView'
+import { followLabelLink, LABEL_CARD_STYLE, LABEL_INSET, labelPixels, useLabelStyle } from './labels'
+import { LabelBar, LabelGhost, LabelView, LabelWrapHandle } from './LabelView'
 import { componentSize, defaultComponentSize, freeSpot, onCardCanvas, resizeFrom, resizeImage, snapPoint, spanRect } from './layout'
-import { ComponentFrame, ChecklistComponent, LinksComponent, TextComponent } from './CardComponents'
+import { ComponentFrame, ChecklistComponent, LinksComponent } from './CardComponents'
 import { CardBar } from './CardBar'
 import { allOf, ops, runAll, settling } from './ops'
 import { resizeCursor } from './resizeCursor'
-import { componentMatches, type SearchTerm } from './search'
+import { componentMatches, labelMatches, type SearchTerm } from './search'
 import { adds, bounds, insideClient, mergePicked, togglePicked, touches, useSelection, useSpaceHeld, type Picked } from './selection'
 import { count } from './boardItems'
 import { useFileDrop, usePan, useScrollStore } from './canvasHooks'
@@ -22,6 +22,7 @@ import { inField } from './keys'
 import { deleted, patched, snap, step, target, type RecordingRun, type UndoChange } from './undo'
 import { useEraser } from './useEraser'
 import { useLabelEditing } from './useLabelEditing'
+import { useLabelHover } from './useLabelHover'
 import { useStroke } from './useStroke'
 import { useZoom } from './useZoom'
 import { CardMapItems, ViewControls, type HistoryButtons } from './ViewControls'
@@ -203,6 +204,7 @@ export function CardCanvas(props: CardCanvasProps) {
   /** Runs a change through the board (recorded for undo as `describe` says), then lets go of the finished gesture. */
   const settle = settling(run, () => setGesture(null))
   const labelEdit = useLabelEditing({ boardId: card.boardId, settle, canvasRef })
+  const labelHover = useLabelHover()
 
   const saveComponent = (component: CardComponent, changes: Parameters<typeof api.updateCardComponent>[2]) =>
     settle(...ops.editComponent(card.id, component, changes))
@@ -214,7 +216,7 @@ export function CardCanvas(props: CardCanvasProps) {
   /** Adds a component in the first free spot in view (or, with none, wherever the server finds room) and focuses it. */
   function addComponent(kind: CardComponentKind) {
     const size = defaultComponentSize(kind)
-    const spot = freeSpot([...card.components, ...images], size, visible())
+    const spot = freeSpot([...card.components, ...images, ...labels], size, visible())
     const [add, describe] = ops.addComponent(card.id, { kind, ...(spot ?? {}) })
     void settle(async () => {
       const component = await add()
@@ -450,7 +452,7 @@ export function CardCanvas(props: CardCanvasProps) {
       return
     }
     const at = toCard({ x: e.clientX, y: e.clientY })
-    labelEdit.startNew(onCardCanvas({ x: at.x, y: at.y - labelPixels[labelStyle.size] / 2 }, { width: 0, height: 0 }), labelStyle, card.id)
+    labelEdit.startNew(onCardCanvas({ x: at.x - LABEL_INSET.x, y: at.y - LABEL_INSET.y - labelPixels[labelStyle.size] / 2 }, { width: 0, height: 0 }), labelStyle, card.id)
   }
 
   /** Turns the card's label tool on or off. */
@@ -624,6 +626,8 @@ export function CardCanvas(props: CardCanvasProps) {
   const selectedImage = !readOnly && selection?.kind === 'image' ? images.find((i) => i.id === selection.id) : undefined
   const selectedDrawing = !readOnly && selection?.kind === 'drawing' ? strokes.find((s) => s.drawing.id === selection.id) : undefined
   const selectedLabel = !readOnly && selection?.kind === 'label' ? placedLabels.find((l) => l.label.id === selection.id) : undefined
+  /** The label the mouse is over shows its bar too, unless something else is going on. */
+  const hoveredLabel = !readOnly && !labelOn && !drawingOn && !gesture && labelHover.hovered !== selectedLabel?.label.id ? placedLabels.find((l) => l.label.id === labelHover.hovered) : undefined
   /** A drawing selected by itself scales and turns from its handles (not while drawing). */
   const reshapable = (id: string) => !readOnly && !drawingOn && selected.length === 1 && isSelected('drawing', id)
 
@@ -746,14 +750,6 @@ export function CardCanvas(props: CardCanvasProps) {
                 onTitle={(title) => void saveComponent(component, { title })}
                 onRemove={() => remove('component', component.id)}
               >
-                {component.kind === 'Text' && (
-                  <TextComponent
-                    text={component.text ?? ''}
-                    autoFocus={focusComponent === component.id}
-                    readOnly={readOnly}
-                    onChange={(text) => void saveComponent(component, { text })}
-                  />
-                )}
                 {component.kind === 'Checklist' && (
                   <ChecklistComponent
                     items={component.items ?? []}
@@ -800,8 +796,10 @@ export function CardCanvas(props: CardCanvasProps) {
                     at={rect}
                     selected={isSelected('label', label.id)}
                     lifted={moves(label.id) && !dragging?.done}
+                    matched={!!highlight && labelMatches(label, highlight)}
                     readOnly={readOnly}
                     onPointerDown={(e) => onItemPointerDown(e as PointerEvent<HTMLElement>, 'label', label.id)}
+                    onHover={(over) => labelHover.hover(label.id, over)}
                   />
                 </div>
               ))}
@@ -810,7 +808,20 @@ export function CardCanvas(props: CardCanvasProps) {
             {labelEdit.savingView()}
 
             {selectedLabel && !labelEdit.draft && !labelEdit.saving && !(dragging?.id === selectedLabel.label.id && !dragging.done) && (
-              <LabelToolbar rect={selectedLabel.rect} zoom={zoom} {...labelEdit.selectedActions(selectedLabel.label, () => remove('label', selectedLabel.label.id))} />
+              <>
+                <LabelBar rect={selectedLabel.rect} zoom={zoom} {...labelEdit.selectedActions(selectedLabel.label, () => remove('label', selectedLabel.label.id))} />
+                <LabelWrapHandle id={selectedLabel.label.id} rect={selectedLabel.rect} zoom={zoom} onWrap={(width) => labelEdit.wrap(selectedLabel.label, width)} />
+              </>
+            )}
+
+            {hoveredLabel && !labelEdit.draft && !labelEdit.saving && (
+              <LabelBar
+                key={hoveredLabel.label.id}
+                rect={hoveredLabel.rect}
+                zoom={zoom}
+                {...labelHover.barHover}
+                {...labelEdit.selectedActions(hoveredLabel.label, () => remove('label', hoveredLabel.label.id))}
+              />
             )}
 
             {pen.strokes.map((s, i) => (
@@ -852,7 +863,7 @@ export function CardCanvas(props: CardCanvasProps) {
 
       {card.components.length === 0 && images.length === 0 && drawings.length === 0 && labels.length === 0 && !incoming && !incomingDrawing && !incomingLabel && !drawingOn && !labelOn && !labelEdit.draft && (
         <p className="card-empty">
-          {readOnly ? 'Nothing here yet.' : 'Add a note, a checklist or links from the bar below, draw with the pen, or paste or drop an image.'}
+          {readOnly ? 'Nothing here yet.' : 'Add a label, a checklist or links from the bar below, draw with the pen, or paste or drop an image.'}
         </p>
       )}
 

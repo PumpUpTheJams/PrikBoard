@@ -19,8 +19,8 @@ import { DrawingToolbar, PenRing, StrokeSvg } from './DrawingView'
 import { dropTargetsFor, NO_DROPS, released, useDropProbe, type DropTargets } from './dropTargets'
 import { ExpandedCard, type ExpandedCardHandle } from './ExpandedCard'
 import { isDrag } from './gesture'
-import { followLabelLink, LABEL_BOARD_STYLE, labelPixels, useLabelStyle } from './labels'
-import { LabelToolbar } from './LabelView'
+import { followLabelLink, LABEL_BOARD_STYLE, LABEL_INSET, labelPixels, useLabelStyle } from './labels'
+import { LabelBar, LabelWrapHandle } from './LabelView'
 import { MAX_COORDINATE, MIN_BUCKET_HEIGHT, MIN_BUCKET_WIDTH, MIN_COORDINATE, backToFront, bucketAtPointer, bucketUnderCard, collapsedRect, intersects, isLooseDrawing, layersBackToFront, snapPoint, spanRect } from './layout'
 import { activeDrags, draggingOf, gridFor, itemKindOf, liveGeometry, sentDrag } from './liveGeometry'
 import { ops, recordingRun, settling } from './ops'
@@ -50,6 +50,7 @@ import { useNewCardDrag } from './useNewCardDrag'
 import { useStableHandlers } from './useStableHandlers'
 import { useEraser } from './useEraser'
 import { useLabelEditing } from './useLabelEditing'
+import { useLabelHover } from './useLabelHover'
 import { useStroke } from './useStroke'
 import { useToast } from './useToast'
 import { describeMissingCard } from './missingCard'
@@ -580,7 +581,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       setSelection(null)
       setTool('select')
       const at = toCanvas(e)
-      labelEdit.startNew(snapPoint({ x: at.x, y: at.y - labelPixels[labelStyle.size] / 2 }), labelStyle, null, dropBucket(at))
+      labelEdit.startNew(snapPoint({ x: at.x - LABEL_INSET.x, y: at.y - LABEL_INSET.y - labelPixels[labelStyle.size] / 2 }), labelStyle, null, dropBucket(at))
     } else if (readOnly) {
       setSelection(null)
     } else {
@@ -716,6 +717,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const bucketsById = new Map(buckets.map((b) => [b.bucket.id, b]))
   const drawingsById = new Map(drawings.map((d) => [d.drawing.id, d]))
   /** What the board's items call back; the same functions every render, so the memoized items don't render again for them. */
+  const labelHover = useLabelHover()
   const itemHandlers = useStableHandlers<BoardItemHandlers>({
     pointerDown: (e, kind, id, options) => onItemPointerDown(e, kind, id, options),
     expand,
@@ -723,6 +725,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     titleDone: () => setTitleEdit(null),
     quickEdit: (cardId, kind, anchor) => setQuickEdit({ cardId, kind, anchor }),
     deleteImage,
+    hoverLabel: (id, over) => labelHover.hover(id, over),
     reshapeDrawing: (drawing, reshape) => settle(...ops.reshapeDrawing(drawing, reshape)),
     bucketPress: onBucketPointerDown,
     pickBucket(e, bucket) {
@@ -760,6 +763,12 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     for (const image of board.images) if (image.cardId) counts.set(image.cardId, (counts.get(image.cardId) ?? 0) + 1)
     return counts
   }, [board.images])
+  /** How many labels are on each card. */
+  const attachedLabels = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const label of board.labels) if (label.cardId) counts.set(label.cardId, (counts.get(label.cardId) ?? 0) + 1)
+    return counts
+  }, [board.labels])
   /** How many cards, images, drawings and labels each bucket holds. */
   const counts = useMemo(() => bucketCounts(board.cards, board.images, board.drawings, board.labels), [board.cards, board.images, board.drawings, board.labels])
   // Bucket by bucket as they are drawn, loose ones last, most recently updated on top.
@@ -956,6 +965,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const selectedImage = selection?.kind === 'image' ? board.images.find((i) => i.id === selection.id) : undefined
   const selectedDrawing = selection?.kind === 'drawing' ? drawings.find((d) => d.drawing.id === selection.id) : undefined
   const selectedLabel = selection?.kind === 'label' ? labels.find((l) => l.label.id === selection.id) : undefined
+  /** The label the mouse is over shows its bar too, unless something else is going on. */
+  const hoveredLabel = tool === 'select' && !gesture && labelHover.hovered !== selectedLabel?.label.id ? labels.find((l) => l.label.id === labelHover.hovered) : undefined
   const expandedCard = address.openCard
   const countIn = (bucketId: string): BucketCount => counts.get(bucketId) ?? NOTHING_IN
   /** Cards the filters or the search fade. */
@@ -994,6 +1005,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             card={card}
             point={point}
             images={attached.get(card.id)}
+            labels={attachedLabels.get(card.id)}
             tagColors={tagColors}
             selected={isSelected('card', card.id)}
             lifted={lifting(card.id) || remoteMoving(card.id)}
@@ -1150,10 +1162,23 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             {labelEdit.savingView()}
 
             {selectedLabel && !readOnly && !labelEdit.draft && !labelEdit.saving && !(dragging?.id === selectedLabel.label.id && !dragging.done) && (
-              <LabelToolbar
-                rect={selectedLabel.rect}
+              <>
+                <LabelBar
+                  rect={selectedLabel.rect}
+                  zoom={zoom}
+                  {...labelEdit.selectedActions(selectedLabel.label, () => deleteLabel(selectedLabel.label.id))}
+                />
+                <LabelWrapHandle id={selectedLabel.label.id} rect={selectedLabel.rect} zoom={zoom} onWrap={(width) => labelEdit.wrap(selectedLabel.label, width)} />
+              </>
+            )}
+
+            {hoveredLabel && !readOnly && !labelEdit.draft && !labelEdit.saving && (
+              <LabelBar
+                key={hoveredLabel.label.id}
+                rect={hoveredLabel.rect}
                 zoom={zoom}
-                {...labelEdit.selectedActions(selectedLabel.label, () => deleteLabel(selectedLabel.label.id))}
+                {...labelHover.barHover}
+                {...labelEdit.selectedActions(hoveredLabel.label, () => deleteLabel(hoveredLabel.label.id))}
               />
             )}
 

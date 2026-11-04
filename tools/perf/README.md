@@ -27,7 +27,7 @@ The defaults are 1,250 cards, 100 images and 100 drawings (`--cards`, `--images`
 - the other cards loose below them;
 - images (2400 × 1600, so they decode at full size) and drawings to the left.
 
-Every card has a note, every fourth a checklist, and up to three tags. `measure.js` looks for the bucket names.
+Every card has a label, every fourth a checklist, and up to three tags. `measure.js` looks for the bucket names.
 
 Paste it into a new board on your own PrikBoard with a personal access token that can write (Settings → Access tokens):
 
