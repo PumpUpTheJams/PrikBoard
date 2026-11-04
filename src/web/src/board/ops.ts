@@ -14,7 +14,10 @@ import type {
   DrawingStroke,
   ImageChanges,
   ImageDetail,
+  LabelChanges,
+  LabelDetail,
   NewCardComponent,
+  NewLabel,
   PastedItems,
   PastePlace,
   Point,
@@ -38,6 +41,7 @@ export const pastedSummary = (pasted: PastedItems) =>
     [pasted.cards.length, 'card'],
     [pasted.images.filter((i) => !i.cardId).length, 'image'],
     [pasted.drawings.filter((d) => !d.cardId).length, 'drawing'],
+    [(pasted.labels ?? []).filter((l) => !l.cardId).length, 'label'],
   ])
 
 /** A change that failed partway: `done` is the result so far, which a recording run still records before it fails. */
@@ -124,15 +128,17 @@ export function bucketMove(board: BoardDetail, bucket: BucketDetail, moved: Buck
   const carried = board.cards.filter((n) => n.bucketId === bucket.id)
   const carriedImages = board.images.filter((i) => i.bucketId === bucket.id)
   const carriedDrawings = board.drawings.filter((d) => d.bucketId === bucket.id)
+  const carriedLabels = board.labels.filter((l) => l.bucketId === bucket.id)
   const d = { x: moved.x - bucket.x, y: moved.y - bucket.y }
   const along = (item: Point) => ({ x: onBoard(item.x + d.x), y: onBoard(item.y + d.y) })
-  const carry = { cards: carried.map((n) => n.id), images: carriedImages.map((i) => i.id), drawings: carriedDrawings.map((d) => d.id) }
+  const carry = { cards: carried.map((n) => n.id), images: carriedImages.map((i) => i.id), drawings: carriedDrawings.map((d) => d.id), labels: carriedLabels.map((l) => l.id) }
   return [
     patched(target.bucket(bucket.id, carry), snap.bucket(bucket), snap.bucket(moved), ['x', 'y']),
-    // A card's place always comes with its bucket (see `patched`), and a carried card stays in this one.
+    // An item's place always comes with its bucket (see `patched`), and a carried item stays in this one.
     ...carried.map((n) => patched(target.card(n.id), { x: n.x, y: n.y, bucketId: n.bucketId }, { ...along(n), bucketId: n.bucketId }, ['x', 'y'], true)),
-    ...carriedImages.map((i) => patched(target.image(i.id), { x: i.x, y: i.y }, along(i), ['x', 'y'], true)),
-    ...carriedDrawings.map((dr) => patched(target.drawing(dr.id), { x: dr.x, y: dr.y }, along(dr), ['x', 'y'], true)),
+    ...carriedImages.map((i) => patched(target.image(i.id), { x: i.x, y: i.y, bucketId: i.bucketId }, { ...along(i), bucketId: i.bucketId }, ['x', 'y'], true)),
+    ...carriedDrawings.map((dr) => patched(target.drawing(dr.id), { x: dr.x, y: dr.y, bucketId: dr.bucketId }, { ...along(dr), bucketId: dr.bucketId }, ['x', 'y'], true)),
+    ...carriedLabels.map((l) => patched(target.label(l.id), { x: l.x, y: l.y, bucketId: l.bucketId }, { ...along(l), bucketId: l.bucketId }, ['x', 'y'], true)),
   ]
 }
 
@@ -150,6 +156,7 @@ export function bucketDelete(board: BoardDetail, bucket: BucketDetail): (UndoCha
     ...board.cards.filter((n) => n.bucketId === bucket.id).map((n) => left(target.card(n.id), n)),
     ...board.images.filter((i) => i.cardId === null && i.bucketId === bucket.id).map((i) => left(target.image(i.id), i)),
     ...board.drawings.filter((d) => d.cardId === null && d.bucketId === bucket.id).map((d) => left(target.drawing(d.id), d)),
+    ...board.labels.filter((l) => l.cardId === null && l.bucketId === bucket.id).map((l) => left(target.label(l.id), l)),
     deleted(target.bucket(bucket.id), snap.bucket(bucket)),
   ]
 }
@@ -163,7 +170,7 @@ const blank = (text: string | null | undefined) => !text?.trim()
  * Whether a card has nothing on it (Card.IsBlank on the server, plus no images or drawings): deleting it deletes it
  * for good, so there is nothing to undo.
  */
-export function isBlankCard(board: Pick<BoardDetail, 'images' | 'drawings'>, card: CardDetail) {
+export function isBlankCard(board: Pick<BoardDetail, 'images' | 'drawings' | 'labels'>, card: CardDetail) {
   const blankComponent = (c: CardComponent) =>
     blank(c.title) && blank(c.text) && (c.items ?? []).every((i) => blank(i.text)) && (c.links ?? []).every((l) => blank(l.title) && blank(l.url))
   return (
@@ -172,7 +179,8 @@ export function isBlankCard(board: Pick<BoardDetail, 'images' | 'drawings'>, car
     card.assignees.length === 0 &&
     card.components.every(blankComponent) &&
     !board.images.some((i) => i.cardId === card.id) &&
-    !board.drawings.some((d) => d.cardId === card.id)
+    !board.drawings.some((d) => d.cardId === card.id) &&
+    !board.labels.some((l) => l.cardId === card.id)
   )
 }
 
@@ -205,6 +213,7 @@ export const ops = {
             ...moved.cards.map((n) => away(deleted(target.card(n.id), snap.card(n)))),
             ...moved.images.map((i) => away(deleted(target.image(i.id), snap.image(i)))),
             ...moved.drawings.map((d) => away(deleted(target.drawing(d.id), snap.drawing(d)))),
+            ...(moved.labels ?? []).map((l) => away(deleted(target.label(l.id), snap.label(l)))),
           ]
         : []
       const toast = moved
@@ -219,6 +228,7 @@ export const ops = {
           ...pasted.cards.map((card) => created(target.card(card.id), snap.card(card))),
           ...pasted.images.filter((i) => !i.cardId).map((i) => created(target.image(i.id), snap.image(i))),
           ...pasted.drawings.filter((d) => !d.cardId).map((d) => created(target.drawing(d.id), snap.drawing(d))),
+          ...(pasted.labels ?? []).filter((l) => !l.cardId).map((l) => created(target.label(l.id), snap.label(l))),
           ...originals,
         ],
         label === 'Paste' ? { toast } : undefined,
@@ -227,7 +237,7 @@ export const ops = {
   ],
 
   /** Deletes a card into the trash; one with nothing on it (`isBlankCard`) goes for good, without an undo step. */
-  deleteCard: (card: CardDetail, board: Pick<BoardDetail, 'images' | 'drawings'>): Op<void> => [
+  deleteCard: (card: CardDetail, board: Pick<BoardDetail, 'images' | 'drawings' | 'labels'>): Op<void> => [
     () => api.deleteCard(card.id),
     () => (isBlankCard(board, card) ? null : step('Delete card', [deleted(target.card(card.id), snap.card(card))], { toast: 'Card deleted' })),
   ],
@@ -289,6 +299,22 @@ export const ops = {
   deleteDrawing: (drawing: DrawingDetail): Op<void> => [
     () => api.deleteDrawing(drawing.id),
     () => step('Delete drawing', [deleted(target.drawing(drawing.id), snap.drawing(drawing))], { toast: 'Drawing deleted' }),
+  ],
+
+  addLabel: (boardId: string, label: NewLabel): Op<LabelDetail> => [
+    () => api.createLabel(boardId, label),
+    (added) => step('Add label', [created(target.label(added.id), snap.label(added))]),
+  ],
+
+  /** Changes a label (its text, ink or size, or moves or attaches it) as a step named `label` over the fields in `keys`. */
+  editLabel: (item: LabelDetail, changes: LabelChanges, label: string, keys: string[]): Op<LabelDetail> => [
+    () => api.updateLabel(item.id, changes),
+    (after) => step(label, [patched(target.label(item.id), snap.label(item), snap.label(after), keys)]),
+  ],
+
+  deleteLabel: (label: LabelDetail): Op<void> => [
+    () => api.deleteLabel(label.id),
+    () => step('Delete label', [deleted(target.label(label.id), snap.label(label))], { toast: 'Label deleted' }),
   ],
 
   renameBucket: (bucket: BucketDetail, name: string): Op<BucketDetail> => [

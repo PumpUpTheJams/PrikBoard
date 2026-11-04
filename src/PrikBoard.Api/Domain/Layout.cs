@@ -399,6 +399,14 @@ public static class Layout
         return (Snap(right + Gap * 2), Gap * 2);
     }
 
+    /// <summary>Where a new label goes when no position is given: to the right of everything on the board.</summary>
+    public static (int X, int Y) NextLabelSpot(
+        IReadOnlyCollection<Bucket> buckets, IReadOnlyCollection<Card> cards, IReadOnlyCollection<BoardImage> images, IReadOnlyCollection<BoardLabel> labels)
+    {
+        var (x, y) = NextImageSpot(buckets, cards, images);
+        return labels.Count == 0 ? (x, y) : (Math.Max(x, Snap(labels.Max(l => l.X + l.Width) + Gap * 2)), y);
+    }
+
     /// <summary>Where a new bucket goes when no position is given: to the right of the existing ones.</summary>
     public static (int X, int Y) NextBucketSpot(IReadOnlyCollection<Bucket> buckets) =>
         (buckets.Count == 0 ? Gap * 2 : buckets.Max(b => b.X + b.Width) + Gap * 2, Gap * 2);

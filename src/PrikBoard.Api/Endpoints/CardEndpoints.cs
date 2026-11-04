@@ -468,10 +468,11 @@ public static class CardEndpoints
         var card = await db.Cards.AsNoTracking().FirstOrDefaultAsync(n => n.Id == cardId, ct);
         if (card is null) return TypedResults.NotFound();
         // Nothing on it to bring back (a new card left as it was): gone for good, history and all, not into the trash.
-        // Images and drawings deleted from it earlier still count: they could be restored onto it.
+        // Images, drawings and labels deleted from it earlier still count: they could be restored onto it.
         if (card.IsBlank()
             && !await db.Images.WithDeleted().AnyAsync(i => i.CardId == cardId, ct)
-            && !await db.Drawings.WithDeleted().AnyAsync(d => d.CardId == cardId, ct))
+            && !await db.Drawings.WithDeleted().AnyAsync(d => d.CardId == cardId, ct)
+            && !await db.Labels.WithDeleted().AnyAsync(l => l.CardId == cardId, ct))
         {
             await db.Cards.Where(n => n.Id == cardId).ExecuteDeleteAsync(ct);
             await transaction.CommitAsync(ct);

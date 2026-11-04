@@ -51,6 +51,10 @@ public enum CardChangeKind
     DrawingAdded,
     /// <summary>A drawing was taken off or deleted.</summary>
     DrawingRemoved,
+    /// <summary>A label was added to the card's canvas.</summary>
+    LabelAdded,
+    /// <summary>A label was taken off or deleted.</summary>
+    LabelRemoved,
     /// <summary>The card was deleted.</summary>
     Deleted,
     /// <summary>The card was restored from the trash.</summary>

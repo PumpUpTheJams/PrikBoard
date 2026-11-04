@@ -586,6 +586,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
                 "uploadImage", "getImageContent", "updateImage", "deleteImage", "restoreImage",
                 "copyItems", "pasteItems", "checkPaste", "uploadPasteImage", "deleteItems", "restoreItems",
                 "createDrawing", "getDrawingContent", "addDrawingStroke", "deleteDrawingStroke", "transformDrawing", "setDrawingStrokes", "updateDrawing", "deleteDrawing", "restoreDrawing",
+                "createLabel", "updateLabel", "deleteLabel", "restoreLabel",
                 "adminListBoards", "adminDeleteBoard", "adminListUsers", "adminSetBoardMember", "adminRemoveBoardMember",
                 "adminUpdateUser", "adminDeleteUser",
                 "getDiscordBot", "setDiscordBot", "deleteDiscordBot", "leaveDiscordServer", "getDiscordAccount", "previewDiscordAccountLink", "linkDiscordAccount", "unlinkDiscordAccount",

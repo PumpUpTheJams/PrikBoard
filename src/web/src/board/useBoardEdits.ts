@@ -60,6 +60,13 @@ export function useBoardEdits(options: BoardEditsOptions) {
     void settle(...ops.deleteImage(image))
   }
 
+  function deleteLabel(id: string) {
+    const label = board.labels.find((l) => l.id === id)
+    if (!label) return
+    unselect(id)
+    void settle(...ops.deleteLabel(label))
+  }
+
   function deleteDrawing(id: string) {
     const drawing = board.drawings.find((d) => d.id === id)
     if (!drawing) return
@@ -99,14 +106,16 @@ export function useBoardEdits(options: BoardEditsOptions) {
     deleteCard,
     deleteImage,
     deleteDrawing,
+    deleteLabel,
     addImages,
     /** Edits a card's fields. */
     editCard: (card: CardDetail, changes: CardChanges) => settle(...ops.editCard(card, changes)),
-    /** Deletes one selected card, image or drawing (a bucket goes from its panel). */
+    /** Deletes one selected card, image, drawing or label (a bucket goes from its panel). */
     deleteOne(item: Selection) {
       if (item.kind === 'card') void deleteCard(item.id)
       else if (item.kind === 'image') deleteImage(item.id)
       else if (item.kind === 'drawing') deleteDrawing(item.id)
+      else if (item.kind === 'label') deleteLabel(item.id)
     },
     recolorDrawing(drawing: DrawingDetail, color: InkColor) {
       void settle(...ops.editDrawing(drawing, { color }, 'Change ink', ['colors']))

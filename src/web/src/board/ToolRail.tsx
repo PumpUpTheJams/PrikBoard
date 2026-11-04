@@ -1,8 +1,9 @@
 import type { ComponentType, CSSProperties, PointerEvent, Ref } from 'react'
-import { cardColors, type InkColor, type CardColor } from '../api/types'
+import { cardColors, type InkColor, type CardColor, type LabelSize } from '../api/types'
 import { inkColor } from './drawings'
 import { PenOptions } from './DrawingView'
-import { BucketToolIcon, EraserIcon, ImageIcon, PenIcon, CardIcon, SearchIcon, SelectIcon, TrashIcon } from './icons'
+import { BucketToolIcon, EraserIcon, ImageIcon, LabelIcon, PenIcon, CardIcon, SearchIcon, SelectIcon, TrashIcon } from './icons'
+import { LabelOptions } from './LabelView'
 import type { Tool } from './tools'
 
 interface ToolDef {
@@ -38,6 +39,11 @@ interface ToolRailProps {
   /** Whether the pen erases rather than draws, switched in its flyout. */
   eraser: boolean
   onEraserChange: (eraser: boolean) => void
+  /** The ink and size new labels get, picked in the label tool's flyout. */
+  labelInk: InkColor
+  onLabelInkChange: (ink: InkColor) => void
+  labelSize: LabelSize
+  onLabelSizeChange: (size: LabelSize) => void
   /** Opens the file picker to add images (an action, not a tool you stay in). */
   onAddImage: () => void
   /** Viewers only get Select and Search. */
@@ -50,7 +56,7 @@ interface ToolRailProps {
 /** The floating tool rail on the left of the board. */
 export function ToolRail(props: ToolRailProps) {
   const { tool, onToolChange, fill, onFillChange, onCardPointerDown, trash, trashRef, onAddImage, readOnly, searching, onSearch } = props
-  const { ink, onInkChange, strokeWidth, onStrokeWidthChange, eraser, onEraserChange } = props
+  const { ink, onInkChange, strokeWidth, onStrokeWidthChange, eraser, onEraserChange, labelInk, onLabelInkChange, labelSize, onLabelSizeChange } = props
   const button = (
     { tool: t, label, shortcut, Icon, title }: ToolDef,
     className = '',
@@ -133,6 +139,14 @@ export function ToolRail(props: ToolRailProps) {
                   eraser={eraser}
                   onEraserChange={onEraserChange}
                 />
+              </div>
+            )}
+          </div>
+          <div className="rail-anchor">
+            {button({ tool: 'label', label: 'Label', shortcut: 'T', Icon: LabelIcon, title: 'Label (T): click on the board and type' })}
+            {tool === 'label' && (
+              <div className="fill-flyout pen-flyout" role="group" aria-label="Label color and size">
+                <LabelOptions ink={labelInk} onInkChange={onLabelInkChange} size={labelSize} onSizeChange={onLabelSizeChange} />
               </div>
             )}
           </div>

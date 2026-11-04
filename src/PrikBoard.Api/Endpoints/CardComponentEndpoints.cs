@@ -255,15 +255,21 @@ public static class CardComponentEndpoints
         }
         if (links.Count == 0) return;
 
-        var ids = links.Select(l => l.CardId).Distinct().ToList();
-        var paths = await db.Cards.AsNoTracking().WithDeleted()
-            .Where(n => n.BoardId == boardId && ids.Contains(n.Id))
-            .Select(n => new { n.Id, n.Number, n.Board!.ShortId })
-            .ToDictionaryAsync(n => n.Id, n => CardLinks.CardPath(n.ShortId, n.Number), ct);
+        var paths = await CardPathsAsync(db, boardId, [.. links.Select(l => l.CardId)], ct);
         foreach (var (link, cardId) in links)
         {
             if (paths.TryGetValue(cardId, out var path)) link.Url = path;
         }
+    }
+
+    /// <summary>The paths of those of <paramref name="cardIds"/> on <paramref name="boardId"/>, deleted cards included.</summary>
+    internal static Task<Dictionary<Guid, string>> CardPathsAsync(PrikBoardDbContext db, Guid boardId, IReadOnlyCollection<Guid> cardIds, CancellationToken ct)
+    {
+        var ids = cardIds.Distinct().ToList();
+        return db.Cards.AsNoTracking().WithDeleted()
+            .Where(n => n.BoardId == boardId && ids.Contains(n.Id))
+            .Select(n => new { n.Id, n.Number, n.Board!.ShortId })
+            .ToDictionaryAsync(n => n.Id, n => CardLinks.CardPath(n.ShortId, n.Number), ct);
     }
 
     private static string? Clean(string? title) => title?.Trim();

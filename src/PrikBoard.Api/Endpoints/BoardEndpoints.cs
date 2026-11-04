@@ -146,7 +146,8 @@ public static class BoardEndpoints
             query = query
                 .Include(b => b.Images).ThenInclude(i => i.AddedBy)
                 .Include(b => b.Images).ThenInclude(i => i.File)
-                .Include(b => b.Drawings).ThenInclude(d => d.AddedBy);
+                .Include(b => b.Drawings).ThenInclude(d => d.AddedBy)
+                .Include(b => b.Labels).ThenInclude(l => l.AddedBy);
         }
         var board = await query.AsSplitQuery().FirstOrDefaultAsync(b => b.Id == boardId, ct);
 

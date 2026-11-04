@@ -1,6 +1,6 @@
 import type { RefObject } from 'react'
 import { api } from '../api/client'
-import type { BoardDetail, BucketDetail, CardDetail, DrawingDetail, DropBucket, GrowSide, ImageDetail, Point, Rect } from '../api/types'
+import type { BoardDetail, BucketDetail, CardDetail, DrawingDetail, DropBucket, GrowSide, ImageDetail, LabelDetail, Point, Rect } from '../api/types'
 import type { Gesture, GroupGesture, ItemDrag } from './boardGesture'
 import { bucketItemsOf, cardBox, count, itemsOf, type BucketItems, type Selection } from './boardItems'
 import { linkCards, NO_DROPS, released, type ArrangeDrop, type AttachDrop, type DropProbeState, type DropTargets, type LinkDrop } from './dropTargets'
@@ -48,6 +48,7 @@ interface BoardDropsOptions {
   cardPoint: (card: CardDetail) => Point
   imageRect: (image: ImageDetail) => Rect
   drawingRect: (drawing: DrawingDetail) => Rect
+  labelRect: (label: LabelDetail) => Rect
   deleteCard: (id: string) => Promise<boolean>
   deleteSelected: () => Promise<boolean>
   putItems: (bucket: BucketDetail, items: BucketItems, grow: GrowSide) => Promise<boolean>
@@ -58,7 +59,7 @@ interface BoardDropsOptions {
 export function useBoardDrops(options: BoardDropsOptions) {
   const { board, expanded, cardHandle, trashHandle, canvasRef, drops, arrangeDrop, setDrops, probe, setGesture } = options
   const { selected, setSelected, setSelection, setBinned, runRec, settle, notify, toCanvas, dropBucket, toFront } = options
-  const { bucketRect, cardPoint, imageRect, drawingRect, deleteCard, deleteSelected, putItems, moveGroup } = options
+  const { bucketRect, cardPoint, imageRect, drawingRect, labelRect, deleteCard, deleteSelected, putItems, moveGroup } = options
 
   const cardElement = (id: string) => canvasRef.current?.querySelector(`[data-card="${id}"]`)
 
@@ -117,18 +118,20 @@ export function useBoardDrops(options: BoardDropsOptions) {
     })
   }
 
-  /** Attaches several images and drawings dragged together to a card. */
+  /** Attaches several images, drawings and labels dragged together to a card. */
   function attachGroup(g: GroupGesture, { card, window: onWindow }: AttachDrop, client: Point) {
     const groupImages = itemsOf(board, g.members, 'image')
     const groupDrawings = itemsOf(board, g.members, 'drawing')
+    const groupLabels = itemsOf(board, g.members, 'label')
     const rects = new Map<string, Rect>([
       ...groupImages.map((i) => [i.id, imageRect(i)] as const),
       ...groupDrawings.map((d) => [d.id, drawingRect(d)] as const),
+      ...groupLabels.map((l) => [l.id, labelRect(l)] as const),
     ])
-    // On the open card they land where the drag shows them. On a card on the board the drawings keep their places
+    // On the open card they land where the drag shows them. On a card on the board the drawings and labels keep their places
     // relative to each other, from the top-left of the card's canvas.
     const at = onWindow ? cardHandle.current!.toCard(client) : null
-    const drawn = bounds(groupDrawings.map((d) => rects.get(d.id)!))
+    const drawn = bounds([...groupDrawings, ...groupLabels].map((d) => rects.get(d.id)!))
     const spot = (id: string) => {
       const r = rects.get(id)!
       const p = at ? { x: at.x + r.x - g.current.x, y: at.y + r.y - g.current.y } : { x: GRID + r.x - drawn!.x, y: GRID + r.y - drawn!.y }
@@ -136,7 +139,7 @@ export function useBoardDrops(options: BoardDropsOptions) {
     }
     // On a card on the board the images are sucked in, and the server finds each a free spot.
     const animations = onWindow ? [] : groupImages.map((i) => suckInto(i.id, card))
-    const n = groupImages.length + groupDrawings.length
+    const n = groupImages.length + groupDrawings.length + groupLabels.length
     setGesture({ ...g, done: true })
     setSelected([])
     void runAll(settle, `Attach ${count(n, 'item', 'items')}`, undefined, async (changes) => {
@@ -150,6 +153,10 @@ export function useBoardDrops(options: BoardDropsOptions) {
         const after = await api.updateDrawing(drawing.id, { cardId: card.id, ...spot(drawing.id) })
         changes.push(patched(target.drawing(drawing.id), snap.drawing(drawing), snap.drawing(after), ['cardId', 'x', 'y']))
       }
+      for (const label of groupLabels) {
+        const after = await api.updateLabel(label.id, { cardId: card.id, ...spot(label.id) })
+        changes.push(patched(target.label(label.id), snap.label(label), snap.label(after), ['cardId', 'x', 'y']))
+      }
     }).then((ok) => {
       if (!ok) return animations.forEach((a) => a?.cancel())
       if (onWindow) cardHandle.current?.pop()
@@ -162,8 +169,23 @@ export function useBoardDrops(options: BoardDropsOptions) {
     const { id } = g
     const onCard = expanded && probe.imageOnCard(g, client)
     const drawingInto = expanded && probe.drawingOnCard(g, client)
-    const intoCard = g.kind === 'image' && !onCard && !probe.overWindow(client) ? probe.cardAt(toCanvas({ clientX: client.x, clientY: client.y })) : undefined
-    if (expanded && drawingInto) {
+    const labelInto = expanded && probe.labelOnCard(g, client)
+    const looseOverCard = (g.kind === 'image' || g.kind === 'label') && !onCard && !labelInto && !probe.overWindow(client)
+    const intoCard = looseOverCard ? probe.cardAt(toCanvas({ clientX: client.x, clientY: client.y })) : undefined
+    if (expanded && labelInto) {
+      setSelection(null)
+      const { label, at } = labelInto
+      void settle(...ops.editLabel(label, { cardId: expanded.id, ...onCardCanvas(at, label) }, 'Put label on card', ['cardId', 'x', 'y'])).then((ok) => ok && notify('Label attached'))
+    } else if (g.kind === 'label' && intoCard) {
+      // Into a card on the board, in a free spot on its canvas, without opening it.
+      setSelection(null)
+      const label = board.labels.find((l) => l.id === id)!
+      void settle(...ops.editLabel(label, { cardId: intoCard.id }, 'Put label on card', ['cardId', 'x', 'y'])).then((ok) => {
+        if (!ok) return
+        pop(cardElement(intoCard.id), 1.06)
+        notify('Label attached')
+      })
+    } else if (expanded && drawingInto) {
       // Over cards on the board a drawing just moves.
       setSelection(null)
       const { drawing, at } = drawingInto
@@ -200,6 +222,10 @@ export function useBoardDrops(options: BoardDropsOptions) {
       const drawing = board.drawings.find((d) => d.id === id)!
       const { x, y } = drawingRect(drawing)
       void settle(...ops.editDrawing(drawing, { x, y, ...dropBucket(g.current, drawingRect(drawing)) }, 'Move drawing', ['x', 'y']))
+    } else if (g.kind === 'label') {
+      const label = board.labels.find((l) => l.id === id)!
+      const { x, y } = labelRect(label)
+      void settle(...ops.editLabel(label, { x, y, ...dropBucket(g.current, labelRect(label)) }, 'Move label', ['x', 'y']))
     } else if (g.kind === 'bucket') {
       // Undoing the move takes exactly the items it carried back.
       const bucket = board.buckets.find((b) => b.id === id)!

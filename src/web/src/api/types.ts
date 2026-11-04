@@ -50,6 +50,8 @@ export interface BoardDetail extends BoardSummary {
   images: ImageDetail[]
   /** Pen strokes on the canvas (cardId null) and on cards' canvases, oldest first. */
   drawings: DrawingDetail[]
+  /** Rich text on the canvas (cardId null) and on cards' canvases, oldest first. */
+  labels: LabelDetail[]
   /** The board's tags by name, with how many cards use each. Cards pick their tags from these. */
   tags: BoardTag[]
   /** Who can be assigned: you first, then people, then agents. */
@@ -162,6 +164,77 @@ export interface DropBucket {
  */
 export const inkColors = ['Chalk', 'Butter', 'Mint', 'Sky', 'Coral', 'Lilac', 'Ink', 'Ochre', 'Pine', 'Ocean', 'Brick', 'Violet'] as const
 export type InkColor = (typeof inkColors)[number]
+
+/** Sizes of a label's text; the web app maps them to pixels (`labelPixels`). */
+export const labelSizes = ['S', 'M', 'L', 'XL'] as const
+export type LabelSize = (typeof labelSizes)[number]
+
+/** A piece of a label's text in one style. Styles left out are off, or the label's own ink and size. */
+export interface LabelRun {
+  /** A line feed is a line break. */
+  text: string
+  bold?: boolean | null
+  italic?: boolean | null
+  underline?: boolean | null
+  strike?: boolean | null
+  ink?: InkColor | null
+  size?: LabelSize | null
+  /** An absolute http(s) URL, or another card's path. */
+  link?: string | null
+}
+
+/** A paragraph or list item of a label. Neighboring items of one kind form one list; lists don't nest. */
+export interface LabelBlock {
+  kind: 'Paragraph' | 'Bullet' | 'Numbered'
+  runs: LabelRun[]
+}
+
+/** Rich text placed freely, without a background, on the board or on a card's canvas. */
+export interface LabelDetail {
+  id: string
+  boardId: string
+  cardId: string | null
+  bucketId: string | null
+  x: number
+  y: number
+  /** As last measured by the web app, or an estimate. */
+  width: number
+  height: number
+  ink: InkColor
+  size: LabelSize
+  content: LabelBlock[]
+  /** The text without its formatting. */
+  text: string
+  addedBy: string
+  addedById: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+/** A new label, at a place or (without one) in a free spot. */
+export interface NewLabel extends DropBucket {
+  content: LabelBlock[]
+  x?: number
+  y?: number
+  ink?: InkColor
+  size?: LabelSize
+  width?: number
+  height?: number
+  cardId?: string
+}
+
+/** A PATCH of a label. x and y are on the canvas it ends up on (give both when detaching). */
+export interface LabelChanges extends DropBucket {
+  content?: LabelBlock[]
+  x?: number
+  y?: number
+  ink?: InkColor
+  size?: LabelSize
+  width?: number
+  height?: number
+  cardId?: string
+  detach?: boolean
+}
 
 /** Base line widths: fine, medium and bold. */
 export const strokeWidths = [2, 4, 8] as const
@@ -294,6 +367,7 @@ export interface PlaceItemsRequest {
   cardIds?: string[]
   imageIds?: string[]
   drawingIds?: string[]
+  labelIds?: string[]
   grow?: GrowSide
   /** Only cards count as in the way: images and drawings already there don't (the web app's drops). */
   onlyCardsTakeRoom?: boolean
@@ -305,6 +379,7 @@ export interface PlacedItems {
   cards: CardDetail[]
   images: ImageDetail[]
   drawings: DrawingDetail[]
+  labels: LabelDetail[]
 }
 
 /**
@@ -326,6 +401,8 @@ export interface BoardClip {
   buckets?: ClippedBucket[] | null
   /** Cut rather than copied (from version 3): pasted on another board of the same server, the originals go to the trash. */
   cut?: boolean
+  /** From version 7. */
+  labels?: ClippedLabel[] | null
 }
 
 export interface ClipSource {
@@ -385,6 +462,17 @@ export interface ClippedDrawing extends ClippedItem {
   strokes?: { strokeWidth: number; points: number[][] }[] | null
 }
 
+/** A label in a clip. */
+export interface ClippedLabel {
+  cardId: string | null
+  id?: string | null
+  bucketId?: string | null
+  x: number
+  y: number
+  width?: number | null
+  height?: number | null
+}
+
 /** What copyItems copies, all on one board. A bucket comes with what is in it. */
 export interface CopyItemsRequest {
   cardIds?: string[]
@@ -395,6 +483,7 @@ export interface CopyItemsRequest {
   cut?: boolean
   /** False leaves the images' data out of the clip (get each from getImageContent), which allows more of them. */
   imageData?: boolean
+  labelIds?: string[]
 }
 
 /** An image uploaded for a paste (uploadPasteImage): its token goes in pasteItems' imageFiles, at the image's index. */
@@ -411,6 +500,7 @@ export interface ItemIds {
   bucketIds?: string[]
   imageIds?: string[]
   drawingIds?: string[]
+  labelIds?: string[]
 }
 
 /** What restoreItems brought back. */
@@ -419,6 +509,7 @@ export interface RestoredItems {
   buckets: BucketDetail[]
   images: ImageDetail[]
   drawings: DrawingDetail[]
+  labels: LabelDetail[]
 }
 
 /**
@@ -439,6 +530,8 @@ export interface PastedItems {
   buckets: BucketDetail[]
   /** For a cut from another board of this server: the originals, now in that board's trash, as they were. */
   moved?: MovedOriginals | null
+  /** On the new cards, or on the board. */
+  labels?: LabelDetail[] | null
 }
 
 /** The originals of a cut, deleted by the paste (the restore endpoints bring them back). */
@@ -450,6 +543,7 @@ export interface MovedOriginals {
   /** The images that were on the board (those on the cards went with them). */
   images: ImageDetail[]
   drawings: DrawingDetail[]
+  labels?: LabelDetail[] | null
 }
 
 export type AssigneeKind = 'Person' | 'Agent'
@@ -569,6 +663,8 @@ export type CardChangeKind =
   | 'ImageRemoved'
   | 'DrawingAdded'
   | 'DrawingRemoved'
+  | 'LabelAdded'
+  | 'LabelRemoved'
   | 'Deleted'
   | 'Restored'
   /** Added as a copy: before is the original's readable id, after its link (a full URL when it was on another server). */
@@ -631,6 +727,8 @@ export interface BucketChanges extends Partial<Rect> {
   carryImageIds?: string[]
   /** Like carryImageIds, for drawings on the board. */
   carryDrawingIds?: string[]
+  /** Like carryImageIds, for labels on the board. */
+  carryLabelIds?: string[]
   collapsed?: boolean
 }
 
@@ -859,7 +957,7 @@ export interface AcceptedInvite {
 // Live updates over SignalR (/api/live); mirrors Contracts/Live.cs.
 
 /** Group: several selected items moving together (`items`). */
-export type DragKind = 'Card' | 'Bucket' | 'Resize' | 'Image' | 'ImageResize' | 'Group' | 'Drawing'
+export type DragKind = 'Card' | 'Bucket' | 'Resize' | 'Image' | 'ImageResize' | 'Group' | 'Drawing' | 'Label'
 
 /** The corner or edge a resize drags; the opposite one stays where it is, and an edge resizes in its direction only. */
 export type ResizeHandle = 'BottomRight' | 'BottomLeft' | 'TopRight' | 'TopLeft' | 'Top' | 'Right' | 'Bottom' | 'Left'

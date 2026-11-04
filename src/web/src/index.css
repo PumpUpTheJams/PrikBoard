@@ -3461,6 +3461,184 @@ a.button.primary:hover {
   cursor: default;
 }
 
+/* Labels: text placed freely, without a background. Drawn at their own size from the font size set on them. */
+.label {
+  position: absolute;
+  width: max-content;
+  padding: 2px 4px;
+  border-radius: 6px;
+  font-weight: 500;
+  line-height: 1.15;
+  white-space: pre;
+  cursor: grab;
+  user-select: none;
+}
+
+.label p {
+  margin: 0;
+  min-height: 1lh;
+}
+
+.label ul,
+.label ol {
+  margin: 0;
+  padding-left: 1.3em;
+}
+
+.label a {
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.label.selected,
+.label.editing {
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+
+.label.lifted {
+  z-index: 2;
+}
+
+.label-editing {
+  position: absolute;
+  z-index: 6;
+  cursor: text;
+  user-select: text;
+}
+
+.label.editing {
+  position: static;
+  min-width: 12px;
+  cursor: text;
+  user-select: text;
+}
+
+.label.editing .tiptap {
+  outline: none;
+  white-space: pre;
+}
+
+.label-ghost {
+  transform-origin: top left;
+  color: var(--text);
+}
+
+.incoming-label {
+  opacity: 0.8;
+}
+
+.canvas.tool-label,
+.card-canvas.placing-label,
+.card-canvas.placing-label .label {
+  cursor: text;
+}
+
+.minimap-label {
+  position: absolute;
+  border-radius: 1px;
+  background: var(--subtle);
+  opacity: 0.4;
+}
+
+.label-toolbar {
+  width: max-content;
+  flex-wrap: nowrap;
+  transform-origin: top left;
+}
+
+.label-toolbar.with-link {
+  flex-wrap: wrap;
+  max-width: 720px;
+}
+
+.label-tool {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.label-tool:hover {
+  background: var(--tool-hover);
+}
+
+.label-tool[aria-pressed='true'] {
+  background: var(--accent-bg);
+}
+
+.label-bold {
+  font-weight: 700;
+}
+
+.label-italic {
+  font-style: italic;
+}
+
+.label-underline {
+  text-decoration: underline;
+}
+
+.label-strike {
+  text-decoration: line-through;
+}
+
+.label-link-field {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.label-link-field input {
+  flex: 1 1 200px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  user-select: text;
+}
+
+.label-link-field input:focus {
+  border-color: var(--accent);
+}
+
+.label-link-field button {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.label-link-field button:hover {
+  background: var(--tool-hover);
+}
+
+.label-link-error {
+  flex-basis: 100%;
+  color: var(--danger);
+  font-size: 12px;
+}
+
 /* Above several selected cards, centered, at the same size on screen at any zoom (anchored at its bottom middle). */
 .selection-toolbar {
   position: absolute;

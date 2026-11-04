@@ -54,7 +54,7 @@ export function useBoardSearch({ board, visibleCards, collapsedIds, filterFaded,
         }
         return
       }
-      if (keyTargetIgnored(e.target, { inCard: true })) return
+      if (keyTargetIgnored(e.target, { editable: true, inCard: true })) return
       e.preventDefault()
       open()
     }

@@ -24,6 +24,9 @@ public enum BoardScope
     /// <summary>{drawingId}: the drawing's board.</summary>
     Drawing,
 
+    /// <summary>{labelId}: the label's board.</summary>
+    Label,
+
     /// <summary>{shortId}: the board with that short id (<see cref="Domain.Board.ShortId"/>).</summary>
     ShortBoard,
 }
@@ -146,6 +149,7 @@ public static class BoardAccess
             BoardScope.Bucket => db.Buckets.WithDeleted().Where(b => b.Id == id).Select(b => b.BoardId),
             BoardScope.Image => db.Images.WithDeleted().Where(i => i.Id == id).Select(i => i.BoardId),
             BoardScope.Drawing => db.Drawings.WithDeleted().Where(d => d.Id == id).Select(d => d.BoardId),
+            BoardScope.Label => db.Labels.WithDeleted().Where(l => l.Id == id).Select(l => l.BoardId),
             _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, "This scope does not take an id."),
         };
         return AuthorizeAsync(http, boardIds, minimum, visitors);
@@ -214,6 +218,7 @@ public static class BoardAccess
                 BoardScope.Card => "cardId",
                 BoardScope.Bucket => "bucketId",
                 BoardScope.Image => "imageId",
+                BoardScope.Label => "labelId",
                 _ => "drawingId",
             };
             if (!Guid.TryParse(http.Request.RouteValues[routeValue]?.ToString(), out var id)) return TypedResults.NotFound();

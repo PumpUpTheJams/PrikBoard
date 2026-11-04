@@ -1,5 +1,5 @@
 import { memo, useSyncExternalStore, type PointerEvent, type ReactNode } from 'react'
-import type { BucketDetail, ImageDetail, CardDetail, Point, Rect } from '../api/types'
+import type { BucketDetail, ImageDetail, LabelDetail, CardDetail, Point, Rect } from '../api/types'
 import type { ScrollView } from './canvasHooks'
 import { RedoIcon, UndoIcon } from './icons'
 import { CARD_HEIGHT, CARD_WIDTH } from './layout'
@@ -150,6 +150,7 @@ interface BoardMapItemsProps extends MapPlace {
   cards: CardDetail[]
   /** Images on the canvas (not the ones attached to cards). */
   images: ImageDetail[]
+  labels: LabelDetail[]
   /** The search result being looked at. */
   current?: string | null
   /** The ids of the cards faded by the filters or the search, separated by spaces. */
@@ -159,12 +160,15 @@ interface BoardMapItemsProps extends MapPlace {
 }
 
 /** The board's buckets, images and cards: they only render again when they or the map's scale change, not as the view scrolls. */
-export const BoardMapItems = memo(function BoardMapItems({ left, top, scale, buckets, cards, images, current, dimmedKey, pasting }: BoardMapItemsProps) {
+export const BoardMapItems = memo(function BoardMapItems({ left, top, scale, buckets, cards, images, labels, current, dimmedKey, pasting }: BoardMapItemsProps) {
   const dimmed = new Set(dimmedKey.split(' '))
   return (
     <>
       {buckets.map((b) => (
         <span key={b.id} className="minimap-bucket" style={toMap(b, left, top, scale)} />
+      ))}
+      {labels.map((l) => (
+        <span key={l.id} className="minimap-label" style={toMap(l, left, top, scale)} />
       ))}
       {images.map((i) => (
         <span key={i.id} className="minimap-image" style={toMap(i, left, top, scale)} />

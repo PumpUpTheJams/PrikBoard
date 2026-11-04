@@ -169,6 +169,10 @@ function describe(entry: CardChangeEntry): ReactNode {
       return 'added a drawing'
     case 'DrawingRemoved':
       return 'removed a drawing'
+    case 'LabelAdded':
+      return 'added a label'
+    case 'LabelRemoved':
+      return 'removed a label'
 
     case 'Deleted':
       return 'deleted it'

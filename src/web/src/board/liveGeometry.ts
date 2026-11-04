@@ -1,4 +1,4 @@
-import type { BoardDetail, BucketDetail, CardDetail, DragKind, DrawingDetail, ImageDetail, Point, Rect, ResizeHandle } from '../api/types'
+import type { BoardDetail, BucketDetail, CardDetail, DragKind, DrawingDetail, ImageDetail, LabelDetail, Point, Rect, ResizeHandle } from '../api/types'
 import type { LiveDrag } from '../live/useLive'
 import type { Gesture, ItemGesture } from './boardGesture'
 import { cardBox, itemsOf, kindOf, placeOf, type Selection, type SelectionKind } from './boardItems'
@@ -24,6 +24,7 @@ const fromDragKind: Record<Exclude<DragKind, 'Group'>, ItemGesture> = {
   Image: 'image',
   ImageResize: 'image-resize',
   Drawing: 'drawing',
+  Label: 'label',
 }
 const toDragKind = Object.fromEntries(Object.entries(fromDragKind).map(([k, v]) => [v, k])) as Record<ItemGesture, DragKind>
 
@@ -35,6 +36,7 @@ export const itemKindOf: Record<ItemGesture, SelectionKind> = {
   image: 'image',
   'image-resize': 'image',
   drawing: 'drawing',
+  label: 'label',
 }
 
 /** Your gesture when it drags items and has gone far enough to be a drag; else null. */
@@ -157,6 +159,13 @@ export function liveGeometry(board: BoardDetail, drags: ActiveDrag[], arrange: A
     return by ? { ...drawing, ...along(drawing, by) } : drawing
   }
 
+  function labelRect(label: LabelDetail): Rect {
+    const drag = dragOf(label.id)
+    if (drag?.kind === 'label') return { ...label, ...moved(label, drag.d) }
+    const by = carriedBy(label.bucketId)
+    return by ? { ...label, ...along(label, by) } : label
+  }
+
   /** Where an item on the board is shown right now (moving or not); null when it isn't on the board. */
   function liveRect(kind: SelectionKind, id: string): Rect | null {
     switch (kind) {
@@ -177,6 +186,10 @@ export function liveGeometry(board: BoardDetail, drags: ActiveDrag[], arrange: A
         const image = board.images.find((i) => i.id === id && i.cardId === null)
         return image ? imageRect(image) : null
       }
+      case 'label': {
+        const label = board.labels.find((l) => l.id === id && l.cardId === null)
+        return label ? labelRect(label) : null
+      }
     }
   }
 
@@ -190,5 +203,5 @@ export function liveGeometry(board: BoardDetail, drags: ActiveDrag[], arrange: A
     })
   }
 
-  return { dragOf, bucketRect, cardPoint, imageRect, drawingRect, liveRect, remoteRects }
+  return { dragOf, bucketRect, cardPoint, imageRect, drawingRect, labelRect, liveRect, remoteRects }
 }

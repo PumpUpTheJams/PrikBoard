@@ -9,6 +9,8 @@ import type {
   DropBucket,
   ImageChanges,
   InkColor,
+  LabelChanges,
+  LabelDetail,
   NewDrawingStroke,
   ImageDetail,
   CardComponent,
@@ -38,6 +40,7 @@ export type UndoTarget =
   | { kind: 'bucket'; id: string; carry?: BucketCarry }
   | { kind: 'image'; id: string }
   | { kind: 'drawing'; id: string }
+  | { kind: 'label'; id: string }
   /** A drawing's strokes and corner, as scaling or turning it changes them. */
   | { kind: 'shape'; id: string }
   /**
@@ -52,6 +55,7 @@ export interface BucketCarry {
   cards: string[]
   images: string[]
   drawings: string[]
+  labels: string[]
 }
 
 /** One item's part of a step: null `before` means it was created, null `after` that it was deleted. */
@@ -94,6 +98,7 @@ export const target = {
   bucket: (id: string, carry?: BucketCarry): UndoTarget => ({ kind: 'bucket', id, carry }),
   image: (id: string): UndoTarget => ({ kind: 'image', id }),
   drawing: (id: string): UndoTarget => ({ kind: 'drawing', id }),
+  label: (id: string): UndoTarget => ({ kind: 'label', id }),
   shape: (id: string): UndoTarget => ({ kind: 'shape', id }),
   stroke: (drawingId: string, index: number, stroke: NewDrawingStroke): UndoTarget => ({ kind: 'stroke', id: drawingId, index, stroke }),
   tag: (id: string): UndoTarget => ({ kind: 'tag', id }),
@@ -126,6 +131,7 @@ export const snap = {
   bucket: (b: BucketDetail): Snapshot => ({ name: b.name, x: b.x, y: b.y, width: b.width, height: b.height, collapsed: b.collapsed }),
   image: (i: ImageDetail): Snapshot => ({ cardId: i.cardId, x: i.x, y: i.y, bucketId: i.bucketId, width: i.width, caption: i.caption }),
   drawing: (d: DrawingDetail): Snapshot => ({ cardId: d.cardId, x: d.x, y: d.y, bucketId: d.bucketId, colors: d.colors }),
+  label: (l: LabelDetail): Snapshot => ({ cardId: l.cardId, x: l.x, y: l.y, bucketId: l.bucketId, ink: l.ink, size: l.size, content: l.content, width: l.width, height: l.height }),
   /**
    * A drawing's corner, strokes as loaded here (null when they aren't loaded, as after someone else changed them) and
    * inks: erasing can change how many strokes it has, so writing it back sends the inks too.
@@ -152,7 +158,7 @@ export function patched(t: UndoTarget, before: Snapshot, after: Snapshot, keys: 
   let changed = keys.filter((k) => !same(before[k], after[k]))
   // An item's bucket goes with its place: where buckets overlap, or after a drop that went by the pointer, the place
   // alone doesn't say which one it was in.
-  const place: string[] = [...keys.filter((k) => k === 'x' || k === 'y'), ...(t.kind === 'card' || t.kind === 'image' || t.kind === 'drawing' ? ['bucketId'] : [])]
+  const place: string[] = [...keys.filter((k) => k === 'x' || k === 'y'), ...(t.kind === 'card' || t.kind === 'image' || t.kind === 'drawing' || t.kind === 'label' ? ['bucketId'] : [])]
   if (changed.includes('x') || changed.includes('y')) changed = [...new Set([...changed, ...place])]
   return changed.length === 0 ? null : { target: t, before: pick(before, changed), after: pick(after, changed), implied }
 }
@@ -214,6 +220,10 @@ function read(board: BoardDetail, t: UndoTarget): Snapshot | null {
       const drawing = board.drawings.find((d) => d.id === t.id)
       return drawing ? snap.drawing(drawing) : null
     }
+    case 'label': {
+      const label = board.labels.find((l) => l.id === t.id)
+      return label ? snap.label(label) : null
+    }
     case 'shape': {
       const drawing = board.drawings.find((d) => d.id === t.id)
       return drawing ? snap.shape(drawing) : null
@@ -235,6 +245,7 @@ const noun: Record<UndoTarget['kind'], string> = {
   bucket: 'the bucket',
   image: 'the image',
   drawing: 'the drawing',
+  label: 'the label',
   shape: 'the drawing',
   stroke: 'the line',
   tag: 'the tag',
@@ -280,7 +291,7 @@ export function check(
     if (t.kind === 'tag' && typeof goal.name === 'string' && board.tags.some((x) => x.id !== t.id && x.name === goal.name)) {
       return `a tag called “${goal.name}” exists now`
     }
-    if ((t.kind === 'image' || t.kind === 'drawing') && typeof goal.cardId === 'string' && !board.cards.some((n) => n.id === goal.cardId)) {
+    if ((t.kind === 'image' || t.kind === 'drawing' || t.kind === 'label') && typeof goal.cardId === 'string' && !board.cards.some((n) => n.id === goal.cardId)) {
       return 'its card was deleted since'
     }
   }
@@ -294,7 +305,7 @@ export async function apply(entry: UndoEntry, direction: UndoDirection, home: Bo
   for (let i = 0; i < changes.length; i++) {
     const change = changes[i]
     if (change.implied) continue
-    // Cards, buckets, images and drawings deleted or brought back one after another on one board go as one request
+    // Cards, buckets, images, drawings and labels deleted or brought back one after another on one board go as one request
     // (undoing a big paste, say).
     const bulk = bulkOf(change, direction)
     if (bulk) {
@@ -314,10 +325,10 @@ export async function apply(entry: UndoEntry, direction: UndoDirection, home: Bo
   }
 }
 
-/** Whether applying the change deletes or brings back a card, bucket, image or drawing (which go in bulk), or neither. */
+/** Whether applying the change deletes or brings back a card, bucket, image, drawing or label (which go in bulk), or neither. */
 function bulkOf(change: UndoChange, direction: UndoDirection): 'delete' | 'restore' | null {
   const kind = change.target.kind
-  if (change.implied || (kind !== 'card' && kind !== 'bucket' && kind !== 'image' && kind !== 'drawing')) return null
+  if (change.implied || (kind !== 'card' && kind !== 'bucket' && kind !== 'image' && kind !== 'drawing' && kind !== 'label')) return null
   const from = direction === 'undo' ? change.after : change.before
   const to = direction === 'undo' ? change.before : change.after
   return to === null ? 'delete' : from === null ? 'restore' : null
@@ -326,7 +337,7 @@ function bulkOf(change: UndoChange, direction: UndoDirection): 'delete' | 'resto
 /** Deletes or brings back the changes' items at once (deleteItems, restoreItems), as their own requests would one by one. */
 async function writeAll(bulk: 'delete' | 'restore', changes: UndoChange[], board: BoardDetail) {
   const ids = (kind: UndoTarget['kind']) => changes.flatMap((c) => (c.target.kind === kind ? [c.target.id] : []))
-  const items = { cardIds: ids('card'), bucketIds: ids('bucket'), imageIds: ids('image'), drawingIds: ids('drawing') }
+  const items = { cardIds: ids('card'), bucketIds: ids('bucket'), imageIds: ids('image'), drawingIds: ids('drawing'), labelIds: ids('label') }
   if (bulk === 'delete') await api.deleteItems(board.id, items)
   else await api.restoreItems(board.id, items)
 }
@@ -369,6 +380,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
     else if (t.kind === 'bucket') await api.deleteBucket(t.id)
     else if (t.kind === 'image') await api.deleteImage(t.id)
     else if (t.kind === 'drawing') await api.deleteDrawing(t.id)
+    else if (t.kind === 'label') await api.deleteLabel(t.id)
     else await api.deleteBoardTag(boardId, t.id)
     return
   }
@@ -380,6 +392,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
     } else if (t.kind === 'bucket') await api.restoreBucket(t.id)
     else if (t.kind === 'image') await api.restoreImage(t.id)
     else if (t.kind === 'drawing') await api.restoreDrawing(t.id)
+    else if (t.kind === 'label') await api.restoreLabel(t.id)
     else await api.restoreBoardTag(boardId, t.id)
     return
   }
@@ -409,6 +422,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
           carryCardIds: t.carry?.cards ?? [],
           carryImageIds: t.carry?.images ?? [],
           carryDrawingIds: t.carry?.drawings ?? [],
+          carryLabelIds: t.carry?.labels ?? [],
         })
       }
       if ('name' in to) await api.updateBucket(t.id, { name: to.name as string })
@@ -438,6 +452,22 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
       await api.updateDrawing(t.id, changes)
       return
     }
+    case 'label': {
+      const changes: LabelChanges = {}
+      if ('cardId' in to) {
+        if (to.cardId) changes.cardId = to.cardId as string
+        else changes.detach = true
+      }
+      if ('x' in to) Object.assign(changes, { x: to.x, y: to.y }, endsOnBoard(t.id, board.labels, to) ? dropBucket(to.bucketId) : {})
+      if ('ink' in to) changes.ink = to.ink as LabelChanges['ink']
+      if ('size' in to) changes.size = to.size as LabelChanges['size']
+      if ('content' in to) changes.content = to.content as LabelChanges['content']
+      // Measured with the text, so they go back with it.
+      if ('width' in to) Object.assign(changes, { width: to.width, height: to.height ?? board.labels.find((l) => l.id === t.id)?.height })
+      else if ('height' in to) Object.assign(changes, { height: to.height, width: board.labels.find((l) => l.id === t.id)?.width })
+      await api.updateLabel(t.id, changes)
+      return
+    }
     case 'tag':
       await api.updateBoardTag(boardId, t.id, to as TagChanges)
   }
@@ -453,10 +483,10 @@ async function fixCarried(entry: UndoEntry, direction: UndoDirection, carry: Buc
   if (!('x' in to) || 'width' in to || 'height' in to) return
   const dx = (to.x as number) - (from.x as number)
   const dy = (to.y as number) - (from.y as number)
-  const carried = new Set([...(carry?.cards ?? []), ...(carry?.images ?? []), ...(carry?.drawings ?? [])])
+  const carried = new Set([...(carry?.cards ?? []), ...(carry?.images ?? []), ...(carry?.drawings ?? []), ...(carry?.labels ?? [])])
   for (const change of entry.changes) {
     const kind = change.target.kind
-    if (!change.implied || (kind !== 'card' && kind !== 'image' && kind !== 'drawing') || !carried.has(change.target.id)) continue
+    if (!change.implied || (kind !== 'card' && kind !== 'image' && kind !== 'drawing' && kind !== 'label') || !carried.has(change.target.id)) continue
     const was = direction === 'undo' ? change.after : change.before
     const goal = direction === 'undo' ? change.before : change.after
     if (!was || !goal) continue
@@ -465,6 +495,7 @@ async function fixCarried(entry: UndoEntry, direction: UndoDirection, carry: Buc
     const place = { x: goal.x as number, y: goal.y as number }
     if (kind === 'card') await api.moveCard(change.target.id, place)
     else if (kind === 'image') await api.updateImage(change.target.id, place)
+    else if (kind === 'label') await api.updateLabel(change.target.id, place)
     else await api.updateDrawing(change.target.id, place)
   }
 }

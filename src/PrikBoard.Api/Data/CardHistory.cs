@@ -166,6 +166,7 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
         }
         Attachments(db.ChangeTracker.Entries<BoardImage>(), i => i.Caption ?? i.File?.FileName, CardChangeKind.ImageAdded, CardChangeKind.ImageRemoved);
         Attachments(db.ChangeTracker.Entries<BoardDrawing>(), _ => null, CardChangeKind.DrawingAdded, CardChangeKind.DrawingRemoved);
+        Attachments(db.ChangeTracker.Entries<BoardLabel>(), _ => null, CardChangeKind.LabelAdded, CardChangeKind.LabelRemoved);
 
         if (moves.Count > 0)
         {

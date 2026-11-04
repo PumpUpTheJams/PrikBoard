@@ -1,8 +1,9 @@
 import type { CSSProperties } from 'react'
-import type { InkColor, CardComponentKind } from '../api/types'
+import type { InkColor, CardComponentKind, LabelSize } from '../api/types'
 import { inkColor } from './drawings'
 import { PenOptions } from './DrawingView'
-import { EraserIcon, ImageIcon, PenIcon, TrashIcon } from './icons'
+import { EraserIcon, ImageIcon, LabelIcon, PenIcon, TrashIcon } from './icons'
+import { LabelOptions } from './LabelView'
 import { componentKinds } from './componentKinds'
 
 /** The card's pen: whether it is on, its ink and size, and whether it erases. */
@@ -17,18 +18,29 @@ export interface CardPen {
   onEraserChange: (eraser: boolean) => void
 }
 
+/** The card's label tool: whether it is on (the next click adds a label), and the ink and size new labels get. */
+export interface CardLabelTool {
+  on: boolean
+  onToggle: () => void
+  ink: InkColor
+  onInkChange: (ink: InkColor) => void
+  size: LabelSize
+  onSizeChange: (size: LabelSize) => void
+}
+
 interface CardBarProps {
   /** Adds a component of a kind in a free spot in view. */
   onAdd: (kind: CardComponentKind) => void
   /** Opens the file picker to attach images. */
   onAddImage: () => void
   pen: CardPen
+  label: CardLabelTool
   /** Deletes the whole card, without asking first (undo brings it back). */
   onDelete: () => void
 }
 
 /** The expanded card's tool bar, styled like the board's tool rail but lying along the bottom. */
-export function CardBar({ onAdd, onAddImage, pen, onDelete }: CardBarProps) {
+export function CardBar({ onAdd, onAddImage, pen, label, onDelete }: CardBarProps) {
   return (
     <div className="rail card-bar" role="toolbar" aria-label="Card tools">
       {(['Text', 'Checklist', 'Links'] as const).map((kind) => {
@@ -64,6 +76,16 @@ export function CardBar({ onAdd, onAddImage, pen, onDelete }: CardBarProps) {
               eraser={pen.eraser}
               onEraserChange={pen.onEraserChange}
             />
+          </div>
+        )}
+      </div>
+      <div className="card-pen">
+        <button type="button" className="rail-button" aria-label="Label" title="Label (T): click on the card and type" aria-pressed={label.on} onClick={label.onToggle}>
+          <LabelIcon />
+        </button>
+        {label.on && (
+          <div className="card-pen-flyout" role="group" aria-label="Label color and size">
+            <LabelOptions ink={label.ink} onInkChange={label.onInkChange} size={label.size} onSizeChange={label.onSizeChange} />
           </div>
         )}
       </div>

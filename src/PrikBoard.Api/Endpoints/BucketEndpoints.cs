@@ -111,10 +111,13 @@ public static class BucketEndpoints
         // A new place together with a new size is a resize from a top or left corner or edge: the bucket's edge moves, its cards stay.
         var resizing = request.Width is not null || request.Height is not null;
         var moving = !resizing && request is not { X: null, Y: null };
-        if (!moving && (request.CarryCardIds is not null || request.CarryImageIds is not null || request.CarryDrawingIds is not null))
+        if (!moving && (request.CarryCardIds is not null || request.CarryImageIds is not null || request.CarryDrawingIds is not null || request.CarryLabelIds is not null))
         {
-            var key = request.CarryCardIds is not null ? "carryCardIds" : request.CarryImageIds is not null ? "carryImageIds" : "carryDrawingIds";
-            return Problems.Invalid(key, "Only a move (X and/or Y without Width or Height) carries cards, images and drawings.");
+            var key = request.CarryCardIds is not null ? "carryCardIds"
+                : request.CarryImageIds is not null ? "carryImageIds"
+                : request.CarryDrawingIds is not null ? "carryDrawingIds"
+                : "carryLabelIds";
+            return Problems.Invalid(key, "Only a move (X and/or Y without Width or Height) carries cards, images, drawings and labels.");
         }
 
         if (resizing && (request.Collapsed ?? bucket.Collapsed))
@@ -126,11 +129,13 @@ public static class BucketEndpoints
         List<Card> cards = [];
         List<BoardImage> images = [];
         List<BoardDrawing> drawings = [];
+        List<BoardLabel> labels = [];
         if (moving || resizing)
         {
             cards = await db.Cards.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);
             images = await db.Images.Where(i => i.BoardId == bucket.BoardId && i.CardId == null).ToListAsync(ct);
             drawings = await db.Drawings.Where(d => d.BoardId == bucket.BoardId && d.CardId == null).ToListAsync(ct);
+            labels = await db.Labels.Where(l => l.BoardId == bucket.BoardId && l.CardId == null).ToListAsync(ct);
         }
         var dx = request.X is { } x ? Layout.Snap(x) - bucket.X : 0;
         var dy = request.Y is { } y ? Layout.Snap(y) - bucket.Y : 0;
@@ -149,6 +154,7 @@ public static class BucketEndpoints
             [
                 .. request.CarryImageIds is { } imageIds ? images.Where(i => imageIds.Contains(i.Id)) : images.Where(i => i.BucketId == bucket.Id),
                 .. request.CarryDrawingIds is { } drawingIds ? drawings.Where(d => drawingIds.Contains(d.Id)) : drawings.Where(d => d.BucketId == bucket.Id),
+                .. request.CarryLabelIds is { } labelIds ? labels.Where(l => labelIds.Contains(l.Id)) : labels.Where(l => l.BucketId == bucket.Id),
             ];
             foreach (var item in carriedItems)
             {
@@ -171,7 +177,7 @@ public static class BucketEndpoints
             // A new outline lets go of what no longer reaches into it (after a move, only items left behind by carryCardIds
             // or carryImageIds or carryDrawingIds), and takes nothing: only a bucket drawn around items takes them.
             var stacked = await StackAsync(db, bucket.BoardId, ct);
-            ICanvasItem[] items = [.. images, .. drawings];
+            ICanvasItem[] items = [.. images, .. drawings, .. labels];
             Layout.Release(bucket, stacked, cards, items);
         }
 
@@ -201,9 +207,10 @@ public static class BucketEndpoints
         var cardIds = (request.CardIds ?? []).Distinct().ToList();
         var imageIds = (request.ImageIds ?? []).Distinct().ToList();
         var drawingIds = (request.DrawingIds ?? []).Distinct().ToList();
-        if (cardIds.Count + imageIds.Count + drawingIds.Count == 0)
+        var labelIds = (request.LabelIds ?? []).Distinct().ToList();
+        if (cardIds.Count + imageIds.Count + drawingIds.Count + labelIds.Count == 0)
         {
-            return Problems.Invalid("cardIds", "Name at least one card, image or drawing to put in the bucket.");
+            return Problems.Invalid("cardIds", "Name at least one card, image, drawing or label to put in the bucket.");
         }
 
         var cards = await db.Cards.Where(n => n.BoardId == bucket.BoardId && cardIds.Contains(n.Id)).ToDictionaryAsync(n => n.Id, ct);
@@ -217,7 +224,12 @@ public static class BucketEndpoints
             .ToDictionaryAsync(d => d.Id, ct);
         if (drawings.Count != drawingIds.Count) return Problems.Invalid("drawingIds", "Every drawing must be on the bucket's board itself, not on a card.");
 
-        var items = new BucketItems(cardIds.ConvertAll(id => cards[id]), imageIds.ConvertAll(id => images[id]), drawingIds.ConvertAll(id => drawings[id]));
+        var labels = await db.Labels.Include(l => l.AddedBy)
+            .Where(l => l.BoardId == bucket.BoardId && l.CardId == null && labelIds.Contains(l.Id))
+            .ToDictionaryAsync(l => l.Id, ct);
+        if (labels.Count != labelIds.Count) return Problems.Invalid("labelIds", "Every label must be on the bucket's board itself, not on a card.");
+
+        var items = new BucketItems(cardIds.ConvertAll(id => cards[id]), imageIds.ConvertAll(id => images[id]), drawingIds.ConvertAll(id => drawings[id]), labelIds.ConvertAll(id => labels[id]));
         var buckets = await db.Buckets.Where(b => b.BoardId == bucket.BoardId).ToListAsync(ct);
         // The board's other cards only by place and bucket: with all their content they would be loaded and compared on
         // save for nothing. The ones the grown bucket takes are saved with their new bucket.
@@ -229,6 +241,7 @@ public static class BucketEndpoints
         foreach (var card in items.Cards) card.UpdatedAt = now;
         foreach (var image in items.Images) image.UpdatedAt = now;
         foreach (var drawing in items.Drawings) drawing.UpdatedAt = now;
+        foreach (var label in items.Labels ?? []) label.UpdatedAt = now;
 
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
@@ -238,16 +251,17 @@ public static class BucketEndpoints
             BucketDetail.From(bucket),
             [.. items.Cards.Select(n => CardDetail.From(n, board, principals))],
             [.. items.Images.Select(ImageDetail.From)],
-            [.. items.Drawings.Select(DrawingDetail.From)]));
+            [.. items.Drawings.Select(DrawingDetail.From)],
+            [.. (items.Labels ?? []).Select(LabelDetail.From)]));
     }
 
-    /// <summary>The cards, images and drawings going into a bucket, each list in the order they fill its free room.</summary>
-    internal sealed record BucketItems(List<Card> Cards, List<BoardImage> Images, List<BoardDrawing> Drawings);
+    /// <summary>The cards, images, drawings and labels going into a bucket, each list in the order they fill its free room.</summary>
+    internal sealed record BucketItems(List<Card> Cards, List<BoardImage> Images, List<BoardDrawing> Drawings, List<BoardLabel>? Labels = null);
 
     /// <summary>
     /// Puts <paramref name="items"/> into free room in <paramref name="bucket"/>, each at its own size and cards first
     /// (<see cref="Layout.PackIn"/>), and brings it to the front; <paramref name="others"/> are the board's other cards.
-    /// With <paramref name="cardsOnly"/>, the images and drawings already there take no room. placeItemsInBucket and
+    /// With <paramref name="cardsOnly"/>, the images, drawings and labels already there take no room. placeItemsInBucket and
     /// pastes into a bucket use this.
     /// </summary>
     internal static async Task PackItemsAsync(
@@ -256,10 +270,11 @@ public static class BucketEndpoints
     {
         // It may grow over its neighbors, so it comes on top of them, with the items it takes.
         bucket.ToFront();
-        var moving = items.Images.Select(i => i.Id).Concat(items.Drawings.Select(d => d.Id)).ToHashSet();
+        var moving = items.Images.Select(i => i.Id).Concat(items.Drawings.Select(d => d.Id)).Concat((items.Labels ?? []).Select(l => l.Id)).ToHashSet();
         var images = await db.Images.Where(i => i.BoardId == bucket.BoardId && i.CardId == null).ToListAsync(ct);
         var drawings = await db.Drawings.Where(d => d.BoardId == bucket.BoardId && d.CardId == null).ToListAsync(ct);
-        List<ICanvasItem> staying = [.. images.Where(i => !moving.Contains(i.Id)), .. drawings.Where(d => !moving.Contains(d.Id))];
+        var labels = await db.Labels.Where(l => l.BoardId == bucket.BoardId && l.CardId == null).ToListAsync(ct);
+        List<ICanvasItem> staying = [.. images.Where(i => !moving.Contains(i.Id)), .. drawings.Where(d => !moving.Contains(d.Id)), .. labels.Where(l => !moving.Contains(l.Id))];
         // They join the bucket by id, so only its own items (and loose ones) are in the way, not its neighbors': it may
         // grow over those, only as far as needed.
         bool InTheWay(Guid? owner) => owner is null || owner == bucket.Id;
@@ -268,7 +283,7 @@ public static class BucketEndpoints
             .. others.Where(n => InTheWay(n.BucketId)).Select(n => (n.X, n.Y, Layout.CardWidth, Layout.CardHeight)),
             .. staying.Where(i => !cardsOnly && InTheWay(i.BucketId)).Select(i => (i.X, i.Y, i.Width, i.Height)),
         ];
-        List<ICanvasItem> placed = [.. items.Images, .. items.Drawings];
+        List<ICanvasItem> placed = [.. items.Images, .. items.Drawings, .. items.Labels ?? []];
         List<(int Width, int Height)> sizes =
         [
             .. items.Cards.Select(_ => (Layout.CardWidth, Layout.CardHeight)),
@@ -351,10 +366,11 @@ public static class BucketEndpoints
         return Layout.PlaceIn(card, bucket) ? null : Problems.Invalid("bucketId", "With X and Y, the card must overlap the bucket.");
     }
 
-    /// <summary>The images and drawings on the board (not on cards): the items besides cards that buckets take, carry and let go.</summary>
+    /// <summary>The images, drawings and labels on the board (not on cards): the items besides cards that buckets take, carry and let go.</summary>
     internal static async Task<List<ICanvasItem>> CanvasItemsAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
     [
         .. await db.Images.Where(i => i.BoardId == boardId && i.CardId == null).ToListAsync(ct),
         .. await db.Drawings.Where(d => d.BoardId == boardId && d.CardId == null).ToListAsync(ct),
+        .. await db.Labels.Where(l => l.BoardId == boardId && l.CardId == null).ToListAsync(ct),
     ];
 }

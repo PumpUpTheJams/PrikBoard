@@ -43,6 +43,14 @@ public sealed partial class BoardTools
     internal const string WorkingHelp = "True when you start working on it right away: assigns you (as the person whose token you use) and shows the working halo, as set_working does.";
     private const string ComponentHelp = "The component: its id, its title, or its kind (Text, Checklist or Links) when the card has one component of that kind.";
     private const string BucketIdHelp = "The bucket id (in get_board).";
+    private const string LabelBoardHelp = "The board, not needed with card (nor when your token works on one board only): " + BoardForms;
+    private const string LabelCardHelp = "The card whose canvas it is on: " + CardForms;
+    private const string LabelMarkdownHelp = "The text in Markdown: **bold**, *italic*, ~~struck through~~, [links](url), \"- \" and \"1. \" lists, a blank line between paragraphs. Give this or content.";
+    private const string LabelContentHelp = "The text as blocks, for what Markdown has no form for: each block a kind (Paragraph, Bullet or Numbered) and runs, each run text with optional bold, italic, underline, strike, ink, size and link. Give this or markdown.";
+    private const string LabelInkHelp = "Ink of text that doesn't set its own: Chalk (the default), Butter, Mint, Sky, Coral, Lilac, Ink, Ochre, Pine, Ocean, Brick or Violet. Inks keep their colors in every theme, so a dark one is hard to read on a dark board and a light one on a light board.";
+    private const string LabelSizeHelp = "Size of text that doesn't set its own: S (16 px), M (24, the default), L (40) or XL (64).";
+    private const string LabelXHelp = "Left edge, on the board or on the card's canvas; snapped to the 20 px grid. Give it with y.";
+    private const string LabelYHelp = "Top edge, like x. Give it with x.";
     private const string ImageCardHelp = "Attach the image to this card: " + CardForms;
     private const string ImageBoardHelp = "The board to put it on, not needed with card (nor when your token works on one board only): " + BoardForms;
     private const string ImageFileNameHelp = "File name, e.g. \"ingest-errors.png\". Default: image.<format>.";
@@ -82,6 +90,7 @@ public sealed partial class BoardTools
         // The overview only counts the images, so the snapshot leaves them (and the drawings) out.
         var snapshot = McpCall.Value<BoardDetail>(await BoardEndpoints.SnapshotAsync(boardId, http, db, withCanvasItems: false, ct));
         var images = await db.Images.CountAsync(i => i.BoardId == boardId, ct);
+        var labels = await db.Labels.CountAsync(l => l.BoardId == boardId, ct);
 
         var byBucket = snapshot.Cards.ToLookup(n => n.BucketId);
         var buckets = snapshot.Buckets
@@ -90,7 +99,8 @@ public sealed partial class BoardTools
             .ToList();
         var loose = cards ? byBucket[null].Select(CardSummary.From).ToList() : null;
         return new BoardOverview(snapshot.Id, snapshot.ShortId, snapshot.Key, snapshot.Name, snapshot.Description, snapshot.YourRole,
-            snapshot.Rules, snapshot.RulesUpdatedAt, buckets, loose, images, snapshot.Tags, snapshot.People.Select(BoardPersonSummary.From).ToList());
+            snapshot.Rules, snapshot.RulesUpdatedAt, buckets, loose, images, snapshot.Tags, snapshot.People.Select(BoardPersonSummary.From).ToList(),
+            labels > 0 ? labels : null);
     }
 
     [McpServerTool(Name = "get_board_rules", Title = "Get a board's agent rules", ReadOnly = true, Idempotent = true, OpenWorld = false)]
@@ -309,6 +319,128 @@ public sealed partial class BoardTools
         return "Deleted.";
     }
 
+    [McpServerTool(Name = "list_labels", Title = "List labels", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [Description("The labels (free text placed without a background) on a board itself, or on a card's canvas with card, with their text " +
+                 "in Markdown. Give board, or card, or neither when your token works on one board only." + UntrustedText)]
+    public static async Task<List<LabelView>> ListLabels(
+        IHttpContextAccessor accessor,
+        [Description(LabelBoardHelp)] string? board = null,
+        [Description(LabelCardHelp)] string? card = null,
+        CancellationToken ct = default)
+    {
+        var http = McpCall.Http(accessor);
+        var (target, cardId) = await LabelTargetAsync(http, card, board, BoardRole.Viewer, ct);
+        var db = Db(http);
+        var labels = await db.Labels.AsNoTracking().Where(l => l.BoardId == target && l.CardId == cardId)
+            .OrderBy(l => l.CreatedAt).ThenBy(l => l.Id).ToListAsync(ct);
+        var names = await db.Buckets.AsNoTracking().Where(b => b.BoardId == target).ToDictionaryAsync(b => b.Id, b => b.Name, ct);
+        return labels.ConvertAll(l => LabelView.From(LabelDetail.From(l), names));
+    }
+
+    [McpServerTool(Name = "add_label", Title = "Add a label", OpenWorld = false)]
+    [Description("Adds free text without a background to a board, or to a card's canvas with card: to name an area or annotate something. " +
+                 "Write it in markdown (**bold**, *italic*, ~~struck through~~, [links](url), \"- \" and \"1. \" lists), or give content for " +
+                 "underline, or ink and size on single words. It goes in a free spot unless you give x and y; on the board it joins " +
+                 "the bucket its center lands in. Needs the Editor role.")]
+    public static async Task<LabelView> AddLabel(
+        IHttpContextAccessor accessor,
+        [Description(LabelMarkdownHelp)] string? markdown = null,
+        [Description(LabelContentHelp)] List<LabelBlock>? content = null,
+        [Description(LabelBoardHelp)] string? board = null,
+        [Description(LabelCardHelp)] string? card = null,
+        [Description(LabelInkHelp)] InkColor ink = InkColor.Chalk,
+        [Description(LabelSizeHelp)] LabelSize size = LabelSize.M,
+        [Description(LabelXHelp)] int? x = null,
+        [Description(LabelYHelp)] int? y = null,
+        CancellationToken ct = default)
+    {
+        var http = McpCall.Http(accessor);
+        var (target, cardId) = await LabelTargetAsync(http, card, board, BoardRole.Editor, ct);
+        var request = new CreateLabelRequest(content, markdown, x, y, ink, size, CardId: cardId);
+        McpCall.Validate(request);
+        var db = Db(http);
+        var label = McpCall.Value<LabelDetail>(await LabelEndpoints.CreateLabel(target, request, http.User, db, ct));
+        await McpCall.AnnounceAsync(http, target);
+        return await LabelViewAsync(db, label, ct);
+    }
+
+    [McpServerTool(Name = "update_label", Title = "Change or move a label", OpenWorld = false)]
+    [Description("Changes a label's text, ink, size or place, or moves it between the board and a card (card with x and y on its canvas, or " +
+                 "detach with x and y on the board). Only what you give changes. New markdown keeps the label's own ink and size, but loses " +
+                 "underline and any ink or size on single words; give content to keep those. Needs the Editor role.")]
+    public static async Task<LabelView> UpdateLabel(
+        IHttpContextAccessor accessor,
+        [Description("The label's id, from list_labels or add_label.")] Guid label,
+        [Description(LabelMarkdownHelp)] string? markdown = null,
+        [Description(LabelContentHelp)] List<LabelBlock>? content = null,
+        [Description(LabelInkHelp)] InkColor? ink = null,
+        [Description(LabelSizeHelp)] LabelSize? size = null,
+        [Description(LabelXHelp)] int? x = null,
+        [Description(LabelYHelp)] int? y = null,
+        [Description("Put it on this card's canvas (with x and y): " + CardForms)] string? card = null,
+        [Description("True to take it off its card and put it on the board (with x and y).")] bool? detach = null,
+        CancellationToken ct = default)
+    {
+        var http = McpCall.Http(accessor);
+        Guid? cardId = card is null ? null : await ResolveCardAsync(http, card, ct);
+        var boardId = await McpCall.AuthorizeAsync(http, BoardScope.Label, label, BoardRole.Editor);
+        var request = new UpdateLabelRequest(content, markdown, x, y, ink, size, CardId: cardId, Detach: detach);
+        McpCall.Validate(request);
+        var db = Db(http);
+        var updated = McpCall.Value<LabelDetail>(await LabelEndpoints.UpdateLabel(label, request, db, ct));
+        await McpCall.AnnounceAsync(http, boardId);
+        return await LabelViewAsync(db, updated, ct);
+    }
+
+    [McpServerTool(Name = "delete_label", Title = "Delete a label", Destructive = true, Idempotent = true, OpenWorld = false)]
+    [Description("Deletes a label; restore_label brings it back within " + Tombstones.RetentionText + ". Needs the Editor role.")]
+    public static async Task<string> DeleteLabel(
+        IHttpContextAccessor accessor,
+        [Description("The label's id, from list_labels or add_label.")] Guid label,
+        CancellationToken ct = default)
+    {
+        var http = McpCall.Http(accessor);
+        var boardId = await McpCall.AuthorizeAsync(http, BoardScope.Label, label, BoardRole.Editor);
+        McpCall.Succeeded(await LabelEndpoints.DeleteLabel(label, http.User, Db(http), ct));
+        await McpCall.AnnounceAsync(http, boardId);
+        return $"Deleted. restore_label brings it back within {Tombstones.RetentionText}.";
+    }
+
+    [McpServerTool(Name = "restore_label", Title = "Restore a deleted label", Idempotent = false, OpenWorld = false)]
+    [Description("Brings back a label deleted in the last " + Tombstones.RetentionText + ", with the same id, place and text. A label on a deleted " +
+                 "card comes back with restore_card instead. Needs the Editor role.")]
+    public static async Task<LabelView> RestoreLabel(
+        IHttpContextAccessor accessor,
+        [Description("The label's id.")] Guid label,
+        CancellationToken ct = default)
+    {
+        var http = McpCall.Http(accessor);
+        var boardId = await McpCall.AuthorizeAsync(http, BoardScope.Label, label, BoardRole.Editor);
+        var db = Db(http);
+        var restored = McpCall.Value<LabelDetail>(await LabelEndpoints.RestoreLabel(label, db, ct));
+        await McpCall.AnnounceAsync(http, boardId);
+        return await LabelViewAsync(db, restored, ct);
+    }
+
+    /// <summary>The board a label tool works on, authorized, and the card if it names one.</summary>
+    private static async Task<(Guid BoardId, Guid? CardId)> LabelTargetAsync(HttpContext http, string? card, string? board, BoardRole minimum, CancellationToken ct)
+    {
+        if (card is not null)
+        {
+            var cardId = await ResolveCardAsync(http, card, ct);
+            return (await McpCall.AuthorizeAsync(http, BoardScope.Card, cardId, minimum), cardId);
+        }
+        var boardId = await ResolveBoardAsync(http, board, ct);
+        await McpCall.AuthorizeAsync(http, BoardScope.Board, boardId, minimum);
+        return (boardId, null);
+    }
+
+    private static async Task<LabelView> LabelViewAsync(PrikBoardDbContext db, LabelDetail label, CancellationToken ct)
+    {
+        var names = await db.Buckets.AsNoTracking().Where(b => b.Id == label.BucketId).ToDictionaryAsync(b => b.Id, b => b.Name, ct);
+        return LabelView.From(label, names);
+    }
+
     [McpServerTool(Name = "add_image", Title = "Add an image", OpenWorld = false)]
     [Description("Adds an image (PNG, JPEG, GIF or WebP, at most 10 MB; not SVG) to a board, or attaches it to a card, " +
                  "where it shows on the card's canvas when the card is opened. Send the file base64-encoded. Give card to attach " +
@@ -407,9 +539,9 @@ public sealed partial class BoardTools
         return await ViewAsync(http, result, content: false, ct);
     }
 
-    [McpServerTool(Name = "place_in_bucket", Title = "Put cards, images and drawings into a bucket", OpenWorld = false)]
-    [Description("Moves several cards, images and drawings of the bucket's board into it at once, each at its own size, into " +
-                 "free spots row by row around what is already there: cards first, then images, then drawings, each in the order " +
+    [McpServerTool(Name = "place_in_bucket", Title = "Put cards, images, drawings and labels into a bucket", OpenWorld = false)]
+    [Description("Moves several cards, images, drawings and labels of the bucket's board into it at once, each at its own size, into " +
+                 "free spots row by row around what is already there: cards first, then images, drawings and labels, each in the order " +
                  "given. A collapsed bucket takes them too. When they don't fit, the bucket grows (down unless grow says " +
                  "otherwise). The bucket comes to the front. Needs the Editor role.")]
     public static async Task<PlacedItems> PlaceInBucket(
@@ -420,13 +552,14 @@ public sealed partial class BoardTools
         [Description("Ids of drawings on the board itself (not on a card).")] List<Guid>? drawings = null,
         [Description(BoardHelp)] string? board = null,
         [Description("The side the bucket grows towards when it is full: Down (default), Right, Left or Up.")] GrowSide? grow = null,
+        [Description("Ids of labels on the board itself (not on a card).")] List<Guid>? labels = null,
         CancellationToken ct = default)
     {
         var (http, db, boardId) = await BoardCallAsync(accessor, board, BoardRole.Editor, ct);
         var bucketId = await ResolveBucketAsync(http, db, boardId, bucket, ct);
         var cardIds = new List<Guid>();
         foreach (var card in cards ?? []) cardIds.Add(await ResolveCardAsync(http, card, ct));
-        var request = new PlaceItemsRequest(cardIds, images, drawings, grow);
+        var request = new PlaceItemsRequest(cardIds, images, drawings, grow, LabelIds: labels);
         McpCall.Validate(request);
         var result = McpCall.Value<PlacedItems>(await BucketEndpoints.PlaceItemsInBucket(bucketId, request, db, ct));
         await McpCall.AnnounceAsync(http, boardId);
@@ -434,7 +567,7 @@ public sealed partial class BoardTools
     }
 
     [McpServerTool(Name = "copy_to_board", Title = "Copy or move items to a board", OpenWorld = false)]
-    [Description("Copies cards, buckets (with what is in them), and images and drawings on the board itself to a board, the same one or " +
+    [Description("Copies cards, buckets (with what is in them), and images, drawings and labels on the board itself to a board, the same one or " +
                  "another, keeping their places relative to each other: the top-left at x and y, or else in a free spot. Cards alone " +
                  "go into a bucket instead unless you give x and y (default: the first bucket). Links between copied cards point at the " +
                  "copies. With move (only to another board), the originals go to their board's trash. Needs Viewer (Editor to move) " +
@@ -451,6 +584,7 @@ public sealed partial class BoardTools
         [Description("Where the left edge of the leftmost item goes; give it with y.")] int? x = null,
         [Description("Where the top edge of the topmost item goes; give it with x.")] int? y = null,
         [Description("Move them rather than copy: the originals go to their board's trash. Only to another board.")] bool move = false,
+        [Description("Ids of labels on that board itself (labels on a card come with their card).")] List<Guid>? labels = null,
         CancellationToken ct = default)
     {
         var http = McpCall.Http(accessor);
@@ -471,7 +605,7 @@ public sealed partial class BoardTools
         var bucketIds = new List<Guid>();
         foreach (var name in buckets ?? []) bucketIds.Add(await ResolveBucketAsync(http, db, sourceId, name, ct));
         // The images' files are copied on disk rather than read into the clip.
-        var what = new CopyItemsRequest(cardIds, bucketIds, images, drawings, move, ImageData: false);
+        var what = new CopyItemsRequest(cardIds, bucketIds, images, drawings, move, ImageData: false, LabelIds: labels);
         McpCall.Validate(what);
         Guid? bucketId = bucket is null ? null : await ResolveBucketAsync(http, db, targetId, bucket, ct);
         var server = ClipEndpoints.ServerUrl(http.Request);
@@ -502,8 +636,8 @@ public sealed partial class BoardTools
     }
 
     [McpServerTool(Name = "delete_card", Title = "Delete a card", Destructive = true, OpenWorld = false)]
-    [Description("Deletes a card with its images and drawings; restore_card brings them back within " + Tombstones.RetentionText + ". " +
-                 "A card with nothing on it (no title, tags, assignees, content, images or drawings) is deleted for good instead. " +
+    [Description("Deletes a card with its images, drawings and labels; restore_card brings them back within " + Tombstones.RetentionText + ". " +
+                 "A card with nothing on it (no title, tags, assignees, content, images, drawings or labels) is deleted for good instead. " +
                  "Prefer moving finished work to \"Done\". Needs the Editor role.")]
     public static async Task<string> DeleteCard(IHttpContextAccessor accessor, [Description(CardHelp)] string card, CancellationToken ct)
     {

@@ -35,6 +35,7 @@ export const clipSummary = (clip: BoardClip) =>
     [clip.cards.length, 'card'],
     [clip.images.filter((i) => !i.cardId).length, 'image'],
     [clip.drawings.filter((d) => !d.cardId).length, 'drawing'],
+    [(clip.labels ?? []).filter((l) => !l.cardId).length, 'label'],
   ])
 
 /** The cards' readable ids, titles and links. */
@@ -53,6 +54,7 @@ function others(clip: BoardClip) {
   const loose = countList([
     [clip.images.filter((i) => !i.cardId).length, 'image'],
     [clip.drawings.filter((d) => !d.cardId).length, 'drawing'],
+    [(clip.labels ?? []).filter((l) => !l.cardId).length, 'label'],
   ])
   return loose === 'nothing' ? buckets : [...buckets, loose]
 }

@@ -64,10 +64,27 @@ public sealed record BoardPersonSummary(Guid PrincipalId, string Name, AssigneeK
 /// <param name="Images">How many images the board has, on the board itself and on its cards.</param>
 /// <param name="Tags">The board's tags with how many cards use each. Reuse these when tagging cards.</param>
 /// <param name="People">Who can be assigned to cards; tools take their names.</param>
+/// <param name="Labels">How many labels the board has, on the board itself and on its cards, when it has any; list_labels has their text.</param>
 public sealed record BoardOverview(
     Guid Id, string ShortId, string Key, string Name, string? Description, BoardRole YourRole, string? Rules, DateTimeOffset? RulesUpdatedAt,
     IReadOnlyList<BucketOverview> Buckets,
-    IReadOnlyList<CardSummary>? LooseCards, int Images, IReadOnlyList<BoardTagDetail> Tags, IReadOnlyList<BoardPersonSummary> People);
+    IReadOnlyList<CardSummary>? LooseCards, int Images, IReadOnlyList<BoardTagDetail> Tags, IReadOnlyList<BoardPersonSummary> People, int? Labels = null);
+
+/// <summary>A label as agents read it: its text in Markdown. Underline, and ink or size on single words, don't show; they are lost when you write new markdown.</summary>
+/// <param name="Id">The label's id, for update_label and delete_label.</param>
+/// <param name="Markdown">Its text in Markdown.</param>
+/// <param name="Ink">Ink of text that doesn't set its own.</param>
+/// <param name="Size">Size of text that doesn't set its own: S (16 px), M (24), L (40) or XL (64).</param>
+/// <param name="X">Left edge, on the board or on the card's canvas.</param>
+/// <param name="Y">Top edge, on the board or on the card's canvas.</param>
+/// <param name="Bucket">The bucket it sits in, by name; left out when it is loose or on a card.</param>
+/// <param name="CardId">The card it is on; left out for a label on the board.</param>
+public sealed record LabelView(Guid Id, string Markdown, InkColor Ink, LabelSize Size, int X, int Y, string? Bucket, Guid? CardId)
+{
+    public static LabelView From(LabelDetail label, IReadOnlyDictionary<Guid, string> bucketNames) =>
+        new(label.Id, LabelMarkdown.From(label.Content), label.Ink, label.Size, label.X, label.Y,
+            label.BucketId is { } id ? bucketNames.GetValueOrDefault(id) : null, label.CardId);
+}
 
 /// <summary>A board you can use.</summary>
 /// <param name="Id">The board id.</param>

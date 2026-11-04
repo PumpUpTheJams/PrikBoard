@@ -6,6 +6,7 @@ import {
   type BoardTag,
   type BucketDetail,
   type DrawingDetail,
+  type LabelDetail,
   type DropBucket,
   type ImageDetail,
   type CardChanges,
@@ -25,7 +26,7 @@ import { Highlight } from './Highlight'
 import type { SearchTerm } from './search'
 import { BucketIcon, CheckIcon, CloseIcon, LinkIcon, MaximizeIcon, PutBackIcon, RestoreIcon, SparkleIcon, TrashIcon } from './icons'
 import { cardLabel, TITLE_SUGGESTION } from './links'
-import { CardCanvas, type IncomingDrawing, type IncomingImage, type CardCanvasHandle } from './CardCanvas'
+import { CardCanvas, type IncomingDrawing, type IncomingImage, type IncomingLabel, type CardCanvasHandle } from './CardCanvas'
 import { tagColorClass, type TagColorPreview, type TagColors } from './tagColors'
 import { TagPicker } from './TagPicker'
 import type { RecordingRun } from './undo'
@@ -66,6 +67,8 @@ interface ExpandedCardProps {
   images: ImageDetail[]
   /** Pen strokes on this card (none for one in the trash). */
   drawings?: DrawingDetail[]
+  /** Labels on the card. */
+  labels?: LabelDetail[]
   /** The cards on the board, to link to and to show linked ones by their current title. */
   cards: CardDetail[]
   /** Attaches images, at a point on the card's canvas or in a free spot. */
@@ -89,6 +92,8 @@ interface ExpandedCardProps {
   incoming: IncomingImage | null
   /** A board drawing being dragged over the window. */
   incomingDrawing?: IncomingDrawing | null
+  /** A board label being dragged over the window. */
+  incomingLabel?: IncomingLabel | null
   /** A card is being dragged over the window, to link it here. */
   linking: boolean
   /** A screen point on the board in canvas pixels, when it is over the board; to drop images out of the card. */
@@ -107,7 +112,7 @@ interface ExpandedCardProps {
 export function ExpandedCard(props: ExpandedCardProps) {
   const { card, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onClose, readOnly, highlight } = props
   const { boardTags, tagColors, people, cards, onRenameTag, onRecolorTag, onPreviewTagColor, onDeleteTag, handle, run, onBusy, incoming, linking, boardPoint, boardZoom, deleted } = props
-  const { drawings = [], incomingDrawing = null, visiting = false, history, dropBucket } = props
+  const { drawings = [], labels = [], incomingDrawing = null, incomingLabel = null, visiting = false, history, dropBucket } = props
   /** The tag or people window, opened from its button in the band. */
   const [picking, setPicking] = useState<{ kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
   const [fileOver, setFileOver] = useState(false)
@@ -168,7 +173,7 @@ export function ExpandedCard(props: ExpandedCardProps) {
     <>
       <article
         ref={dialogRef}
-        className={`expanded fill-${card.color.toLowerCase()}${moving ? ' moving' : ''}${maximized ? ' maximized' : ''}${fileOver ? ' file-over' : ''}${readOnly ? ' read-only' : ''}${incoming || incomingDrawing || linking ? ' drop-over' : ''}`}
+        className={`expanded fill-${card.color.toLowerCase()}${moving ? ' moving' : ''}${maximized ? ' maximized' : ''}${fileOver ? ' file-over' : ''}${readOnly ? ' read-only' : ''}${incoming || incomingDrawing || incomingLabel || linking ? ' drop-over' : ''}`}
         style={style}
         // Images dropped on the band are attached in a free spot (the canvas takes drops where they land).
         onDragOver={(e) => {
@@ -287,6 +292,7 @@ export function ExpandedCard(props: ExpandedCardProps) {
           card={card}
           images={images}
           drawings={drawings}
+          labels={labels}
           cards={cards}
           highlight={highlight}
           readOnly={readOnly}
@@ -296,6 +302,7 @@ export function ExpandedCard(props: ExpandedCardProps) {
           onBusy={onBusy}
           incoming={incoming}
           incomingDrawing={incomingDrawing}
+          incomingLabel={incomingLabel}
           onAddImages={onAddImages}
           onPickImages={onPickImages}
           boardPoint={boardPoint}
@@ -304,7 +311,7 @@ export function ExpandedCard(props: ExpandedCardProps) {
           onDeleteCard={onDelete}
         />
 
-        {!visiting && <CardHistory card={card} attached={images.length + drawings.length} />}
+        {!visiting && <CardHistory card={card} attached={images.length + drawings.length + labels.length} />}
 
         {!maximized && <WindowResizeHandles onResize={startResize} />}
       </article>

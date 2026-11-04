@@ -41,6 +41,7 @@ public record BoardSummary(
 /// <param name="Cards">Cards grouped by bucket in the order of Buckets, loose cards last, each group top to bottom and left to right.</param>
 /// <param name="Images">Images on the canvas and attached to cards (see cardId), oldest first. Download them from contentUrl.</param>
 /// <param name="Drawings">Freehand drawings on the canvas and on cards (see cardId), oldest first (drawn in that order). Fetch their strokes from contentUrl.</param>
+/// <param name="Labels">Rich text on the canvas and on cards (see cardId), oldest first.</param>
 /// <param name="Tags">The tags defined on the board, by name, with how many cards use each. Cards pick their tags from this list.</param>
 /// <param name="People">Who can be assigned to cards: members, and the agents of members' access tokens that reach the board. You first, then people, then agents.</param>
 /// <param name="YourRole">Your role on the board: Viewer (read only), Editor or Owner.</param>
@@ -62,6 +63,7 @@ public record BoardDetail(
     IReadOnlyList<CardDetail> Cards,
     IReadOnlyList<ImageDetail> Images,
     IReadOnlyList<DrawingDetail> Drawings,
+    IReadOnlyList<LabelDetail> Labels,
     IReadOnlyList<BoardTagDetail> Tags,
     IReadOnlyList<BoardPerson> People,
     BoardRole YourRole,
@@ -83,6 +85,7 @@ public record BoardDetail(
             Layout.ReadingOrder(board.Cards, board.Buckets).ConvertAll(n => CardDetail.From(n, boardRef, principals)),
             board.Images.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id).Select(ImageDetail.From).ToList(),
             board.Drawings.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id).Select(DrawingDetail.From).ToList(),
+            board.Labels.OrderBy(l => l.CreatedAt).ThenBy(l => l.Id).Select(LabelDetail.From).ToList(),
             BoardTagDetail.List(board.Tags, board.Cards.Select(n => n.Tags)),
             BoardPerson.List(people, caller),
             role,
@@ -105,6 +108,7 @@ public record BoardDetail(
             .ToList(),
         Images = showPeople ? Images : Images.Select(i => i with { AddedBy = "", AddedById = null }).ToList(),
         Drawings = showPeople ? Drawings : Drawings.Select(d => d with { AddedBy = "", AddedById = null }).ToList(),
+        Labels = showPeople ? Labels : Labels.Select(l => l with { AddedBy = "", AddedById = null }).ToList(),
     };
 }
 

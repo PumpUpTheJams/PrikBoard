@@ -278,6 +278,7 @@ api.MapCardComponentEndpoints();
 api.MapTagEndpoints();
 api.MapImageEndpoints();
 api.MapDrawingEndpoints();
+api.MapLabelEndpoints();
 api.MapMemberEndpoints();
 api.MapInviteEndpoints();
 api.MapAccessTokenEndpoints();

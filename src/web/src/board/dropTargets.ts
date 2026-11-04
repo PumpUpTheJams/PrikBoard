@@ -3,7 +3,7 @@ import { api } from '../api/client'
 import type { BoardDetail, BucketDetail, CardDetail, GrowSide, Point, Rect } from '../api/types'
 import type { Gesture, GroupGesture } from './boardGesture'
 import { bucketItemsOf, cardBox } from './boardItems'
-import type { IncomingDrawing, IncomingImage } from './CardCanvas'
+import type { IncomingDrawing, IncomingImage, IncomingLabel } from './CardCanvas'
 import type { ExpandedCardHandle } from './ExpandedCard'
 import { isDrag } from './gesture'
 import { CARD_HEIGHT, CARD_WIDTH, GRID, bucketAtPointer, collapsedRect, defaultComponentSize, onCardCanvas, packIn } from './layout'
@@ -64,6 +64,8 @@ export interface DropTargets {
   incoming: IncomingImage | null
   /** Likewise a board drawing, to put it on the card's canvas. */
   incomingDrawing: IncomingDrawing | null
+  /** Likewise a board label. */
+  incomingLabel: IncomingLabel | null
 }
 
 export const NO_DROPS: DropTargets = {
@@ -76,6 +78,7 @@ export const NO_DROPS: DropTargets = {
   arrange: null,
   incoming: null,
   incomingDrawing: null,
+  incomingLabel: null,
 }
 
 /**
@@ -100,6 +103,7 @@ export interface DropProbe {
   attachDropFor: (g: Gesture, client: Point) => AttachDrop | null
   imageOnCard: (g: Gesture, client: Point) => IncomingImage | null
   drawingOnCard: (g: Gesture, client: Point) => IncomingDrawing | null
+  labelOnCard: (g: Gesture, client: Point) => IncomingLabel | null
 }
 
 /** What a drag would be dropped on at a screen point, the first that applies in this order. */
@@ -110,11 +114,11 @@ export function dropTargetsFor(g: Gesture, client: Point, probe: DropProbe): Dro
   if (deletable && probe.onTrash(client)) return { ...NO_DROPS, trash: true }
   if (deletable && probe.inDeleted(client)) return { ...NO_DROPS, deleted: client }
   // Anything but a bucket can go into a collapsed one.
-  const foldable = g.kind === 'card' || g.kind === 'image' || g.kind === 'drawing' || (g.kind === 'group' && g.members.every((m) => m.kind !== 'bucket'))
+  const foldable = g.kind === 'card' || g.kind === 'image' || g.kind === 'drawing' || g.kind === 'label' || (g.kind === 'group' && g.members.every((m) => m.kind !== 'bucket'))
   const fold = foldable && !probe.overWindow(client) ? probe.foldAt(g.current) : undefined
   if (fold) return { ...NO_DROPS, fold: fold.id }
   const link = probe.linkDropFor(g, client)
-  if (g.kind !== 'group') return { ...NO_DROPS, link, incoming: probe.imageOnCard(g, client), incomingDrawing: probe.drawingOnCard(g, client) }
+  if (g.kind !== 'group') return { ...NO_DROPS, link, incoming: probe.imageOnCard(g, client), incomingDrawing: probe.drawingOnCard(g, client), incomingLabel: probe.labelOnCard(g, client) }
   // Cards over a bucket they aren't all in go into its free spots (over the open card, they stay on the board).
   const arrange = !link && !probe.overWindow(client) ? probe.arrangeFor(g) : null
   return { ...NO_DROPS, link, arrange, attach: probe.attachDropFor(g, client) }
@@ -214,9 +218,9 @@ export function useDropProbe(options: DropProbeOptions) {
       return under ? { card: under, window: false, client } : null
     },
     arrangeFor: (g) => arrangeFor(g, board, stacked, arranged),
-    // Only a group of images and drawings: to the open card (over its canvas) or to the card under the pointer.
+    // Only a group of images, drawings and labels: to the open card (over its canvas) or to the card under the pointer.
     attachDropFor(g, client) {
-      if (g.kind !== 'group' || !g.members.every((m) => m.kind === 'image' || m.kind === 'drawing')) return null
+      if (g.kind !== 'group' || !g.members.every((m) => m.kind === 'image' || m.kind === 'drawing' || m.kind === 'label')) return null
       const win = cardHandle.current
       if (expanded && win?.contains(client)) {
         const open = board.cards.find((n) => n.id === expanded.id)
@@ -242,6 +246,15 @@ export function useDropProbe(options: DropProbeOptions) {
       if (!drawing) return null
       const at = card.toCard(client)
       return { drawing, at: { x: at.x - (g.start.x - drawing.x), y: at.y - (g.start.y - drawing.y) } }
+    },
+    // And a board label.
+    labelOnCard(g, client) {
+      const card = cardHandle.current
+      if (g.kind !== 'label' || !card?.hits(client)) return null
+      const label = board.labels.find((l) => l.id === g.id)
+      if (!label) return null
+      const at = card.toCard(client)
+      return { label, at: { x: at.x - (g.start.x - label.x), y: at.y - (g.start.y - label.y) } }
     },
   }
   return { ...probe, cardAt }

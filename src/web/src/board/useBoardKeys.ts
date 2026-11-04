@@ -31,8 +31,9 @@ export function useBoardKeys(options: BoardKeysOptions) {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      // The open card is a window of its own: keys typed in it are its own, and Escape closes it.
-      if (keyTargetIgnored(e.target)) return
+      // The open card is a window of its own: keys typed in it are its own, and Escape closes it. A label being edited
+      // keeps its keys too, or Ctrl/Cmd+A and Delete there would take the board's items.
+      if (keyTargetIgnored(e.target, { editable: true })) return
       const copying = () => selected.length > 0 && !textSelected()
       const deleting = e.key === 'Delete' || e.key === 'Backspace'
       if (e.key === 'Escape') {

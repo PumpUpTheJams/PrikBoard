@@ -50,7 +50,10 @@ import type {
   ItemIds,
   PasteImageFile,
   RestoredItems,
+  LabelChanges,
+  LabelDetail,
   NewDrawing,
+  NewLabel,
   NewDrawingStroke,
   NewCardComponent,
   CardComponent,
@@ -397,6 +400,12 @@ export const api = {
   deleteDrawing: (drawingId: string) => request<void>('DELETE', `/drawings/${drawingId}`),
   /** Brings back a drawing deleted in the last 7 days (not one whose card is deleted: restore the card). */
   restoreDrawing: (drawingId: string) => request<DrawingDetail>('POST', `/drawings/${drawingId}/restore`),
+
+  createLabel: (boardId: string, label: NewLabel) => request<LabelDetail>('POST', `/boards/${boardId}/labels`, label),
+  updateLabel: (labelId: string, changes: LabelChanges) => request<LabelDetail>('PATCH', `/labels/${labelId}`, changes),
+  deleteLabel: (labelId: string) => request<void>('DELETE', `/labels/${labelId}`),
+  /** Brings back a label deleted in the last 7 days (not one whose card is deleted: restore the card). */
+  restoreLabel: (labelId: string) => request<LabelDetail>('POST', `/labels/${labelId}/restore`),
 
   listBoardMembers: (boardId: string) => request<BoardMember[]>('GET', `/boards/${boardId}/members`),
   addBoardMember: (boardId: string, principalId: string, role: BoardRole) =>

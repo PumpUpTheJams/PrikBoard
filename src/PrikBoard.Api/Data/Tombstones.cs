@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 namespace PrikBoard.Api.Data;
 
 /// <summary>
-/// Deleted cards, buckets, images, drawings and tags stay in their tables (with <c>DeletedAt</c> set, hidden by the
+/// Deleted cards, buckets, images, drawings, labels and tags stay in their tables (with <c>DeletedAt</c> set, hidden by the
 /// <see cref="PrikBoardDbContext.SoftDelete"/> filter) so they can be restored, which is what undo in the web app does.
 /// After <see cref="Retention"/> they are deleted for good.
 /// </summary>
@@ -20,7 +20,7 @@ public static class Tombstones
     public static IQueryable<T> WithDeleted<T>(this IQueryable<T> query) where T : class => query.IgnoreQueryFilters(SoftDeleteFilter);
 
     /// <summary>
-    /// Deletes the cards with their images and drawings, all with one stamp, so they come back together (restoreCard) and
+    /// Deletes the cards with their images, drawings and labels, all with one stamp, so they come back together (restoreCard) and
     /// ones deleted earlier don't. Returns how many cards went; with none, it touches nothing else.
     /// </summary>
     public static async Task<int> DeleteCardsAsync(PrikBoardDbContext db, IReadOnlyCollection<Guid> cardIds, DateTimeOffset stamp, CancellationToken ct)
@@ -29,10 +29,11 @@ public static class Tombstones
         if (deleted == 0) return 0;
         await db.Images.Where(i => i.CardId != null && cardIds.Contains(i.CardId.Value)).ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, stamp), ct);
         await db.Drawings.Where(d => d.CardId != null && cardIds.Contains(d.CardId.Value)).ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, stamp), ct);
+        await db.Labels.Where(l => l.CardId != null && cardIds.Contains(l.CardId.Value)).ExecuteUpdateAsync(s => s.SetProperty(l => l.DeletedAt, stamp), ct);
         return deleted;
     }
 
-    /// <summary>Brings back the images and drawings deleted with a card: those with the card's <paramref name="stamp"/>.</summary>
+    /// <summary>Brings back the images, drawings and labels deleted with a card: those with the card's <paramref name="stamp"/>.</summary>
     public static async Task RestoreWithCardAsync(PrikBoardDbContext db, Guid cardId, DateTimeOffset stamp, CancellationToken ct)
     {
         await db.Images.WithDeleted()
@@ -41,6 +42,9 @@ public static class Tombstones
         await db.Drawings.WithDeleted()
             .Where(d => d.CardId == cardId && d.DeletedAt == stamp)
             .ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, (DateTimeOffset?)null), ct);
+        await db.Labels.WithDeleted()
+            .Where(l => l.CardId == cardId && l.DeletedAt == stamp)
+            .ExecuteUpdateAsync(s => s.SetProperty(l => l.DeletedAt, (DateTimeOffset?)null), ct);
     }
 
     /// <summary>Deletes for good everything deleted before <paramref name="cutoff"/>. Returns how many rows went.</summary>
@@ -50,6 +54,7 @@ public static class Tombstones
         // Image files go in the sweep that follows.
         var count = await db.Images.WithDeleted().Where(i => i.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         count += await db.Drawings.WithDeleted().Where(d => d.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
+        count += await db.Labels.WithDeleted().Where(l => l.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         count += await db.Cards.WithDeleted().Where(n => n.DeletedAt < cutoff).ExecuteDeleteAsync(ct);
         // Deleted cards, images and drawings still pointing at a purged bucket lose the reference (SetNull). Live ones never
         // point at a deleted bucket: deleting it lets them go (Layout.Release).
