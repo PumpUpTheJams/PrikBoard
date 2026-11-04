@@ -125,21 +125,27 @@ public static class BucketEndpoints
             return Problems.Invalid(request.Width is not null ? "width" : "height", "A collapsed bucket can't be resized; open it first.");
         }
 
-        // A new name, color or fold touches no items, so only a move or resize loads them.
+        var dx = request.X is { } x ? Layout.Snap(x) - bucket.X : 0;
+        var dy = request.Y is { } y ? Layout.Snap(y) - bucket.Y : 0;
+        // A plain move carries all its items, so none is left behind to let go, and none needs loading.
+        var carriesAll = moving && request is { CarryCardIds: null, CarryImageIds: null, CarryDrawingIds: null, CarryLabelIds: null };
+        await using var transaction = carriesAll ? await db.Database.BeginTransactionAsync(ct) : null;
+        if (carriesAll && (dx != 0 || dy != 0)) await CarryAllAsync(db, bucket.Id, dx, dy, ct);
+
+        // A new name, color or fold touches no items, and the others only touch the bucket's own and those named to carry.
         List<Card> cards = [];
         List<BoardImage> images = [];
         List<BoardDrawing> drawings = [];
         List<BoardLabel> labels = [];
-        if (moving || resizing)
+        if ((moving || resizing) && !carriesAll)
         {
-            cards = await db.Cards.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);
-            images = await db.Images.Where(i => i.BoardId == bucket.BoardId && i.CardId == null).ToListAsync(ct);
-            drawings = await db.Drawings.Where(d => d.BoardId == bucket.BoardId && d.CardId == null).ToListAsync(ct);
-            labels = await db.Labels.Where(l => l.BoardId == bucket.BoardId && l.CardId == null).ToListAsync(ct);
+            List<Guid> carryCards = request.CarryCardIds ?? [], carryImages = request.CarryImageIds ?? [], carryDrawings = request.CarryDrawingIds ?? [], carryLabels = request.CarryLabelIds ?? [];
+            cards = await db.Cards.Where(n => n.BoardId == bucket.BoardId && (n.BucketId == bucket.Id || carryCards.Contains(n.Id))).ToListAsync(ct);
+            images = await db.Images.Where(i => i.BoardId == bucket.BoardId && i.CardId == null && (i.BucketId == bucket.Id || carryImages.Contains(i.Id))).ToListAsync(ct);
+            drawings = await db.Drawings.Where(d => d.BoardId == bucket.BoardId && d.CardId == null && (d.BucketId == bucket.Id || carryDrawings.Contains(d.Id))).ToListAsync(ct);
+            labels = await db.Labels.Where(l => l.BoardId == bucket.BoardId && l.CardId == null && (l.BucketId == bucket.Id || carryLabels.Contains(l.Id))).ToListAsync(ct);
         }
-        var dx = request.X is { } x ? Layout.Snap(x) - bucket.X : 0;
-        var dy = request.Y is { } y ? Layout.Snap(y) - bucket.Y : 0;
-        if ((dx != 0 || dy != 0) && moving)
+        if ((dx != 0 || dy != 0) && moving && !carriesAll)
         {
             // It carries its own cards, images and drawings, and nothing changes bucket: not its items, nor those it passes over.
             var carried = request.CarryCardIds is { } ids
@@ -172,7 +178,7 @@ public static class BucketEndpoints
         if (request.Width is { } width) bucket.Width = Layout.SnapSize(width, Layout.MinBucketWidth);
         if (request.Height is { } height) bucket.Height = Layout.SnapSize(height, Layout.MinBucketHeight);
 
-        if (resizing || moving)
+        if ((resizing || moving) && !carriesAll)
         {
             // A new outline lets go of what no longer reaches into it (after a move, only items left behind by carryCardIds
             // or carryImageIds or carryDrawingIds), and takes nothing: only a bucket drawn around items takes them.
@@ -182,7 +188,26 @@ public static class BucketEndpoints
         }
 
         await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         return TypedResults.Ok(BucketDetail.From(bucket));
+    }
+
+    /// <summary>Moves everything in a bucket along with it, in one statement per kind of item. Moves within a bucket aren't in a card's history.</summary>
+    private static async Task CarryAllAsync(PrikBoardDbContext db, Guid bucketId, int dx, int dy, CancellationToken ct)
+    {
+        const int low = Layout.MinCoordinate, high = Layout.MaxCoordinate;
+        await db.Cards.Where(n => n.BucketId == bucketId).ExecuteUpdateAsync(s => s
+            .SetProperty(n => n.X, n => Math.Min(Math.Max(n.X + dx, low), high))
+            .SetProperty(n => n.Y, n => Math.Min(Math.Max(n.Y + dy, low), high)), ct);
+        await db.Images.Where(i => i.BucketId == bucketId).ExecuteUpdateAsync(s => s
+            .SetProperty(i => i.X, i => Math.Min(Math.Max(i.X + dx, low), high))
+            .SetProperty(i => i.Y, i => Math.Min(Math.Max(i.Y + dy, low), high)), ct);
+        await db.Drawings.Where(d => d.BucketId == bucketId).ExecuteUpdateAsync(s => s
+            .SetProperty(d => d.X, d => Math.Min(Math.Max(d.X + dx, low), high))
+            .SetProperty(d => d.Y, d => Math.Min(Math.Max(d.Y + dy, low), high)), ct);
+        await db.Labels.Where(l => l.BucketId == bucketId).ExecuteUpdateAsync(s => s
+            .SetProperty(l => l.X, l => Math.Min(Math.Max(l.X + dx, low), high))
+            .SetProperty(l => l.Y, l => Math.Min(Math.Max(l.Y + dy, low), high)), ct);
     }
 
     internal static async Task<Results<Ok<BucketDetail>, NotFound>> BringBucketToFront(

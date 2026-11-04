@@ -1,4 +1,4 @@
-import type { CardColor, CardComponent, CardDetail, LabelDetail } from '../api/types'
+import { labelText, type CardColor, type CardComponent, type CardDetail, type LabelDetail } from '../api/types'
 import { componentKinds } from './componentKinds'
 
 /*
@@ -220,7 +220,7 @@ function componentTexts(component: CardComponent): string[] {
 export const componentMatches = (component: CardComponent, terms: SearchTerm[]) =>
   componentTexts(component).some((text) => terms.some((t) => found(t, 'component', text)))
 
-export const labelMatches = (label: LabelDetail, terms: SearchTerm[]) => terms.some((t) => found(t, 'component', label.text))
+export const labelMatches = (label: LabelDetail, terms: SearchTerm[]) => terms.some((t) => found(t, 'component', labelText(label)))
 
 /** The labels on each card, for `matchCard`. */
 export function labelsByCard(labels: LabelDetail[]) {
@@ -247,7 +247,7 @@ function cardFields(card: CardDetail, labels: LabelDetail[] = []): SearchField[]
     const label = component.title ?? componentKinds[component.kind].label
     for (const text of componentTexts(component)) fields.push({ kind: 'component', label, text })
   }
-  for (const label of labels) fields.push({ kind: 'component', label: 'Label', text: label.text })
+  for (const label of labels) fields.push({ kind: 'component', label: 'Label', text: labelText(label) })
   return fields
 }
 

@@ -1,4 +1,4 @@
-import { memo, useSyncExternalStore, type PointerEvent, type ReactNode } from 'react'
+import { memo, useEffect, useLayoutEffect, useReducer, useRef, useSyncExternalStore, type PointerEvent, type ReactNode } from 'react'
 import type { BucketDetail, ImageDetail, LabelDetail, CardDetail, Point, Rect } from '../api/types'
 import type { ScrollView } from './canvasHooks'
 import { RedoIcon, UndoIcon } from './icons'
@@ -159,27 +159,66 @@ interface BoardMapItemsProps extends MapPlace {
   pasting?: Rect | null
 }
 
-/** The board's buckets, images and cards: they only render again when they or the map's scale change, not as the view scrolls. */
+/** How a class of the map's items looks, as `index.css` and the theme say. */
+function mapStyle(canvas: HTMLCanvasElement, className: string) {
+  const probe = canvas.parentElement!.appendChild(document.createElement('span'))
+  probe.className = className
+  probe.style.visibility = 'hidden'
+  const { backgroundColor, opacity } = getComputedStyle(probe)
+  probe.remove()
+  return { color: backgroundColor, opacity: Number(opacity) }
+}
+
+/**
+ * The board's buckets, images and cards, on one canvas: a board can have thousands, and as elements they would be laid out
+ * and styled with the page. They only draw again when they, the theme or the map's scale change, not as the view scrolls. The
+ * card being looked at and where a paste lands stay elements, with their outlines.
+ */
 export const BoardMapItems = memo(function BoardMapItems({ left, top, scale, buckets, cards, images, labels, current, dimmedKey, pasting }: BoardMapItemsProps) {
-  const dimmed = new Set(dimmedKey.split(' '))
+  const canvas = useRef<HTMLCanvasElement>(null)
+  const [theme, themeChanged] = useReducer((n: number) => n + 1, 0)
+  useEffect(() => {
+    const observer = new MutationObserver(themeChanged)
+    observer.observe(document.head, { childList: true, subtree: true, characterData: true })
+    return () => observer.disconnect()
+  }, [])
+
+  useLayoutEffect(() => {
+    const el = canvas.current!
+    const ratio = window.devicePixelRatio || 1
+    el.width = MAP_WIDTH * ratio
+    el.height = MAP_HEIGHT * ratio
+    const context = el.getContext('2d')
+    if (!context) return
+    context.scale(ratio, ratio)
+    const styles = new Map<string, { color: string; opacity: number }>()
+    const draw = (r: Rect, className: string) => {
+      let style = styles.get(className)
+      if (!style) styles.set(className, (style = mapStyle(el, className)))
+      const at = toMap(r, left, top, scale)
+      context.globalAlpha = style.opacity
+      context.fillStyle = style.color
+      context.fillRect(at.left, at.top, at.width, at.height)
+    }
+    const dimmed = new Set(dimmedKey.split(' '))
+    for (const b of buckets) draw(b, 'minimap-bucket')
+    for (const l of labels) draw(l, 'minimap-label')
+    for (const i of images) draw(i, 'minimap-image')
+    for (const n of cards) {
+      draw({ x: n.x, y: n.y, width: CARD_WIDTH, height: CARD_HEIGHT }, `minimap-card fill-${n.color.toLowerCase()}${dimmed.has(n.id) ? ' dimmed' : ''}`)
+    }
+  }, [left, top, scale, buckets, cards, images, labels, dimmedKey, theme])
+
+  const lookedAt = current ? cards.find((n) => n.id === current) : undefined
   return (
     <>
-      {buckets.map((b) => (
-        <span key={b.id} className="minimap-bucket" style={toMap(b, left, top, scale)} />
-      ))}
-      {labels.map((l) => (
-        <span key={l.id} className="minimap-label" style={toMap(l, left, top, scale)} />
-      ))}
-      {images.map((i) => (
-        <span key={i.id} className="minimap-image" style={toMap(i, left, top, scale)} />
-      ))}
-      {cards.map((n) => (
+      <canvas ref={canvas} className="minimap-canvas" />
+      {lookedAt && (
         <span
-          key={n.id}
-          className={`minimap-card fill-${n.color.toLowerCase()}${dimmed.has(n.id) ? ' dimmed' : ''}${n.id === current ? ' current' : ''}`}
-          style={toMap({ x: n.x, y: n.y, width: CARD_WIDTH, height: CARD_HEIGHT }, left, top, scale)}
+          className={`minimap-card fill-${lookedAt.color.toLowerCase()} current`}
+          style={toMap({ x: lookedAt.x, y: lookedAt.y, width: CARD_WIDTH, height: CARD_HEIGHT }, left, top, scale)}
         />
-      ))}
+      )}
       {pasting && <span className="minimap-paste" style={toMap(pasting, left, top, scale)} />}
     </>
   )

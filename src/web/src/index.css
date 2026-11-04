@@ -1786,6 +1786,14 @@ main {
   cursor: pointer;
 }
 
+.minimap-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 150px;
+  height: 96px;
+}
+
 .minimap-bucket {
   position: absolute;
   border-radius: 2px;
@@ -3583,6 +3591,14 @@ a.button.primary:hover {
   border-color: var(--line);
   background: var(--panel-2);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+.label.far {
+  background-repeat: no-repeat;
+}
+
+.label.far.with-background:not(.selected) {
+  box-shadow: none;
 }
 
 .label.selected,

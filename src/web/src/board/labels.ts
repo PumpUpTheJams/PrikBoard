@@ -1,5 +1,5 @@
 import { cardRoute, cardPath } from '../api/cardLinks'
-import type { InkColor, LabelBlock, LabelRun, LabelSize } from '../api/types'
+import type { InkColor, LabelBlock, LabelDetail, LabelRun, LabelSize } from '../api/types'
 import { inkColor } from './drawings'
 
 /** The font size of a label size, in canvas pixels (BoardLabel.Pixels on the server). */
@@ -97,6 +97,61 @@ export function groupedBlocks(blocks: LabelBlock[]) {
 
 /** The narrowest box the label tool draws: BoardLabel.MinWrapWidth on the server. */
 export const MIN_LABEL_BOX = 60
+
+/** A bar where a line of text is, in px from the label's padding box. */
+export interface FarBar {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+const FAR_HEADING_SCALE = [1.6, 1.35, 1.15, 1, 1, 1]
+const FAR_CHARACTER = 0.5
+const FAR_LINE = 1.15
+const FAR_BLOCK_GAP = 0.4
+const MAX_FAR_BARS = 16
+
+/**
+ * Bars about where a label's lines of text are, from its text and size alone, so nothing has to be laid out: what a board full of
+ * labels draws when zoomed far out, and enough to keep each one's shape. It stops at the label's stored height.
+ */
+export function farBars({ content, size, width, height, wrapWidth }: Pick<LabelDetail, 'content' | 'size' | 'width' | 'height' | 'wrapWidth'>): FarBar[] {
+  const bars: FarBar[] = []
+  const base = labelPixels[size]
+  const left = LABEL_INSET.x - 1
+  const room = width - 2 * LABEL_INSET.x
+  let y = LABEL_INSET.y - 1
+  let previous: LabelBlock | null = null
+  for (const block of content) {
+    if (previous && !(isListItem(previous) && isListItem(block))) y += base * FAR_BLOCK_GAP
+    previous = block
+    if (block.kind === 'Rule') {
+      bars.push({ x: left, y, width: room, height: Math.max(1, base * 0.1) })
+      y += base * 0.2
+      continue
+    }
+    if (block.kind === 'TableRow') {
+      bars.push({ x: left, y: y + base * 0.25, width: room, height: base * 0.6 })
+      y += base * FAR_LINE + 8
+      continue
+    }
+    const pixels = block.kind === 'Heading' ? base * FAR_HEADING_SCALE[(block.level ?? 1) - 1] : base
+    const indent = isListItem(block) ? base * 1.3 * ((block.level ?? 0) + 1) : block.kind === 'Quote' ? base * 0.6 : 0
+    const inLine = Math.max(1, Math.floor((room - indent) / (pixels * FAR_CHARACTER)))
+    for (const text of block.runs.map((r) => r.text).join('').split('\n')) {
+      let rest = text.length
+      do {
+        const here = wrapWidth ? Math.min(rest, inLine) : rest
+        bars.push({ x: left + indent, y: y + pixels * 0.25, width: Math.min(room - indent, Math.max(pixels, here * pixels * FAR_CHARACTER)), height: pixels * 0.65 })
+        y += pixels * FAR_LINE
+        rest -= here
+      } while (rest > 0 && bars.length < MAX_FAR_BARS && y < height)
+    }
+    if (bars.length >= MAX_FAR_BARS || y >= height) break
+  }
+  return bars
+}
 
 /** Where a label's text starts from its corner: its border and padding (`.label`; BoardLabel.PaddingX and PaddingY on the server). */
 export const LABEL_INSET = { x: 15, y: 11 }

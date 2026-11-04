@@ -126,6 +126,14 @@ public class PerfBenchmarks(PrikBoardApiFactory factory, ITestOutputHelper outpu
         string json = "";
         var read = await Median(async () => json = await client.GetStringAsync($"/api/boards/{board.Id}"));
         Report("getBoard", read, $"{json.Length / 1024} KiB");
+        long zipped = 0;
+        var compressedRead = await Median(async () =>
+        {
+            using var asking = new HttpRequestMessage(HttpMethod.Get, $"/api/boards/{board.Id}");
+            asking.Headers.AcceptEncoding.ParseAdd("br");
+            zipped = (await (await client.SendAsync(asking)).Content.ReadAsByteArrayAsync()).Length;
+        });
+        Report("getBoard, Brotli", compressedRead, $"{zipped / 1024} KiB");
         var before = GC.GetTotalAllocatedBytes(true);
         await client.GetStringAsync($"/api/boards/{board.Id}");
         Report("getBoard allocations", (GC.GetTotalAllocatedBytes(true) - before) / 1024d / 1024d, "MiB, shown as ms");

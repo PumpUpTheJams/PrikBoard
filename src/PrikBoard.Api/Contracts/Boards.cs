@@ -85,7 +85,7 @@ public record BoardDetail(
             Layout.ReadingOrder(board.Cards, board.Buckets).ConvertAll(n => CardDetail.From(n, boardRef, principals)),
             board.Images.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id).Select(ImageDetail.From).ToList(),
             board.Drawings.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id).Select(DrawingDetail.From).ToList(),
-            board.Labels.OrderBy(l => l.CreatedAt).ThenBy(l => l.Id).Select(LabelDetail.From).ToList(),
+            board.Labels.OrderBy(l => l.CreatedAt).ThenBy(l => l.Id).Select(LabelDetail.OnBoard).ToList(),
             BoardTagDetail.List(board.Tags, board.Cards.Select(n => n.Tags)),
             BoardPerson.List(people, caller),
             role,

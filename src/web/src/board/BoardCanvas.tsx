@@ -58,7 +58,7 @@ import { useTrashWindow } from './useTrashWindow'
 import { useUndo, type UndoHistory } from './useUndo'
 import { BoardMapItems, ViewControls, type HistoryButtons } from './ViewControls'
 import { useVisibleWindow } from './visibleWindow'
-import { FAR_ZOOM, stepZoom } from './zoom'
+import { FAR_LABEL_ZOOM, FAR_ZOOM, stepZoom } from './zoom'
 
 const hints: Partial<Record<Tool, string>> = {
   card: 'Click anywhere to stick a card',
@@ -1040,7 +1040,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       ...group.labels
         .filter(({ label, rect }) => label.id !== beingEdited && onPage(label.id, rect))
         .map(({ label, rect }) => (
-          <BoardLabel key={label.id} label={label} x={rect.x} y={rect.y} selected={isSelected('label', label.id)} lifted={lifting(label.id)} readOnly={readOnly} handlers={itemHandlers} />
+          <BoardLabel key={label.id} label={label} far={zoom < FAR_LABEL_ZOOM} x={rect.x} y={rect.y} selected={isSelected('label', label.id)} lifted={lifting(label.id)} readOnly={readOnly} handlers={itemHandlers} />
         )),
     ]
   }

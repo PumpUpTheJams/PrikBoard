@@ -17,7 +17,10 @@ public class LabelApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
-    private static object Words(string text) => new[] { new { kind = "Paragraph", runs = new[] { new { text } } } };
+    /// <summary>What a label says: getBoard leaves out its text.</summary>
+    private static string TextOf(LabelDetail label) => string.Join('\n', label.Content.Select(b => string.Concat(b.Runs.Select(r => r.Text))));
+
+        private static object Words(string text) => new[] { new { kind = "Paragraph", runs = new[] { new { text } } } };
 
     [Fact]
     public async Task A_label_snaps_its_corner_keeps_its_formatting_and_shows_on_the_board()
@@ -253,7 +256,7 @@ public class LabelApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var seen = (await factory.CreateAnonymousClient().GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
 
         var label = Assert.Single(seen.Labels);
-        Assert.Equal(("For all", "", (Guid?)null), (label.Text, label.AddedBy, label.AddedById));
+        Assert.Equal(("For all", "", (Guid?)null), (TextOf(label), label.AddedBy, label.AddedById));
     }
 
     [Fact]
@@ -399,18 +402,18 @@ public class LabelApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         Assert.Equal(3, (await pasted.Content.ReadFromJsonAsync<PastedItems>())!.Labels!.Count);
 
         var copy = await Board(target.Id);
-        var linked = copy.Labels.Single(l => l.Text.StartsWith("to copy"));
+        var linked = copy.Labels.Single(l => TextOf(l).StartsWith("to copy"));
         Assert.Equal((InkColor.Lilac, LabelSize.XL, 321, 70), (linked.Ink, linked.Size, linked.Width, linked.Height));
         var copiedCard = copy.Cards.Single(n => n.Title == "Linked");
         Assert.Equal(copiedCard.Path, linked.Content[0].Runs[0].Link);
         // A card that wasn't copied keeps its link on the same server, and a web link stays.
         Assert.Equal(kept.Path, linked.Content[0].Runs[1].Link);
         Assert.Equal("https://example.com/", linked.Content[0].Runs[2].Link);
-        Assert.Equal(copiedCard.Id, copy.Labels.Single(l => l.Text == "On the card").CardId);
-        var pastedBucket = copy.Labels.Single(l => l.Text == "In the bucket").BucketId;
+        Assert.Equal(copiedCard.Id, copy.Labels.Single(l => TextOf(l) == "On the card").CardId);
+        var pastedBucket = copy.Labels.Single(l => TextOf(l) == "In the bucket").BucketId;
         Assert.Equal(todo.Name, copy.Buckets.Single(b => b.Id == pastedBucket).Name);
         Assert.NotEqual(target.Buckets[0].Id, pastedBucket);
-        Assert.NotEqual(inBucket.Id, copy.Labels.Single(l => l.Text == "In the bucket").Id);
+        Assert.NotEqual(inBucket.Id, copy.Labels.Single(l => TextOf(l) == "In the bucket").Id);
 
         // A label on a card that isn't in the clip, or with a bad link, refuses the whole paste.
         var before = copy.Labels.Count;
@@ -442,7 +445,7 @@ public class LabelApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var result = (await moved.Content.ReadFromJsonAsync<PastedItems>())!;
         Assert.Equal(label.Id, Assert.Single(result.Moved!.Labels!).Id);
         Assert.Empty((await Board(board.Id)).Labels);
-        Assert.Equal("Moving", Assert.Single((await Board(target.Id)).Labels).Text);
+        Assert.Equal("Moving", TextOf(Assert.Single((await Board(target.Id)).Labels)));
     }
 
     [Fact]
@@ -559,7 +562,7 @@ public class LabelApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         Assert.Equal(2, label.Content[0].Level);
         Assert.Equal((true, 1), (label.Content[1].Done, label.Content[1].Level));
         Assert.Equal(new LabelRun("ab"), Assert.Single(label.Content[2].Runs));
-        Assert.Equal("x | y", label.Text.Split('\n')[3]);
+        Assert.Equal("x | y", label.Text!.Split('\n')[3]);
         Assert.Empty(label.Content[4].Runs);
 
         await AssertInvalid($"/api/boards/{board.Id}/labels", new { content = new[] { new { kind = "Heading", level = 7, runs = new[] { new { text = "a" } } } } }, "content[0].level");
@@ -667,7 +670,7 @@ public class LabelApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var hidden = await db.Labels.AsNoTracking().WithDeleted().SingleAsync(l => l.CardId == deletedCard, TestContext.Current.CancellationToken);
         Assert.NotNull(hidden.DeletedAt);
         (await _client.PostAsJsonAsync($"/api/cards/{deletedCard}/restore", new { })).EnsureSuccessStatusCode();
-        Assert.Contains((await Board(board.Id)).Labels, l => l.CardId == deletedCard && l.Text == "from the trash");
+        Assert.Contains((await Board(board.Id)).Labels, l => l.CardId == deletedCard && TextOf(l) == "from the trash");
     }
 
     [Fact]
@@ -729,6 +732,57 @@ public class LabelApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var pasted = await _client.PostAsync($"/api/boards/{board.Id}/paste", Json($$"""{"clip":{{clip}},"x":1000,"y":1000}"""));
         Assert.Equal(HttpStatusCode.OK, pasted.StatusCode);
         Assert.Equal(160, (await pasted.Content.ReadFromJsonAsync<PastedItems>())!.Labels!.Single().MinHeight);
+    }
+
+    [Fact]
+    public async Task GetBoard_leaves_out_a_labels_text_and_is_compressed_for_who_asks()
+    {
+        var board = await _client.CreateBoardAsync("Small");
+        var label = await Create(board.Id, new { markdown = "Some **words**", x = 0, y = 0 });
+        Assert.Equal("Some words", label.Text);
+
+        var json = await _client.GetStringAsync($"/api/boards/{board.Id}");
+        Assert.DoesNotContain("\"text\":\"Some words\"", json);
+        Assert.Contains("\"text\":\"words\"", json);
+
+        var plain = await _client.GetAsync($"/api/boards/{board.Id}");
+        Assert.Empty(plain.Content.Headers.ContentEncoding);
+        using var asking = new HttpRequestMessage(HttpMethod.Get, $"/api/boards/{board.Id}");
+        asking.Headers.AcceptEncoding.ParseAdd("gzip");
+        var compressed = await _client.SendAsync(asking);
+        Assert.Equal("gzip", Assert.Single(compressed.Content.Headers.ContentEncoding));
+        await using var unzip = new System.IO.Compression.GZipStream(await compressed.Content.ReadAsStreamAsync(), System.IO.Compression.CompressionMode.Decompress);
+        using var reader = new StreamReader(unzip);
+        Assert.Equal(json, await reader.ReadToEndAsync());
+
+        // Writes aren't compressed.
+        using var writing = new HttpRequestMessage(HttpMethod.Patch, $"/api/labels/{label.Id}") { Content = JsonContent.Create(new { markdown = "New" }) };
+        writing.Headers.AcceptEncoding.ParseAdd("gzip");
+        Assert.Empty((await _client.SendAsync(writing)).Content.Headers.ContentEncoding);
+    }
+
+    [Fact]
+    public async Task A_bucket_moved_without_lists_carries_all_its_items_within_the_board_and_only_those()
+    {
+        var board = await _client.CreateBoardAsync("Carried");
+        var bucket = board.Buckets[0];
+        var inside = await Create(board.Id, new { markdown = "Inside", x = bucket.X + 40, y = bucket.Y + 40 });
+        var outside = await Create(board.Id, new { markdown = "Outside", x = bucket.X - 2000, y = bucket.Y });
+        var card = await _client.CreateCardAsync(board.Id, "In it");
+        var history = (await _client.GetFromJsonAsync<List<CardChangeDetail>>($"/api/cards/{card.Id}/history"))!.Count;
+        Assert.Equal(bucket.Id, inside.BucketId);
+
+        (await _client.PatchAsJsonAsync($"/api/buckets/{bucket.Id}", new { x = bucket.X + 200, y = bucket.Y + 100 })).EnsureSuccessStatusCode();
+        var moved = await Board(board.Id);
+        var (carried, stayed, carriedCard) = (moved.Labels.Single(l => l.Id == inside.Id), moved.Labels.Single(l => l.Id == outside.Id), moved.Cards.Single(n => n.Id == card.Id));
+        Assert.Equal((inside.X + 200, inside.Y + 100, bucket.Id), (carried.X, carried.Y, carried.BucketId!.Value));
+        Assert.Equal((outside.X, outside.Y), (stayed.X, stayed.Y));
+        Assert.Equal((card.X + 200, card.Y + 100, bucket.Id), (carriedCard.X, carriedCard.Y, carriedCard.BucketId!.Value));
+        Assert.Equal(history, (await _client.GetFromJsonAsync<List<CardChangeDetail>>($"/api/cards/{card.Id}/history"))!.Count);
+
+        // At the edge of the board, its items stop there as they always did.
+        (await _client.PatchAsJsonAsync($"/api/buckets/{bucket.Id}", new { x = Layout.MaxCoordinate })).EnsureSuccessStatusCode();
+        Assert.True((await Board(board.Id)).Labels.Single(l => l.Id == inside.Id).X <= Layout.MaxCoordinate);
     }
 
     [Fact]

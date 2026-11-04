@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Contracts;
@@ -18,7 +19,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Ink">Ink of text that doesn't set its own: Theme follows the theme's text color; the others keep their colors in every theme, so some are hard to read on some boards.</param>
 /// <param name="Size">Size of text that doesn't set its own: S (14 px), M (21), L (35) or XL (56).</param>
 /// <param name="Content">The text with its formatting, in paragraphs and list items.</param>
-/// <param name="Text">The text without its formatting, blocks on lines of their own.</param>
+/// <param name="Text">The text without its formatting, blocks on lines of their own. getBoard leaves it out, to stay small: it follows from content.</param>
 /// <param name="AddedBy">Current display name of whoever added it, or "Unknown" once they no longer exist.</param>
 /// <param name="AddedById">Principal id of whoever added it, or null once they no longer exist.</param>
 /// <param name="CreatedAt">When it was added (UTC).</param>
@@ -38,7 +39,7 @@ public record LabelDetail(
     InkColor Ink,
     LabelSize Size,
     IReadOnlyList<LabelBlock> Content,
-    string Text,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Text,
     string AddedBy,
     Guid? AddedById,
     DateTimeOffset CreatedAt,
@@ -47,6 +48,9 @@ public record LabelDetail(
     public static LabelDetail From(BoardLabel label) =>
         new(label.Id, label.BoardId, label.CardId, label.BucketId, label.X, label.Y, label.Width, label.Height, label.WrapWidth, label.MinHeight, label.Background, label.Ink, label.Size,
             label.Content, label.Text, label.AddedBy?.ShownName ?? "Unknown", label.AddedById, label.CreatedAt, label.UpdatedAt);
+
+    /// <summary>A label as getBoard lists it, which a board can hold thousands of: without the text its content already says.</summary>
+    public static LabelDetail OnBoard(BoardLabel label) => From(label) with { Text = null };
 }
 
 /// <summary>

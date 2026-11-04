@@ -218,12 +218,25 @@ export interface LabelDetail {
   ink: InkColor
   size: LabelSize
   content: LabelBlock[]
-  /** The text without its formatting. */
-  text: string
+  /** The text without its formatting; getBoard leaves it out (`labelText`). */
+  text?: string | null
   addedBy: string
   addedById: string | null
   createdAt: string
   updatedAt: string
+}
+
+const labelTexts = new WeakMap<LabelBlock[], string>()
+
+/** A label's text without its formatting, from its content (as BoardLabel.PlainText): kept per content, which a reload leaves alone when nothing changed. */
+export function labelText({ content }: Pick<LabelDetail, 'content'>): string {
+  let text = labelTexts.get(content)
+  if (text === undefined) {
+    const runs = (list: LabelRun[]) => list.map((r) => r.text).join('')
+    text = content.map((b) => runs(b.runs) + (b.cells ?? []).map(runs).join(' | ')).join('\n')
+    labelTexts.set(content, text)
+  }
+  return text
 }
 
 /** A new label, at a place or (without one) in a free spot. */

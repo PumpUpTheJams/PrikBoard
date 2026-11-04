@@ -49,7 +49,7 @@ public class RestoreApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         Assert.Equal((card.Id, card.CreatedById, card.CreatedAt, card.X, card.Y), (restored.Id, restored.CreatedById, restored.CreatedAt, restored.X, restored.Y));
         Assert.Equal(card.BucketId, restored.BucketId);
         Assert.Equal(["release"], restored.Tags);
-        Assert.Contains((await Board(board.Id)).Labels, l => l.CardId == card.Id && l.Text == "Checklist for launch");
+        Assert.Contains((await Board(board.Id)).Labels, l => l.CardId == card.Id && l.Content[0].Runs[0].Text == "Checklist for launch");
         var back = await Board(board.Id);
         Assert.Equal(card.Id, Assert.Single(back.Cards).Id);
         Assert.Equal(attached.Id, Assert.Single(back.Images).Id); // the image deleted on its own earlier stays deleted

@@ -1,12 +1,12 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { labelSizes, type InkColor, type LabelDetail, type LabelSize, type Point, type Rect, type ResizeHandle } from '../api/types'
+import { labelSizes, labelText, type InkColor, type LabelDetail, type LabelSize, type Point, type Rect, type ResizeHandle } from '../api/types'
 import { inkColor } from './drawings'
 import { keepPress } from './gesture'
 import { LabelText } from './LabelText'
 import { LinkIcon, ListBulletIcon, ListNumberIcon, TrashIcon } from './icons'
 import { InkSwatches } from './DrawingView'
-import { labelPixels, MIN_LABEL_BOX, type LabelBlockTool, type LabelFormat, type LabelListKind } from './labels'
+import { farBars, labelPixels, MIN_LABEL_BOX, type LabelBlockTool, type LabelFormat, type LabelListKind } from './labels'
 import { ResizeHandles } from './ResizeHandles'
 
 interface LabelViewProps {
@@ -40,6 +40,46 @@ export function LabelView({ label, at, selected, lifted, matched, readOnly, onPo
     </div>
   )
 }
+
+interface FarLabelProps {
+  label: LabelDetail
+  at: Point
+  selected: boolean
+  lifted: boolean
+  onPointerDown: (e: PointerEvent<HTMLDivElement>) => void
+  onHover: (over: boolean) => void
+}
+
+/**
+ * A label when the board is zoomed so far out that its text can't be read: its size and fill, with bars where its lines are.
+ * It is one element with the bars as its background, where its text would be ten or more, so a board of labels stays light.
+ */
+export function FarLabel({ label, at, selected, lifted, onPointerDown, onHover }: FarLabelProps) {
+  const bars = farBars(label)
+  return (
+    <div
+      className={`label far${selected ? ' selected' : ''}${lifted ? ' lifted' : ''}${label.background ? ' with-background' : ''}`}
+      data-label={label.id}
+      role="img"
+      aria-label={labelText(label)}
+      style={{
+        left: at.x,
+        top: at.y,
+        width: label.width,
+        height: label.height,
+        color: inkColor[label.ink],
+        backgroundImage: bars.map(() => FAR_BAR).join(','),
+        backgroundSize: bars.map((b) => `${Math.round(b.width)}px ${Math.round(b.height)}px`).join(','),
+        backgroundPosition: bars.map((b) => `${Math.round(b.x)}px ${Math.round(b.y)}px`).join(','),
+      }}
+      onPointerDown={onPointerDown}
+      onPointerEnter={(e) => e.pointerType !== 'touch' && onHover(true)}
+      onPointerLeave={(e) => e.pointerType !== 'touch' && onHover(false)}
+    />
+  )
+}
+
+const FAR_BAR = 'linear-gradient(color-mix(in srgb, currentColor 70%, transparent) 0 0)'
 
 /** A label dragged out of the open card, at the board's zoom, held where it was grabbed. */
 export function LabelGhost({ label, at, zoom }: { label: LabelDetail; at: Point; zoom: number }) {

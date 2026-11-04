@@ -2,6 +2,8 @@ export const ZOOM_LEVELS = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2]
 export const MIN_ZOOM = ZOOM_LEVELS[0]
 /** Below this zoom, cards on the board show only their fill, title and tag colors (FarCard in boardItemViews). */
 export const FAR_ZOOM = 0.45
+/** Below this zoom, labels on the board show bars where their lines are (FarLabel in LabelView): their text can't be read there. */
+export const FAR_LABEL_ZOOM = 0.3
 export const MAX_ZOOM = ZOOM_LEVELS[ZOOM_LEVELS.length - 1]
 
 /** The next zoom level in a direction, or the current zoom at either end. */
