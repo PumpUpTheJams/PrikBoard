@@ -3724,6 +3724,19 @@ a.button.primary:hover {
   position: relative;
 }
 
+.label-sizes {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.label-sizes-caption {
+  padding-right: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .label-color-dot {
   width: 12px;
   height: 12px;

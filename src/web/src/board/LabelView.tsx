@@ -64,13 +64,20 @@ const BLOCKS: { kind: LabelBlockTool; letter: string; name: string }[] = [
   { kind: 'Code', letter: '{ }', name: 'Code block' },
 ]
 
-/** The sizes a label's text can have, as buttons. */
+/** The sizes a label's text can have, as buttons, named as font sizes: S on its own could be strikethrough. */
 export function LabelSizes({ value, onChange }: { value: LabelSize | null; onChange: (size: LabelSize) => void }) {
-  return labelSizes.map((size) => (
-    <button key={size} type="button" className="label-tool" title={`Size ${size} (${labelPixels[size]} px)`} aria-label={`Size ${size}`} aria-pressed={size === value} onClick={() => onChange(size)}>
-      {size}
-    </button>
-  ))
+  return (
+    <div className="label-sizes" role="group" aria-label="Font size">
+      <span className="label-sizes-caption" aria-hidden="true">
+        Font size
+      </span>
+      {labelSizes.map((size) => (
+        <button key={size} type="button" className="label-tool" title={`Font size ${size} (${labelPixels[size]} px)`} aria-label={`Font size ${size}`} aria-pressed={size === value} onClick={() => onChange(size)}>
+          {size}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 /** The flyout of the label tool: the ink and size new labels get. */
