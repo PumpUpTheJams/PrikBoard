@@ -1,4 +1,4 @@
-export const ZOOM_LEVELS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2]
+export const ZOOM_LEVELS = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2]
 export const MIN_ZOOM = ZOOM_LEVELS[0]
 /** Below this zoom, cards on the board show only their fill, title and tag colors (FarCard in boardItemViews). */
 export const FAR_ZOOM = 0.45

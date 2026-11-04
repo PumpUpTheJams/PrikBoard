@@ -1253,6 +1253,22 @@ main {
   box-shadow: none;
 }
 
+/* Bucket names grow with the card titles, so they stay readable next to them. */
+.canvas.far .bucket-head {
+  height: 32px;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.canvas.far .bucket-head .count {
+  font-size: 16px;
+}
+
+.canvas.far .bucket-collapsed-name {
+  font-size: 20px;
+  font-weight: 600;
+}
+
 .card.selected {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
