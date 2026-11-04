@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { TextStyleKit } from '@tiptap/extension-text-style'
 import { EditorContent, useEditor, type Editor, type JSONContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import type { LabelBlock } from '../api/types'
+import { inkColors, labelSizes, type InkColor, type LabelBlock, type LabelSize } from '../api/types'
 import { inkColor } from './drawings'
 import { blocksOf, docOf, type DocNode } from './labelDoc'
 import { parseLabelMarkdown } from './labelMarkdown'
@@ -74,7 +74,24 @@ export default function LabelEditor({ content, onReady, onChange, onDone }: Labe
     blocks: () => blocksOf(editor.getJSON() as DocNode),
     focus: () => editor.commands.focus(),
     selectAll: () => editor.commands.selectAll(),
-    hasSelection: () => !editor.state.selection.empty,
+    isEmpty: () => editor.isEmpty,
+    styleHere(base) {
+      const styleOf = (attrs: Record<string, unknown>) => ({
+        ink: inkColors.find((c) => inkColor[c] === attrs.color) ?? base.ink,
+        size: labelSizes.find((s) => `${labelPixels[s]}px` === attrs.fontSize) ?? base.size,
+      })
+      const { empty, from, to } = editor.state.selection
+      if (empty) return styleOf(editor.getAttributes('textStyle'))
+      const inks = new Set<InkColor>()
+      const sizes = new Set<LabelSize>()
+      editor.state.doc.nodesBetween(from, to, (node) => {
+        if (!node.isText) return
+        const style = styleOf(node.marks.find((m) => m.type.name === 'textStyle')?.attrs ?? {})
+        inks.add(style.ink)
+        sizes.add(style.size)
+      })
+      return { ink: inks.size === 1 ? [...inks][0] : null, size: sizes.size === 1 ? [...sizes][0] : null }
+    },
     isActive: (format: LabelFormat) => editor.isActive(format),
     toggle(format) {
       const chain = editor.chain().focus()

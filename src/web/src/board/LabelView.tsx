@@ -52,7 +52,7 @@ const FORMATS: { format: LabelFormat; letter: string; name: string; className: s
 ]
 
 /** The sizes a label's text can have, as buttons. */
-export function LabelSizes({ value, onChange }: { value: LabelSize; onChange: (size: LabelSize) => void }) {
+export function LabelSizes({ value, onChange }: { value: LabelSize | null; onChange: (size: LabelSize) => void }) {
   return labelSizes.map((size) => (
     <button key={size} type="button" className="label-tool" title={`Size ${size} (${labelPixels[size]} px)`} aria-label={`Size ${size}`} aria-pressed={size === value} onClick={() => onChange(size)}>
       {size}
@@ -85,8 +85,9 @@ export interface LabelLinkField {
 interface LabelToolbarProps {
   rect: Rect
   zoom: number
-  ink: InkColor
-  size: LabelSize
+  /** What the text selected has; null where it has several. */
+  ink: InkColor | null
+  size: LabelSize | null
   isActive: (format: LabelFormat) => boolean
   onToggle: (format: LabelFormat) => void
   listActive: (kind: LabelListKind) => boolean

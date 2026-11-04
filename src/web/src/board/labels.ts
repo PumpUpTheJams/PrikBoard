@@ -16,7 +16,9 @@ export interface LabelEditorHandle {
   blocks: () => LabelBlock[]
   focus: () => void
   selectAll: () => void
-  hasSelection: () => boolean
+  isEmpty: () => boolean
+  /** The ink and size of the text selected, or of what is typed at the cursor; null where the selected text has several. */
+  styleHere: (base: { ink: InkColor; size: LabelSize }) => { ink: InkColor | null; size: LabelSize | null }
   isActive: (format: LabelFormat) => boolean
   toggle: (format: LabelFormat) => void
   listActive: (kind: LabelListKind) => boolean
