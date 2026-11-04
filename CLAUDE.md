@@ -30,6 +30,8 @@ PRIKBOARD_STRESS=1 dotnet test --solution PrikBoard.slnx -c Release --filter "Fu
 
 Measure performance changes before and after with `tools/perf` (see its README): `measure.js` times scrolling, dragging, zooming and reloading on the open board in a production build (`npm run preview`), and `serve-board.mjs` serves a saved board without signing in (`perf-api` and `perf-web` launch configs).
 
+Try a data migration on a copy first: stop the API, run `CREATE DATABASE prikboard_copy TEMPLATE prikboard`, then `dotnet run` with `ConnectionStrings__PrikBoard` pointing at the copy and `Storage__Path` at a scratch folder, compare with SQL, and drop the copy.
+
 No local Node here: run web checks in Docker, e.g. `sg docker -c 'docker run --rm -u "$(id -u):$(id -g)" -e npm_config_cache=/tmp/.npm -v "$PWD/src/web":/app -w /app node:22 sh -c "npm run lint && npm run build"'` (the `web-docker` launch config runs the dev server the same way). A fresh worktree has no `node_modules`: run `npm ci` in the same container first (`sh -c "npm ci && npm run lint && npm run build"`), or oxlint is "not found".
 
 The Discord bot runs inside the API: an admin pastes its token under Admin → *Instance* (or set `Discord:BotToken`/`Discord:PublicUrl`). The link-preview PNGs in `src/web/public` are rendered from `src/web/icons` (see its README).

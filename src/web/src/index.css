@@ -3658,15 +3658,43 @@ a.button.primary:hover {
 }
 
 .label-toolbar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
   width: max-content;
-  max-width: 600px;
-  flex-wrap: wrap;
+  padding: 6px;
   transform-origin: top left;
 }
 
-.label-toolbar.with-link {
+/* What styles text on one row, and what shapes blocks on the other. */
+.label-tool-row {
+  display: flex;
   flex-wrap: wrap;
-  max-width: 720px;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Buttons that belong together: a row too narrow for them all wraps between these. */
+.label-tool-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.label-tool-end {
+  flex: 1;
+}
+
+.label-tool-end .drawing-delete {
+  margin-left: auto;
+}
+
+.m-label-tools .label-tool-row > .toolbar-divider {
+  display: none;
+}
+
+.m-label-tools .label-tool-row {
+  column-gap: 12px;
 }
 
 .label-tool {
@@ -3685,8 +3713,45 @@ a.button.primary:hover {
 }
 
 .label-text-tool {
+  display: flex;
+  gap: 6px;
+  align-items: center;
   width: auto;
   padding: 0 8px;
+}
+
+.label-color {
+  position: relative;
+}
+
+.label-color-dot {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+}
+
+/* The text selected has several inks. */
+.label-color-dot.mixed {
+  border-style: dashed;
+}
+
+.label-color-popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 1;
+  width: max-content;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--float-shadow);
+}
+
+.label-color-popup.up {
+  top: auto;
+  bottom: calc(100% + 6px);
 }
 
 .label-tool:hover {
@@ -3715,7 +3780,6 @@ a.button.primary:hover {
 
 .label-link-field {
   display: flex;
-  flex-basis: 100%;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
@@ -7531,8 +7595,8 @@ button.picker-color:hover,
 
 .m-label-tools {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 4px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);

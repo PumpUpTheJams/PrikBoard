@@ -60,10 +60,8 @@ const FORMATS: { format: LabelFormat; letter: string; name: string; className: s
 
 const BLOCKS: { kind: LabelBlockTool; letter: string; name: string }[] = [
   { kind: 'Heading', letter: 'H', name: 'Heading' },
-  { kind: 'Task', letter: '☑', name: 'Task list' },
   { kind: 'Quote', letter: '❝', name: 'Quote' },
   { kind: 'Code', letter: '{ }', name: 'Code block' },
-  { kind: 'Table', letter: '▦', name: 'Table' },
 ]
 
 /** The sizes a label's text can have, as buttons. */
@@ -106,12 +104,12 @@ export interface LabelToolsProps {
   onLink: () => void
   onDelete: () => void
   link?: LabelLinkField | null
-  /** Ink and size, only while the label is being edited. */
-  style?: LabelToolbarStyle
+  /** Ink and size. */
+  style: LabelToolbarStyle
   /** Its background, on or off. */
   background: { on: boolean; onToggle: () => void }
-  /** Turning text into other blocks, only while the label is being edited. */
-  blocks?: { isActive: (kind: LabelBlockTool) => boolean; onToggle: (kind: LabelBlockTool) => void }
+  /** Turning text into other blocks. */
+  blocks: { isActive: (kind: LabelBlockTool) => boolean; onToggle: (kind: LabelBlockTool) => void }
 }
 
 interface LabelToolbarProps extends LabelToolsProps {
@@ -222,45 +220,112 @@ export function LabelToolbar(props: LabelToolbarProps) {
   )
 }
 
+/** The ink of the text being edited: a button showing it, whose palette opens in a popup until an ink is picked or something else is pressed. */
+function LabelColor({ ink, onChange }: { ink: InkColor | null; onChange: (ink: InkColor) => void }) {
+  const [open, setOpen] = useState(false)
+  const [upwards, setUpwards] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  const popup = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const press = (e: globalThis.PointerEvent) => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', press, true)
+    return () => document.removeEventListener('pointerdown', press, true)
+  }, [open])
+
+  // Below the button, unless that is out of view or under what floats over the canvas: nothing on a zoomed canvas can be drawn above it.
+  useLayoutEffect(() => {
+    if (!open) return
+    const scroller = root.current!.closest('.board-scroll, .card-scroll')
+    if (!scroller) return
+    const button = root.current!.getBoundingClientRect()
+    const { width, height } = popup.current!.getBoundingClientRect()
+    const below = { left: button.left, right: button.left + width, top: button.bottom + POPUP_GAP, bottom: button.bottom + POPUP_GAP + height }
+    const view = scroller.getBoundingClientRect()
+    const floating = [...scroller.parentElement!.querySelectorAll(FLOATING)].map((f) => f.getBoundingClientRect())
+    const room = view.top + height + POPUP_GAP <= button.top
+    setUpwards(room && (below.bottom > view.bottom || floating.some((f) => overlaps(below, f))))
+  }, [open])
+
+  return (
+    <div className="label-color" ref={root}>
+      <button type="button" className="label-tool label-text-tool" aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className={`label-color-dot${ink ? '' : ' mixed'}`} style={ink ? { background: inkColor[ink] } : undefined} aria-hidden="true" />
+        Color
+      </button>
+      {open && (
+        <div ref={popup} className={`label-color-popup${upwards ? ' up' : ''}`}>
+          <InkSwatches
+            value={ink}
+            inks={labelInks}
+            onChange={(picked) => {
+              onChange(picked)
+              setOpen(false)
+            }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** The buttons of a label's toolbar, on a canvas or on the mobile layout's own screen. */
 export function LabelTools({ isActive, onToggle, listActive, onToggleList, linkActive, onLink, onDelete, link, style, blocks, background }: LabelToolsProps) {
   return (
     <>
-      {FORMATS.map(({ format, letter, name, className }) => (
-        <button key={format} type="button" className={`label-tool ${className}`} title={name} aria-label={name} aria-pressed={isActive(format)} onClick={() => onToggle(format)}>
-          {letter}
-        </button>
-      ))}
-      <span className="toolbar-divider" aria-hidden="true" />
-      <button type="button" className="label-tool" title="Bulleted list" aria-label="Bulleted list" aria-pressed={listActive('Bullet')} onClick={() => onToggleList('Bullet')}>
-        <ListBulletIcon />
-      </button>
-      <button type="button" className="label-tool" title="Numbered list" aria-label="Numbered list" aria-pressed={listActive('Numbered')} onClick={() => onToggleList('Numbered')}>
-        <ListNumberIcon />
-      </button>
-      <button type="button" className="label-tool" title="Link" aria-label="Link" aria-pressed={linkActive} onClick={onLink}>
-        <LinkIcon />
-      </button>
-      <button type="button" className="label-tool label-text-tool" aria-pressed={background.on} onClick={background.onToggle}>
-        Background
-      </button>
-      {blocks && BLOCKS.map(({ kind, letter, name }) => (
-        <button key={kind} type="button" className="label-tool" title={name} aria-label={name} aria-pressed={blocks.isActive(kind)} onClick={() => blocks.onToggle(kind)}>
-          {letter}
-        </button>
-      ))}
-      <span className="toolbar-divider" aria-hidden="true" />
-      {style && (
-        <>
-          <InkSwatches value={style.ink} onChange={style.onInk} inks={labelInks} />
+      <div className="label-tool-row" role="group" aria-label="Text">
+        <div className="label-tool-group">
+          {FORMATS.map(({ format, letter, name, className }) => (
+            <button key={format} type="button" className={`label-tool ${className}`} title={name} aria-label={name} aria-pressed={isActive(format)} onClick={() => onToggle(format)}>
+              {letter}
+            </button>
+          ))}
+          <button type="button" className="label-tool" title="Link" aria-label="Link" aria-pressed={linkActive} onClick={onLink}>
+            <LinkIcon />
+          </button>
+        </div>
+        <span className="toolbar-divider" aria-hidden="true" />
+        <div className="label-tool-group">
+          <LabelColor ink={style.ink} onChange={style.onInk} />
           <span className="toolbar-divider" aria-hidden="true" />
           <LabelSizes value={style.size} onChange={style.onSize} />
+        </div>
+      </div>
+      <div className="label-tool-row" role="group" aria-label="Blocks">
+        <div className="label-tool-group">
+          {BLOCKS.map(({ kind, letter, name }) => (
+            <button key={kind} type="button" className="label-tool" title={name} aria-label={name} aria-pressed={blocks.isActive(kind)} onClick={() => blocks.onToggle(kind)}>
+              {letter}
+            </button>
+          ))}
           <span className="toolbar-divider" aria-hidden="true" />
-        </>
-      )}
-      <button type="button" className="drawing-delete" aria-label="Delete label" title="Delete label (Del)" onClick={onDelete}>
-        <TrashIcon size={15} />
-      </button>
+          <button type="button" className="label-tool" title="Bulleted list" aria-label="Bulleted list" aria-pressed={listActive('Bullet')} onClick={() => onToggleList('Bullet')}>
+            <ListBulletIcon />
+          </button>
+          <button type="button" className="label-tool" title="Numbered list" aria-label="Numbered list" aria-pressed={listActive('Numbered')} onClick={() => onToggleList('Numbered')}>
+            <ListNumberIcon />
+          </button>
+          <button type="button" className="label-tool" title="Task list" aria-label="Task list" aria-pressed={blocks.isActive('Task')} onClick={() => blocks.onToggle('Task')}>
+            ☑
+          </button>
+          <span className="toolbar-divider" aria-hidden="true" />
+          <button type="button" className="label-tool" title="Table" aria-label="Table" aria-pressed={blocks.isActive('Table')} onClick={() => blocks.onToggle('Table')}>
+            ▦
+          </button>
+        </div>
+        <span className="toolbar-divider" aria-hidden="true" />
+        <div className="label-tool-group label-tool-end">
+          <button type="button" className="label-tool label-text-tool" aria-pressed={background.on} onClick={background.onToggle}>
+            Background
+          </button>
+          <button type="button" className="drawing-delete" aria-label="Delete label" title="Delete label (Del)" onClick={onDelete}>
+            <TrashIcon size={15} />
+          </button>
+        </div>
+      </div>
       {link && (
         <div className="label-link-field">
           <input
@@ -289,6 +354,9 @@ export function LabelTools({ isActive, onToggle, listActive, onToggleList, linkA
     </>
   )
 }
+
+/** Screen pixels between the Color button and its palette. */
+const POPUP_GAP = 6
 
 /** Screen pixels between the bar of a label and the label's corner. */
 const BAR_INSET = 8
