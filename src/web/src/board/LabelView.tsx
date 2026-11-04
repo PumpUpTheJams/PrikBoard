@@ -41,34 +41,6 @@ export function LabelView({ label, at, selected, lifted, matched, readOnly, onPo
   )
 }
 
-interface FarLabelProps {
-  label: LabelDetail
-  at: Point
-  selected: boolean
-  lifted: boolean
-  onPointerDown: (e: PointerEvent<HTMLDivElement>) => void
-  onHover: (over: boolean) => void
-}
-
-/**
- * A label when the board is zoomed far out (`FarCard` is the same for cards): one element, at its size, with its first line
- * of text. Its text can't be read there, and a board of labels would be thousands of elements for it.
- */
-export function FarLabel({ label, at, selected, lifted, onPointerDown, onHover }: FarLabelProps) {
-  return (
-    <div
-      className={`label far${selected ? ' selected' : ''}${lifted ? ' lifted' : ''}${label.background ? ' with-background' : ''}`}
-      data-label={label.id}
-      style={{ left: at.x, top: at.y, width: label.width, height: label.height, color: inkColor[label.ink] }}
-      onPointerDown={onPointerDown}
-      onPointerEnter={(e) => e.pointerType !== 'touch' && onHover(true)}
-      onPointerLeave={(e) => e.pointerType !== 'touch' && onHover(false)}
-    >
-      {label.text.trimStart().split('\n', 1)[0]}
-    </div>
-  )
-}
-
 /** A label dragged out of the open card, at the board's zoom, held where it was grabbed. */
 export function LabelGhost({ label, at, zoom }: { label: LabelDetail; at: Point; zoom: number }) {
   return createPortal(

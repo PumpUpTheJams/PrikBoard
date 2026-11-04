@@ -1040,7 +1040,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       ...group.labels
         .filter(({ label, rect }) => label.id !== beingEdited && onPage(label.id, rect))
         .map(({ label, rect }) => (
-          <BoardLabel key={label.id} label={label} far={far} x={rect.x} y={rect.y} selected={isSelected('label', label.id)} lifted={lifting(label.id)} readOnly={readOnly} handlers={itemHandlers} />
+          <BoardLabel key={label.id} label={label} x={rect.x} y={rect.y} selected={isSelected('label', label.id)} lifted={lifting(label.id)} readOnly={readOnly} handlers={itemHandlers} />
         )),
     ]
   }
