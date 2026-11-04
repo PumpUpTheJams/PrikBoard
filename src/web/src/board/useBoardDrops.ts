@@ -1,8 +1,8 @@
 import type { RefObject } from 'react'
 import { api } from '../api/client'
-import type { BoardDetail, BucketDetail, CardDetail, DrawingDetail, DropBucket, GrowSide, ImageDetail, LabelDetail, Point, Rect } from '../api/types'
+import type { BoardDetail, BucketDetail, CardDetail, DropBucket, GrowSide, Point, Rect } from '../api/types'
 import type { Gesture, GroupGesture, ItemDrag } from './boardGesture'
-import { bucketItemsOf, cardBox, count, itemsOf, type BucketItems, type Selection } from './boardItems'
+import { bucketItemsOf, canvasMembers, cardBox, count, itemLists, itemsOf, type BucketItems, type CanvasItem, type CanvasKind, type Selection } from './boardItems'
 import { linkCards, NO_DROPS, released, type ArrangeDrop, type AttachDrop, type DropProbeState, type DropTargets, type LinkDrop } from './dropTargets'
 import type { ExpandedCardHandle } from './ExpandedCard'
 import { CARD_HEIGHT, CARD_WIDTH, GRID, onCardCanvas } from './layout'
@@ -12,7 +12,7 @@ import { bucketMove, ops, runAll } from './ops'
 import { bounds } from './selection'
 import type { TrashWindowHandle } from './TrashWindow'
 import type { GroupDrop } from './useBoardMoves'
-import { patched, snap, step, target, type RecordingRun } from './undo'
+import { patched, placeItem, snap, step, target, type RecordingRun } from './undo'
 import type { Notify } from './useToast'
 
 interface BoardDropsOptions {
@@ -46,20 +46,25 @@ interface BoardDropsOptions {
   /** Where items are shown right now (liveGeometry). */
   bucketRect: (bucket: BucketDetail) => Rect
   cardPoint: (card: CardDetail) => Point
-  imageRect: (image: ImageDetail) => Rect
-  drawingRect: (drawing: DrawingDetail) => Rect
-  labelRect: (label: LabelDetail) => Rect
+  canvasRect: (kind: CanvasKind, item: CanvasItem) => Rect
   deleteCard: (id: string) => Promise<boolean>
   deleteSelected: () => Promise<boolean>
   putItems: (bucket: BucketDetail, items: BucketItems, grow: GrowSide) => Promise<boolean>
   moveGroup: (members: Selection[], label?: string, by?: Point, drop?: GroupDrop) => void
 }
 
+/** The step a canvas item dropped on the open card makes, and what the toast says, if anything. */
+const PUT_ON_CARD: Record<CanvasKind, { step: string; done?: string }> = {
+  image: { step: 'Embed image', done: 'Image embedded' },
+  drawing: { step: 'Put drawing on card' },
+  label: { step: 'Put label on card', done: 'Label attached' },
+}
+
 /** What a drag on the board does when it is released, on what dropTargetsFor found under it. */
 export function useBoardDrops(options: BoardDropsOptions) {
   const { board, expanded, cardHandle, trashHandle, canvasRef, drops, arrangeDrop, setDrops, probe, setGesture } = options
   const { selected, setSelected, setSelection, setBinned, runRec, settle, notify, toCanvas, dropBucket, toFront } = options
-  const { bucketRect, cardPoint, imageRect, drawingRect, labelRect, deleteCard, deleteSelected, putItems, moveGroup } = options
+  const { bucketRect, cardPoint, canvasRect, deleteCard, deleteSelected, putItems, moveGroup } = options
 
   const cardElement = (id: string) => canvasRef.current?.querySelector(`[data-card="${id}"]`)
 
@@ -71,7 +76,7 @@ export function useBoardDrops(options: BoardDropsOptions) {
     const el = canvasRef.current?.querySelector(`[data-image="${imageId}"]`)
     const image = board.images.find((i) => i.id === imageId)
     if (!el || !image) return undefined
-    const from = imageRect(image)
+    const from = canvasRect('image', image)
     const to = cardPoint(card)
     const dx = to.x + CARD_WIDTH / 2 - (from.x + from.width / 2)
     const dy = to.y + CARD_HEIGHT / 2 - (from.y + from.height / 2)
@@ -120,42 +125,28 @@ export function useBoardDrops(options: BoardDropsOptions) {
 
   /** Attaches several images, drawings and labels dragged together to a card. */
   function attachGroup(g: GroupGesture, { card, window: onWindow }: AttachDrop, client: Point) {
-    const groupImages = itemsOf(board, g.members, 'image')
-    const groupDrawings = itemsOf(board, g.members, 'drawing')
-    const groupLabels = itemsOf(board, g.members, 'label')
-    const rects = new Map<string, Rect>([
-      ...groupImages.map((i) => [i.id, imageRect(i)] as const),
-      ...groupDrawings.map((d) => [d.id, drawingRect(d)] as const),
-      ...groupLabels.map((l) => [l.id, labelRect(l)] as const),
-    ])
+    const group = canvasMembers(board, g.members)
+    const rects = new Map<string, Rect>(group.map(({ kind, item }) => [item.id, canvasRect(kind, item)]))
     // On the open card they land where the drag shows them. On a card on the board the drawings and labels keep their places
     // relative to each other, from the top-left of the card's canvas.
     const at = onWindow ? cardHandle.current!.toCard(client) : null
-    const drawn = bounds([...groupDrawings, ...groupLabels].map((d) => rects.get(d.id)!))
+    const drawn = bounds(group.filter((m) => m.kind !== 'image').map((m) => rects.get(m.item.id)!))
     const spot = (id: string) => {
       const r = rects.get(id)!
       const p = at ? { x: at.x + r.x - g.current.x, y: at.y + r.y - g.current.y } : { x: GRID + r.x - drawn!.x, y: GRID + r.y - drawn!.y }
       return onCardCanvas(p, r)
     }
     // On a card on the board the images are sucked in, and the server finds each a free spot.
-    const animations = onWindow ? [] : groupImages.map((i) => suckInto(i.id, card))
-    const n = groupImages.length + groupDrawings.length + groupLabels.length
+    const animations = onWindow ? [] : group.filter((m) => m.kind === 'image').map((m) => suckInto(m.item.id, card))
+    const n = group.length
     setGesture({ ...g, done: true })
     setSelected([])
     void runAll(settle, `Attach ${count(n, 'item', 'items')}`, undefined, async (changes) => {
       await Promise.all(animations.map((a) => a?.finished.catch(() => {})))
       // One after another: on a card on the board each image's free spot is next to the ones before.
-      for (const image of groupImages) {
-        const after = await api.updateImage(image.id, onWindow ? { cardId: card.id, ...spot(image.id) } : { cardId: card.id })
-        changes.push(patched(target.image(image.id), snap.image(image), snap.image(after), ['cardId', 'x', 'y']))
-      }
-      for (const drawing of groupDrawings) {
-        const after = await api.updateDrawing(drawing.id, { cardId: card.id, ...spot(drawing.id) })
-        changes.push(patched(target.drawing(drawing.id), snap.drawing(drawing), snap.drawing(after), ['cardId', 'x', 'y']))
-      }
-      for (const label of groupLabels) {
-        const after = await api.updateLabel(label.id, { cardId: card.id, ...spot(label.id) })
-        changes.push(patched(target.label(label.id), snap.label(label), snap.label(after), ['cardId', 'x', 'y']))
+      for (const { kind, item } of group) {
+        const place = onWindow || kind !== 'image' ? { cardId: card.id, ...spot(item.id) } : { cardId: card.id }
+        changes.push(await placeItem(kind, item, place, ['cardId', 'x', 'y']))
       }
     }).then((ok) => {
       if (!ok) return animations.forEach((a) => a?.cancel())
@@ -165,17 +156,16 @@ export function useBoardDrops(options: BoardDropsOptions) {
   }
 
   /** Saves where a dragged item went: onto the open card or into a card on the board, or else its new place or size. */
-  function placeItem(g: ItemDrag, client: Point) {
+  function saveDrop(g: ItemDrag, client: Point) {
     const { id } = g
-    const onCard = expanded && probe.imageOnCard(g, client)
-    const drawingInto = expanded && probe.drawingOnCard(g, client)
-    const labelInto = expanded && probe.labelOnCard(g, client)
-    const looseOverCard = (g.kind === 'image' || g.kind === 'label') && !onCard && !labelInto && !probe.overWindow(client)
+    const on = expanded && probe.itemOnCard(g, client)
+    const looseOverCard = (g.kind === 'image' || g.kind === 'label') && !on && !probe.overWindow(client)
     const intoCard = looseOverCard ? probe.cardAt(toCanvas({ clientX: client.x, clientY: client.y })) : undefined
-    if (expanded && labelInto) {
+    if (expanded && on) {
+      // Over cards on the board a drawing just moves.
       setSelection(null)
-      const { label, at } = labelInto
-      void settle(...ops.editLabel(label, { cardId: expanded.id, ...onCardCanvas(at, label) }, 'Put label on card', ['cardId', 'x', 'y'])).then((ok) => ok && notify('Label attached'))
+      const { step: name, done } = PUT_ON_CARD[on.kind]
+      void settle(...ops.placeItem(on.kind, on.item, { cardId: expanded.id, ...onCardCanvas(on.at, on.item) }, name, ['cardId', 'x', 'y'])).then((ok) => ok && done && notify(done))
     } else if (g.kind === 'label' && intoCard) {
       // Into a card on the board, in a free spot on its canvas, without opening it.
       setSelection(null)
@@ -185,15 +175,6 @@ export function useBoardDrops(options: BoardDropsOptions) {
         pop(cardElement(intoCard.id), 1.06)
         notify('Label attached')
       })
-    } else if (expanded && drawingInto) {
-      // Over cards on the board a drawing just moves.
-      setSelection(null)
-      const { drawing, at } = drawingInto
-      void settle(...ops.editDrawing(drawing, { cardId: expanded.id, ...onCardCanvas(at, drawing) }, 'Put drawing on card', ['cardId', 'x', 'y']))
-    } else if (expanded && onCard) {
-      setSelection(null)
-      const changes = { cardId: expanded.id, ...onCardCanvas(onCard.at, onCard.image) }
-      void settle(...ops.editImage(onCard.image, changes, 'Embed image', ['cardId', 'x', 'y'])).then((ok) => ok && notify('Image embedded'))
     } else if (intoCard) {
       // Sucked into the card and attached in a free spot on its canvas, without opening it. The request waits for the
       // animation, so the reload doesn't take the image away halfway.
@@ -213,19 +194,16 @@ export function useBoardDrops(options: BoardDropsOptions) {
       )
     } else if (g.kind === 'image' || g.kind === 'image-resize') {
       const image = board.images.find((i) => i.id === id)!
-      const { x, y, width } = imageRect(image)
+      const rect = canvasRect('image', image)
+      const { x, y, width } = rect
       const moving = g.kind === 'image'
       // A resize keeps going by its center: the pointer is at its edge, not where it was put.
-      const changes = moving ? { x, y, ...dropBucket(g.current, imageRect(image)) } : { x, y, width }
+      const changes = moving ? { x, y, ...dropBucket(g.current, rect) } : { x, y, width }
       void settle(...ops.editImage(image, changes, moving ? 'Move image' : 'Resize image', ['x', 'y', 'width']))
-    } else if (g.kind === 'drawing') {
-      const drawing = board.drawings.find((d) => d.id === id)!
-      const { x, y } = drawingRect(drawing)
-      void settle(...ops.editDrawing(drawing, { x, y, ...dropBucket(g.current, drawingRect(drawing)) }, 'Move drawing', ['x', 'y']))
-    } else if (g.kind === 'label') {
-      const label = board.labels.find((l) => l.id === id)!
-      const { x, y } = labelRect(label)
-      void settle(...ops.editLabel(label, { x, y, ...dropBucket(g.current, labelRect(label)) }, 'Move label', ['x', 'y']))
+    } else if (g.kind === 'drawing' || g.kind === 'label') {
+      const item = itemLists(board)[g.kind].find((x) => x.id === id)!
+      const rect = canvasRect(g.kind, item)
+      void settle(...ops.placeItem(g.kind, item, { x: rect.x, y: rect.y, ...dropBucket(g.current, rect) }, `Move ${g.kind}`, ['x', 'y']))
     } else if (g.kind === 'bucket') {
       // Undoing the move takes exactly the items it carried back.
       const bucket = board.buckets.find((b) => b.id === id)!
@@ -308,7 +286,7 @@ export function useBoardDrops(options: BoardDropsOptions) {
       const link = probe.linkDropFor(g, client)
       if (link) return linkDropped(link, [board.cards.find((n) => n.id === g.id)!])
       setGesture({ ...g, done: true })
-      placeItem(g, client)
+      saveDrop(g, client)
     },
   }
 }

@@ -214,7 +214,7 @@ await using (var scope = app.Services.CreateAsyncScope())
     var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
     await StartupMigration.RunAsync(db, CancellationToken.None);
     // Notes became labels: once, for what is still stored as a note.
-    var notes = await NoteMigration.RunAsync(db, CancellationToken.None);
+    var notes = await NoteMigration.RunOnceAsync(db, CancellationToken.None);
     if (notes.Cards > 0) app.Logger.LogInformation("Turned the notes on {Cards} cards into {Labels} labels ({Empty} without text, {PlainText} kept as plain text); the originals are in NoteBackups.", notes.Cards, notes.Labels, notes.Empty, notes.PlainText);
     // The sign-in providers' schemes, from configuration and from the setup.
     await app.Services.GetRequiredService<SignInProviders>().LoadAsync(db, CancellationToken.None);

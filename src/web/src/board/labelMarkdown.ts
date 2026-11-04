@@ -45,6 +45,22 @@ function codeSpanAt(text: string, start: number): { text: string; end: number } 
 }
 
 /** Where the mark opened at `start` closes; undefined when it opens nothing there (see LabelMarkdown.Mark). */
+/** The marks text can open with, longest first, and the style each gives. */
+const MARKS: { text: string; style: Partial<LabelRun> }[] = [
+  { text: '**', style: { bold: true } },
+  { text: '~~', style: { strike: true } },
+  { text: '*', style: { italic: true } },
+]
+
+/** The mark that opens at `i` and where it closes, if any. */
+function markAt(text: string, i: number) {
+  for (const mark of MARKS) {
+    const end = markEnd(text, i, mark.text)
+    if (end !== undefined) return { ...mark, end }
+  }
+  return undefined
+}
+
 function markEnd(text: string, start: number, mark: string): number | undefined {
   if (!text.startsWith(mark, start)) return undefined
   const first = start + mark.length
@@ -83,10 +99,8 @@ function addInline(text: string, style: Style, runs: LabelRun[]) {
     plain = ''
   }
   let i = 0
+  let mark: ReturnType<typeof markAt>
   while (i < text.length) {
-    const end2 = markEnd(text, i, '**')
-    const strike = end2 === undefined ? markEnd(text, i, '~~') : undefined
-    const end1 = end2 === undefined && strike === undefined ? markEnd(text, i, '*') : undefined
     const link = text[i] === '[' ? linkAt(text, i) : undefined
     const code = text[i] === '`' ? codeSpanAt(text, i) : undefined
     const bare = !style.link && text[i] === 'h' ? bareLinkAt(text, i) : undefined
@@ -101,18 +115,10 @@ function addInline(text: string, style: Style, runs: LabelRun[]) {
       flush()
       runs.push({ ...style, text: code.text, code: true })
       i = code.end
-    } else if (end2 !== undefined) {
+    } else if ((mark = markAt(text, i))) {
       flush()
-      addInline(text.slice(i + 2, end2), { ...style, bold: true }, runs)
-      i = end2 + 2
-    } else if (strike !== undefined) {
-      flush()
-      addInline(text.slice(i + 2, strike), { ...style, strike: true }, runs)
-      i = strike + 2
-    } else if (end1 !== undefined) {
-      flush()
-      addInline(text.slice(i + 1, end1), { ...style, italic: true }, runs)
-      i = end1 + 1
+      addInline(text.slice(i + mark.text.length, mark.end), { ...style, ...mark.style }, runs)
+      i = mark.end + mark.text.length
     } else if (link) {
       flush()
       addInline(link.text, { ...style, link: link.url }, runs)
@@ -169,6 +175,10 @@ export function parseLabelMarkdown(markdown: string): LabelBlock[] {
     if (paragraph.length > 0) blocks.push({ kind: 'Paragraph', runs: inline(paragraph.join('\n')) })
     paragraph = []
   }
+  const startBlock = () => {
+    endParagraph()
+    indents = []
+  }
   const endQuote = () => {
     if (quote.length > 0) blocks.push({ kind: 'Quote', runs: inline(quote.join('\n')) })
     quote = []
@@ -194,8 +204,7 @@ export function parseLabelMarkdown(markdown: string): LabelBlock[] {
       continue
     }
     if (trimmed.trimStart().startsWith('>')) {
-      endParagraph()
-      indents = []
+      startBlock()
       const rest = trimmed.trimStart().slice(1).replace(/^ /, '')
       if (rest) quote.push(rest)
       else endQuote()
@@ -205,16 +214,13 @@ export function parseLabelMarkdown(markdown: string): LabelBlock[] {
     const heading = /^ {0,3}(#{1,6}) +(.*?)(?: +#+)?$/.exec(trimmed)
     const item = listItem(trimmed)
     if (heading) {
-      endParagraph()
-      indents = []
+      startBlock()
       blocks.push({ kind: 'Heading', level: heading[1].length, runs: inline(heading[2]) })
     } else if (/^ {0,3}(?:-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
-      endParagraph()
-      indents = []
+      startBlock()
       blocks.push({ kind: 'Rule', runs: [] })
     } else if (trimmed.includes('|') && /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/.test(lines[i + 1]?.trimEnd() ?? '')) {
-      endParagraph()
-      indents = []
+      startBlock()
       blocks.push(tableRow(trimmed))
       for (i += 2; i < lines.length && lines[i].includes('|') && lines[i].trim(); i++) blocks.push(tableRow(lines[i].trimEnd()))
       i--

@@ -6,7 +6,7 @@ import { Toast } from '../components/Toast'
 import { BoardFilters } from './BoardFilters'
 import { CardGhost, NewCardGhost, RemoteDragOutlines, Slot } from './BoardGhosts'
 import { BoardPanels, type QuickEdit } from './BoardPanels'
-import { bucketCounts, bucketOf, cardBox, drawOrder, itemsById, NOTHING_IN, type Selection } from './boardItems'
+import { bucketCounts, bucketOf, cardBox, countByCard, drawOrder, itemsById, NOTHING_IN, type Selection } from './boardItems'
 import type { Gesture, GestureTarget, GroupGesture, ItemDrag, ItemGesture } from './boardGesture'
 import { BoardSearch } from './BoardSearch'
 import { BoardTrash } from './BoardTrash'
@@ -19,8 +19,7 @@ import { DrawingToolbar, PenRing, StrokeSvg } from './DrawingView'
 import { dropTargetsFor, NO_DROPS, released, useDropProbe, type DropTargets } from './dropTargets'
 import { ExpandedCard, type ExpandedCardHandle } from './ExpandedCard'
 import { isDrag } from './gesture'
-import { DEFAULT_WRAP_WIDTH, followLabelLink, LABEL_INSET, labelPixels, MIN_LABEL_BOX, NEW_LABEL_STYLE } from './labels'
-import { LabelBar, LabelBoxHandles } from './LabelView'
+import { clickedCorner, DEFAULT_WRAP_WIDTH, linkUnder, MIN_LABEL_BOX } from './labels'
 import { MAX_COORDINATE, MIN_BUCKET_HEIGHT, MIN_BUCKET_WIDTH, MIN_COORDINATE, backToFront, bucketAtPointer, bucketUnderCard, collapsedRect, intersects, isLooseDrawing, layersBackToFront, snapPoint, spanRect } from './layout'
 import { activeDrags, draggingOf, gridFor, itemKindOf, liveGeometry, sentDrag } from './liveGeometry'
 import { ops, recordingRun, settling } from './ops'
@@ -67,8 +66,6 @@ const hints: Partial<Record<Tool, string>> = {
   label: 'Drag a box for the label, or click to just type. Esc or V to stop',
 }
 
-/** How long a click on a selected label's link waits for a second click, which edits the label instead. */
-const LINK_DELAY_MS = 300
 
 /** How long a thumbtack picked in the top bar pulses and shows its name. */
 const FOCUS_MS = 2400
@@ -174,7 +171,6 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [fill, setFill] = useState<CardColor>('Butter')
   /** The pen's ink and size, kept for the next visit. */
   const { ink, setInk, width: strokeWidth, setWidth: setStrokeWidth, eraser: penErases, setEraser: setPenErases } = usePen(BOARD_PEN)
-  /** The ink and size new labels get, kept for the next visit. */
   /** The ring under the pointer that shows the pen's size. */
   const penRing = useRef<HTMLDivElement>(null)
   const { selected, setSelected, selection, setSelection, unselect, isSelected } = useSelection<Selection>()
@@ -203,7 +199,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const [cardBusy, setCardBusy] = useState(false)
   /** What the drag in progress would be dropped on (dropTargetsFor), set as the pointer moves. */
   const [drops, setDrops] = useState<DropTargets>(NO_DROPS)
-  const { incoming, incomingDrawing, incomingLabel, link: linkDrop, attach: attachDrop, trash: overTrash, deleted: deletedDrop, fold: foldDrop, home: homeDrop } = drops
+  const { incoming, link: linkDrop, attach: attachDrop, trash: overTrash, deleted: deletedDrop, fold: foldDrop, home: homeDrop } = drops
   /** A group's spots in a bucket; they outlive the drop (see `released`), but only count while the group is dragged. */
   const arrangeDrop = gesture?.kind === 'group' ? drops.arrange : null
   /** The rail's card button, a trash can while something is dragged: dropped there, it is deleted. */
@@ -344,7 +340,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   // Live geometry: the server's layout, with the drags in progress applied on top (yours wins over someone else's).
   const dragging = draggingOf(gesture)
   const drags = activeDrags(board, dragging, arrangeDrop?.spots, remoteDrags)
-  const { bucketRect, cardPoint, imageRect, drawingRect, labelRect, liveRect, remoteRects } = liveGeometry(board, drags, dragging ? arrangeDrop : null)
+  const { bucketRect, cardPoint, canvasRect, liveRect, remoteRects } = liveGeometry(board, drags, dragging ? arrangeDrop : null)
   /** What your drag in progress lifts: one item, or the ones selected with it. */
   const liftedIds = new Set(!dragging || dragging.done ? [] : dragging.kind === 'group' ? dragging.members.map((m) => m.id) : [dragging.id])
   const lifting = (id: string) => liftedIds.has(id)
@@ -373,7 +369,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   }
   /** The cards on the board in the order they are drawn: bucket by bucket as the buckets are, loose ones last. */
   const drawn = drawOrder(visibleCards, drawnBuckets)
-  const geometry = { bucketRect, cardPoint, imageRect, drawingRect, labelRect }
+  const geometry = { bucketRect, cardPoint, canvasRect }
   const probe = useDropProbe({ board, expanded, cardHandle: expandedRef, trash, railTrash: trashRef, toCanvas, drawn, drawnBuckets, ...geometry })
   const { onTrash, cardAt } = probe
   const moves = useBoardMoves({ board, selected, setSelected, expanded, closeCard: () => setExpanded(null), settle, cardPlace, dropBucket, ...geometry })
@@ -394,12 +390,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     setTool,
     viewportCenter: () => canvas.viewportCenter(),
   })
-  const { editCard, deleteCard, deleteImage, deleteDrawing, deleteLabel, addImages, addImagesFromPicker, renameTag, recolorTag, deleteTag } = edits
+  const { editCard, deleteCard, deleteItem, addImages, addImagesFromPicker, renameTag, recolorTag, deleteTag } = edits
   /** Editing a label in place, and saving it. */
   const labelEdit = useLabelEditing({ boardId: board.id, settle, canvasRef })
-  /** The link a press on a selected label was on: released without a drag, it is followed, unless a second press makes it a double-click. */
-  const labelLink = useRef<string | null>(null)
-  const labelLinkTimer = useRef(0)
 
   /**
    * What the selection rectangle takes: over the board, the buckets and loose items it touches; inside a bucket, that
@@ -449,9 +442,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     toFront,
     bucketRect,
     cardPoint,
-    imageRect,
-    drawingRect,
-    labelRect,
+    canvasRect,
     deleteCard,
     deleteSelected,
     putItems,
@@ -492,10 +483,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     // With Space held, the press goes on to the canvas, which pans.
     if (e.button !== 0 || tool !== 'select' || spaceHeld) return
     cardPresses.current = [cardPresses.current[1], kind === 'card' || kind === 'label' ? id : null]
-    window.clearTimeout(labelLinkTimer.current)
-    labelLink.current = kind === 'label' && isSelected('label', id) && e.target instanceof Element ? (e.target.closest('a')?.getAttribute('href') ?? null) : null
+    labelEdit.pressLink(kind === 'label' && isSelected('label', id) ? linkUnder(e.target) : null)
     // Viewers follow a label's links by the browser's own click, since nothing holds the pointer for them.
-    if (readOnly && kind === 'label' && e.target instanceof Element && e.target.closest('a')) return
+    if (readOnly && kind === 'label' && linkUnder(e.target)) return
     e.stopPropagation()
     e.preventDefault()
     // preventDefault keeps focus where it is, so let a title being edited go (it saves on blur).
@@ -683,11 +673,11 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     setGesture(null)
     setTool('select')
     if (!isDrag(g)) {
-      labelEdit.startNew(snapPoint({ x: g.start.x - LABEL_INSET.x, y: g.start.y - LABEL_INSET.y - labelPixels[NEW_LABEL_STYLE.size] / 2 }), NEW_LABEL_STYLE, null, dropBucket(g.start), { width: DEFAULT_WRAP_WIDTH })
+      labelEdit.startNew(snapPoint(clickedCorner(g.start)), null, { width: DEFAULT_WRAP_WIDTH }, dropBucket(g.start))
       return
     }
     const box = spanRect(snapPoint(g.start), snapPoint(g.current))
-    labelEdit.startNew(box, NEW_LABEL_STYLE, null, dropBucket(g.start), { width: Math.max(box.width, MIN_LABEL_BOX), height: box.height })
+    labelEdit.startNew(box, null, { width: Math.max(box.width, MIN_LABEL_BOX), height: box.height }, dropBucket(g.start))
   }
 
   /** Ends a drag of one item, on what dropTargetsFor found. A click on a card's title edits it, the text cursor where the click was. */
@@ -696,9 +686,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       setGesture(null)
       const id = titlePress.current
       if (g.kind === 'card' && id === g.id) setTitleEdit({ id, caret: caretAt(client.x, client.y) })
-      // Waits to see this isn't a double-click, which edits the label. The tab it opens still counts as this click's.
-      const link = labelLink.current
-      if (g.kind === 'label' && link) labelLinkTimer.current = window.setTimeout(() => followLabelLink(link), LINK_DELAY_MS)
+      if (g.kind === 'label') labelEdit.followLink()
       return
     }
     drop.dropItem(g, client)
@@ -715,15 +703,15 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     () => board.images.filter((i) => i.cardId === null && !(i.bucketId && collapsedIds.has(i.bucketId)) && !binned.includes(i.id)),
     [board.images, collapsedIds, binned],
   )
-  const images = shownImages.map((image) => ({ image, rect: imageRect(image) }))
-  const drawings = board.drawings.filter((d) => !hidden(d)).map((drawing) => ({ drawing, rect: drawingRect(drawing) }))
+  const images = shownImages.map((image) => ({ image, rect: canvasRect('image', image) }))
+  const drawings = board.drawings.filter((d) => !hidden(d)).map((drawing) => ({ drawing, rect: canvasRect('drawing', drawing) }))
   /** The labels on the board (the same list while nothing about them changes, for the minimap). */
   const shownLabels = useMemo(
     () => board.labels.filter((l) => l.cardId === null && !(l.bucketId && collapsedIds.has(l.bucketId)) && !binned.includes(l.id)),
     [board.labels, collapsedIds, binned],
   )
-  const beingEdited = labelEdit.draft?.label?.id ?? labelEdit.saving?.label?.id
-  const labels = shownLabels.map((label) => ({ label, rect: labelRect(label) }))
+  const { beingEdited } = labelEdit
+  const labels = shownLabels.map((label) => ({ label, rect: canvasRect('label', label) }))
   const bucketsById = new Map(buckets.map((b) => [b.bucket.id, b]))
   const drawingsById = new Map(drawings.map((d) => [d.drawing.id, d]))
   /** What the board's items call back; the same functions every render, so the memoized items don't render again for them. */
@@ -734,8 +722,10 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     renameTitle: (card, title) => editCard(card, { title }),
     titleDone: () => setTitleEdit(null),
     quickEdit: (cardId, kind, anchor) => setQuickEdit({ cardId, kind, anchor }),
-    deleteImage,
-    hoverLabel: (id, over) => labelHover.hover(id, over),
+    deleteImage: (id) => deleteItem('image', id),
+    hoverLabel: (id, over) => {
+      if (!readOnly) labelHover.hover(id, over)
+    },
     reshapeDrawing: (drawing, reshape) => settle(...ops.reshapeDrawing(drawing, reshape)),
     bucketPress: onBucketPointerDown,
     pickBucket(e, bucket) {
@@ -768,17 +758,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   /** How each tag shows: its saved color, or one being saved or previewed. */
   const tagColors = useMemo(() => tagColorsOf(board.tags, edits.tagSaving, tagPreview), [board.tags, edits.tagSaving, tagPreview])
   /** How many images are attached to each card. */
-  const attached = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const image of board.images) if (image.cardId) counts.set(image.cardId, (counts.get(image.cardId) ?? 0) + 1)
-    return counts
-  }, [board.images])
+  const attached = useMemo(() => countByCard(board.images), [board.images])
   /** How many labels are on each card. */
-  const attachedLabels = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const label of board.labels) if (label.cardId) counts.set(label.cardId, (counts.get(label.cardId) ?? 0) + 1)
-    return counts
-  }, [board.labels])
+  const attachedLabels = useMemo(() => countByCard(board.labels), [board.labels])
   /** How many cards, images, drawings and labels each bucket holds. */
   const counts = useMemo(() => bucketCounts(board.cards, board.images, board.drawings, board.labels), [board.cards, board.images, board.drawings, board.labels])
   // Bucket by bucket as they are drawn, loose ones last, most recently updated on top.
@@ -835,12 +817,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         return { rect: found.item.collapsed ? collapsedRect(bucketRect(found.item)) : bucketRect(found.item), card: false }
       case 'card':
         return found.item.bucketId && collapsedIds.has(found.item.bucketId) ? null : { rect: cardBox(cardPoint(found.item)), card: true }
-      case 'image':
-        return hidden(found.item) ? null : { rect: imageRect(found.item), card: false }
-      case 'drawing':
-        return hidden(found.item) ? null : { rect: drawingRect(found.item), card: false }
-      case 'label':
-        return hidden(found.item) ? null : { rect: labelRect(found.item), card: false }
+      default:
+        return hidden(found.item) ? null : { rect: canvasRect(found.kind, found.item), card: false }
     }
   }
 
@@ -953,9 +931,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const selectedCards = cards.filter(({ card }) => isSelected('card', card.id))
   const selectedCardsRect = selectedCards.length >= 2 ? bounds(selectedCards.map((n) => cardBox(n.point))) : null
   /** The card a dragged image or label would be attached to (not while it is over the open card's window). */
-  const imageTarget = (dragging?.kind === 'image' || dragging?.kind === 'label') && !dragging.done && !incoming && !incomingLabel ? cardAt(dragging.current) : undefined
+  const imageTarget = (dragging?.kind === 'image' || dragging?.kind === 'label') && !dragging.done && !incoming ? cardAt(dragging.current) : undefined
   /** Whether the item dragged goes elsewhere than a place on the board: into a card, the open card, the trash or a collapsed bucket. */
-  const elsewhere = linkDrop || overTrash || deletedDrop || foldDrop || imageTarget || incoming || incomingDrawing || incomingLabel
+  const elsewhere = linkDrop || overTrash || deletedDrop || foldDrop || imageTarget || incoming
   /** The bucket an item being dragged, or a new card carried from the rail, would go into: the one under the pointer. */
   const dropTarget = draggedItem && !elsewhere
     ? bucketAt(dragging!.current)
@@ -977,8 +955,6 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const selectedImage = selection?.kind === 'image' ? board.images.find((i) => i.id === selection.id) : undefined
   const selectedDrawing = selection?.kind === 'drawing' ? drawings.find((d) => d.drawing.id === selection.id) : undefined
   const selectedLabel = selection?.kind === 'label' ? labels.find((l) => l.label.id === selection.id) : undefined
-  /** The label the mouse is over shows its bar too, unless something else is going on. */
-  const hoveredLabel = tool === 'select' && !gesture && labelHover.hovered !== selectedLabel?.label.id ? labels.find((l) => l.label.id === labelHover.hovered) : undefined
   const expandedCard = address.openCard
   const countIn = (bucketId: string): BucketCount => counts.get(bucketId) ?? NOTHING_IN
   /** Cards the filters or the search fade. */
@@ -1077,10 +1053,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             onDoubleClick={() => {
               const [first, second] = cardPresses.current
               const label = second && first === second ? board.labels.find((l) => l.id === second) : undefined
-              if (label) {
-                window.clearTimeout(labelLinkTimer.current)
-                if (!readOnly) labelEdit.edit(label)
-              } else if (second && first === second) expand(second)
+              if (label) labelEdit.doubleClick(label, readOnly)
+              else if (second && first === second) expand(second)
               else if (expanded) closeExpanded()
             }}
             onPointerMove={onCanvasPointerMove}
@@ -1170,29 +1144,16 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
 
             {selectedCardsRect && !readOnly && !gesture && <SelectionToolbar rect={selectedCardsRect} zoom={zoom} onSort={moves.sortCards} />}
 
-            {labelEdit.editor(zoom, (label) => void settle(...ops.deleteLabel(label)))}
+            {labelEdit.editor(zoom)}
             {labelEdit.savingView()}
-
-            {selectedLabel && !readOnly && !labelEdit.draft && !labelEdit.saving && !(dragging?.id === selectedLabel.label.id && !dragging.done) && (
-              <>
-                <LabelBar
-                  rect={selectedLabel.rect}
-                  zoom={zoom}
-                  {...labelEdit.selectedActions(selectedLabel.label, () => deleteLabel(selectedLabel.label.id))}
-                />
-                <LabelBoxHandles key={selectedLabel.label.id} id={selectedLabel.label.id} at={selectedLabel.rect} minHeight={selectedLabel.label.minHeight} zoom={zoom} onResize={(box) => labelEdit.resize(selectedLabel.label, box)} onReset={() => labelEdit.unbox(selectedLabel.label)} />
-              </>
-            )}
-
-            {hoveredLabel && !readOnly && !labelEdit.draft && !labelEdit.saving && (
-              <LabelBar
-                key={hoveredLabel.label.id}
-                rect={hoveredLabel.rect}
-                zoom={zoom}
-                {...labelHover.barHover}
-                {...labelEdit.selectedActions(hoveredLabel.label, () => deleteLabel(hoveredLabel.label.id))}
-              />
-            )}
+            {labelEdit.chrome({
+              zoom,
+              selected: readOnly || (dragging?.id === selectedLabel?.label.id && !dragging?.done) ? undefined : selectedLabel,
+              // The label the mouse is over shows its bar too, unless something else is going on.
+              hover: !readOnly && tool === 'select' && !gesture ? labelHover : null,
+              labelAt: (id) => (id === selectedLabel?.label.id ? undefined : labels.find((l) => l.label.id === id)),
+              onDelete: (id) => deleteItem('label', id),
+            })}
 
             {selectedDrawing && !readOnly && !(dragging?.id === selectedDrawing.drawing.id && !dragging.done) && (
               <DrawingToolbar
@@ -1200,7 +1161,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                 rect={selectedDrawing.rect}
                 zoom={zoom}
                 onRecolor={(color) => edits.recolorDrawing(selectedDrawing.drawing, color)}
-                onDelete={() => deleteDrawing(selectedDrawing.drawing.id)}
+                onDelete={() => deleteItem('drawing', selectedDrawing.drawing.id)}
               />
             )}
 
@@ -1333,7 +1294,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         }}
         image={selectedImage}
         onSaveImage={(image, changes) => settle(...ops.editImage(image, changes, 'Edit caption', ['caption']))}
-        onDeleteImage={(image) => deleteImage(image.id)}
+        onDeleteImage={(image) => deleteItem('image', image.id)}
         onClose={() => setSelection(null)}
         quickEdit={quickEdit}
         onCloseQuickEdit={() => setQuickEdit(null)}
@@ -1358,9 +1319,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
           onBusy={setCardBusy}
           incoming={incoming}
           drawings={board.drawings.filter((d) => d.cardId === expandedCard.id)}
-          incomingDrawing={incomingDrawing}
           labels={board.labels.filter((l) => l.cardId === expandedCard.id)}
-          incomingLabel={incomingLabel}
           linking={!!linkDrop?.window || !!attachDrop?.window}
           boardPoint={boardPoint}
           dropBucket={dropBucket}

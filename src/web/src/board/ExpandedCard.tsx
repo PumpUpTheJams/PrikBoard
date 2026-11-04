@@ -26,7 +26,8 @@ import { Highlight } from './Highlight'
 import type { SearchTerm } from './search'
 import { BucketIcon, CheckIcon, CloseIcon, LinkIcon, MaximizeIcon, PutBackIcon, RestoreIcon, SparkleIcon, TrashIcon } from './icons'
 import { cardLabel, TITLE_SUGGESTION } from './links'
-import { CardCanvas, type IncomingDrawing, type IncomingImage, type IncomingLabel, type CardCanvasHandle } from './CardCanvas'
+import { CardCanvas, type CardCanvasHandle } from './CardCanvas'
+import type { IncomingItem } from './dropTargets'
 import { tagColorClass, type TagColorPreview, type TagColors } from './tagColors'
 import { TagPicker } from './TagPicker'
 import type { RecordingRun } from './undo'
@@ -88,12 +89,8 @@ interface ExpandedCardProps {
   history?: HistoryButtons
   /** Whether a drag on the card's canvas is in progress, so the board holds back its refreshes. */
   onBusy: (busy: boolean) => void
-  /** A board image being dragged over the window. */
-  incoming: IncomingImage | null
-  /** A board drawing being dragged over the window. */
-  incomingDrawing?: IncomingDrawing | null
-  /** A board label being dragged over the window. */
-  incomingLabel?: IncomingLabel | null
+  /** A board image, drawing or label being dragged over the window. */
+  incoming: IncomingItem | null
   /** A card is being dragged over the window, to link it here. */
   linking: boolean
   /** A screen point on the board in canvas pixels, when it is over the board; to drop images out of the card. */
@@ -112,7 +109,7 @@ interface ExpandedCardProps {
 export function ExpandedCard(props: ExpandedCardProps) {
   const { card, bucket, images, focusTitle, onChange, onDelete, onAddImages, onPickImages, onClose, readOnly, highlight } = props
   const { boardTags, tagColors, people, cards, onRenameTag, onRecolorTag, onPreviewTagColor, onDeleteTag, handle, run, onBusy, incoming, linking, boardPoint, boardZoom, deleted } = props
-  const { drawings = [], labels = [], incomingDrawing = null, incomingLabel = null, visiting = false, history, dropBucket } = props
+  const { drawings = [], labels = [], visiting = false, history, dropBucket } = props
   /** The tag or people window, opened from its button in the band. */
   const [picking, setPicking] = useState<{ kind: 'tags' | 'people'; anchor: DOMRect } | null>(null)
   const [fileOver, setFileOver] = useState(false)
@@ -173,7 +170,7 @@ export function ExpandedCard(props: ExpandedCardProps) {
     <>
       <article
         ref={dialogRef}
-        className={`expanded fill-${card.color.toLowerCase()}${moving ? ' moving' : ''}${maximized ? ' maximized' : ''}${fileOver ? ' file-over' : ''}${readOnly ? ' read-only' : ''}${incoming || incomingDrawing || incomingLabel || linking ? ' drop-over' : ''}`}
+        className={`expanded fill-${card.color.toLowerCase()}${moving ? ' moving' : ''}${maximized ? ' maximized' : ''}${fileOver ? ' file-over' : ''}${readOnly ? ' read-only' : ''}${incoming || linking ? ' drop-over' : ''}`}
         style={style}
         // Images dropped on the band are attached in a free spot (the canvas takes drops where they land).
         onDragOver={(e) => {
@@ -301,8 +298,6 @@ export function ExpandedCard(props: ExpandedCardProps) {
           history={history}
           onBusy={onBusy}
           incoming={incoming}
-          incomingDrawing={incomingDrawing}
-          incomingLabel={incomingLabel}
           onAddImages={onAddImages}
           onPickImages={onPickImages}
           boardPoint={boardPoint}

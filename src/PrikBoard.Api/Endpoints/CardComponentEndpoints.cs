@@ -59,7 +59,7 @@ public static class CardComponentEndpoints
 
         var taken = Layout.TakenOnCard(card,
             await db.Images.AsNoTracking().Where(i => i.CardId == cardId).ToListAsync(ct),
-            await db.Labels.AsNoTracking().Where(l => l.CardId == cardId).ToListAsync(ct));
+            await LabelEndpoints.BoxesOnCardAsync(db, cardId, ct));
         if (Build(request, taken, "") is not { } component) return InvalidComponent(request, "");
         if (Check(component, "") is { } invalid) return invalid;
         await ShortenLinksAsync(db, card.BoardId, [component], ct);

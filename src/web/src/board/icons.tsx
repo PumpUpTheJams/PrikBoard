@@ -184,6 +184,7 @@ export const MinusIcon = ({ size = 14 }: IconProps) => (
   </Icon>
 )
 
+/** A plug: the apps a board is connected to (Integrations). */
 export const PlugIcon = ({ size = 16 }: IconProps) => (
   <Icon size={size}>
     <path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4" />

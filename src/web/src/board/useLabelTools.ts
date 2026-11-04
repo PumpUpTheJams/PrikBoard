@@ -20,28 +20,13 @@ export function useLabelTools({ ink: startInk, size: startSize, background: star
   const [, setTick] = useState(0)
   const [link, setLink] = useState<{ value: string; error: boolean; existing: boolean } | null>(null)
 
-  const openLink = (from: LabelEditorHandle | null) => {
-    const href = from?.linkHref() ?? null
-    setLink({ value: href ?? '', error: false, existing: !!href })
-  }
-
   const onChange = useCallback(() => setTick((t) => t + 1), [])
-
-  function applyLink() {
-    if (!link) return
-    const url = link.value.trim()
-    if (!handle?.setLink(url)) {
-      setLink({ ...link, error: true })
-      return
-    }
-    setLink(null)
-  }
 
   const here = handle ? handle.styleHere({ ink, size }) : { ink, size }
   const field: LabelLinkField | null = link && {
     ...link,
     onChange: (value) => setLink({ ...link, value, error: false }),
-    onApply: applyLink,
+    onApply: () => setLink(handle?.setLink(link.value.trim()) ? null : { ...link, error: true }),
     onRemove: () => {
       handle?.unsetLink()
       setLink(null)
@@ -58,7 +43,10 @@ export function useLabelTools({ ink: startInk, size: startSize, background: star
     listActive: (kind) => !!handle?.listActive(kind),
     onToggleList: (kind) => handle?.toggleList(kind),
     linkActive: !!handle?.linkHref(),
-    onLink: () => (link ? setLink(null) : openLink(handle)),
+    onLink: () => {
+      const href = handle?.linkHref()
+      setLink(link ? null : { value: href ?? '', error: false, existing: !!href })
+    },
     blocks: { isActive: (kind) => !!handle?.blockActive(kind), onToggle: (kind) => handle?.toggleBlock(kind) },
     style: {
       ink: here.ink,

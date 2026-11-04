@@ -4,11 +4,11 @@ import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table
 import { TextStyleKit } from '@tiptap/extension-text-style'
 import { EditorContent, useEditor, type Editor, type JSONContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import { labelInks, labelSizes, type InkColor, type LabelBlock, type LabelSize } from '../api/types'
+import type { InkColor, LabelBlock, LabelSize } from '../api/types'
 import { inkColor } from './drawings'
-import { blocksOf, docOf, type DocNode } from './labelDoc'
+import { blocksOf, docOf, fontSizeOf, inkOf, sizeOf, type DocNode } from './labelDoc'
 import { parseLabelMarkdown } from './labelMarkdown'
-import { isLabelLink, labelPixels, type LabelBlockTool, type LabelEditorHandle, type LabelFormat } from './labels'
+import { isLabelLink, type LabelBlockTool, type LabelEditorHandle, type LabelFormat } from './labels'
 
 interface LabelEditorProps {
   content: LabelBlock[]
@@ -44,7 +44,6 @@ export default function LabelEditor({ content, onReady, onChange, onDone }: Labe
     // Not by the autofocus option, which scrolls to the end: the board stays where it is until something is typed. And not from
     // an effect, which can get an editor already destroyed: Tiptap drops the one of a render React gave up on.
     onCreate: ({ editor: created }) => void created.commands.focus('end', { scrollIntoView: false }),
-    onSelectionUpdate: onChange,
     onTransaction: onChange,
     editorProps: {
       handleKeyDown(_view, event) {
@@ -89,8 +88,8 @@ export default function LabelEditor({ content, onReady, onChange, onDone }: Labe
     isEmpty: () => editor.isEmpty,
     styleHere(base) {
       const styleOf = (attrs: Record<string, unknown>) => ({
-        ink: labelInks.find((c) => inkColor[c] === attrs.color) ?? base.ink,
-        size: labelSizes.find((s) => `${labelPixels[s]}px` === attrs.fontSize) ?? base.size,
+        ink: inkOf(attrs.color) ?? base.ink,
+        size: sizeOf(attrs.fontSize) ?? base.size,
       })
       const { empty, from, to } = editor.state.selection
       if (empty) return styleOf(editor.getAttributes('textStyle'))
@@ -130,7 +129,7 @@ export default function LabelEditor({ content, onReady, onChange, onDone }: Labe
       else chain.insertTable({ rows: 3, cols: 2, withHeaderRow: true }).run()
     },
     setInk: (ink) => void editor.chain().focus().setColor(inkColor[ink]).run(),
-    setSize: (size) => void editor.chain().focus().setFontSize(`${labelPixels[size]}px`).run(),
+    setSize: (size) => void editor.chain().focus().setFontSize(fontSizeOf(size)).run(),
     linkHref: () => (editor.getAttributes('link').href as string | undefined) ?? null,
     setLink(url) {
       if (!isLabelLink(url)) return false

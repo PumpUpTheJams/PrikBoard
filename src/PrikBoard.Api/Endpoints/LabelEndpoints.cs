@@ -65,10 +65,6 @@ public static class LabelEndpoints
         {
             return Problems.CardNotOnBoard();
         }
-        if (request.CardId is not null && (request.BucketId is not null || request.Loose == true))
-        {
-            return Problems.Invalid(request.BucketId is null ? "loose" : "bucketId", "Only for a label on the board.");
-        }
         if (await db.Labels.CountAsync(l => l.BoardId == boardId, ct) >= BoardLabel.MaxPerBoard)
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Too many labels",
@@ -89,24 +85,13 @@ public static class LabelEndpoints
         label.SetContent(await ShortenLinksAsync(db, boardId, blocks!, ct));
         Measure(label, request.Width, request.Height);
 
-        if (placed) Place(label, request.X!.Value, request.Y!.Value);
+        if (placed) Layout.Put(label, request.X!.Value, request.Y!.Value);
         else await FreeSpotAsync(db, label, ct);
 
-        if (request.BucketId is not null || request.Loose == true)
-        {
-            if (BucketEndpoints.DropIn(label, request.BucketId, await BucketEndpoints.StackAsync(db, boardId, ct)) is { } outside) return outside;
-        }
-        else
-        {
-            Layout.Place(label, await BucketEndpoints.StackAsync(db, boardId, ct));
-        }
+        if (await CanvasItems.JoinBucketAsync(db, label, request.BucketId, request.Loose, moved: true, "a label", ct) is { } outside) return outside;
 
-        // On a card: saved under its lock, so the card can't be deleted in between and leave this label live.
-        await using var transaction = label.CardId is null ? null : await db.Database.BeginTransactionAsync(ct);
-        if (label.CardId is { } cardId && !await CardEndpoints.LockLiveCardAsync(db, cardId, boardId, ct)) return Problems.CardNotOnBoard();
         db.Labels.Add(label);
-        await db.SaveChangesAsync(ct);
-        if (transaction is not null) await transaction.CommitAsync(ct);
+        if (!await CanvasItems.SaveOntoAsync(db, label.CardId, boardId, ct)) return Problems.CardNotOnBoard();
         return TypedResults.Created($"/api/labels/{label.Id}", LabelDetail.From(label));
     }
 
@@ -117,7 +102,7 @@ public static class LabelEndpoints
         if (label is null) return TypedResults.NotFound();
 
         var detach = request.Detach == true;
-        if (request.CardId is not null && detach) return Problems.Invalid("detach", "Give either a cardId or detach, not both.");
+        if (CanvasItems.CardOrDetach(request.CardId, detach) is { } both) return both;
         if (SizeProblem(request.Width, request.Height) is { } halfSize) return halfSize;
         if (Blocks(request.Content, request.Markdown, required: false, out var blocks) is { } invalid) return invalid;
         if (!string.IsNullOrWhiteSpace(request.AppendText))
@@ -127,27 +112,15 @@ public static class LabelEndpoints
             blocks = appended;
         }
 
-        var moving = (request.CardId is { } to && to != label.CardId) || (detach && label.CardId is not null);
+        var moving = CanvasItems.ChangesCanvas(label, request.CardId, detach);
         // Onto a card, it finds a free spot by itself without a place (as an image does); onto the board, it needs one.
         if (moving && detach && (request.X is null || request.Y is null))
         {
             return Problems.Invalid(request.X is null ? "x" : "y", "Give x and y on the board when taking a label off its card.");
         }
         if (Problems.XWithoutY(moving ? request.X : 0, moving ? request.Y : 0) is { } halfPlace) return halfPlace;
-        var dropped = request.BucketId is not null || request.Loose == true;
         if (Problems.Drop(request.BucketId, request.Loose, request.X is not null && request.Y is not null) is { } drop) return drop;
-        if (moving && !detach)
-        {
-            if (!await db.Cards.AnyAsync(n => n.Id == request.CardId && n.BoardId == label.BoardId, ct))
-            {
-                return Problems.CardNotOnBoard();
-            }
-            label.CardId = request.CardId;
-        }
-        else if (moving)
-        {
-            label.CardId = null;
-        }
+        if (moving && !await CanvasItems.ChangeCanvasAsync(db, label, request.CardId, detach, ct)) return Problems.CardNotOnBoard();
 
         if (blocks is not null) label.SetContent(await ShortenLinksAsync(db, label.BoardId, blocks, ct));
         if (request.Ink is { } ink) label.Ink = ink;
@@ -161,26 +134,12 @@ public static class LabelEndpoints
         else if (blocks is not null || request.Size is not null || request.WrapWidth is not null || request.MinHeight is not null) label.EstimateAndWrap();
 
         if (moving && !detach && request.X is null) await FreeSpotAsync(db, label, ct);
-        else Place(label, request.X ?? label.X, request.Y ?? label.Y);
-        // A label that moved joins the bucket it now sits in (or the one the pointer was in when it was dropped in the web
-        // app); new text, ink or size leaves it where it is.
-        if (dropped)
-        {
-            if (label.CardId is not null) return Problems.Invalid(request.BucketId is null ? "loose" : "bucketId", "Only for a label on the board.");
-            if (BucketEndpoints.DropIn(label, request.BucketId, await BucketEndpoints.StackAsync(db, label.BoardId, ct)) is { } outside) return outside;
-        }
-        else if (moving || request.X is not null || request.Y is not null)
-        {
-            Layout.Place(label, await BucketEndpoints.StackAsync(db, label.BoardId, ct));
-        }
+        else Layout.Put(label, request.X ?? label.X, request.Y ?? label.Y);
+        // New text, ink or size leaves it where it is.
+        if (await CanvasItems.JoinBucketAsync(db, label, request.BucketId, request.Loose, moving || request.X is not null || request.Y is not null, "a label", ct) is { } outside) return outside;
         label.UpdatedAt = DateTimeOffset.UtcNow;
 
-        // Onto a card: saved under its lock, so the card can't be deleted in between and leave this label live.
-        var onto = moving ? label.CardId : null;
-        await using var transaction = onto is null ? null : await db.Database.BeginTransactionAsync(ct);
-        if (onto is { } cardId && !await CardEndpoints.LockLiveCardAsync(db, cardId, label.BoardId, ct)) return Problems.CardNotOnBoard();
-        await db.SaveChangesAsync(ct);
-        if (transaction is not null) await transaction.CommitAsync(ct);
+        if (!await CanvasItems.SaveOntoAsync(db, moving ? label.CardId : null, label.BoardId, ct)) return Problems.CardNotOnBoard();
         return TypedResults.Ok(LabelDetail.From(label));
     }
 
@@ -233,7 +192,7 @@ public static class LabelEndpoints
         label.Background = source.Background ?? source.CardId is not null;
         if (source.Width is { } width && source.Height is { } height) label.SetSize(width, height);
         else label.Estimate();
-        Place(label, source.X, source.Y);
+        Layout.Put(label, source.X, source.Y);
         return null;
     }
 
@@ -284,14 +243,10 @@ public static class LabelEndpoints
         else label.EstimateAndWrap();
     }
 
-    /// <summary>Snaps x and y; on a card, also keeps the label on its canvas, at the last grid line that fits.</summary>
-    private static void Place(BoardLabel label, int x, int y) =>
-        (label.X, label.Y) = label.CardId is null
-            ? (Layout.Snap(x), Layout.Snap(y))
-            : (OnCard(x, label.Width), OnCard(y, label.Height));
-
-    private static int OnCard(int value, int size) =>
-        Math.Clamp(Layout.Snap(value), 0, Math.Max(0, (Layout.CardCanvasMax - size) / Layout.Grid * Layout.Grid));
+    /// <summary>Where the labels on a card are, for keeping clear of them: without their content.</summary>
+    internal static Task<List<BoardLabel>> BoxesOnCardAsync(PrikBoardDbContext db, Guid cardId, CancellationToken ct) =>
+        db.Labels.AsNoTracking().Where(l => l.CardId == cardId)
+            .Select(l => new BoardLabel { X = l.X, Y = l.Y, Width = l.Width, Height = l.Height }).ToListAsync(ct);
 
     private static async Task FreeSpotAsync(PrikBoardDbContext db, BoardLabel label, CancellationToken ct)
     {
@@ -299,9 +254,7 @@ public static class LabelEndpoints
         {
             var card = await db.Cards.AsNoTracking().FirstAsync(n => n.Id == cardId, ct);
             var attached = await db.Images.AsNoTracking().Where(i => i.CardId == cardId).ToListAsync(ct);
-            var labels = await db.Labels.AsNoTracking().Where(l => l.CardId == cardId).ToListAsync(ct);
-            List<(int X, int Y, int Width, int Height)> taken =
-                [.. Layout.TakenOnCard(card, attached), .. labels.Select(l => (l.X, l.Y, l.Width, l.Height))];
+            var taken = Layout.TakenOnCard(card, attached, await BoxesOnCardAsync(db, cardId, ct));
             (label.X, label.Y) = Layout.NextCardSpot(taken, label.Width, label.Height);
             return;
         }

@@ -12,7 +12,7 @@ import { keepPress } from './gesture'
 import { tagColorClass, type TagColors } from './tagColors'
 import { useCopyLink } from './useCopy'
 
-/** What the card holds inside, by kind, e.g. "2 notes, 1 checklist, 1 image". */
+/** What the card holds inside, by kind, e.g. "2 labels, 1 checklist, 1 image". */
 function contentSummary(card: CardDetail, images: number, labels: number) {
   const count = (kind: string) => card.components.filter((b) => b.kind === kind).length
   const parts = [

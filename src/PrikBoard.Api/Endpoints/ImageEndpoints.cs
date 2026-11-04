@@ -302,10 +302,9 @@ public static class ImageEndpoints
         if (image is null) return TypedResults.NotFound();
 
         var detach = request.Detach == true;
-        var moving = (request.CardId is { } to && to != image.CardId) || (detach && image.CardId is not null);
-        if (request.CardId is not null && detach) return Problems.Invalid("detach", "Give either a cardId or detach, not both.");
+        var moving = CanvasItems.ChangesCanvas(image, request.CardId, detach);
+        if (CanvasItems.CardOrDetach(request.CardId, detach) is { } both) return both;
         if (moving && request.X is null != request.Y is null) return Problems.Invalid(request.X is null ? "x" : "y", "Give x and y together.");
-        var dropped = request.BucketId is not null || request.Loose == true;
         if (Problems.Drop(request.BucketId, request.Loose, request.X is not null && request.Y is not null) is { } drop) return drop;
         if (request.Width is { } width) image.Resize(width);
         if (moving)
@@ -326,26 +325,12 @@ public static class ImageEndpoints
         {
             (image.X, image.Y) = Layout.OnCardCanvas(request.X ?? image.X, request.Y ?? image.Y, image.Width, image.Height);
         }
-        // An image that moved (or changed size) joins the bucket it now sits in, or the one the pointer was in when it was
-        // dropped in the web app; only a new caption leaves it where it is.
-        if (dropped)
-        {
-            if (image.CardId is not null) return Problems.Invalid(request.BucketId is null ? "loose" : "bucketId", "Only for an image on the board.");
-            if (BucketEndpoints.DropIn(image, request.BucketId, await BucketEndpoints.StackAsync(db, image.BoardId, ct)) is { } outside) return outside;
-        }
-        else if (moving || request.X is not null || request.Y is not null || request.Width is not null)
-        {
-            Layout.Place(image, await BucketEndpoints.StackAsync(db, image.BoardId, ct));
-        }
+        // A new size counts as moving; only a new caption leaves it where it is.
+        if (await CanvasItems.JoinBucketAsync(db, image, request.BucketId, request.Loose, moving || request.X is not null || request.Y is not null || request.Width is not null, "an image", ct) is { } outside) return outside;
         image.Caption = PatchText.Apply(image.Caption, request.Caption);
         image.UpdatedAt = DateTimeOffset.UtcNow;
 
-        // Onto a card: saved under its lock, so the card can't be deleted in between and leave this image live.
-        var onto = moving ? image.CardId : null;
-        await using var transaction = onto is null ? null : await db.Database.BeginTransactionAsync(ct);
-        if (onto is { } cardId && !await CardEndpoints.LockLiveCardAsync(db, cardId, image.BoardId, ct)) return Problems.CardNotOnBoard();
-        await db.SaveChangesAsync(ct);
-        if (transaction is not null) await transaction.CommitAsync(ct);
+        if (!await CanvasItems.SaveOntoAsync(db, moving ? image.CardId : null, image.BoardId, ct)) return Problems.CardNotOnBoard();
         return TypedResults.Ok(ImageDetail.From(image));
     }
 
@@ -360,7 +345,7 @@ public static class ImageEndpoints
             var attached = await db.Images.AsNoTracking().Where(i => i.CardId == card.Id && i.Id != image.Id).ToListAsync(ct);
             (image.X, image.Y) = x is { } cardX && y is { } cardY
                 ? Layout.OnCardCanvas(cardX, cardY, image.Width, image.Height)
-                : Layout.NextCardSpot(Layout.TakenOnCard(card, attached, await db.Labels.AsNoTracking().Where(l => l.CardId == card.Id).ToListAsync(ct)), image.Width, image.Height);
+                : Layout.NextCardSpot(Layout.TakenOnCard(card, attached, await LabelEndpoints.BoxesOnCardAsync(db, card.Id, ct)), image.Width, image.Height);
             return;
         }
         (image.X, image.Y) = x is { } boardX && y is { } boardY

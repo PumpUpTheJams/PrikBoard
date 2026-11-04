@@ -2481,10 +2481,6 @@ input.editable {
   padding: 0;
 }
 
-.component-plain {
-  white-space: pre-wrap;
-}
-
 .card-canvas .board-image {
   cursor: grab;
 }
@@ -7596,18 +7592,11 @@ button.picker-color:hover,
 }
 
 .m-label-editor .label {
-  position: static;
   width: auto;
-  cursor: text;
-  user-select: text;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 .m-label-editor .tiptap {
   min-height: 160px;
-  outline: none;
-  white-space: pre-wrap;
 }
 
 .m-label-tools {

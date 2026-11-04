@@ -19,6 +19,7 @@ import type {
   CardDetail,
   TagChanges,
 } from '../api/types'
+import { isCanvasKind, itemLists, type CanvasKind, type ItemOfKind } from './boardItems'
 import { loadDrawingStrokes, loadedStrokes } from './drawings'
 import { onBoard } from './layout'
 
@@ -141,6 +142,49 @@ export const snap = {
   tag: (t: BoardTag): Snapshot => ({ name: t.name, color: t.color }),
 }
 
+/** The changes each kind of canvas item takes. */
+interface CanvasChanges {
+  image: ImageChanges
+  drawing: DrawingChanges
+  label: LabelChanges
+}
+
+/** What moves any canvas item: its place, the card it is on, and the bucket a drop puts it in. */
+export interface ItemPlace extends DropBucket {
+  x?: number
+  y?: number
+  cardId?: string
+  detach?: boolean
+}
+
+interface CanvasOps<K extends CanvasKind> {
+  update: (id: string, changes: CanvasChanges[K]) => Promise<ItemOfKind[K]>
+  remove: (id: string) => Promise<void>
+  restore: (id: string) => Promise<unknown>
+  snap: (item: ItemOfKind[K]) => Snapshot
+}
+
+/** How each kind of canvas item is saved. */
+export const canvasKinds: { [K in CanvasKind]: CanvasOps<K> } = {
+  image: { update: api.updateImage, remove: api.deleteImage, restore: api.restoreImage, snap: snap.image },
+  drawing: { update: api.updateDrawing, remove: api.deleteDrawing, restore: api.restoreDrawing, snap: snap.drawing },
+  label: { update: api.updateLabel, remove: api.deleteLabel, restore: api.restoreLabel, snap: snap.label },
+}
+
+const opsOf = <K extends CanvasKind>(kind: K): CanvasOps<K> => canvasKinds[kind]
+
+/** The change of a canvas item from `before` to `after`, over the fields in `keys`. */
+export const itemPatched = <K extends CanvasKind>(kind: K, before: ItemOfKind[K], after: ItemOfKind[K], keys: string[]) =>
+  patched(target[kind](before.id), opsOf(kind).snap(before), opsOf(kind).snap(after), keys)
+
+export const itemCreated = <K extends CanvasKind>(kind: K, item: ItemOfKind[K]) => created(target[kind](item.id), opsOf(kind).snap(item))
+export const itemDeleted = <K extends CanvasKind>(kind: K, item: ItemOfKind[K]) => deleted(target[kind](item.id), opsOf(kind).snap(item))
+
+/** Moves a canvas item (`place`: its corner, card or bucket) and returns the change for its step. */
+export async function placeItem<K extends CanvasKind>(kind: K, item: ItemOfKind[K], place: ItemPlace, keys = ['x', 'y']) {
+  return itemPatched(kind, item, await opsOf(kind).update(item.id, place as CanvasChanges[K]), keys)
+}
+
 /** The step for a drawing scaled or turned: its corner and strokes before and after; null when nothing changed. */
 export function reshaped(label: string, before: DrawingDetail, beforeStrokes: DrawingStroke[], after: DrawingDetail, afterStrokes: DrawingStroke[]) {
   const from = snap.shape(before, beforeStrokes)
@@ -152,13 +196,14 @@ const pick = (from: Snapshot, keys: string[]): Snapshot => Object.fromEntries(ke
 
 export const created = (t: UndoTarget, after: Snapshot): UndoChange => ({ target: t, before: null, after })
 export const deleted = (t: UndoTarget, before: Snapshot): UndoChange => ({ target: t, before, after: null })
-/** A change of some fields; nothing (null) when none of them changed. A position keeps x and y together. */
+/** A change of some fields; nothing (null) when none of them changed. A position keeps x and y together, and a size width and height. */
 export function patched(t: UndoTarget, before: Snapshot, after: Snapshot, keys: string[], implied = false): UndoChange | null {
   let changed = keys.filter((k) => !same(before[k], after[k]))
   // An item's bucket goes with its place: where buckets overlap, or after a drop that went by the pointer, the place
   // alone doesn't say which one it was in.
-  const place: string[] = [...keys.filter((k) => k === 'x' || k === 'y'), ...(t.kind === 'card' || t.kind === 'image' || t.kind === 'drawing' || t.kind === 'label' ? ['bucketId'] : [])]
+  const place: string[] = [...keys.filter((k) => k === 'x' || k === 'y'), ...(t.kind === 'card' || isCanvasKind(t.kind) ? ['bucketId'] : [])]
   if (changed.includes('x') || changed.includes('y')) changed = [...new Set([...changed, ...place])]
+  if (changed.includes('width') || changed.includes('height')) changed = [...new Set([...changed, ...keys.filter((k) => k === 'width' || k === 'height')])]
   return changed.length === 0 ? null : { target: t, before: pick(before, changed), after: pick(after, changed), implied }
 }
 
@@ -196,6 +241,12 @@ export function componentEdit(cardId: string, before: CardComponent, after: Card
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 
+function readItem<K extends CanvasKind>(board: BoardDetail, kind: K, id: string): Snapshot | null {
+  const list: ItemOfKind[K][] = itemLists(board)[kind]
+  const item = list.find((x) => x.id === id)
+  return item ? opsOf(kind).snap(item) : null
+}
+
 /** An item's fields as they are on `board` now; null when it isn't there. */
 function read(board: BoardDetail, t: UndoTarget): Snapshot | null {
   switch (t.kind) {
@@ -211,18 +262,10 @@ function read(board: BoardDetail, t: UndoTarget): Snapshot | null {
       const bucket = board.buckets.find((b) => b.id === t.id)
       return bucket ? snap.bucket(bucket) : null
     }
-    case 'image': {
-      const image = board.images.find((i) => i.id === t.id)
-      return image ? snap.image(image) : null
-    }
-    case 'drawing': {
-      const drawing = board.drawings.find((d) => d.id === t.id)
-      return drawing ? snap.drawing(drawing) : null
-    }
-    case 'label': {
-      const label = board.labels.find((l) => l.id === t.id)
-      return label ? snap.label(label) : null
-    }
+    case 'image':
+    case 'drawing':
+    case 'label':
+      return readItem(board, t.kind, t.id)
     case 'shape': {
       const drawing = board.drawings.find((d) => d.id === t.id)
       return drawing ? snap.shape(drawing) : null
@@ -290,7 +333,7 @@ export function check(
     if (t.kind === 'tag' && typeof goal.name === 'string' && board.tags.some((x) => x.id !== t.id && x.name === goal.name)) {
       return `a tag called “${goal.name}” exists now`
     }
-    if ((t.kind === 'image' || t.kind === 'drawing' || t.kind === 'label') && typeof goal.cardId === 'string' && !board.cards.some((n) => n.id === goal.cardId)) {
+    if (isCanvasKind(t.kind) && typeof goal.cardId === 'string' && !board.cards.some((n) => n.id === goal.cardId)) {
       return 'its card was deleted since'
     }
   }
@@ -327,7 +370,7 @@ export async function apply(entry: UndoEntry, direction: UndoDirection, home: Bo
 /** Whether applying the change deletes or brings back a card, bucket, image, drawing or label (which go in bulk), or neither. */
 function bulkOf(change: UndoChange, direction: UndoDirection): 'delete' | 'restore' | null {
   const kind = change.target.kind
-  if (change.implied || (kind !== 'card' && kind !== 'bucket' && kind !== 'image' && kind !== 'drawing' && kind !== 'label')) return null
+  if (change.implied || (kind !== 'card' && kind !== 'bucket' && !isCanvasKind(kind))) return null
   const from = direction === 'undo' ? change.after : change.before
   const to = direction === 'undo' ? change.before : change.after
   return to === null ? 'delete' : from === null ? 'restore' : null
@@ -348,9 +391,15 @@ const text = (value: unknown) => (value ?? '') as string
 const dropBucket = (bucketId: unknown): DropBucket =>
   typeof bucketId === 'string' ? { bucketId } : bucketId === null ? { loose: true } : {}
 
-/** Whether an image or drawing ends up on the board, not on a card: as `to` puts it, or else as it is now. */
-const endsOnBoard = (id: string, items: { id: string; cardId: string | null }[], to: Snapshot) =>
-  ('cardId' in to ? to.cardId : items.find((i) => i.id === id)?.cardId) == null
+/** The card and place a canvas item goes back to, and its bucket if it ends up on the board, not on a card: as `to` puts it, or else as it is now. */
+function placeOfSnapshot(kind: CanvasKind, id: string, to: Snapshot, board: BoardDetail): ItemPlace {
+  const items: { id: string; cardId: string | null }[] = itemLists(board)[kind]
+  const onBoard = ('cardId' in to ? to.cardId : items.find((i) => i.id === id)?.cardId) == null
+  return {
+    ...('cardId' in to ? (to.cardId ? { cardId: to.cardId as string } : { detach: true }) : {}),
+    ...('x' in to ? { x: to.x as number, y: to.y as number, ...(onBoard ? dropBucket(to.bucketId) : {}) } : {}),
+  }
+}
 
 async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, board: BoardDetail) {
   const boardId = board.id
@@ -377,9 +426,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
     if (t.kind === 'card') await api.deleteCard(t.id)
     else if (t.kind === 'component') await api.deleteCardComponent(t.cardId, t.id)
     else if (t.kind === 'bucket') await api.deleteBucket(t.id)
-    else if (t.kind === 'image') await api.deleteImage(t.id)
-    else if (t.kind === 'drawing') await api.deleteDrawing(t.id)
-    else if (t.kind === 'label') await api.deleteLabel(t.id)
+    else if (isCanvasKind(t.kind)) await canvasKinds[t.kind].remove(t.id)
     else await api.deleteBoardTag(boardId, t.id)
     return
   }
@@ -389,9 +436,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
       const b = to as unknown as CardComponent
       await api.addCardComponent(t.cardId, { id: t.id, kind: b.kind, title: b.title, items: b.items, links: b.links, x: b.x, y: b.y, width: b.width, height: b.height })
     } else if (t.kind === 'bucket') await api.restoreBucket(t.id)
-    else if (t.kind === 'image') await api.restoreImage(t.id)
-    else if (t.kind === 'drawing') await api.restoreDrawing(t.id)
-    else if (t.kind === 'label') await api.restoreLabel(t.id)
+    else if (isCanvasKind(t.kind)) await canvasKinds[t.kind].restore(t.id)
     else await api.restoreBoardTag(boardId, t.id)
     return
   }
@@ -428,35 +473,20 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
       return
     }
     case 'image': {
-      const changes: ImageChanges = {}
-      if ('cardId' in to) {
-        if (to.cardId) changes.cardId = to.cardId as string
-        else changes.detach = true
-      }
-      if ('x' in to) Object.assign(changes, { x: to.x, y: to.y }, endsOnBoard(t.id, board.images, to) ? dropBucket(to.bucketId) : {})
+      const changes: ImageChanges = placeOfSnapshot(t.kind, t.id, to, board)
       if ('width' in to) changes.width = to.width as number
       if ('caption' in to) changes.caption = text(to.caption)
       await api.updateImage(t.id, changes)
       return
     }
     case 'drawing': {
-      const changes: DrawingChanges = {}
-      if ('cardId' in to) {
-        if (to.cardId) changes.cardId = to.cardId as string
-        else changes.detach = true
-      }
-      if ('x' in to) Object.assign(changes, { x: to.x, y: to.y }, endsOnBoard(t.id, board.drawings, to) ? dropBucket(to.bucketId) : {})
+      const changes: DrawingChanges = placeOfSnapshot(t.kind, t.id, to, board)
       if ('colors' in to) changes.colors = to.colors as DrawingChanges['colors']
       await api.updateDrawing(t.id, changes)
       return
     }
     case 'label': {
-      const changes: LabelChanges = {}
-      if ('cardId' in to) {
-        if (to.cardId) changes.cardId = to.cardId as string
-        else changes.detach = true
-      }
-      if ('x' in to) Object.assign(changes, { x: to.x, y: to.y }, endsOnBoard(t.id, board.labels, to) ? dropBucket(to.bucketId) : {})
+      const changes: LabelChanges = placeOfSnapshot(t.kind, t.id, to, board)
       if ('ink' in to) changes.ink = to.ink as LabelChanges['ink']
       if ('size' in to) changes.size = to.size as LabelChanges['size']
       if ('content' in to) changes.content = to.content as LabelChanges['content']
@@ -464,8 +494,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
       if ('minHeight' in to) changes.minHeight = (to.minHeight as number | null) ?? 0
       if ('background' in to) changes.background = to.background as boolean
       // Measured with the text, so they go back with it.
-      if ('width' in to) Object.assign(changes, { width: to.width, height: to.height ?? board.labels.find((l) => l.id === t.id)?.height })
-      else if ('height' in to) Object.assign(changes, { height: to.height, width: board.labels.find((l) => l.id === t.id)?.width })
+      if ('width' in to) Object.assign(changes, { width: to.width, height: to.height })
       await api.updateLabel(t.id, changes)
       return
     }
@@ -487,7 +516,7 @@ async function fixCarried(entry: UndoEntry, direction: UndoDirection, carry: Buc
   const carried = new Set([...(carry?.cards ?? []), ...(carry?.images ?? []), ...(carry?.drawings ?? []), ...(carry?.labels ?? [])])
   for (const change of entry.changes) {
     const kind = change.target.kind
-    if (!change.implied || (kind !== 'card' && kind !== 'image' && kind !== 'drawing' && kind !== 'label') || !carried.has(change.target.id)) continue
+    if (!change.implied || (kind !== 'card' && !isCanvasKind(kind)) || !carried.has(change.target.id)) continue
     const was = direction === 'undo' ? change.after : change.before
     const goal = direction === 'undo' ? change.before : change.after
     if (!was || !goal) continue
@@ -495,8 +524,6 @@ async function fixCarried(entry: UndoEntry, direction: UndoDirection, carry: Buc
     if (landed.x === goal.x && landed.y === goal.y) continue
     const place = { x: goal.x as number, y: goal.y as number }
     if (kind === 'card') await api.moveCard(change.target.id, place)
-    else if (kind === 'image') await api.updateImage(change.target.id, place)
-    else if (kind === 'label') await api.updateLabel(change.target.id, place)
-    else await api.updateDrawing(change.target.id, place)
+    else await canvasKinds[kind as CanvasKind].update(change.target.id, place)
   }
 }

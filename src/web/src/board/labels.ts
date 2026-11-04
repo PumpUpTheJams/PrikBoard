@@ -1,6 +1,7 @@
-import { cardRoute, cardPath } from '../api/cardLinks'
-import type { InkColor, LabelBlock, LabelDetail, LabelRun, LabelSize } from '../api/types'
+import { cardPath } from '../api/cardLinks'
+import type { InkColor, LabelBlock, LabelDetail, LabelRun, LabelSize, Point } from '../api/types'
 import { inkColor } from './drawings'
+import { cardRoute, webUrl } from './links'
 
 /** The font size of a label size, in canvas pixels (BoardLabel.Pixels on the server). */
 export const labelPixels: Record<LabelSize, number> = { S: 14, M: 21, L: 35, XL: 56 }
@@ -35,19 +36,14 @@ export interface LabelEditorHandle {
 }
 
 /** The links a label can have, as the server's CardLinks takes them: absolute http(s) URLs, or a card's path. */
-export function isLabelLink(url: string) {
-  if (cardRoute(url, window.location.origin)) return true
-  try {
-    const { protocol } = new URL(url)
-    return protocol === 'http:' || protocol === 'https:'
-  } catch {
-    return false
-  }
-}
+export const isLabelLink = (url: string) => !!cardRoute(url) || !!webUrl(url)
+
+/** The link under a press in a label, if any. */
+export const linkUnder = (target: EventTarget) => (target instanceof Element ? (target.closest('a')?.getAttribute('href') ?? null) : null)
 
 /** Follows a label's link: a card opens in place, anything else in a new tab. */
 export function followLabelLink(href: string) {
-  const route = cardRoute(href, window.location.origin)
+  const route = cardRoute(href)
   if (route) window.location.hash = cardPath(route).slice(1)
   else window.open(href, '_blank', 'noopener')
 }
@@ -99,7 +95,7 @@ export function groupedBlocks(blocks: LabelBlock[]) {
 export const MIN_LABEL_BOX = 60
 
 /** A bar where a line of text is, in px from the label's padding box. */
-export interface FarBar {
+interface FarBar {
   x: number
   y: number
   width: number
@@ -158,3 +154,6 @@ export const LABEL_INSET = { x: 15, y: 11 }
 
 /** The ink and size a new label starts with; everything else is done while editing it. */
 export const NEW_LABEL_STYLE: { ink: InkColor; size: LabelSize } = { ink: 'Theme', size: 'S' }
+
+/** Where the corner of a label started with a click goes, so its first line is where the click was. */
+export const clickedCorner = (at: Point): Point => ({ x: at.x - LABEL_INSET.x, y: at.y - LABEL_INSET.y - labelPixels[NEW_LABEL_STYLE.size] / 2 })

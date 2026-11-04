@@ -781,6 +781,19 @@ namespace PrikBoard.Api.Data.Migrations
                     b.ToTable("ChatWorkspaces");
                 });
 
+            modelBuilder.Entity("PrikBoard.Api.Domain.DataMigration", b =>
+                {
+                    b.Property<string>("Name")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("DoneAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Name");
+
+                    b.ToTable("DataMigrations");
+                });
+
             modelBuilder.Entity("PrikBoard.Api.Domain.DiscordBotSettings", b =>
                 {
                     b.Property<int>("Id")

@@ -136,6 +136,30 @@ public static class BoardEndpoints
         Guid boardId, HttpContext http, PrikBoardDbContext db, CancellationToken ct) =>
         SnapshotAsync(boardId, http, db, withCanvasItems: true, ct);
 
+    /// <summary>A board's labels for its snapshot, without the text their content already says: a board can hold thousands.</summary>
+    private static Task<List<BoardLabel>> LabelsOnBoardAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>
+        db.Labels.AsNoTracking().Where(l => l.BoardId == boardId).Select(l => new BoardLabel
+        {
+            Id = l.Id,
+            BoardId = l.BoardId,
+            CardId = l.CardId,
+            BucketId = l.BucketId,
+            X = l.X,
+            Y = l.Y,
+            Width = l.Width,
+            Height = l.Height,
+            WrapWidth = l.WrapWidth,
+            MinHeight = l.MinHeight,
+            Background = l.Background,
+            Ink = l.Ink,
+            Size = l.Size,
+            Content = l.Content,
+            AddedById = l.AddedById,
+            AddedBy = l.AddedBy,
+            CreatedAt = l.CreatedAt,
+            UpdatedAt = l.UpdatedAt,
+        }).ToListAsync(ct);
+
     /// <summary>getBoard's snapshot; without <paramref name="withCanvasItems"/> its images and drawings are left out (empty).</summary>
     internal static async Task<Results<Ok<BoardDetail>, NotFound>> SnapshotAsync(
         Guid boardId, HttpContext http, PrikBoardDbContext db, bool withCanvasItems, CancellationToken ct)
@@ -146,12 +170,12 @@ public static class BoardEndpoints
             query = query
                 .Include(b => b.Images).ThenInclude(i => i.AddedBy)
                 .Include(b => b.Images).ThenInclude(i => i.File)
-                .Include(b => b.Drawings).ThenInclude(d => d.AddedBy)
-                .Include(b => b.Labels).ThenInclude(l => l.AddedBy);
+                .Include(b => b.Drawings).ThenInclude(d => d.AddedBy);
         }
         var board = await query.AsSplitQuery().FirstOrDefaultAsync(b => b.Id == boardId, ct);
 
         if (board is null) return TypedResults.NotFound();
+        if (withCanvasItems) board.Labels = await LabelsOnBoardAsync(db, boardId, ct);
         var principals = await CardEndpoints.PrincipalsOnAsync(db, board.Cards, ct);
         if (http.IsBoardVisitor())
         {

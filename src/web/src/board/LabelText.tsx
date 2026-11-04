@@ -33,24 +33,21 @@ function ListOf({ blocks }: { blocks: LabelBlock[] }) {
     else lists.push([item])
   }
   return lists.map((list, i) => {
-    const shown = list.map(({ block, inner }, j) => (
-      <li key={j} className={block.kind === 'Task' ? 'task' : undefined}>
-        {block.kind === 'Task' ? (
-          <>
-            <input type="checkbox" checked={block.done === true} disabled readOnly />
-            <div>
-              {line(block)}
-              {inner.length > 0 && <ListOf blocks={inner} />}
-            </div>
-          </>
-        ) : (
-          <>
-            {line(block)}
-            {inner.length > 0 && <ListOf blocks={inner} />}
-          </>
-        )}
-      </li>
-    ))
+    const shown = list.map(({ block, inner }, j) => {
+      const body = (
+        <>
+          {line(block)}
+          {inner.length > 0 && <ListOf blocks={inner} />}
+        </>
+      )
+      if (block.kind !== 'Task') return <li key={j}>{body}</li>
+      return (
+        <li key={j} className="task">
+          <input type="checkbox" checked={block.done === true} disabled readOnly />
+          <div>{body}</div>
+        </li>
+      )
+    })
     return list[0].block.kind === 'Numbered' ? <ol key={i}>{shown}</ol> : <ul key={i}>{shown}</ul>
   })
 }

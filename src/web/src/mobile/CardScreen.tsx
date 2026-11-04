@@ -97,7 +97,7 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
     const label = editingLabel
     if (isBlankLabel(content)) {
       setEditingLabel(undefined)
-      if (label) await run(...ops.deleteLabel(label))
+      if (label) await run(...ops.deleteItem('label', label))
       return
     }
     const wrapWidth = label ? label.wrapWidth : DEFAULT_WRAP_WIDTH
@@ -138,14 +138,12 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
       <LabelScreen
         card={card}
         label={editingLabel ?? undefined}
-        ink="Theme"
-        size="S"
         onCancel={() => setEditingLabel(undefined)}
         onSave={saveLabel}
         onRemove={() => {
           const label = editingLabel
           setEditingLabel(undefined)
-          if (label) void run(...ops.deleteLabel(label))
+          if (label) void run(...ops.deleteItem('label', label))
         }}
       />
     )

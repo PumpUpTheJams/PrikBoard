@@ -15,7 +15,7 @@ export function ImageScreen({ board, image, run }: { board: BoardDetail; image: 
   const label = image.caption ?? image.fileName
 
   async function remove() {
-    if (await run(...ops.deleteImage(image))) back(up)
+    if (await run(...ops.deleteItem('image', image))) back(up)
   }
 
   return (

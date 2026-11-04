@@ -7,8 +7,8 @@ import { eraserRadius, inkColor, movePenRing, CARD_PEN, usePen } from './drawing
 import { DrawingGhost, DrawingToolbar, DrawingView, IncomingDrawingView, PenRing, StrokeSvg } from './DrawingView'
 import { delta, isDrag } from './gesture'
 import { ImageInspector } from './Inspector'
-import { DEFAULT_WRAP_WIDTH, followLabelLink, LABEL_INSET, labelPixels, MIN_LABEL_BOX, NEW_LABEL_STYLE } from './labels'
-import { LabelBar, LabelBoxHandles, LabelGhost, LabelView } from './LabelView'
+import { clickedCorner, DEFAULT_WRAP_WIDTH, linkUnder, MIN_LABEL_BOX } from './labels'
+import { LabelGhost, LabelView } from './LabelView'
 import { componentSize, defaultComponentSize, freeSpot, onCardCanvas, resizeFrom, resizeImage, snapPoint, spanRect } from './layout'
 import { ComponentFrame, ChecklistComponent, LinksComponent } from './CardComponents'
 import { CardBar } from './CardBar'
@@ -16,10 +16,11 @@ import { allOf, ops, runAll, settling } from './ops'
 import { resizeCursor } from './resizeCursor'
 import { componentMatches, labelMatches, type SearchTerm } from './search'
 import { adds, bounds, insideClient, mergePicked, togglePicked, touches, useSelection, useSpaceHeld, type Picked } from './selection'
-import { count } from './boardItems'
+import { CANVAS_KINDS, count, isCanvasKind, type CanvasKind } from './boardItems'
+import type { IncomingItem } from './dropTargets'
 import { useFileDrop, usePan, useScrollStore } from './canvasHooks'
 import { inField } from './keys'
-import { deleted, patched, snap, step, target, type RecordingRun, type UndoChange } from './undo'
+import { canvasKinds, deleted, itemDeleted, patched, placeItem, snap, step, target, type RecordingRun, type UndoChange } from './undo'
 import { useEraser } from './useEraser'
 import { useLabelEditing } from './useLabelEditing'
 import { useLabelHover } from './useLabelHover'
@@ -38,24 +39,6 @@ export interface CardCanvasHandle {
   pastePoint: () => Point
 }
 
-/** A board image dragged over the canvas, at the top-left it would get here. */
-export interface IncomingImage {
-  image: ImageDetail
-  at: Point
-}
-
-/** A board drawing dragged over the canvas, at the top-left it would get here. */
-export interface IncomingDrawing {
-  drawing: DrawingDetail
-  at: Point
-}
-
-/** A board label dragged over the canvas, at the top-left it would get here. */
-export interface IncomingLabel {
-  label: LabelDetail
-  at: Point
-}
-
 type Kind = 'component' | 'component-resize' | 'image' | 'image-resize' | 'drawing' | 'label'
 
 /** A selected component, image, drawing or label. */
@@ -71,8 +54,6 @@ const itemKindOf: Record<Kind, Item['kind']> = {
   label: 'label',
 }
 
-/** How long a click on a selected label's link waits for a second click, which edits the label instead. */
-const LINK_DELAY_MS = 300
 
 /** A press on a component, image or drawing, in card pixels. */
 interface Gesture {
@@ -119,9 +100,7 @@ interface CardCanvasProps {
   history?: HistoryButtons
   /** Whether a gesture is in progress, so the board holds back its refreshes. */
   onBusy: (busy: boolean) => void
-  incoming: IncomingImage | null
-  incomingDrawing: IncomingDrawing | null
-  incomingLabel: IncomingLabel | null
+  incoming: IncomingItem | null
   onAddImages: (files: File[], at?: Point) => void
   onPickImages: () => void
   /** A screen point in board canvas pixels when it is over the board, to drop an image or drawing there; else null. */
@@ -135,7 +114,7 @@ interface CardCanvasProps {
 
 /** The card's own small board: its components, images and drawings, moved and resized like items on the board, with zoom and pan. */
 export function CardCanvas(props: CardCanvasProps) {
-  const { card, images, drawings, labels, cards, readOnly, highlight, handle, run, history, onBusy, incoming, incomingDrawing, incomingLabel, onAddImages, onPickImages, boardPoint, dropBucket, boardZoom, onDeleteCard } = props
+  const { card, images, drawings, labels, cards, readOnly, highlight, handle, run, history, onBusy, incoming, onAddImages, onPickImages, boardPoint, dropBucket, boardZoom, onDeleteCard } = props
   /** The selected items: one, or several (Shift or Ctrl/Cmd + click, or the selection rectangle). */
   const { selected, setSelected, selection, setSelection, unselect, isSelected } = useSelection<Item>()
   /** Space is held: a left press pans, as the middle button does. */
@@ -150,7 +129,7 @@ export function CardCanvas(props: CardCanvasProps) {
   const pan = usePan(scrollRef, canvasRef)
   const lastPointer = useRef<Point | null>(null)
   /** The images the last two presses were on: the canvas holds the pointer, so double-clicks reach it, not the image. */
-  const imagePresses = useRef<[string | null, string | null]>([null, null])
+  const itemPresses = useRef<[string | null, string | null]>([null, null])
   const { zoom, zoomTo } = useZoom(scrollRef, NO_INSET)
   // A zoom moved the scroll position in code: the minimap catches up before the browser paints.
   useLayoutEffect(() => view.refresh())
@@ -161,11 +140,6 @@ export function CardCanvas(props: CardCanvasProps) {
   const drawingOn = !readOnly && penOn
   /** The card's label tool: on, the next press adds a label there. */
   const [labelOn, setLabelOn] = useState(false)
-  /** The link a press on a selected label was on: released without a drag, it is followed, unless a second press makes it a double-click. */
-  const labelLink = useRef<string | null>(null)
-  const labelLinkTimer = useRef(0)
-  /** The labels the last two presses were on: the canvas holds the pointer, so double-clicks reach it, not the label. */
-  const labelPresses = useRef<[string | null, string | null]>([null, null])
   useEffect(() => () => onBusy(false), [onBusy])
 
   function toCard(client: Point): Point {
@@ -205,6 +179,10 @@ export function CardCanvas(props: CardCanvasProps) {
   const labelEdit = useLabelEditing({ boardId: card.boardId, settle, canvasRef })
   const labelHover = useLabelHover()
 
+  /** The images, drawings and labels on the card, by kind. */
+  const onCard = { image: images, drawing: drawings, label: labels }
+  const itemOf = (kind: CanvasKind, id: string) => onCard[kind].find((x) => x.id === id)
+
   const saveComponent = (component: CardComponent, changes: Parameters<typeof api.updateCardComponent>[2]) =>
     settle(...ops.editComponent(card.id, component, changes))
 
@@ -229,19 +207,10 @@ export function CardCanvas(props: CardCanvasProps) {
   function remove(kind: Item['kind'], id: string) {
     unselect(id)
     const component = kind === 'component' ? card.components.find((b) => b.id === id) : undefined
-    const image = kind === 'image' ? images.find((i) => i.id === id) : undefined
-    const drawing = kind === 'drawing' ? drawings.find((d) => d.id === id) : undefined
-    const label = kind === 'label' ? labels.find((l) => l.id === id) : undefined
-    if (label) {
-      void settle(...ops.deleteLabel(label))
-    } else if (component) {
-      // An empty component goes without a toast; it can still be undone.
-      void settle(...ops.removeComponent(card.id, component))
-    } else if (image) {
-      void settle(...ops.deleteImage(image))
-    } else if (drawing) {
-      void settle(...ops.deleteDrawing(drawing))
-    }
+    const item = isCanvasKind(kind) ? itemOf(kind, id) : undefined
+    // An empty component goes without a toast; it can still be undone.
+    if (component) void settle(...ops.removeComponent(card.id, component))
+    else if (item) void settle(...ops.deleteItem(kind as CanvasKind, item))
   }
 
   /** Removes the selected items at once, as one step that the toast can undo. */
@@ -255,22 +224,10 @@ export function CardCanvas(props: CardCanvasProps) {
         await api.deleteCardComponent(card.id, id)
         return deleted(target.component(card.id, id), snap.component(component))
       }
-      if (kind === 'image') {
-        const image = images.find((i) => i.id === id)
-        if (!image) return null
-        await api.deleteImage(id)
-        return deleted(target.image(id), snap.image(image))
-      }
-      if (kind === 'label') {
-        const label = labels.find((l) => l.id === id)
-        if (!label) return null
-        await api.deleteLabel(id)
-        return deleted(target.label(id), snap.label(label))
-      }
-      const drawing = drawings.find((d) => d.id === id)
-      if (!drawing) return null
-      await api.deleteDrawing(id)
-      return deleted(target.drawing(id), snap.drawing(drawing))
+      const item = itemOf(kind, id)
+      if (!item) return null
+      await canvasKinds[kind].remove(id)
+      return itemDeleted(kind, item)
     }
     const what = count(items.length, 'item', 'items')
     void runAll(settle, `Remove ${what}`, `${what} removed`, (changes) =>
@@ -282,47 +239,21 @@ export function CardCanvas(props: CardCanvasProps) {
   function moveGroup(items: Item[]) {
     // Work out every place now, as the drag shows it, before any request changes the card.
     const requests = items.flatMap(({ kind, id }) => {
-      const component = kind === 'component' ? card.components.find((b) => b.id === id) : undefined
-      const image = kind === 'image' ? images.find((i) => i.id === id) : undefined
-      const drawing = kind === 'drawing' ? drawings.find((d) => d.id === id) : undefined
-      const label = kind === 'label' ? labels.find((l) => l.id === id) : undefined
-      if (label) {
-        const { x, y } = labelRect(label)
-        return [
-          async () => {
-            const after = await api.updateLabel(id, { x, y })
-            return patched(target.label(id), snap.label(label), snap.label(after), ['x', 'y'])
-          },
-        ]
+      if (kind !== 'component') {
+        const item = itemOf(kind, id)
+        if (!item) return []
+        const { x, y } = itemRect(item)
+        return [() => placeItem(kind, item, { x, y })]
       }
-      if (component) {
-        const { x, y } = componentRect(component)
-        return [
-          async () => {
-            const after = await api.updateCardComponent(card.id, id, { x, y })
-            return patched(target.component(card.id, id), snap.component(component), snap.component(after), ['x', 'y'])
-          },
-        ]
-      }
-      if (image) {
-        const { x, y } = imageRect(image)
-        return [
-          async () => {
-            const after = await api.updateImage(id, { x, y })
-            return patched(target.image(id), snap.image(image), snap.image(after), ['x', 'y'])
-          },
-        ]
-      }
-      if (drawing) {
-        const { x, y } = drawingRect(drawing)
-        return [
-          async () => {
-            const after = await api.updateDrawing(id, { x, y })
-            return patched(target.drawing(id), snap.drawing(drawing), snap.drawing(after), ['x', 'y'])
-          },
-        ]
-      }
-      return []
+      const component = card.components.find((b) => b.id === id)
+      if (!component) return []
+      const { x, y } = componentRect(component)
+      return [
+        async () => {
+          const after = await api.updateCardComponent(card.id, id, { x, y })
+          return patched(target.component(card.id, id), snap.component(component), snap.component(after), ['x', 'y'])
+        },
+      ]
     })
     void runAll(settle, `Move ${count(items.length, 'item', 'items')}`, undefined, (changes) =>
       allOf(requests.map(async (request) => changes.push(await request()))),
@@ -336,9 +267,7 @@ export function CardCanvas(props: CardCanvasProps) {
   function inRectangle(rect: Rect): Item[] {
     return [
       ...card.components.filter((b) => touches(rect, b)).map((b) => ({ kind: 'component' as const, id: b.id })),
-      ...images.filter((i) => touches(rect, i)).map((i) => ({ kind: 'image' as const, id: i.id })),
-      ...drawings.filter((d) => touches(rect, d)).map((d) => ({ kind: 'drawing' as const, id: d.id })),
-      ...labels.filter((l) => touches(rect, l)).map((l) => ({ kind: 'label' as const, id: l.id })),
+      ...CANVAS_KINDS.flatMap((kind) => onCard[kind].filter((x) => touches(rect, x)).map((x) => ({ kind, id: x.id }))),
     ]
   }
 
@@ -359,24 +288,16 @@ export function CardCanvas(props: CardCanvasProps) {
   }
 
   function imageRect(image: ImageDetail): Rect {
-    if (!dragging || !moves(image.id) || leaving) return image
-    const d = delta(dragging)
-    const moved = { x: image.x + d.x, y: image.y + d.y }
-    if (dragging.kind === 'image' || dragging.kind === 'group') return { ...image, ...onCardCanvas(moved, image) }
-    const resized = resizeImage(image, dragging.handle, d)
+    if (dragging?.kind !== 'image-resize' || !moves(image.id) || leaving) return itemRect(image)
+    const resized = resizeImage(image, dragging.handle, delta(dragging))
     return { ...image, ...resized, ...onCardCanvas(resized, resized) }
   }
 
-  function drawingRect(drawing: DrawingDetail): Rect {
-    if (!dragging || !moves(drawing.id) || leaving) return drawing
+  /** Where an image, drawing or label moved with the drag is shown right now. */
+  function itemRect(item: Rect & { id: string }): Rect {
+    if (!dragging || !moves(item.id) || leaving) return item
     const d = delta(dragging)
-    return { ...drawing, ...onCardCanvas({ x: drawing.x + d.x, y: drawing.y + d.y }, drawing) }
-  }
-
-  function labelRect(label: LabelDetail): Rect {
-    if (!dragging || !moves(label.id) || leaving) return label
-    const d = delta(dragging)
-    return { ...label, ...onCardCanvas({ x: label.x + d.x, y: label.y + d.y }, label) }
+    return { ...item, ...onCardCanvas({ x: item.x + d.x, y: item.y + d.y }, item) }
   }
 
   /**
@@ -388,12 +309,10 @@ export function CardCanvas(props: CardCanvasProps) {
     // With the pen on, a press draws over whatever is there (onPenPointerDown took it already); with Space held, the
     // canvas pans.
     if (e.button !== 0 || drawingOn || spaceHeld) return
-    imagePresses.current = [imagePresses.current[1], kind === 'image' ? id : null]
-    labelPresses.current = [labelPresses.current[1], kind === 'label' ? id : null]
-    window.clearTimeout(labelLinkTimer.current)
-    labelLink.current = kind === 'label' && isSelected('label', id) && e.target instanceof Element ? (e.target.closest('a')?.getAttribute('href') ?? null) : null
+    itemPresses.current = [itemPresses.current[1], kind === 'image' || kind === 'label' ? id : null]
+    labelEdit.pressLink(kind === 'label' && isSelected('label', id) ? linkUnder(e.target) : null)
     // Viewers follow a label's links by the browser's own click.
-    if (readOnly && kind === 'label' && e.target instanceof Element && e.target.closest('a')) return
+    if (readOnly && kind === 'label' && linkUnder(e.target)) return
     const item: Item = { kind: itemKindOf[kind], id }
     // The title field and the remove button in a component's header work as usual.
     const control = e.target instanceof Element && e.target.closest('input, button')
@@ -460,11 +379,10 @@ export function CardCanvas(props: CardCanvasProps) {
     if (isDrag(g)) {
       const box = spanRect(snapPoint(g.start), snapPoint(g.current))
       const size = { width: Math.max(box.width, MIN_LABEL_BOX), height: box.height }
-      labelEdit.startNew(onCardCanvas(box, size), NEW_LABEL_STYLE, card.id, undefined, size)
+      labelEdit.startNew(onCardCanvas(box, size), card.id, size)
       return
     }
-    const at = g.start
-    labelEdit.startNew(onCardCanvas({ x: at.x - LABEL_INSET.x, y: at.y - LABEL_INSET.y - labelPixels[NEW_LABEL_STYLE.size] / 2 }, { width: 0, height: 0 }), NEW_LABEL_STYLE, card.id, undefined, { width: DEFAULT_WRAP_WIDTH })
+    labelEdit.startNew(onCardCanvas(clickedCorner(g.start), { width: 0, height: 0 }), card.id, { width: DEFAULT_WRAP_WIDTH })
   }
 
   /** Turns the card's label tool on or off. */
@@ -492,10 +410,7 @@ export function CardCanvas(props: CardCanvasProps) {
     // held (without touching the selection or the field being typed in).
     const panning = e.button === 1 || (e.button === 0 && spaceHeld)
     if (!empty && !panning) return
-    if (empty) {
-      imagePresses.current = [imagePresses.current[1], null]
-      labelPresses.current = [labelPresses.current[1], null]
-    }
+    if (empty) itemPresses.current = [itemPresses.current[1], null]
     if (e.button !== 0 && e.button !== 1) return
     if (empty && !panning && !readOnly) {
       beginGesture(e, { kind: 'select', id: '', handle: 'BottomRight', items: adds(e) ? selected : [] })
@@ -554,9 +469,7 @@ export function CardCanvas(props: CardCanvasProps) {
       // A click on one of several selected selects just that one.
       const held = gesture.kind === 'group' && gesture.items?.find((i) => i.id === gesture.id)
       if (held) setSelection(held)
-      // Waits to see this isn't a double-click, which edits the label.
-      const link = labelLink.current
-      if (gesture.kind === 'label' && link) labelLinkTimer.current = window.setTimeout(() => followLabelLink(link), LINK_DELAY_MS)
+      if (gesture.kind === 'label') labelEdit.followLink()
       return
     }
     if (gesture.kind === 'group') {
@@ -567,7 +480,8 @@ export function CardCanvas(props: CardCanvasProps) {
     const { id } = gesture
     if (leaving) {
       // Dropped outside the window: onto the board, held at the point where it was grabbed; elsewhere it goes back.
-      const item = gesture.kind === 'label' ? labels.find((l) => l.id === id)! : gesture.kind === 'drawing' ? drawings.find((d) => d.id === id)! : images.find((i) => i.id === id)!
+      const kind = gesture.kind as CanvasKind
+      const item = itemOf(kind, id)!
       const at = boardPoint(gesture.client)
       if (!at) {
         setGesture(null)
@@ -578,20 +492,14 @@ export function CardCanvas(props: CardCanvasProps) {
       const grab = { x: gesture.start.x - item.x, y: gesture.start.y - item.y }
       const corner = snapPoint({ x: at.x - grab.x, y: at.y - grab.y })
       const place = { detach: true, ...corner, ...dropBucket?.(at, { ...corner, width: item.width, height: item.height }) }
-      if (gesture.kind === 'label') void settle(...ops.editLabel(item as LabelDetail, place, 'Put label on the board', ['cardId', 'x', 'y']))
-      else if (gesture.kind === 'drawing') void settle(...ops.editDrawing(item as DrawingDetail, place, 'Put drawing on the board', ['cardId', 'x', 'y']))
-      else void settle(...ops.editImage(item as ImageDetail, place, 'Put image on the board', ['cardId', 'x', 'y']))
+      void settle(...ops.placeItem(kind, item, place, `Put ${kind} on the board`, ['cardId', 'x', 'y']))
       return
     }
     setGesture({ ...gesture, done: true })
-    if (gesture.kind === 'label') {
-      const label = labels.find((l) => l.id === id)!
-      const { x, y } = labelRect(label)
-      void settle(...ops.editLabel(label, { x, y }, 'Move label', ['x', 'y']))
-    } else if (gesture.kind === 'drawing') {
-      const drawing = drawings.find((d) => d.id === id)!
-      const { x, y } = drawingRect(drawing)
-      void settle(...ops.editDrawing(drawing, { x, y }, 'Move drawing', ['x', 'y']))
+    if (gesture.kind === 'label' || gesture.kind === 'drawing') {
+      const item = itemOf(gesture.kind, id)!
+      const { x, y } = itemRect(item)
+      void settle(...ops.placeItem(gesture.kind, item, { x, y }, `Move ${gesture.kind}`, ['x', 'y']))
     } else if (gesture.kind === 'component' || gesture.kind === 'component-resize') {
       const component = card.components.find((b) => b.id === id)!
       const { x, y, width, height } = componentRect(component)
@@ -612,20 +520,16 @@ export function CardCanvas(props: CardCanvasProps) {
 
   const components = card.components.map((component) => ({ component, rect: componentRect(component) }))
   const placed = images.map((image) => ({ image, rect: imageRect(image) }))
-  const strokes = drawings.map((drawing) => ({ drawing, rect: drawingRect(drawing) }))
-  const placedLabels = labels.map((label) => ({ label, rect: labelRect(label) }))
-  const beingEdited = labelEdit.draft?.label?.id ?? labelEdit.saving?.label?.id
-  const ghost = incoming && { ...incoming.image, ...onCardCanvas(incoming.at, incoming.image) }
-  const drawingGhost = incomingDrawing && { drawing: incomingDrawing.drawing, at: onCardCanvas(incomingDrawing.at, incomingDrawing.drawing) }
-  const labelGhost = incomingLabel && { label: incomingLabel.label, at: onCardCanvas(incomingLabel.at, incomingLabel.label) }
+  const strokes = drawings.map((drawing) => ({ drawing, rect: itemRect(drawing) }))
+  const placedLabels = labels.map((label) => ({ label, rect: itemRect(label) }))
+  const { beingEdited } = labelEdit
+  const ghostAt = incoming && onCardCanvas(incoming.at, incoming.item)
   const all = bounds([
     ...components.map((b) => b.rect),
     ...placed.map((p) => p.rect),
     ...strokes.map((s) => s.rect),
     ...placedLabels.map((l) => l.rect),
-    ...(labelGhost ? [{ ...labelGhost.label, ...labelGhost.at }] : []),
-    ...(ghost ? [ghost] : []),
-    ...(drawingGhost ? [{ ...drawingGhost.drawing, ...drawingGhost.at }] : []),
+    ...(incoming ? [{ ...incoming.item, ...ghostAt }] : []),
   ])
   const extent = {
     width: Math.max(Math.floor(size.width / zoom), CANVAS_MARGIN + Math.max(0, all ? all.x + all.width : 0)),
@@ -644,13 +548,11 @@ export function CardCanvas(props: CardCanvasProps) {
   const selectedImage = !readOnly && selection?.kind === 'image' ? images.find((i) => i.id === selection.id) : undefined
   const selectedDrawing = !readOnly && selection?.kind === 'drawing' ? strokes.find((s) => s.drawing.id === selection.id) : undefined
   const selectedLabel = !readOnly && selection?.kind === 'label' ? placedLabels.find((l) => l.label.id === selection.id) : undefined
-  /** The label the mouse is over shows its bar too, unless something else is going on. */
-  const hoveredLabel = !readOnly && !labelOn && !drawingOn && !gesture && labelHover.hovered !== selectedLabel?.label.id ? placedLabels.find((l) => l.label.id === labelHover.hovered) : undefined
   /** A drawing selected by itself scales and turns from its handles (not while drawing). */
   const reshapable = (id: string) => !readOnly && !drawingOn && selected.length === 1 && isSelected('drawing', id)
 
   return (
-    <div className={`card-viewport${incoming || incomingDrawing || incomingLabel ? ' drop-over' : ''}`}>
+    <div className={`card-viewport${incoming ? ' drop-over' : ''}`}>
       <div
         ref={scrollRef}
         className={`card-scroll${fileDrop.over ? ' file-over' : ''}`}
@@ -724,15 +626,14 @@ export function CardCanvas(props: CardCanvasProps) {
               rubber.cancel()
             }}
             onDoubleClick={() => {
-              const [firstLabel, secondLabel] = labelPresses.current
-              const label = secondLabel && firstLabel === secondLabel && labels.find((l) => l.id === secondLabel)
+              const [first, second] = itemPresses.current
+              if (!second || first !== second) return
+              const label = labels.find((l) => l.id === second)
               if (label) {
-                window.clearTimeout(labelLinkTimer.current)
-                if (!readOnly) labelEdit.edit(label)
+                labelEdit.doubleClick(label, readOnly)
                 return
               }
-              const [first, second] = imagePresses.current
-              const image = second && first === second && images.find((i) => i.id === second)
+              const image = images.find((i) => i.id === second)
               if (image) window.open(image.contentUrl, '_blank', 'noopener')
             }}
           >
@@ -822,25 +723,16 @@ export function CardCanvas(props: CardCanvasProps) {
                 </div>
               ))}
 
-            {labelEdit.editor(zoom, (label) => void settle(...ops.deleteLabel(label)))}
+            {labelEdit.editor(zoom)}
             {labelEdit.savingView()}
-
-            {selectedLabel && !labelEdit.draft && !labelEdit.saving && !(dragging?.id === selectedLabel.label.id && !dragging.done) && (
-              <>
-                <LabelBar rect={selectedLabel.rect} zoom={zoom} {...labelEdit.selectedActions(selectedLabel.label, () => remove('label', selectedLabel.label.id))} />
-                <LabelBoxHandles key={selectedLabel.label.id} id={selectedLabel.label.id} at={selectedLabel.rect} minHeight={selectedLabel.label.minHeight} zoom={zoom} onResize={(box) => labelEdit.resize(selectedLabel.label, box)} onReset={() => labelEdit.unbox(selectedLabel.label)} />
-              </>
-            )}
-
-            {hoveredLabel && !labelEdit.draft && !labelEdit.saving && (
-              <LabelBar
-                key={hoveredLabel.label.id}
-                rect={hoveredLabel.rect}
-                zoom={zoom}
-                {...labelHover.barHover}
-                {...labelEdit.selectedActions(hoveredLabel.label, () => remove('label', hoveredLabel.label.id))}
-              />
-            )}
+            {labelEdit.chrome({
+              zoom,
+              selected: dragging?.id === selectedLabel?.label.id && !dragging?.done ? undefined : selectedLabel,
+              // The label the mouse is over shows its bar too, unless something else is going on.
+              hover: !readOnly && !labelOn && !drawingOn && !gesture ? labelHover : null,
+              labelAt: (id) => (id === selectedLabel?.label.id ? undefined : placedLabels.find((l) => l.label.id === id)),
+              onDelete: (id) => remove('label', id),
+            })}
 
             {pen.strokes.map((s, i) => (
               <StrokeSvg key={i} points={s.points} color={inkColor[s.color]} strokeWidth={s.width} at={{ x: 0, y: 0 }} />
@@ -856,17 +748,17 @@ export function CardCanvas(props: CardCanvasProps) {
               />
             )}
 
-            {ghost && (
-              <div className="incoming-image" aria-hidden="true" style={{ left: ghost.x, top: ghost.y, width: ghost.width, height: ghost.height }}>
-                <img src={ghost.contentUrl} alt="" draggable={false} />
+            {incoming?.kind === 'image' && ghostAt && (
+              <div className="incoming-image" aria-hidden="true" style={{ left: ghostAt.x, top: ghostAt.y, width: incoming.item.width, height: incoming.item.height }}>
+                <img src={incoming.item.contentUrl} alt="" draggable={false} />
               </div>
             )}
 
-            {drawingGhost && <IncomingDrawingView drawing={drawingGhost.drawing} at={drawingGhost.at} />}
+            {incoming?.kind === 'drawing' && ghostAt && <IncomingDrawingView drawing={incoming.item} at={ghostAt} />}
 
-            {labelGhost && (
+            {incoming?.kind === 'label' && ghostAt && (
               <div className="incoming-label" aria-hidden="true">
-                <LabelView label={labelGhost.label} at={labelGhost.at} lifted />
+                <LabelView label={incoming.item} at={ghostAt} lifted />
               </div>
             )}
 
@@ -881,7 +773,7 @@ export function CardCanvas(props: CardCanvasProps) {
         </div>
       </div>
 
-      {card.components.length === 0 && images.length === 0 && drawings.length === 0 && labels.length === 0 && !incoming && !incomingDrawing && !incomingLabel && !drawingOn && !labelOn && !labelEdit.draft && (
+      {card.components.length === 0 && images.length === 0 && drawings.length === 0 && labels.length === 0 && !incoming && !drawingOn && !labelOn && !labelEdit.draft && (
         <p className="card-empty">
           {readOnly ? 'Nothing here yet.' : 'Add a label, a checklist or links from the bar below, draw with the pen, or paste or drop an image.'}
         </p>

@@ -20,3 +20,10 @@ public class NoteBackup
     public Guid? LabelId { get; set; }
     public DateTimeOffset MigratedAt { get; set; } = DateTimeOffset.UtcNow;
 }
+
+/// <summary>A migration of stored data that is done, so startup doesn't look for its work again.</summary>
+public class DataMigration
+{
+    public required string Name { get; set; }
+    public DateTimeOffset DoneAt { get; set; } = DateTimeOffset.UtcNow;
+}

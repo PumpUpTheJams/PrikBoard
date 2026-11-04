@@ -36,6 +36,7 @@ public class PrikBoardDbContext : DbContext
     public DbSet<BoardDrawing> Drawings => Set<BoardDrawing>();
     public DbSet<DrawingContent> DrawingContents => Set<DrawingContent>();
     public DbSet<NoteBackup> NoteBackups => Set<NoteBackup>();
+    public DbSet<DataMigration> DataMigrations => Set<DataMigration>();
     public DbSet<BoardLabel> Labels => Set<BoardLabel>();
     public DbSet<CardChange> CardChanges => Set<CardChange>();
     public DbSet<ChatWorkspace> ChatWorkspaces => Set<ChatWorkspace>();
@@ -167,6 +168,7 @@ public class PrikBoardDbContext : DbContext
             content.Property(c => c.Strokes).HasColumnType("jsonb").HasConversion(DrawingStrokesJson.Converter, DrawingStrokesJson.Comparer);
         });
 
+        modelBuilder.Entity<DataMigration>().HasKey(m => m.Name);
         modelBuilder.Entity<NoteBackup>(backup =>
         {
             backup.HasOne<Card>().WithMany().HasForeignKey(b => b.CardId).OnDelete(DeleteBehavior.Cascade);

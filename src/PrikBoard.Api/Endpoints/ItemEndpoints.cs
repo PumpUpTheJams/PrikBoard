@@ -60,15 +60,15 @@ public static class ItemEndpoints
             .Select(d => new { d.Id, d.CardId }).ToListAsync(ct);
         var labels = await db.Labels.AsNoTracking().Where(l => l.BoardId == boardId && labelIds.Contains(l.Id))
             .Select(l => new { l.Id, l.CardId }).ToListAsync(ct);
-        if (Missing(cards.Count, cardIds, buckets.Count, bucketIds, images.Count, imageIds, drawings.Count, drawingIds, labels.Count, labelIds, "not deleted already") is { } missing)
+        if (Missing("not deleted already", ("cardIds", cards.Count, cardIds), ("bucketIds", buckets.Count, bucketIds), ("imageIds", images.Count, imageIds), ("drawingIds", drawings.Count, drawingIds), ("labelIds", labels.Count, labelIds)) is { } missing)
         {
             return missing;
         }
 
         // Images, drawings and labels first, so those on the cards going too come back with them only when asked for.
-        await db.Images.Where(i => imageIds.Contains(i.Id)).ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, now), ct);
-        await db.Drawings.Where(d => drawingIds.Contains(d.Id)).ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, now), ct);
-        await db.Labels.Where(l => labelIds.Contains(l.Id)).ExecuteUpdateAsync(s => s.SetProperty(l => l.DeletedAt, now), ct);
+        await Tombstones.StampAsync(db.Images.Where(i => imageIds.Contains(i.Id)), now, ct);
+        await Tombstones.StampAsync(db.Drawings.Where(d => drawingIds.Contains(d.Id)), now, ct);
+        await Tombstones.StampAsync(db.Labels.Where(l => labelIds.Contains(l.Id)), now, ct);
         foreach (var image in images.Where(i => i.CardId is not null))
         {
             CardHistory.Record(db, principal, image.CardId!.Value, boardId, new(CardChangeKind.ImageRemoved, Before: image.Label, Ref: image.Id));
@@ -99,7 +99,7 @@ public static class ItemEndpoints
             foreach (var bucket in buckets) bucket.DeletedAt = now;
             var remaining = Layout.BackToFront(await db.Buckets.Where(b => b.BoardId == boardId && !bucketIds.Contains(b.Id)).ToListAsync(ct));
             var left = await db.Cards.Where(n => n.BoardId == boardId).ToListAsync(ct);
-            var items = await BucketEndpoints.CanvasItemsAsync(db, boardId, ct);
+            var items = await BucketEndpoints.CanvasItemsInAsync(db, bucketIds, ct);
             foreach (var bucket in buckets) Layout.Release(bucket, remaining, left, items);
         }
 
@@ -126,17 +126,15 @@ public static class ItemEndpoints
             .Where(d => d.BoardId == boardId && drawingIds.Contains(d.Id)).ToListAsync(ct);
         var labels = await db.Labels.WithDeleted().Include(l => l.AddedBy)
             .Where(l => l.BoardId == boardId && labelIds.Contains(l.Id)).ToListAsync(ct);
-        if (Missing(cards.Count, cardIds, buckets.Count, bucketIds, images.Count, imageIds, drawings.Count, drawingIds, labels.Count, labelIds, "not gone for good") is { } missing)
+        if (Missing("not gone for good", ("cardIds", cards.Count, cardIds), ("bucketIds", buckets.Count, bucketIds), ("imageIds", images.Count, imageIds), ("drawingIds", drawings.Count, drawingIds), ("labelIds", labels.Count, labelIds)) is { } missing)
         {
             return missing;
         }
 
         // An image, drawing or label on a card comes back only with the card.
         var deletedCards = cards.Where(n => n.DeletedAt is not null).ToList();
-        var cardsOn = images.Where(i => i.DeletedAt is not null).Select(i => i.CardId)
-            .Concat(drawings.Where(d => d.DeletedAt is not null).Select(d => d.CardId))
-            .Concat(labels.Where(l => l.DeletedAt is not null).Select(l => l.CardId))
-            .OfType<Guid>().Distinct().ToList();
+        List<ICanvasItem> gone = [.. images.Where(i => i.DeletedAt is not null), .. drawings.Where(d => d.DeletedAt is not null), .. labels.Where(l => l.DeletedAt is not null)];
+        var cardsOn = gone.Select(i => i.CardId).OfType<Guid>().Distinct().ToList();
         var live = await db.Cards.Where(n => cardsOn.Contains(n.Id)).Select(n => n.Id).ToListAsync(ct);
         if (cardsOn.Except(live).Except(deletedCards.Select(n => n.Id)).Any())
         {
@@ -156,14 +154,7 @@ public static class ItemEndpoints
         // Cards deleted together share a stamp, and so do the images, drawings and labels deleted with them.
         foreach (var group in deletedCards.GroupBy(n => n.DeletedAt!.Value))
         {
-            var ids = group.Select(n => n.Id).ToList();
-            var stamp = group.Key;
-            await db.Images.WithDeleted().Where(i => i.CardId != null && ids.Contains(i.CardId.Value) && i.DeletedAt == stamp)
-                .ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, (DateTimeOffset?)null), ct);
-            await db.Drawings.WithDeleted().Where(d => d.CardId != null && ids.Contains(d.CardId.Value) && d.DeletedAt == stamp)
-                .ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, (DateTimeOffset?)null), ct);
-            await db.Labels.WithDeleted().Where(l => l.CardId != null && ids.Contains(l.CardId.Value) && l.DeletedAt == stamp)
-                .ExecuteUpdateAsync(s => s.SetProperty(l => l.DeletedAt, (DateTimeOffset?)null), ct);
+            await Tombstones.RestoreWithCardsAsync(db, [.. group.Select(n => n.Id)], group.Key, ct);
         }
         // UpdatedAt stays, so they go back to their places in the stacking order too, and back in their bucket if that still
         // reaches them, else loose.
@@ -172,20 +163,10 @@ public static class ItemEndpoints
             card.DeletedAt = null;
             Layout.Recheck(card, stacked);
         }
-        foreach (var image in images.Where(i => i.DeletedAt is not null))
+        foreach (var item in gone)
         {
-            image.DeletedAt = null;
-            Layout.Recheck(image, stacked);
-        }
-        foreach (var drawing in drawings.Where(d => d.DeletedAt is not null))
-        {
-            drawing.DeletedAt = null;
-            Layout.Recheck(drawing, stacked);
-        }
-        foreach (var label in labels.Where(l => l.DeletedAt is not null))
-        {
-            label.DeletedAt = null;
-            Layout.Recheck(label, stacked);
+            item.DeletedAt = null;
+            Layout.Recheck(item, stacked);
         }
 
         await db.SaveChangesAsync(ct);
@@ -209,16 +190,12 @@ public static class ItemEndpoints
     private static ValidationProblem Nothing() => Problems.Invalid("cardIds", "Name at least one card, bucket, image, drawing or label.");
 
     /// <summary>A problem keyed on the first list with an item that wasn't found, or null when all were.</summary>
-    private static ValidationProblem? Missing(
-        int cards, List<Guid> cardIds, int buckets, List<Guid> bucketIds, int images, List<Guid> imageIds, int drawings, List<Guid> drawingIds,
-        int labels, List<Guid> labelIds, string condition)
+    private static ValidationProblem? Missing(string condition, params (string Key, int Found, List<Guid> Asked)[] lists)
     {
-        var key = cards != cardIds.Count ? "cardIds"
-            : buckets != bucketIds.Count ? "bucketIds"
-            : images != imageIds.Count ? "imageIds"
-            : drawings != drawingIds.Count ? "drawingIds"
-            : labels != labelIds.Count ? "labelIds"
-            : null;
-        return key is null ? null : Problems.Invalid(key, $"Every item must be on this board and {condition}.");
+        foreach (var (key, found, asked) in lists)
+        {
+            if (found != asked.Count) return Problems.Invalid(key, $"Every item must be on this board and {condition}.");
+        }
+        return null;
     }
 }

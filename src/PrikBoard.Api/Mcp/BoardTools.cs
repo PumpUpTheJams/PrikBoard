@@ -275,8 +275,7 @@ public sealed partial class BoardTools
         if (kind == CardComponentKind.Text)
         {
             if (items is not null || links is not null) throw new McpException("Text takes text, not items or links; use a Checklist or Links component.");
-            var written = string.IsNullOrWhiteSpace(title) ? text : $"### {title.Trim()}\n\n{text}";
-            var added = await AddCardTextAsync(http, db, boardId, cardId, written ?? "", ct);
+            var added = await AddCardTextAsync(http, db, boardId, cardId, LabelMarkdown.Titled(title, text), ct);
             await McpCall.AnnounceAsync(http, boardId);
             return ComponentView.OfLabel(added);
         }

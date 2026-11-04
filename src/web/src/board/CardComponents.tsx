@@ -4,7 +4,7 @@ import { componentKinds } from './componentKinds'
 import { Highlight } from './Highlight'
 import type { SearchTerm } from './search'
 import { CloseIcon, LinkIcon, CardIcon, PencilIcon, PullRequestIcon, TrashIcon } from './icons'
-import { isCardId, linkedCard, cardLabel, cardPath, cardRoute, type CardRoute } from './links'
+import { isCardId, linkedCard, cardLabel, cardPath, cardRoute, webUrl, type CardRoute } from './links'
 import { ResizeHandles } from './ResizeHandles'
 
 interface ComponentFrameProps {
@@ -179,16 +179,6 @@ export function ChecklistComponent({ items, highlight, autoFocus, readOnly, tick
       )}
     </>
   )
-}
-
-/** The address only when it is http(s), so a link can never run script. */
-function webUrl(value: string): URL | null {
-  try {
-    const url = new URL(value)
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url : null
-  } catch {
-    return null
-  }
 }
 
 interface LinksComponentProps {

@@ -183,15 +183,20 @@ export const BoardMapItems = memo(function BoardMapItems({ left, top, scale, buc
     return () => observer.disconnect()
   }, [])
 
+  /** How each class of item looks, kept until the theme changes: finding out flushes the page's styles. */
+  const styleCache = useRef({ theme: -1, styles: new Map<string, { color: string; opacity: number }>() })
+
   useLayoutEffect(() => {
     const el = canvas.current!
     const ratio = window.devicePixelRatio || 1
-    el.width = MAP_WIDTH * ratio
-    el.height = MAP_HEIGHT * ratio
+    if (el.width !== MAP_WIDTH * ratio) el.width = MAP_WIDTH * ratio
+    if (el.height !== MAP_HEIGHT * ratio) el.height = MAP_HEIGHT * ratio
     const context = el.getContext('2d')
     if (!context) return
-    context.scale(ratio, ratio)
-    const styles = new Map<string, { color: string; opacity: number }>()
+    context.setTransform(ratio, 0, 0, ratio, 0, 0)
+    context.clearRect(0, 0, MAP_WIDTH, MAP_HEIGHT)
+    if (styleCache.current.theme !== theme) styleCache.current = { theme, styles: new Map() }
+    const { styles } = styleCache.current
     const draw = (r: Rect, className: string) => {
       let style = styles.get(className)
       if (!style) styles.set(className, (style = mapStyle(el, className)))

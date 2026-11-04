@@ -13,7 +13,6 @@ namespace PrikBoard.Api.Data;
 public static class NoteMigration
 {
     private const string TextKind = "Text";
-    private const string HeadingMark = "### ";
     private const int Batch = 200;
 
     /// <summary>What a run did. PlainText counts notes whose Markdown labels refused, kept as plain text.</summary>
@@ -26,6 +25,19 @@ public static class NoteMigration
         public Guid? CreatedById { get; set; }
         public DateTimeOffset? DeletedAt { get; set; }
         public string Components { get; set; } = "";
+    }
+
+    /// <summary>
+    /// <see cref="RunAsync"/> at startup, until a run has finished: nothing writes notes any more, and looking for them reads every
+    /// card (no index holds what is in the components).
+    /// </summary>
+    public static async Task<Report> RunOnceAsync(PrikBoardDbContext db, CancellationToken ct = default)
+    {
+        if (await db.DataMigrations.AnyAsync(m => m.Name == nameof(NoteMigration), ct)) return new();
+        var report = await RunAsync(db, ct);
+        db.DataMigrations.Add(new DataMigration { Name = nameof(NoteMigration) });
+        await db.SaveChangesAsync(ct);
+        return report;
     }
 
     /// <summary>Migrates every card with notes, each in a transaction of its own, so a run stopped halfway goes on from there next time.</summary>
@@ -125,7 +137,7 @@ public static class NoteMigration
     {
         var (hasTitle, hasText) = (!string.IsNullOrWhiteSpace(title), !string.IsNullOrWhiteSpace(text));
         if (!hasTitle && !hasText) return (null, false);
-        var markdown = (hasTitle ? HeadingMark + title!.Trim() + "\n\n" : "") + (text ?? "");
+        var markdown = LabelMarkdown.Titled(title, text);
         var (blocks, problem) = BoardLabel.Check(LabelMarkdown.Parse(markdown), maxTextLength: int.MaxValue);
         if (problem is null) return (blocks, false);
         // What Markdown can't say, say as it is: this can't refuse, as long as there is text.

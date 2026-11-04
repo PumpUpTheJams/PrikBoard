@@ -1,8 +1,9 @@
 import { Suspense, useState } from 'react'
 import type { CardDetail, InkColor, LabelBlock, LabelDetail, LabelSize } from '../api/types'
 import { inkColor } from '../board/drawings'
+import { keepTextSelected } from '../board/gesture'
 import { LabelEditor } from '../board/LabelEditing'
-import { labelPixels } from '../board/labels'
+import { labelPixels, NEW_LABEL_STYLE } from '../board/labels'
 import { LabelText } from '../board/LabelText'
 import { LabelTools } from '../board/LabelView'
 import { useLabelTools } from '../board/useLabelTools'
@@ -11,9 +12,6 @@ interface LabelScreenProps {
   card: CardDetail
   /** The label being edited; without one, a new one is written. */
   label?: LabelDetail
-  /** The ink and size a new one starts with. */
-  ink: InkColor
-  size: LabelSize
   onCancel: () => void
   /** Saves it; the screen closes when that worked. */
   onSave: (content: LabelBlock[], ink: InkColor, size: LabelSize, background: boolean) => Promise<void>
@@ -21,10 +19,10 @@ interface LabelScreenProps {
 }
 
 /** A label written on a screen of its own, new or opened with its edit button: a draft until Add or Save, like `ComponentEditor`. */
-export function LabelScreen({ card, label, ink: startInk, size: startSize, onCancel, onSave, onRemove }: LabelScreenProps) {
+export function LabelScreen({ card, label, onCancel, onSave, onRemove }: LabelScreenProps) {
   const content = label?.content ?? []
   const [busy, setBusy] = useState(false)
-  const { handle, ink, size, background, onReady, onChange, tools } = useLabelTools({ ink: label?.ink ?? startInk, size: label?.size ?? startSize, background: label?.background ?? true, onDelete: onRemove })
+  const { handle, ink, size, background, onReady, onChange, tools } = useLabelTools({ ink: label?.ink ?? NEW_LABEL_STYLE.ink, size: label?.size ?? NEW_LABEL_STYLE.size, background: label?.background ?? true, onDelete: onRemove })
 
   function save() {
     setBusy(true)
@@ -45,10 +43,7 @@ export function LabelScreen({ card, label, ink: startInk, size: startSize, onCan
           {label ? 'Save' : 'Add'}
         </button>
       </header>
-      <div className="m-label-tools" role="toolbar" aria-label="Label" onMouseDown={(e) => {
-        // A press here keeps the text selected, except in the link's own field.
-        if (!(e.target instanceof HTMLInputElement)) e.preventDefault()
-      }}>
+      <div className="m-label-tools" role="toolbar" aria-label="Label" onMouseDown={keepTextSelected}>
         <LabelTools {...tools} />
       </div>
       <div className="m-scroll m-stack">

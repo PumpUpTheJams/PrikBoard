@@ -449,6 +449,15 @@ public static class Layout
         return (Gap, Gap);
     }
 
+    /// <summary>Snaps x and y; on a card, also keeps the item on its canvas, at the last grid line that fits.</summary>
+    public static void Put(ICanvasItem item, int x, int y)
+    {
+        static int OnCard(int value, int size) =>
+            Math.Clamp(Snap(value), 0, Math.Max(0, (CardCanvasMax - size) / Grid * Grid));
+
+        (item.X, item.Y) = item.CardId is null ? (Snap(x), Snap(y)) : (OnCard(x, item.Width), OnCard(y, item.Height));
+    }
+
     /// <summary>What is on a card's canvas: its components, the images attached to it, and its labels.</summary>
     public static List<(int X, int Y, int Width, int Height)> TakenOnCard(Card card, IEnumerable<BoardImage> attached, IEnumerable<BoardLabel>? labels = null) =>
         [

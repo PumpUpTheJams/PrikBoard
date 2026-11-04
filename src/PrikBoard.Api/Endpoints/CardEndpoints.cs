@@ -567,7 +567,8 @@ public static class CardEndpoints
         {
             // The labels that come back with them: deleted at the same moment.
             var deletedAt = cards.ToDictionary(n => n.Id, n => n.DeletedAt);
-            var labels = (await db.Labels.AsNoTracking().WithDeleted().Where(l => l.BoardId == boardId && l.CardId != null && l.DeletedAt != null)
+            var searched = deletedAt.Keys.ToList();
+            var labels = (await db.Labels.AsNoTracking().WithDeleted().Where(l => l.BoardId == boardId && l.CardId != null && l.DeletedAt != null && searched.Contains(l.CardId.Value))
                     .Select(l => new { l.CardId, l.Text, l.DeletedAt }).ToListAsync(ct))
                 .Where(l => deletedAt.GetValueOrDefault(l.CardId!.Value) == l.DeletedAt)
                 .ToLookup(l => l.CardId!.Value, l => l.Text);
@@ -616,7 +617,7 @@ public static class CardEndpoints
         if (await TagEndpoints.EnsureBoardTagsAsync(db, card.BoardId, card.Tags, ct) is { } tooManyTags) return tooManyTags;
 
         card.DeletedAt = null;
-        await Tombstones.RestoreWithCardAsync(db, cardId, stamp, ct);
+        await Tombstones.RestoreWithCardsAsync(db, [cardId], stamp, ct);
         var stacked = await BucketEndpoints.StackAsync(db, card.BoardId, ct);
         if (request is { X: { } x, Y: { } y })
         {

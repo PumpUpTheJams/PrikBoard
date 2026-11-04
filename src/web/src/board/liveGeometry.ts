@@ -1,7 +1,7 @@
-import type { BoardDetail, BucketDetail, CardDetail, DragKind, DrawingDetail, ImageDetail, LabelDetail, Point, Rect, ResizeHandle } from '../api/types'
+import type { BoardDetail, BucketDetail, CardDetail, DragKind, ImageDetail, Point, Rect, ResizeHandle } from '../api/types'
 import type { LiveDrag } from '../live/useLive'
 import type { Gesture, ItemGesture } from './boardGesture'
-import { cardBox, itemsOf, kindOf, placeOf, type Selection, type SelectionKind } from './boardItems'
+import { cardBox, itemLists, itemsOf, kindOf, placeOf, type CanvasItem, type CanvasKind, type Selection, type SelectionKind } from './boardItems'
 import type { ArrangeDrop } from './dropTargets'
 import { delta, isDrag } from './gesture'
 import { CARD_HEIGHT, CARD_WIDTH, GRID, MIN_COORDINATE, bucketSize, collapsedRect, onBoard, resizeFrom, resizeImage, snapPoint } from './layout'
@@ -140,30 +140,17 @@ export function liveGeometry(board: BoardDetail, drags: ActiveDrag[], arrange: A
     return by ? along(card, by) : card
   }
 
-  function imageRect(image: ImageDetail): Rect {
-    const drag = dragOf(image.id)
-    if (drag?.kind === 'image') return { ...image, ...moved(image, drag.d) }
-    if (drag?.kind === 'image-resize') {
-      const resized = resizeImage(image, drag.handle, drag.d, MIN_COORDINATE)
-      return { ...image, ...resized, ...snapPoint(resized) }
+  /** Where an image, drawing or label on the board is shown right now. */
+  function canvasRect(kind: CanvasKind, item: CanvasItem): Rect {
+    const drag = dragOf(item.id)
+    if (drag?.kind === kind) return { ...item, ...moved(item, drag.d) }
+    if (kind === 'image' && drag?.kind === 'image-resize') {
+      const resized = resizeImage(item as ImageDetail, drag.handle, drag.d, MIN_COORDINATE)
+      return { ...item, ...resized, ...snapPoint(resized) }
     }
-    if (drag) return image
-    const by = carriedBy(image.bucketId)
-    return by ? { ...image, ...along(image, by) } : image
-  }
-
-  function drawingRect(drawing: DrawingDetail): Rect {
-    const drag = dragOf(drawing.id)
-    if (drag?.kind === 'drawing') return { ...drawing, ...moved(drawing, drag.d) }
-    const by = carriedBy(drawing.bucketId)
-    return by ? { ...drawing, ...along(drawing, by) } : drawing
-  }
-
-  function labelRect(label: LabelDetail): Rect {
-    const drag = dragOf(label.id)
-    if (drag?.kind === 'label') return { ...label, ...moved(label, drag.d) }
-    const by = carriedBy(label.bucketId)
-    return by ? { ...label, ...along(label, by) } : label
+    if (kind === 'image' && drag) return item
+    const by = carriedBy(item.bucketId)
+    return by ? { ...item, ...along(item, by) } : item
   }
 
   /** Where an item on the board is shown right now (moving or not); null when it isn't on the board. */
@@ -178,17 +165,9 @@ export function liveGeometry(board: BoardDetail, drags: ActiveDrag[], arrange: A
         if (!bucket) return null
         return bucket.collapsed ? collapsedRect(bucketRect(bucket)) : bucketRect(bucket)
       }
-      case 'drawing': {
-        const drawing = board.drawings.find((d) => d.id === id && d.cardId === null)
-        return drawing ? drawingRect(drawing) : null
-      }
-      case 'image': {
-        const image = board.images.find((i) => i.id === id && i.cardId === null)
-        return image ? imageRect(image) : null
-      }
-      case 'label': {
-        const label = board.labels.find((l) => l.id === id && l.cardId === null)
-        return label ? labelRect(label) : null
+      default: {
+        const item = itemLists(board)[kind].find((x) => x.id === id && x.cardId === null)
+        return item ? canvasRect(kind, item) : null
       }
     }
   }
@@ -203,5 +182,5 @@ export function liveGeometry(board: BoardDetail, drags: ActiveDrag[], arrange: A
     })
   }
 
-  return { dragOf, bucketRect, cardPoint, imageRect, drawingRect, labelRect, liveRect, remoteRects }
+  return { dragOf, bucketRect, cardPoint, canvasRect, liveRect, remoteRects }
 }

@@ -13,6 +13,10 @@ namespace PrikBoard.Api.Domain;
 /// </summary>
 public static partial class LabelMarkdown
 {
+    /// <summary>A title and text as Markdown, the title as a heading: what a card's old notes had as two fields.</summary>
+    public static string Titled(string? title, string? text) =>
+        (string.IsNullOrWhiteSpace(title) ? "" : $"### {title.Trim()}\n\n") + text;
+
     /// <summary>The blocks some Markdown holds. Check them with <see cref="BoardLabel.Check"/>: a bad link stays as text here only when it isn't http(s) or a card's path.</summary>
     public static List<LabelBlock> Parse(string markdown)
     {
@@ -28,6 +32,12 @@ public static partial class LabelMarkdown
             if (paragraph.Count == 0) return;
             blocks.Add(new(LabelBlockKind.Paragraph, Inline(string.Join('\n', paragraph))));
             paragraph.Clear();
+        }
+
+        void StartBlock()
+        {
+            EndParagraph();
+            indents.Clear();
         }
 
         void EndQuote()
@@ -61,8 +71,7 @@ public static partial class LabelMarkdown
             }
             if (trimmed.TrimStart().StartsWith('>'))
             {
-                EndParagraph();
-                indents.Clear();
+                StartBlock();
                 var rest = trimmed.TrimStart()[1..];
                 rest = rest.StartsWith(' ') ? rest[1..] : rest;
                 if (rest.Length == 0) EndQuote();
@@ -72,20 +81,17 @@ public static partial class LabelMarkdown
             EndQuote();
             if (Heading().Match(trimmed) is { Success: true } heading)
             {
-                EndParagraph();
-                indents.Clear();
+                StartBlock();
                 blocks.Add(new(LabelBlockKind.Heading, Inline(heading.Groups[2].Value), heading.Groups[1].Length));
             }
             else if (Rule().IsMatch(trimmed))
             {
-                EndParagraph();
-                indents.Clear();
+                StartBlock();
                 blocks.Add(new(LabelBlockKind.Rule, []));
             }
             else if (trimmed.Contains('|') && i + 1 < lines.Length && TableDivider().IsMatch(lines[i + 1].TrimEnd()))
             {
-                EndParagraph();
-                indents.Clear();
+                StartBlock();
                 blocks.Add(TableRow(trimmed));
                 for (i += 2; i < lines.Length && lines[i].Contains('|') && lines[i].Trim().Length > 0; i++) blocks.Add(TableRow(lines[i].TrimEnd()));
                 i--;
@@ -297,23 +303,11 @@ public static partial class LabelMarkdown
                 BoardLabel.Join(runs, style with { Text = code.Text, Code = true });
                 i = code.End;
             }
-            else if (Mark(text, i, "**") is { } bold)
+            else if (MarkAt(text, i) is { } mark)
             {
                 Flush();
-                AddInline(text[(i + 2)..bold], style with { Bold = true }, runs);
-                i = bold + 2;
-            }
-            else if (Mark(text, i, "~~") is { } strike)
-            {
-                Flush();
-                AddInline(text[(i + 2)..strike], style with { Strike = true }, runs);
-                i = strike + 2;
-            }
-            else if (Mark(text, i, "*") is { } italic)
-            {
-                Flush();
-                AddInline(text[(i + 1)..italic], style with { Italic = true }, runs);
-                i = italic + 1;
+                AddInline(text[(i + mark.Length)..mark.Close], mark.Apply(style), runs);
+                i = mark.Close + mark.Length;
             }
             else if (c == '[' && Link(text, i) is { } link)
             {
@@ -328,6 +322,23 @@ public static partial class LabelMarkdown
             }
         }
         Flush();
+    }
+
+    private static readonly (string Text, Func<LabelRun, LabelRun> Apply)[] Marks =
+    [
+        ("**", run => run with { Bold = true }),
+        ("~~", run => run with { Strike = true }),
+        ("*", run => run with { Italic = true }),
+    ];
+
+    /// <summary>The mark that opens at <paramref name="i"/>, longest first, and where it closes; null with none.</summary>
+    private static (int Length, int Close, Func<LabelRun, LabelRun> Apply)? MarkAt(string text, int i)
+    {
+        foreach (var (mark, apply) in Marks)
+        {
+            if (Mark(text, i, mark) is { } close) return (mark.Length, close, apply);
+        }
+        return null;
     }
 
     /// <summary>

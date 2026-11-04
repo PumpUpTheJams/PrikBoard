@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import type { BoardDetail, CardDetail } from '../api/types'
 import { BoardImageView } from '../board/BoardImageView'
 import { Card } from '../board/Card'
@@ -30,7 +30,7 @@ export function BucketScreen({ board, bucketId, tagColors, run, onCreated, actio
   const buckets = bucketsInOrder(board)
   const bucket = buckets.find((b) => b.id === bucketId)
   const tabs = [...buckets.map((b) => ({ id: b.id, name: b.name })), ...(hasLoose(board) ? [{ id: LOOSE, name: 'Not in a bucket' }] : [])]
-  const cardLabels = labelsByCard(board.labels)
+  const cardLabels = useMemo(() => labelsByCard(board.labels), [board.labels])
   const items = bucketItems(board, bucketId).filter((i) => terms.length === 0 || (i.kind === 'card' && matchCard(i.card, terms, cardLabels)))
   const attached = (card: CardDetail) => board.images.filter((i) => i.cardId === card.id).length
   const canAdd = board.yourRole !== 'Viewer' && bucket !== undefined

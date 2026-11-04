@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using PrikBoard.Api.Domain;
 
 namespace PrikBoard.Api.Data;
 
@@ -27,25 +28,26 @@ public static class Tombstones
     {
         var deleted = await db.Cards.Where(n => cardIds.Contains(n.Id)).ExecuteUpdateAsync(s => s.SetProperty(n => n.DeletedAt, stamp), ct);
         if (deleted == 0) return 0;
-        await db.Images.Where(i => i.CardId != null && cardIds.Contains(i.CardId.Value)).ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, stamp), ct);
-        await db.Drawings.Where(d => d.CardId != null && cardIds.Contains(d.CardId.Value)).ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, stamp), ct);
-        await db.Labels.Where(l => l.CardId != null && cardIds.Contains(l.CardId.Value)).ExecuteUpdateAsync(s => s.SetProperty(l => l.DeletedAt, stamp), ct);
+        await StampAsync(OnCards(db.Images, cardIds), stamp, ct);
+        await StampAsync(OnCards(db.Drawings, cardIds), stamp, ct);
+        await StampAsync(OnCards(db.Labels, cardIds), stamp, ct);
         return deleted;
     }
 
-    /// <summary>Brings back the images, drawings and labels deleted with a card: those with the card's <paramref name="stamp"/>.</summary>
-    public static async Task RestoreWithCardAsync(PrikBoardDbContext db, Guid cardId, DateTimeOffset stamp, CancellationToken ct)
+    /// <summary>Brings back the images, drawings and labels deleted with these cards: those with the cards' <paramref name="stamp"/>.</summary>
+    public static async Task RestoreWithCardsAsync(PrikBoardDbContext db, IReadOnlyCollection<Guid> cardIds, DateTimeOffset stamp, CancellationToken ct)
     {
-        await db.Images.WithDeleted()
-            .Where(i => i.CardId == cardId && i.DeletedAt == stamp)
-            .ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, (DateTimeOffset?)null), ct);
-        await db.Drawings.WithDeleted()
-            .Where(d => d.CardId == cardId && d.DeletedAt == stamp)
-            .ExecuteUpdateAsync(s => s.SetProperty(d => d.DeletedAt, (DateTimeOffset?)null), ct);
-        await db.Labels.WithDeleted()
-            .Where(l => l.CardId == cardId && l.DeletedAt == stamp)
-            .ExecuteUpdateAsync(s => s.SetProperty(l => l.DeletedAt, (DateTimeOffset?)null), ct);
+        await StampAsync(OnCards(db.Images.WithDeleted(), cardIds).Where(i => i.DeletedAt == stamp), null, ct);
+        await StampAsync(OnCards(db.Drawings.WithDeleted(), cardIds).Where(d => d.DeletedAt == stamp), null, ct);
+        await StampAsync(OnCards(db.Labels.WithDeleted(), cardIds).Where(l => l.DeletedAt == stamp), null, ct);
     }
+
+    /// <summary>Sets when these images, drawings or labels were deleted; null brings them back.</summary>
+    public static Task<int> StampAsync<T>(IQueryable<T> items, DateTimeOffset? stamp, CancellationToken ct) where T : class, ICanvasItem =>
+        items.ExecuteUpdateAsync(s => s.SetProperty(i => i.DeletedAt, stamp), ct);
+
+    private static IQueryable<T> OnCards<T>(IQueryable<T> items, IReadOnlyCollection<Guid> cardIds) where T : class, ICanvasItem =>
+        items.Where(i => i.CardId != null && cardIds.Contains(i.CardId.Value));
 
     /// <summary>Deletes for good everything deleted before <paramref name="cutoff"/>. Returns how many rows went.</summary>
     public static async Task<int> PurgeAsync(PrikBoardDbContext db, DateTimeOffset cutoff, CancellationToken ct)

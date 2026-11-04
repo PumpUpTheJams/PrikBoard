@@ -1,11 +1,11 @@
 import { api } from '../api/client'
-import { cardColors, type BoardDetail, type BucketDetail, type CardDetail, type DrawingDetail, type DropBucket, type GrowSide, type ImageDetail, type LabelDetail, type Point, type Rect } from '../api/types'
-import { cardBox, count, itemsOf, packed, type BucketItems, type Selection } from './boardItems'
+import { cardColors, type BoardDetail, type BucketDetail, type CardDetail, type DropBucket, type GrowSide, type Point, type Rect } from '../api/types'
+import { CANVAS_KINDS, canvasMembers, cardBox, count, itemsOf, packed, PLURAL, type BucketItems, type CanvasItem, type CanvasKind, type Selection } from './boardItems'
 import { CARD_HEIGHT, CARD_WIDTH, GRID, snapPoint } from './layout'
 import { allOf, bucketDelete, bucketMove, isBlankCard, runAll } from './ops'
 import type { CardSort } from './SelectionToolbar'
 import { bounds } from './selection'
-import { deleted, patched, snap, target, type RecordingRun, type UndoChange } from './undo'
+import { deleted, itemDeleted, itemPatched, patched, placeItem, snap, target, type RecordingRun, type UndoChange } from './undo'
 
 interface BoardMovesOptions {
   board: BoardDetail
@@ -23,9 +23,7 @@ interface BoardMovesOptions {
   /** Where items are shown right now (liveGeometry). */
   bucketRect: (bucket: BucketDetail) => Rect
   cardPoint: (card: CardDetail) => Point
-  imageRect: (image: ImageDetail) => Rect
-  drawingRect: (drawing: DrawingDetail) => Rect
-  labelRect: (label: LabelDetail) => Rect
+  canvasRect: (kind: CanvasKind, item: CanvasItem) => Rect
 }
 
 /** Where a dragged group was let go (`moveGroup`). */
@@ -38,7 +36,7 @@ export interface GroupDrop {
 
 /** Changes to several items at once, each saved as one undo step that keeps what went through when a request fails. */
 export function useBoardMoves(options: BoardMovesOptions) {
-  const { board, selected, setSelected, expanded, closeCard, settle, cardPlace, dropBucket, bucketRect, cardPoint, imageRect, drawingRect, labelRect } = options
+  const { board, selected, setSelected, expanded, closeCard, settle, cardPlace, dropBucket, bucketRect, cardPoint, canvasRect } = options
 
   /** Deletes the selected items at once, in one request; buckets go but what is in them stays. */
   function deleteSelected() {
@@ -47,19 +45,16 @@ export function useBoardMoves(options: BoardMovesOptions) {
     setSelected([])
     const cards = itemsOf(board, items, 'card')
     const buckets = itemsOf(board, items, 'bucket')
-    const images = itemsOf(board, items, 'image')
-    const drawings = itemsOf(board, items, 'drawing')
-    const labels = itemsOf(board, items, 'label')
+    const loose = canvasMembers(board, items)
     const ids = (list: { id: string }[]) => list.map((x) => x.id)
+    const idsOf = (kind: CanvasKind) => loose.flatMap((m) => (m.kind === kind ? [m.item.id] : []))
     return runAll(settle, `Delete ${count(items.length, 'item', 'items')}`, `${count(items.length, 'item', 'items')} deleted`, async (changes) => {
-      await api.deleteItems(board.id, { cardIds: ids(cards), bucketIds: ids(buckets), imageIds: ids(images), drawingIds: ids(drawings), labelIds: ids(labels) })
+      await api.deleteItems(board.id, { cardIds: ids(cards), bucketIds: ids(buckets), imageIds: idsOf('image'), drawingIds: idsOf('drawing'), labelIds: idsOf('label') })
       changes.push(
         // One with nothing on it is gone for good: nothing to undo.
         ...cards.filter((card) => !isBlankCard(board, card)).map((card) => deleted(target.card(card.id), snap.card(card))),
         ...buckets.flatMap((bucket) => bucketDelete(board, bucket)),
-        ...images.map((image) => deleted(target.image(image.id), snap.image(image))),
-        ...drawings.map((drawing) => deleted(target.drawing(drawing.id), snap.drawing(drawing))),
-        ...labels.map((label) => deleted(target.label(label.id), snap.label(label))),
+        ...loose.map(({ kind, item }) => itemDeleted(kind, item)),
       )
     })
   }
@@ -73,16 +68,12 @@ export function useBoardMoves(options: BoardMovesOptions) {
   function moveGroup(members: Selection[], label = `Move ${count(members.length, 'item', 'items')}`, by: Point = { x: 0, y: 0 }, drop?: GroupDrop) {
     const groupBuckets = itemsOf(board, members, 'bucket')
     const groupCards = itemsOf(board, members, 'card')
-    const groupImages = itemsOf(board, members, 'image')
-    const groupDrawings = itemsOf(board, members, 'drawing')
-    const groupLabels = itemsOf(board, members, 'label')
+    const groupItems = canvasMembers(board, members)
     // Work out every place now, as the drag shows it, before any request changes the board.
     const spots = new Map<string, Rect>([
       ...groupBuckets.map((b) => [b.id, bucketRect(b)] as const),
       ...groupCards.map((n) => [n.id, cardBox(cardPoint(n))] as const),
-      ...groupImages.map((i) => [i.id, imageRect(i)] as const),
-      ...groupDrawings.map((d) => [d.id, drawingRect(d)] as const),
-      ...groupLabels.map((l) => [l.id, labelRect(l)] as const),
+      ...groupItems.map(({ kind, item }) => [item.id, canvasRect(kind, item)] as const),
     ])
     const to = (id: string) => ({ x: spots.get(id)!.x + by.x, y: spots.get(id)!.y + by.y })
     // Items carried along with buckets go by their centers, as the buckets they land among were before.
@@ -100,18 +91,7 @@ export function useBoardMoves(options: BoardMovesOptions) {
                 changes.push(patched(target.card(n.id), snap.card(n), snap.card(moved), ['x', 'y']))
               }),
             ),
-        ...groupImages.map(async (i) => {
-          const moved = await api.updateImage(i.id, placed(i.id))
-          changes.push(patched(target.image(i.id), snap.image(i), snap.image(moved), ['x', 'y']))
-        }),
-        ...groupDrawings.map(async (d) => {
-          const moved = await api.updateDrawing(d.id, placed(d.id))
-          changes.push(patched(target.drawing(d.id), snap.drawing(d), snap.drawing(moved), ['x', 'y']))
-        }),
-        ...groupLabels.map(async (l) => {
-          const moved = await api.updateLabel(l.id, placed(l.id))
-          changes.push(patched(target.label(l.id), snap.label(l), snap.label(moved), ['x', 'y']))
-        }),
+        ...groupItems.map(async ({ kind, item }) => changes.push(await placeItem(kind, item, placed(item.id)))),
       ])
     })
   }
@@ -148,17 +128,11 @@ export function useBoardMoves(options: BoardMovesOptions) {
       const before = cards.find((n) => n.id === after.id)
       if (before) changes.push(patched(target.card(after.id), snap.card(before), snap.card(after), ['x', 'y']))
     }
-    for (const after of placed.images) {
-      const before = images.find((i) => i.id === after.id)
-      if (before) changes.push(patched(target.image(after.id), snap.image(before), snap.image(after), ['x', 'y']))
-    }
-    for (const after of placed.drawings) {
-      const before = drawings.find((d) => d.id === after.id)
-      if (before) changes.push(patched(target.drawing(after.id), snap.drawing(before), snap.drawing(after), ['x', 'y']))
-    }
-    for (const after of placed.labels) {
-      const before = labels.find((l) => l.id === after.id)
-      if (before) changes.push(patched(target.label(after.id), snap.label(before), snap.label(after), ['x', 'y']))
+    for (const kind of CANVAS_KINDS) {
+      for (const after of placed[PLURAL[kind]]) {
+        const before = items[PLURAL[kind]].find((x) => x.id === after.id)
+        if (before) changes.push(itemPatched(kind, before, after, ['x', 'y']))
+      }
     }
   }
 

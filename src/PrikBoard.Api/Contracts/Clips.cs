@@ -177,6 +177,9 @@ public record ClippedStroke(
 /// <param name="Height">Height of its text as last measured, in canvas pixels.</param>
 /// <param name="BucketId">For a label on the board: the copied bucket it is in (Buckets), or null.</param>
 /// <param name="Id">The label's id on its board, so a cut can remove it.</param>
+/// <param name="WrapWidth">The width its text wraps at, or null for as wide as its text.</param>
+/// <param name="Background">Whether it has a background. Clips from before this field say nothing: none.</param>
+/// <param name="MinHeight">The height it keeps with little text, or null for as tall as its text.</param>
 public record ClippedLabel(
     Guid? CardId,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int X,

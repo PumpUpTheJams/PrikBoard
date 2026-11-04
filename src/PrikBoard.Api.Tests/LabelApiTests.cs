@@ -644,6 +644,11 @@ public class LabelApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var report = await NoteMigration.RunAsync(db, TestContext.Current.CancellationToken);
         Assert.True(report.Cards >= 2 && report.Labels >= 2 && report.Empty >= 1, report.ToString());
         Assert.Equal(0, (await NoteMigration.RunAsync(db, TestContext.Current.CancellationToken)).Cards);
+        // Startup finished a run for this database, so it doesn't look again.
+        Assert.True(await db.DataMigrations.AnyAsync(m => m.Name == nameof(NoteMigration), TestContext.Current.CancellationToken));
+        await CardWithRawComponents(board.Id, "Written after", $"[{Note(Guid.CreateVersion7(), 20, 20, 340, 220, "left alone")}]");
+        Assert.Equal(0, (await NoteMigration.RunOnceAsync(db, TestContext.Current.CancellationToken)).Cards);
+        Assert.Equal(1, (await NoteMigration.RunAsync(db, TestContext.Current.CancellationToken)).Cards);
 
         var label = Assert.Single(await db.Labels.AsNoTracking().Where(l => l.CardId == cardId).ToListAsync(TestContext.Current.CancellationToken));
         Assert.Equal((20, 20, 400, 400, true, InkColor.Theme, LabelSize.S), (label.X, label.Y, label.Width, label.WrapWidth!.Value, label.Background, label.Ink, label.Size));

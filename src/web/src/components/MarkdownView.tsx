@@ -30,5 +30,3 @@ export function MarkdownView({ text, className }: MarkdownViewProps) {
     </div>
   )
 }
-
-export default MarkdownView

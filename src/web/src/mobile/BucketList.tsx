@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import type { BoardDetail, CardDetail } from '../api/types'
 import { Card } from '../board/Card'
 import { BucketIcon, ChevronRightIcon, CloseIcon, SearchIcon, SparkleIcon } from '../board/icons'
@@ -99,7 +99,7 @@ export function BucketList({ board, tagColors, query, onQuery, actions }: Bucket
 
 /** The cards on the board that match, under the bucket each is in (in the buckets' order), a card found by its number first. */
 function SearchResults({ board, terms, tagColors }: { board: BoardDetail; terms: SearchTerm[]; tagColors: TagColors }) {
-  const cardLabels = labelsByCard(board.labels)
+  const cardLabels = useMemo(() => labelsByCard(board.labels), [board.labels])
   const groups = [...bucketsInOrder(board).map((b) => ({ id: b.id, name: b.name })), { id: LOOSE, name: 'Not in a bucket' }]
     .map((group) => {
       const cards = bucketItems(board, group.id).flatMap((i) => (i.kind === 'card' && matchCard(i.card, terms, cardLabels) ? [i.card] : []))

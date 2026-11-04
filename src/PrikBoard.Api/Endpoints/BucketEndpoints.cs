@@ -199,15 +199,17 @@ public static class BucketEndpoints
         await db.Cards.Where(n => n.BucketId == bucketId).ExecuteUpdateAsync(s => s
             .SetProperty(n => n.X, n => Math.Min(Math.Max(n.X + dx, low), high))
             .SetProperty(n => n.Y, n => Math.Min(Math.Max(n.Y + dy, low), high)), ct);
-        await db.Images.Where(i => i.BucketId == bucketId).ExecuteUpdateAsync(s => s
+        await CarryAsync(db.Images.Where(i => i.BucketId == bucketId), dx, dy, ct);
+        await CarryAsync(db.Drawings.Where(d => d.BucketId == bucketId), dx, dy, ct);
+        await CarryAsync(db.Labels.Where(l => l.BucketId == bucketId), dx, dy, ct);
+    }
+
+    private static Task<int> CarryAsync<T>(IQueryable<T> items, int dx, int dy, CancellationToken ct) where T : class, ICanvasItem
+    {
+        const int low = Layout.MinCoordinate, high = Layout.MaxCoordinate;
+        return items.ExecuteUpdateAsync(s => s
             .SetProperty(i => i.X, i => Math.Min(Math.Max(i.X + dx, low), high))
             .SetProperty(i => i.Y, i => Math.Min(Math.Max(i.Y + dy, low), high)), ct);
-        await db.Drawings.Where(d => d.BucketId == bucketId).ExecuteUpdateAsync(s => s
-            .SetProperty(d => d.X, d => Math.Min(Math.Max(d.X + dx, low), high))
-            .SetProperty(d => d.Y, d => Math.Min(Math.Max(d.Y + dy, low), high)), ct);
-        await db.Labels.Where(l => l.BucketId == bucketId).ExecuteUpdateAsync(s => s
-            .SetProperty(l => l.X, l => Math.Min(Math.Max(l.X + dx, low), high))
-            .SetProperty(l => l.Y, l => Math.Min(Math.Max(l.Y + dy, low), high)), ct);
     }
 
     internal static async Task<Results<Ok<BucketDetail>, NotFound>> BringBucketToFront(
@@ -298,7 +300,9 @@ public static class BucketEndpoints
         var moving = items.Images.Select(i => i.Id).Concat(items.Drawings.Select(d => d.Id)).Concat((items.Labels ?? []).Select(l => l.Id)).ToHashSet();
         var images = await db.Images.Where(i => i.BoardId == bucket.BoardId && i.CardId == null).ToListAsync(ct);
         var drawings = await db.Drawings.Where(d => d.BoardId == bucket.BoardId && d.CardId == null).ToListAsync(ct);
-        var labels = await db.Labels.Where(l => l.BoardId == bucket.BoardId && l.CardId == null).ToListAsync(ct);
+        // Only where they are: those it takes are in items.
+        var labels = await db.Labels.AsNoTracking().Where(l => l.BoardId == bucket.BoardId && l.CardId == null)
+            .Select(l => new BoardLabel { Id = l.Id, BucketId = l.BucketId, X = l.X, Y = l.Y, Width = l.Width, Height = l.Height }).ToListAsync(ct);
         List<ICanvasItem> staying = [.. images.Where(i => !moving.Contains(i.Id)), .. drawings.Where(d => !moving.Contains(d.Id)), .. labels.Where(l => !moving.Contains(l.Id))];
         // They join the bucket by id, so only its own items (and loose ones) are in the way, not its neighbors': it may
         // grow over those, only as far as needed.
@@ -338,7 +342,7 @@ public static class BucketEndpoints
         bucket.DeletedAt = DateTimeOffset.UtcNow;
         var remaining = await db.Buckets.Where(b => b.BoardId == bucket.BoardId && b.Id != bucketId).ToListAsync(ct);
         var cards = await db.Cards.Where(n => n.BoardId == bucket.BoardId).ToListAsync(ct);
-        Layout.Release(bucket, Layout.BackToFront(remaining), cards, await CanvasItemsAsync(db, bucket.BoardId, ct));
+        Layout.Release(bucket, Layout.BackToFront(remaining), cards, await CanvasItemsInAsync(db, [bucketId], ct));
 
         await db.SaveChangesAsync(ct);
         return TypedResults.NoContent();
@@ -390,6 +394,14 @@ public static class BucketEndpoints
         if (buckets.FirstOrDefault(b => b.Id == id) is not { } bucket) return Problems.Invalid("bucketId", "The bucket does not exist on this board.");
         return Layout.PlaceIn(card, bucket) ? null : Problems.Invalid("bucketId", "With X and Y, the card must overlap the bucket.");
     }
+
+    /// <summary>The images, drawings and labels in these buckets: what deleting them lets go of.</summary>
+    internal static async Task<List<ICanvasItem>> CanvasItemsInAsync(PrikBoardDbContext db, IReadOnlyCollection<Guid> bucketIds, CancellationToken ct) =>
+    [
+        .. await db.Images.Where(i => i.BucketId != null && bucketIds.Contains(i.BucketId.Value)).ToListAsync(ct),
+        .. await db.Drawings.Where(d => d.BucketId != null && bucketIds.Contains(d.BucketId.Value)).ToListAsync(ct),
+        .. await db.Labels.Where(l => l.BucketId != null && bucketIds.Contains(l.BucketId.Value)).ToListAsync(ct),
+    ];
 
     /// <summary>The images, drawings and labels on the board (not on cards): the items besides cards that buckets take, carry and let go.</summary>
     internal static async Task<List<ICanvasItem>> CanvasItemsAsync(PrikBoardDbContext db, Guid boardId, CancellationToken ct) =>

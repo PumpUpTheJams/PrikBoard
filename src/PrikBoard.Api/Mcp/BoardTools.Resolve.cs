@@ -205,7 +205,6 @@ public sealed partial class BoardTools
             $"No bucket \"{bucket}\" on this board. Buckets: {string.Join(", ", buckets.Select(b => $"\"{b.Name}\""))}.");
     }
 
-    /// <summary>A component of the card by id, (case-insensitive) title, or kind when the card has exactly one component of that kind.</summary>
     /// <summary>
     /// The label on the card that <paramref name="component"/> names, or null when it names a component: by its id, or as "Text" or "Label"
     /// when the card has one label. Several labels need the id; with none, NoLabelYet says so.
@@ -213,7 +212,7 @@ public sealed partial class BoardTools
     private static async Task<(Guid? Label, bool NoLabelYet)> ResolveTextLabelAsync(PrikBoardDbContext db, Guid cardId, string component, CancellationToken ct)
     {
         var value = component.Trim();
-        var labels = await db.Labels.AsNoTracking().Where(l => l.CardId == cardId).OrderBy(l => l.Y).ThenBy(l => l.X).ToListAsync(ct);
+        var labels = await db.Labels.AsNoTracking().Where(l => l.CardId == cardId).OrderBy(l => l.Y).ThenBy(l => l.X).Select(l => new { l.Id, l.Text }).ToListAsync(ct);
         if (Guid.TryParse(value, out var id)) return (labels.Find(l => l.Id == id)?.Id, false);
         if (!value.Equals("Text", StringComparison.OrdinalIgnoreCase) && !value.Equals("Label", StringComparison.OrdinalIgnoreCase)) return (null, false);
 
@@ -224,6 +223,7 @@ public sealed partial class BoardTools
         return labels.Count == 1 ? (labels[0].Id, false) : (null, true);
     }
 
+    /// <summary>A component of the card by id, (case-insensitive) title, or kind when the card has exactly one component of that kind.</summary>
     private static async Task<Guid> ResolveComponentAsync(PrikBoardDbContext db, Guid cardId, string component, CancellationToken ct)
     {
         var components = await db.Cards.AsNoTracking().Where(n => n.Id == cardId).Select(n => n.Components).FirstAsync(ct);

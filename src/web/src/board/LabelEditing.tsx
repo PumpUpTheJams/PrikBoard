@@ -63,7 +63,7 @@ export function LabelEditing({ draft, zoom, commitRef, onFinish, onResize, onDel
         </Suspense>
       </div>
       <LabelBoxHandles at={draft.at} minHeight={draft.minHeight} zoom={zoom} onResize={onResize} />
-      <LabelToolbar rect={{ x: 0, y: 0, width: 0, height: 0 }} zoom={zoom} {...tools} />
+      <LabelToolbar zoom={zoom} {...tools} />
     </div>
   )
 }

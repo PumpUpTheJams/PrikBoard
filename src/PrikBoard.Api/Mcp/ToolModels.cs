@@ -115,6 +115,7 @@ public sealed record BoardListing(Guid Id, string ShortId, string Key, string Na
 /// <param name="CreatedBy">Who created it, when known.</param>
 /// <param name="CreatedAt">When it was created (UTC); from get_card.</param>
 /// <param name="DeletedAt">When it was deleted (UTC), for cards in the trash.</param>
+/// <param name="Labels">The labels on it; left out when it has none.</param>
 public sealed record CardView(
     Guid Id, string ReadableId, string Path, Guid BoardId, Guid? BucketId, string? Bucket, string Title, CardColor Color,
     IReadOnlyList<string>? Tags, IReadOnlyList<string>? Assignees, bool? AgentWorking, IReadOnlyList<ComponentView>? Components,

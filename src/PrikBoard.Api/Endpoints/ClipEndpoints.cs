@@ -862,7 +862,7 @@ public static class ClipEndpoints
             foreach (var bucket in buckets) bucket.DeletedAt = stamp;
             var remaining = Layout.BackToFront(await db.Buckets.Where(b => b.BoardId == from.Id && !bucketIds.Contains(b.Id)).ToListAsync(ct));
             var left = await db.Cards.Where(n => n.BoardId == from.Id).ToListAsync(ct);
-            var items = await BucketEndpoints.CanvasItemsAsync(db, from.Id, ct);
+            var items = await BucketEndpoints.CanvasItemsInAsync(db, bucketIds, ct);
             foreach (var bucket in buckets) Layout.Release(bucket, remaining, left, items);
         }
         return result;
