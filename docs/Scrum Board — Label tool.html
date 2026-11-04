@@ -503,6 +503,8 @@ function applyLink() {
 
 function drawOptions(ink, size, target) {
   const field = state.linkField
+  // A selected label has no ink or size of its own to change: those are for editing, and for new labels.
+  const styles = !target || !!state.editing
   options.classList.toggle('with-link', !!field)
   options.innerHTML =
     (target
@@ -512,10 +514,13 @@ function drawOptions(ink, size, target) {
         `<button class="label-size" data-link title="Link" aria-label="Link" aria-pressed="${!!linkAtSelection()}">${LINK_ICON}</button>` +
         '<span class="toolbar-divider"></span>'
       : '') +
-    `<div class="ink-swatches">${INKS.map((k) => `<button class="swatch" data-ink="${k}" title="${k}" aria-label="${k}" aria-pressed="${k === ink}" style="background:var(--ink-${k})"></button>`).join('')}</div>` +
-    '<span class="toolbar-divider"></span>' +
-    Object.keys(SIZES).map((k) => `<button class="label-size" data-size="${k}" aria-label="Size ${k}" aria-pressed="${k === size}">${k}</button>`).join('') +
-    (target ? `<span class="toolbar-divider"></span><button class="label-size label-delete" data-delete aria-label="Delete label" title="Delete">${TRASH}</button>` : '') +
+    (styles
+      ? `<div class="ink-swatches">${INKS.map((k) => `<button class="swatch" data-ink="${k}" title="${k}" aria-label="${k}" aria-pressed="${k === ink}" style="background:var(--ink-${k})"></button>`).join('')}</div>` +
+        '<span class="toolbar-divider"></span>' +
+        Object.keys(SIZES).map((k) => `<button class="label-size" data-size="${k}" aria-label="Size ${k}" aria-pressed="${k === size}">${k}</button>`).join('') +
+        (target ? '<span class="toolbar-divider"></span>' : '')
+      : '') +
+    (target ? `<button class="label-size label-delete" data-delete aria-label="Delete label" title="Delete">${TRASH}</button>` : '') +
     (field
       ? `<div class="link-field"><input type="text" aria-label="Link address" placeholder="https://example.com or a card link"><button data-link-apply>Apply</button>${field.editingLink ? '<button data-link-remove>Remove</button>' : ''}${field.error ? `<span class="link-error">${field.error}</span>` : ''}</div>`
       : '')

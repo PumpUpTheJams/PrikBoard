@@ -89,17 +89,19 @@ export function LabelEditing({ draft, zoom, commitRef, onFinish, onDelete }: Lab
       <LabelToolbar
         rect={{ x: 0, y: 0, width: 0, height: 0 }}
         zoom={zoom}
-        ink={here.ink}
-        size={here.size}
         isActive={(format) => !!handle?.isActive(format)}
         onToggle={(format) => handle?.toggle(format)}
         listActive={(kind) => !!handle?.listActive(kind)}
         onToggleList={(kind) => handle?.toggleList(kind)}
         linkActive={!!handle?.linkHref()}
         onLink={() => (link ? setLink(null) : openLink(handle))}
-        // For the text selected, or what is typed next at the cursor; only a label with no text yet takes it as its own.
-        onInk={(value) => (handle && !handle.isEmpty() ? handle.setInk(value) : setInk(value))}
-        onSize={(value) => (handle && !handle.isEmpty() ? handle.setSize(value) : setSize(value))}
+        style={{
+          ink: here.ink,
+          size: here.size,
+          // For the text selected, or what is typed next at the cursor; only a label with no text yet takes it as its own.
+          onInk: (value) => (handle && !handle.isEmpty() ? handle.setInk(value) : setInk(value)),
+          onSize: (value) => (handle && !handle.isEmpty() ? handle.setSize(value) : setSize(value)),
+        }}
         onDelete={() => {
           finished.current = true
           onDelete()

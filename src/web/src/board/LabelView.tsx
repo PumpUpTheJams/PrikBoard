@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useReducer, useRef, useState, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { labelSizes, type InkColor, type LabelDetail, type LabelSize, type Point, type Rect } from '../api/types'
 import { inkColor } from './drawings'
@@ -85,31 +85,80 @@ export interface LabelLinkField {
 interface LabelToolbarProps {
   rect: Rect
   zoom: number
-  /** What the text selected has; null where it has several. */
-  ink: InkColor | null
-  size: LabelSize | null
   isActive: (format: LabelFormat) => boolean
   onToggle: (format: LabelFormat) => void
   listActive: (kind: LabelListKind) => boolean
   onToggleList: (kind: LabelListKind) => void
   linkActive: boolean
   onLink: () => void
-  onInk: (ink: InkColor) => void
-  onSize: (size: LabelSize) => void
   onDelete: () => void
   link?: LabelLinkField | null
+  /** Ink and size, only while the label is being edited. */
+  style?: LabelToolbarStyle
+}
+
+interface LabelToolbarStyle {
+  /** What the text selected has; null where it has several. */
+  ink: InkColor | null
+  size: LabelSize | null
+  onInk: (ink: InkColor) => void
+  onSize: (size: LabelSize) => void
 }
 
 /** Screen pixels kept between the toolbar and its label, and between it and the edge of the view. */
 const TOOLBAR_GAP = 12
 const TOOLBAR_MARGIN = 8
+/** What floats over a canvas. Nothing on a zoomed canvas can be drawn above it, so the toolbar moves clear of it. */
+const FLOATING = ':scope > .rail, :scope > .view-controls, :scope > .board-filters'
+
+interface Box {
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
+
+const overlaps = (a: Box, b: Box) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+const moved = (box: Box, x: number, y: number): Box => ({ left: box.left + x, top: box.top + y, right: box.right + x, bottom: box.bottom + y })
+
+/** How far a toolbar at `box` moves to clear what floats over the canvas: sideways if that stays in `view`, else up as far as there is room. */
+function clearOfFloating(box: Box, floating: Box[], view: Box) {
+  let x = 0
+  let y = 0
+  for (let pass = 0; pass <= 2 * floating.length; pass++) {
+    const at = moved(box, x, y)
+    const hit = floating.find((f) => overlaps(at, f))
+    if (!hit) break
+    const sideways = [hit.left - TOOLBAR_MARGIN - at.right, hit.right + TOOLBAR_MARGIN - at.left]
+      .filter((dx) => {
+        const to = moved(at, dx, 0)
+        return to.left >= view.left + TOOLBAR_MARGIN && to.right <= view.right - TOOLBAR_MARGIN && !floating.some((f) => overlaps(to, f))
+      })
+      .sort((a, b) => Math.abs(a) - Math.abs(b))[0]
+    if (sideways !== undefined) {
+      x += sideways
+      continue
+    }
+    const up = Math.max(hit.top - TOOLBAR_MARGIN - at.bottom, view.top + TOOLBAR_MARGIN - at.top)
+    if (up >= 0) break
+    y += up
+  }
+  return { x, y: Math.max(y, view.top + TOOLBAR_MARGIN - box.top) }
+}
 
 /** The toolbar above a selected label or one being edited, at the same size on screen at any zoom. */
 export function LabelToolbar(props: LabelToolbarProps) {
-  const { rect, zoom, ink, size, isActive, onToggle, listActive, onToggleList, linkActive, onLink, onInk, onSize, onDelete, link } = props
+  const { rect, zoom, isActive, onToggle, listActive, onToggleList, linkActive, onLink, onDelete, link, style } = props
   const toolbar = useRef<HTMLDivElement>(null)
-  /** How far it slides to stay in view, in screen pixels, and whether it goes below the label for lack of room above. */
-  const [place, setPlace] = useState({ x: 0, below: 0 })
+  /** How far it slides to stay in view and clear of what floats over the canvas, in screen pixels, and whether it goes below the label for lack of room above. */
+  const [place, setPlace] = useState({ x: 0, y: 0, below: 0 })
+  const [, rendered] = useReducer((n: number) => n + 1, 0)
+  // Scrolling doesn't render the canvas, but it changes what the toolbar has to keep clear of.
+  useEffect(() => {
+    const scroller = toolbar.current!.closest('.board-scroll, .card-scroll')
+    scroller?.addEventListener('scroll', rendered, { passive: true })
+    return () => scroller?.removeEventListener('scroll', rendered)
+  }, [])
   useLayoutEffect(() => {
     const el = toolbar.current!
     const scroller = el.closest('.board-scroll, .card-scroll')
@@ -118,12 +167,19 @@ export function LabelToolbar(props: LabelToolbarProps) {
     const box = el.getBoundingClientRect()
     const left = box.left - place.x
     const right = left + box.width
-    const edge = view.left + scroller.clientWidth - TOOLBAR_MARGIN
-    const x = left < view.left + TOOLBAR_MARGIN ? view.left + TOOLBAR_MARGIN - left : right > edge ? Math.max(view.left + TOOLBAR_MARGIN - left, edge - right) : 0
     // The label being edited grows, so its height comes from the page there.
     const height = rect.height || el.parentElement!.offsetHeight
-    const below = place.below || box.top < view.top + TOOLBAR_MARGIN ? height * zoom + box.height + 2 * TOOLBAR_GAP : 0
-    if (x !== place.x || below !== place.below) setPlace({ x, below })
+    const above = box.top - place.y - place.below
+    const below = above < view.top + TOOLBAR_MARGIN ? height * zoom + box.height + 2 * TOOLBAR_GAP : 0
+    const top = above + below
+    const edge = view.left + scroller.clientWidth - TOOLBAR_MARGIN
+    const inView = left < view.left + TOOLBAR_MARGIN ? view.left + TOOLBAR_MARGIN - left : right > edge ? Math.max(view.left + TOOLBAR_MARGIN - left, edge - right) : 0
+    const floating = [...scroller.parentElement!.querySelectorAll(FLOATING)].map((f) => f.getBoundingClientRect())
+    const clear = clearOfFloating({ left: left + inView, top, right: right + inView, bottom: top + box.height }, floating, { left: view.left, top: view.top, right: edge + TOOLBAR_MARGIN, bottom: view.bottom })
+    // Whole pixels, or rounding in the scale could keep it from ever settling.
+    const x = Math.round(inView + clear.x)
+    const y = Math.round(clear.y)
+    if (x !== place.x || y !== place.y || below !== place.below) setPlace({ x, y, below })
   })
   return (
     <div
@@ -131,7 +187,7 @@ export function LabelToolbar(props: LabelToolbarProps) {
       className={`drawing-toolbar label-toolbar${link ? ' with-link' : ''}`}
       role="toolbar"
       aria-label="Label"
-      style={{ left: rect.x, top: rect.y, transform: `scale(${1 / zoom}) translate(${place.x}px, calc(-100% - ${TOOLBAR_GAP}px + ${place.below}px))` }}
+      style={{ left: rect.x, top: rect.y, transform: `scale(${1 / zoom}) translate(${place.x}px, calc(-100% - ${TOOLBAR_GAP}px + ${place.below + place.y}px))` }}
       // A press here keeps the text selected in the label being edited, except in the link's own field.
       onPointerDown={keepPress}
       onMouseDown={(e) => {
@@ -154,10 +210,14 @@ export function LabelToolbar(props: LabelToolbarProps) {
         <LinkIcon />
       </button>
       <span className="toolbar-divider" aria-hidden="true" />
-      <InkSwatches value={ink} onChange={onInk} />
-      <span className="toolbar-divider" aria-hidden="true" />
-      <LabelSizes value={size} onChange={onSize} />
-      <span className="toolbar-divider" aria-hidden="true" />
+      {style && (
+        <>
+          <InkSwatches value={style.ink} onChange={style.onInk} />
+          <span className="toolbar-divider" aria-hidden="true" />
+          <LabelSizes value={style.size} onChange={style.onSize} />
+          <span className="toolbar-divider" aria-hidden="true" />
+        </>
+      )}
       <button type="button" className="drawing-delete" aria-label="Delete label" title="Delete label (Del)" onClick={onDelete}>
         <TrashIcon size={15} />
       </button>

@@ -89,22 +89,19 @@ export function useLabelEditing({ boardId, settle, canvasRef }: LabelEditingOpti
       ),
     /** What was just saved, on the canvas until the reload brings it. */
     savingView: () => saving && <LabelView label={{ id: saving.label?.id ?? 'new', ink: saving.ink, size: saving.size, content: saving.content }} at={saving.at} />,
-    /** What the toolbar of a selected label (not being edited) does to all of its text. */
+    /** What the toolbar of a selected label (not being edited) does to all of its text. Ink and size are only for editing. */
     selectedActions: (label: LabelDetail, onDelete: () => void) => {
-      const save = (content: LabelBlock[], size: LabelSize, ink: InkColor, what: string, keys: string[]) =>
-        void settle(...ops.editLabel(label, { content, ink, size, ...measure(content, size) }, what, keys))
       return {
-        ink: label.ink,
-        size: label.size,
         isActive: (format: LabelFormat) => allHave(label.content, format),
-        onToggle: (format: LabelFormat) => save(toggleAll(label.content, format), label.size, label.ink, 'Change format', ['content', 'width', 'height']),
+        onToggle: (format: LabelFormat) => {
+          const content = toggleAll(label.content, format)
+          void settle(...ops.editLabel(label, { content, ...measure(content, label.size) }, 'Change format', ['content', 'width', 'height']))
+        },
         listActive: (kind: LabelListKind) => label.content.every((b) => b.kind === kind),
         // These need the text selected in the editor: they start it, and it does them.
         onToggleList: (kind: LabelListKind) => setDraft({ label, at: label, cardId: label.cardId, ink: label.ink, size: label.size, content: label.content, then: kind }),
         linkActive: label.content.some((b) => b.runs.some((r) => r.link)),
         onLink: () => setDraft({ label, at: label, cardId: label.cardId, ink: label.ink, size: label.size, content: label.content, then: 'link' }),
-        onInk: (ink: InkColor) => save(label.content, label.size, ink, 'Change ink', ['ink']),
-        onSize: (size: LabelSize) => save(label.content, size, label.ink, 'Change size', ['size', 'width', 'height']),
         onDelete,
       }
     },
