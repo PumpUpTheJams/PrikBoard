@@ -233,11 +233,11 @@ export function DrawingToolbar({ drawing, rect, zoom, onRecolor, onDelete }: Dra
   )
 }
 
-/** The twelve inks in two rows: light ones for the board, then dark ones for drawing over a card. Labels also have the theme's own. */
-export function InkSwatches({ value, onChange, inks = inkColors }: { value: InkColor | null; onChange: (color: InkColor) => void; inks?: readonly InkColor[] }) {
+/** The twelve inks in two rows: light ones for the board, then dark ones for drawing over a card. */
+export function InkSwatches({ value, onChange }: { value: InkColor | null; onChange: (color: InkColor) => void }) {
   return (
-    <div className={`ink-swatches${inks.length > inkColors.length ? ' with-theme' : ''}`}>
-      {inks.map((c) => (
+    <div className="ink-swatches">
+      {inkColors.map((c) => (
         <button
           key={c}
           type="button"

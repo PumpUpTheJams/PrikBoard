@@ -9,7 +9,7 @@ numbers on the same machine. None of this runs in CI.
 | `paste-board.mjs` | Pastes a clip into a new board on a server, as the web app pastes a big one. |
 | `measure.js` | Times the open board in the browser: scrolling, dragging, zooming, reloading, opening. |
 | `serve-board.mjs` | A read-only stand-in API serving one board, so the web app can be measured without signing in. |
-| `../../src/PrikBoard.Api.Tests/PerfBenchmarks.cs` | Server timings: pasting the board (uploads, check, paste), getBoard, placeItemsInBucket, createCards, `Layout.PackIn`. |
+| `../../src/PrikBoard.Api.Tests/PerfBenchmarks.cs` | Server timings: pasting the board (uploads, check, paste), getBoard, placeItemsInBucket, createCards, `Layout.PackIn`, and a board full of labels. |
 
 Generated files go in `tools/perf/out/`, which git ignores.
 
@@ -20,12 +20,13 @@ node tools/perf/make-board.mjs --out=tools/perf/out/perf-board.json
 ```
 
 The defaults are 1,250 cards, 100 images and 100 drawings (`--cards`, `--images`, `--drawings`; at most 2,000 cards and
-200 images, a clip's limits). The layout is the same every run:
+200 images, a clip's limits), and no labels but the one on each card (`--labels`; a clip holds 5,000 with those). The layout is the same every run:
 
 - six buckets side by side, named `Bucket 1 (225)` to `Bucket 6 (75)`, holding 60% of the cards;
 - an empty `Drop here` bucket;
 - the other cards loose below them;
-- images (2400 × 1600, so they decode at full size) and drawings to the left.
+- images (2400 × 1600, so they decode at full size) and drawings to the left;
+- with `--labels`, to the right of the buckets: a fifth of them (up to 600) in a `Labels (n)` bucket, and the rest loose.
 
 Every card has a label, every fourth a checklist, and up to three tags. `measure.js` looks for the bucket names.
 
@@ -44,6 +45,17 @@ PRIKBOARD_PERF=1 dotnet test --solution PrikBoard.slnx -c Release --filter "Full
 This needs the compose database, like the tests, and Node: without `PRIKBOARD_PERF_BOARD` (the path of a clip file)
 it runs `make-board.mjs` itself. With `PRIKBOARD_PERF_SNAPSHOT` set to a path such as `tools/perf/out/board.json`, it
 also saves the board as getBoard returns it there, for `serve-board.mjs`.
+
+A board full of labels, against the same board without them:
+
+```bash
+node tools/perf/make-board.mjs --labels=3000 --images=0 --drawings=0 --out=tools/perf/out/labels-3000.json
+node tools/perf/make-board.mjs --labels=0 --images=0 --drawings=0 --out=tools/perf/out/labels-0.json
+PRIKBOARD_PERF=1 PRIKBOARD_PERF_LABELS_BOARD=$PWD/tools/perf/out/labels-3000.json dotnet test --solution PrikBoard.slnx -c Release --filter "FullyQualifiedName~Server_with_many_labels" --show-live-output on --output Detailed
+```
+
+Without `PRIKBOARD_PERF_LABELS_BOARD` it makes the first of those itself. It times pasting and reading the board, a label's
+own requests (add, edit, move, box), carrying a bucket of them, deleting and restoring 500, card search and copying.
 
 ## Browser timings
 
@@ -75,6 +87,8 @@ What it reports, each as the median of 20–30 runs:
 | `drag` | One pointer move while a card is dragged. |
 | `group` | One pointer move while about 100 cards selected in `Bucket 1` are dragged over `Drop here`. |
 | `bucket` | One pointer move while `Bucket 1` and its 225 cards are dragged. |
+| `label` | One pointer move while a label is dragged (a board made with `--labels`). |
+| `labelBucket` | One pointer move while the `Labels` bucket and its labels are dragged (a board made with `--labels`). |
 | `zoom` | One wheel-zoom step, frame included. It needs a visible tab. |
 | `reload` | The board's next poll with nothing changed, from the response to the end of the render. |
 | `open` | Opening the board, fetch included. |

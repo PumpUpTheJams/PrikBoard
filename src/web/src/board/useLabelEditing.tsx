@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, type RefObject } from 'react'
-import type { DropBucket, InkColor, LabelBlock, LabelDetail, LabelSize, Point } from '../api/types'
+import type { DropBucket, InkColor, LabelBlock, LabelChanges, LabelDetail, LabelSize, Point } from '../api/types'
 import { LabelEditing } from './LabelEditing'
-import { LabelView } from './LabelView'
+import { LabelView, type LabelBox } from './LabelView'
 import { isBlankLabel, sameContent } from './labels'
 import { measureLabel } from './measureLabel'
 import { ops } from './ops'
@@ -15,6 +15,7 @@ export interface LabelDraft {
   ink: InkColor
   size: LabelSize
   wrapWidth: number | null
+  minHeight: number | null
   background: boolean
   content: LabelBlock[]
   /** The bucket a new label on the board joins, by where it was clicked. */
@@ -28,6 +29,15 @@ interface LabelEditingOptions {
   canvasRef: RefObject<HTMLElement | null>
 }
 
+/** What a label's box changes, for a PATCH: 0 lets go of a width or height. Its place only when it moved, since that can change its bucket. */
+function boxChanges(label: LabelDetail, box: Pick<LabelDraft, 'at' | 'wrapWidth' | 'minHeight'>): LabelChanges {
+  return {
+    ...(box.at.x !== label.x || box.at.y !== label.y ? { x: box.at.x, y: box.at.y } : {}),
+    ...(box.wrapWidth !== label.wrapWidth ? { wrapWidth: box.wrapWidth ?? 0 } : {}),
+    ...(box.minHeight !== label.minHeight ? { minHeight: box.minHeight ?? 0 } : {}),
+  }
+}
+
 const draftOf = (label: LabelDetail): LabelDraft => ({
   label,
   at: label,
@@ -35,6 +45,7 @@ const draftOf = (label: LabelDetail): LabelDraft => ({
   ink: label.ink,
   size: label.size,
   wrapWidth: label.wrapWidth,
+  minHeight: label.minHeight,
   background: label.background,
   content: label.content,
 })
@@ -47,12 +58,12 @@ export function useLabelEditing({ boardId, settle, canvasRef }: LabelEditingOpti
   /** Ends the edit in progress, from outside the editor (a press elsewhere). */
   const commit = useRef<(() => void) | null>(null)
 
-  const measure = (content: LabelBlock[], size: LabelSize, wrapWidth: number | null) => measureLabel(canvasRef.current!, content, size, wrapWidth)
+  const measure = (content: LabelBlock[], size: LabelSize, box: Pick<LabelDetail, 'wrapWidth' | 'minHeight'>) => measureLabel(canvasRef.current!, content, size, box)
 
   function finish(from: LabelDraft, content: LabelBlock[], ink: InkColor, size: LabelSize, background: boolean) {
     const blank = isBlankLabel(content)
     // Measured first: it renders at once, and the editor is still there until the draft goes.
-    const box = blank ? null : measure(content, size, from.wrapWidth)
+    const box = blank ? null : measure(content, size, from)
     setDraft(null)
     if (from.label) {
       if (blank) {
@@ -60,7 +71,7 @@ export function useLabelEditing({ boardId, settle, canvasRef }: LabelEditingOpti
         return
       }
       const unchanged = ink === from.label.ink && size === from.label.size && background === from.label.background && sameContent(content, from.label.content)
-      if (unchanged) return
+      if (unchanged && !Object.keys(boxChanges(from.label, from)).length) return
     } else if (blank) {
       return
     }
@@ -68,8 +79,8 @@ export function useLabelEditing({ boardId, settle, canvasRef }: LabelEditingOpti
     setSaving(shown)
     const done = () => setSaving((s) => (s === shown ? null : s))
     const saved = from.label
-      ? settle(...ops.editLabel(from.label, { content, ink, size, background, ...box! }, 'Edit label', ['content', 'ink', 'size', 'background', 'width', 'height']))
-      : settle(...ops.addLabel(boardId, { content, ink, size, background, ...from.at, ...box!, ...(from.cardId ? { cardId: from.cardId } : {}), ...from.drop }))
+      ? settle(...ops.editLabel(from.label, { content, ink, size, background, ...boxChanges(from.label, from), ...box! }, 'Edit label', ['content', 'ink', 'size', 'background', ...Object.keys(boxChanges(from.label, from)), 'width', 'height']))
+      : settle(...ops.addLabel(boardId, { content, ink, size, background, ...from.at, ...box!, ...(from.wrapWidth ? { wrapWidth: from.wrapWidth } : {}), ...(from.minHeight ? { minHeight: from.minHeight } : {}), ...(from.cardId ? { cardId: from.cardId } : {}), ...from.drop }))
     void saved.finally(done)
   }
 
@@ -78,9 +89,9 @@ export function useLabelEditing({ boardId, settle, canvasRef }: LabelEditingOpti
     saving,
     /** Ends the edit in progress, if any. */
     commit: () => commit.current?.(),
-    /** A new label at a canvas point. */
-    startNew: useCallback((at: Point, style: { ink: InkColor; size: LabelSize }, cardId: string | null, drop?: DropBucket) => {
-      setDraft({ label: null, at, cardId, ...style, wrapWidth: null, background: cardId !== null, content: [], drop })
+    /** A new label at a canvas point, or in the box drawn with the label tool. */
+    startNew: useCallback((at: Point, style: { ink: InkColor; size: LabelSize }, cardId: string | null, drop?: DropBucket, box?: { width: number; height?: number }) => {
+      setDraft({ label: null, at, cardId, ...style, wrapWidth: box?.width ?? null, minHeight: box?.height ?? null, background: cardId !== null, content: [], drop })
     }, []),
     edit: useCallback((label: LabelDetail) => {
       setDraft(draftOf(label))
@@ -94,6 +105,7 @@ export function useLabelEditing({ boardId, settle, canvasRef }: LabelEditingOpti
           zoom={zoom}
           commitRef={commit}
           onFinish={(content, ink, size, background) => finish(draft, content, ink, size, background)}
+          onResize={({ x, y, width, minHeight }) => setDraft({ ...draft, at: { x, y }, wrapWidth: width, minHeight })}
           onDelete={() => {
             setDraft(null)
             if (draft.label) onDelete(draft.label)
@@ -101,11 +113,18 @@ export function useLabelEditing({ boardId, settle, canvasRef }: LabelEditingOpti
         />
       ),
     /** What was just saved, on the canvas until the reload brings it. */
-    savingView: () => saving && <LabelView label={{ id: saving.label?.id ?? 'new', ink: saving.ink, size: saving.size, content: saving.content, wrapWidth: saving.wrapWidth, background: saving.background }} at={saving.at} />,
-    /** Wraps a selected label's text at a width; 0 stops wrapping. */
-    wrap: (label: LabelDetail, width: number) => {
-      const box = measure(label.content, label.size, width || null)
-      void settle(...ops.editLabel(label, { wrapWidth: width, ...box }, width ? 'Wrap label' : 'Stop wrapping label', ['wrapWidth', 'width', 'height']))
+    savingView: () => saving && <LabelView label={{ id: saving.label?.id ?? 'new', ink: saving.ink, size: saving.size, content: saving.content, wrapWidth: saving.wrapWidth, minHeight: saving.minHeight, background: saving.background }} at={saving.at} />,
+    /** A selected label in a new box. */
+    resize: (label: LabelDetail, { x, y, width, minHeight }: LabelBox) => {
+      const changes = boxChanges(label, { at: { x, y }, wrapWidth: width, minHeight })
+      if (Object.keys(changes).length === 0) return
+      const size = measure(label.content, label.size, { wrapWidth: width, minHeight })
+      void settle(...ops.editLabel(label, { ...changes, ...size }, 'Resize label', [...Object.keys(changes), 'width', 'height']))
+    },
+    /** A selected label back to as wide and as tall as its text. */
+    unbox: (label: LabelDetail) => {
+      const size = measure(label.content, label.size, { wrapWidth: null, minHeight: null })
+      void settle(...ops.editLabel(label, { wrapWidth: 0, minHeight: 0, ...size }, 'Fit label to its text', ['wrapWidth', 'minHeight', 'width', 'height']))
     },
     /** What the bar of a selected label (not being edited) does. Everything else is for editing. */
     selectedActions: (label: LabelDetail, onDelete: () => void) => ({

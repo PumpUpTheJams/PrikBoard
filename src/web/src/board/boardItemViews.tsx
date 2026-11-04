@@ -9,7 +9,7 @@ import { CARD_HEIGHT, CARD_WIDTH } from './layout'
 import { cardLabel } from './links'
 import type { InkedStrokes, Reshape } from './drawings'
 import { DrawingView } from './DrawingView'
-import { LabelView } from './LabelView'
+import { FarLabel, LabelView } from './LabelView'
 import type { SearchTerm } from './search'
 import { tagColorClass, type TagColors } from './tagColors'
 
@@ -176,8 +176,11 @@ export const BoardDrawing = memo(function BoardDrawing({ drawing, rect, selected
 })
 
 /** A label on the board. Its place comes from `x` and `y`, so what doesn't move keeps equal props. */
-export const BoardLabel = memo(function BoardLabel({ label, x, y, selected, lifted, readOnly, handlers: h }: { label: LabelDetail; x: number; y: number; selected: boolean; lifted: boolean; readOnly: boolean; handlers: BoardItemHandlers }) {
-  return <LabelView label={label} at={{ x, y }} selected={selected} lifted={lifted} readOnly={readOnly} onPointerDown={(e) => h.pointerDown(e, 'label', label.id)} onHover={(over) => h.hoverLabel(label.id, over)} />
+export const BoardLabel = memo(function BoardLabel({ label, x, y, selected, lifted, readOnly, far, handlers: h }: { label: LabelDetail; x: number; y: number; selected: boolean; lifted: boolean; readOnly: boolean; far: boolean; handlers: BoardItemHandlers }) {
+  const press = (e: PointerEvent<HTMLDivElement>) => h.pointerDown(e, 'label', label.id)
+  const hover = (over: boolean) => h.hoverLabel(label.id, over)
+  if (far) return <FarLabel label={label} at={{ x, y }} selected={selected} lifted={lifted} onPointerDown={press} onHover={hover} />
+  return <LabelView label={label} at={{ x, y }} selected={selected} lifted={lifted} readOnly={readOnly} onPointerDown={press} onHover={hover} />
 })
 
 interface BoardBucketProps {

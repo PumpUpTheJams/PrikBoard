@@ -314,7 +314,7 @@ public static class ClipEndpoints
 
     /// <summary>A label as a clip holds it; <paramref name="bucketId"/> is its copied bucket, if any.</summary>
     private static ClippedLabel ClipLabel(BoardLabel label, Guid? bucketId) =>
-        new(label.CardId, label.X, label.Y, label.Content, label.Ink, label.Size, label.Width, label.Height, bucketId, label.Id, label.WrapWidth, label.Background);
+        new(label.CardId, label.X, label.Y, label.Content, label.Ink, label.Size, label.Width, label.Height, bucketId, label.Id, label.WrapWidth, label.Background, label.MinHeight);
 
     private static ClippedBucket ClipBucket(Bucket bucket) =>
         new(bucket.Id, bucket.Name, bucket.X, bucket.Y, bucket.Width, bucket.Height, bucket.Collapsed);

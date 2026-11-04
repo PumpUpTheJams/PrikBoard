@@ -14,6 +14,8 @@ export type GestureTarget =
     }
   /** Drawing a new bucket with the bucket tool. */
   | { kind: 'draw' }
+  /** The box of a new label, with the label tool. */
+  | { kind: 'drawLabel' }
   | {
       /** Moving several selected items at once. */
       kind: 'group'

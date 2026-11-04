@@ -85,6 +85,7 @@ public static class LabelEndpoints
             AddedBy = await db.Principals.FindAsync([principal.PrincipalId()], ct),
         };
         label.SetWrap(request.WrapWidth);
+        label.SetMinHeight(request.MinHeight);
         label.SetContent(await ShortenLinksAsync(db, boardId, blocks!, ct));
         Measure(label, request.Width, request.Height);
 
@@ -153,10 +154,11 @@ public static class LabelEndpoints
         if (request.Size is { } size) label.Size = size;
         if (request.WrapWidth is { } wrap) label.SetWrap(wrap);
         if (request.Background is { } background) label.Background = background;
+        if (request.MinHeight is { } minHeight) label.SetMinHeight(minHeight);
         if (request.Width is not null) Measure(label, request.Width, request.Height);
         // Someone who just stopped it wrapping means it.
         else if (request.WrapWidth == 0) label.Estimate();
-        else if (blocks is not null || request.Size is not null || request.WrapWidth is not null) label.EstimateAndWrap();
+        else if (blocks is not null || request.Size is not null || request.WrapWidth is not null || request.MinHeight is not null) label.EstimateAndWrap();
 
         if (moving && !detach && request.X is null) await FreeSpotAsync(db, label, ct);
         else Place(label, request.X ?? label.X, request.Y ?? label.Y);
@@ -227,6 +229,7 @@ public static class LabelEndpoints
         label.Ink = source.Ink;
         label.Size = source.Size;
         label.SetWrap(source.WrapWidth);
+        label.SetMinHeight(source.MinHeight);
         label.Background = source.Background ?? source.CardId is not null;
         if (source.Width is { } width && source.Height is { } height) label.SetSize(width, height);
         else label.Estimate();
@@ -302,11 +305,13 @@ public static class LabelEndpoints
             (label.X, label.Y) = Layout.NextCardSpot(taken, label.Width, label.Height);
             return;
         }
+        // Only where they are: a board's items with all their content would be loaded for a few numbers.
         (label.X, label.Y) = Layout.NextLabelSpot(
-            await db.Buckets.Where(b => b.BoardId == label.BoardId).ToListAsync(ct),
-            await db.Cards.AsNoTracking().Where(n => n.BoardId == label.BoardId).ToListAsync(ct),
+            await db.Buckets.AsNoTracking().Where(b => b.BoardId == label.BoardId).ToListAsync(ct),
+            await CardEndpoints.PlacedCardsAsync(db, label.BoardId, null, ct),
             await db.Images.AsNoTracking().Where(i => i.BoardId == label.BoardId).ToListAsync(ct),
-            await db.Labels.AsNoTracking().Where(l => l.BoardId == label.BoardId && l.CardId == null).ToListAsync(ct));
+            await db.Labels.AsNoTracking().Where(l => l.BoardId == label.BoardId && l.CardId == null)
+                .Select(l => new BoardLabel { X = l.X, Width = l.Width }).ToListAsync(ct));
     }
 
     /// <summary>Links in the older form to cards on <paramref name="boardId"/> become those cards' paths, as in <see cref="CardComponentEndpoints.ShortenLinksAsync"/>.</summary>

@@ -49,7 +49,7 @@ public sealed partial class BoardTools
     private const string LabelContentHelp = "The text as blocks, for what Markdown has no form for: each block a kind (Paragraph, Heading, Bullet, Numbered, Task, Quote, Code, TableRow or Rule) and runs (cells, a list of runs per cell, for TableRow), with level for headings and nested list items and done for Task; each run text with optional bold, italic, underline, strike, code, ink, size and link. Give this or markdown.";
     private const string LabelInkHelp = "Ink of text that doesn't set its own: Theme (the default, the theme's own text color, readable everywhere), or Chalk, Butter, Mint, Sky, Coral, Lilac, Ink, Ochre, Pine, Ocean, Brick or Violet, which keep their colors in every theme, so a dark one is hard to read on a dark board and a light one on a light board.";
     private const string LabelWrapHelp = "The width its text wraps at, in pixels (at least 60). Without one, long text wraps at 340.";
-    private const string LabelSizeHelp = "Size of text that doesn't set its own: S (14 px), M (21, the default), L (35) or XL (56).";
+    private const string LabelSizeHelp = "Size of text that doesn't set its own: S (14 px, the default), M (21), L (35) or XL (56).";
     private const string LabelXHelp = "Left edge, on the board or on the card's canvas; snapped to the 20 px grid. Give it with y.";
     private const string LabelYHelp = "Top edge, like x. Give it with x.";
     private const string ImageCardHelp = "Attach the image to this card: " + CardForms;
@@ -409,16 +409,17 @@ public sealed partial class BoardTools
         [Description(LabelBoardHelp)] string? board = null,
         [Description(LabelCardHelp)] string? card = null,
         [Description(LabelInkHelp)] InkColor ink = InkColor.Theme,
-        [Description(LabelSizeHelp)] LabelSize size = LabelSize.M,
+        [Description(LabelSizeHelp)] LabelSize size = LabelSize.S,
         [Description(LabelXHelp)] int? x = null,
         [Description(LabelYHelp)] int? y = null,
         [Description(LabelWrapHelp)] int? wrapWidth = null,
         [Description("Whether it has a background of its own. Without this, on a card it has one, and on the board it doesn't.")] bool? background = null,
+        [Description("The height it keeps with little text, in pixels; it grows with more.")] int? minHeight = null,
         CancellationToken ct = default)
     {
         var http = McpCall.Http(accessor);
         var (target, cardId) = await LabelTargetAsync(http, card, board, BoardRole.Editor, ct);
-        var request = new CreateLabelRequest(content, markdown, x, y, ink, size, CardId: cardId, WrapWidth: wrapWidth, Background: background);
+        var request = new CreateLabelRequest(content, markdown, x, y, ink, size, CardId: cardId, WrapWidth: wrapWidth, Background: background, MinHeight: minHeight);
         McpCall.Validate(request);
         var db = Db(http);
         var label = McpCall.Value<LabelDetail>(await LabelEndpoints.CreateLabel(target, request, http.User, db, ct));
@@ -444,12 +445,13 @@ public sealed partial class BoardTools
         [Description("The width its text wraps at, in pixels (at least 60); 0 stops wrapping.")] int? wrapWidth = null,
         [Description("Whether it has a background of its own.")] bool? background = null,
         [Description("Markdown to add at the end, keeping the formatting of what is there.")] string? appendText = null,
+        [Description("The height it keeps with little text, in pixels; 0 makes it as tall as its text.")] int? minHeight = null,
         CancellationToken ct = default)
     {
         var http = McpCall.Http(accessor);
         Guid? cardId = card is null ? null : await ResolveCardAsync(http, card, ct);
         var boardId = await McpCall.AuthorizeAsync(http, BoardScope.Label, label, BoardRole.Editor);
-        var request = new UpdateLabelRequest(content, markdown, x, y, ink, size, CardId: cardId, Detach: detach, WrapWidth: wrapWidth, Background: background, AppendText: appendText);
+        var request = new UpdateLabelRequest(content, markdown, x, y, ink, size, CardId: cardId, Detach: detach, WrapWidth: wrapWidth, Background: background, AppendText: appendText, MinHeight: minHeight);
         McpCall.Validate(request);
         var db = Db(http);
         var updated = McpCall.Value<LabelDetail>(await LabelEndpoints.UpdateLabel(label, request, db, ct));

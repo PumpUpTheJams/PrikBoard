@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useRef, type RefObject } from 'react'
 import type { InkColor, LabelBlock, LabelSize } from '../api/types'
 import { inkColor } from './drawings'
 import { LabelText } from './LabelText'
-import { LabelToolbar } from './LabelView'
+import { LabelBoxHandles, LabelToolbar, type LabelBox } from './LabelView'
 import { labelPixels } from './labels'
 import type { LabelDraft } from './useLabelEditing'
 import { useLabelTools } from './useLabelTools'
@@ -14,11 +14,12 @@ interface LabelEditingProps {
   zoom: number
   commitRef: RefObject<(() => void) | null>
   onFinish: (content: LabelBlock[], ink: InkColor, size: LabelSize, background: boolean) => void
+  onResize: (box: LabelBox) => void
   onDelete: () => void
 }
 
 /** A label being edited, in place on the canvas, with its toolbar above it. */
-export function LabelEditing({ draft, zoom, commitRef, onFinish, onDelete }: LabelEditingProps) {
+export function LabelEditing({ draft, zoom, commitRef, onFinish, onResize, onDelete }: LabelEditingProps) {
   const finished = useRef(false)
   const { handle, ink, size, background, onReady, onChange, tools } = useLabelTools({
     ink: draft.ink,
@@ -56,11 +57,12 @@ export function LabelEditing({ draft, zoom, commitRef, onFinish, onDelete }: Lab
         finish()
       }}
     >
-      <div className={`label editing${draft.wrapWidth ? ' wraps' : ''}${background ? ' with-background' : ''}`} style={{ color: inkColor[ink], fontSize: labelPixels[size], width: draft.wrapWidth ?? undefined }}>
+      <div className={`label editing${draft.wrapWidth ? ' wraps' : ''}${background ? ' with-background' : ''}`} style={{ color: inkColor[ink], fontSize: labelPixels[size], width: draft.wrapWidth ?? undefined, minHeight: draft.minHeight ?? undefined }}>
         <Suspense fallback={<LabelText content={draft.content} />}>
           <LabelEditor content={draft.content} onReady={onReady} onChange={onChange} onDone={finish} />
         </Suspense>
       </div>
+      <LabelBoxHandles at={draft.at} minHeight={draft.minHeight} zoom={zoom} onResize={onResize} />
       <LabelToolbar rect={{ x: 0, y: 0, width: 0, height: 0 }} zoom={zoom} {...tools} />
     </div>
   )

@@ -2,11 +2,11 @@
 // Writes a big board as a PrikBoard clip (what copying a whole board puts on the clipboard), for measuring how the app
 // copes (see README.md). Paste it into a new board with paste-board.mjs. No dependencies: run it with plain Node.
 //
-//   node tools/perf/make-board.mjs [--cards=1250] [--images=100] [--drawings=100] [--out=perf-board.json]
+//   node tools/perf/make-board.mjs [--cards=1250] [--images=100] [--drawings=100] [--labels=0] [--out=perf-board.json]
 //
 // The layout is the same every time (only ids differ): six buckets side by side holding 60% of the cards, the largest
 // one 30% of those, an empty bucket to drop groups into, the other cards loose below, and images and drawings to the
-// left of the buckets.
+// left of the buckets. With --labels, a bucket of labels and loose labels to the right of the buckets too.
 import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { deflateSync } from 'node:zlib'
@@ -38,6 +38,8 @@ const count = (name, fallback, max) => {
 const cards = count('cards', 1250, MAX_CARDS)
 const images = count('images', 100, MAX_IMAGES)
 const drawings = count('drawings', 100, 5000)
+/** Each card has a label of its own too, and a clip holds 5,000 (BoardClip.MaxLabels). */
+const labels = count('labels', 0, 5000 - cards)
 const out = args.out ?? 'perf-board.json'
 
 /** A small deterministic random number generator, so every run lays out the same board. */
@@ -102,6 +104,43 @@ buckets.push({ id: randomUUID(), name: 'Drop here', x: right, y: 0, width: BUCKE
 // The rest loose, 40 to a row, below the buckets.
 const below = Math.max(...buckets.map((b) => b.y + b.height)) + 400
 for (let i = 0; made < cards; i++) clippedCards.push(card(made++, (i % 40) * COLUMN_STEP, below + Math.floor(i / 40) * ROW_STEP))
+
+// Labels: a fifth (up to 600) in a bucket of their own, to carry along, and the rest loose, all to the right of the buckets.
+const LABEL_COLUMN = 280
+const LABEL_ROW = 180
+const labelsInBucket = Math.min(Math.round(labels * 0.2), 600)
+const labelsLeft = right + BUCKET_WIDTH + 2 * GRID
+const labelBucketColumns = 12
+const labelBucket = labelsInBucket > 0 && {
+  id: randomUUID(),
+  name: `Labels (${labelsInBucket})`,
+  x: labelsLeft,
+  y: 0,
+  width: GRID + labelBucketColumns * LABEL_COLUMN,
+  height: GRID + Math.ceil(labelsInBucket / labelBucketColumns) * LABEL_ROW,
+}
+if (labelBucket) buckets.push(labelBucket)
+const looseLabelsLeft = labelsLeft + (labelBucket ? labelBucket.width + 400 : 0)
+for (let i = 0; i < labels; i++) {
+  const held = i < labelsInBucket
+  const j = held ? i : i - labelsInBucket
+  const columns = held ? labelBucketColumns : 20
+  clippedLabels.push({
+    cardId: null,
+    bucketId: held ? labelBucket.id : null,
+    x: (held ? labelsLeft + GRID : looseLabelsLeft) + (j % columns) * LABEL_COLUMN,
+    y: (held ? GRID : 0) + Math.floor(j / columns) * LABEL_ROW,
+    wrapWidth: 260,
+    background: i % 3 === 0,
+    ink: pick(['Theme', 'Theme', 'Theme', 'Coral', 'Sky', 'Mint']),
+    size: 'S',
+    content: [
+      { kind: 'Heading', level: 3, runs: [{ text: sentence(3) }] },
+      { kind: 'Paragraph', runs: [{ text: `${sentence(8)} ` }, { text: sentence(2), bold: true }, { text: ' and ' }, { text: 'a link', link: 'https://example.com' }, { text: '.' }] },
+      ...Array.from({ length: 2 }, () => ({ kind: 'Bullet', runs: [{ text: sentence(4) }] })),
+    ],
+  })
+}
 
 /** A PNG of `width` × `height`: a gradient with stripes, which compresses well but decodes to its full size. */
 function png(width, height, hue) {
@@ -191,4 +230,4 @@ const clip = {
 }
 const json = JSON.stringify(clip)
 writeFileSync(out, json)
-console.log(`${out}: ${cards} cards (${bucketed} in buckets), ${images} images, ${drawings} drawings, ${(json.length / 2 ** 20).toFixed(1)} MB`)
+console.log(`${out}: ${cards} cards (${bucketed} in buckets), ${images} images, ${drawings} drawings, ${labels} labels, ${(json.length / 2 ** 20).toFixed(1)} MB`)

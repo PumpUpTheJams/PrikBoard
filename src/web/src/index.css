@@ -1639,16 +1639,6 @@ main {
   gap: 8px;
 }
 
-.ink-swatches.with-theme {
-  grid-template-columns: repeat(7, 20px);
-}
-
-.ink-swatches.with-theme .ink-theme {
-  grid-row: span 2;
-  align-self: center;
-}
-
-.ink-theme { --fill: var(--text); }
 .ink-chalk { --fill: var(--ink-chalk); }
 .ink-butter { --fill: var(--ink-butter); }
 .ink-mint { --fill: var(--ink-mint); }
@@ -3577,17 +3567,15 @@ a.button.primary:hover {
   box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 50%, var(--line));
 }
 
-.label-wrap-handle {
+/* Only the handles in it take presses: the label under it stays selectable and draggable. */
+.label-box {
   position: absolute;
-  cursor: ew-resize;
-  background: var(--accent);
-  border-radius: 0 3px 3px 0;
-  opacity: 0.5;
-  touch-action: none;
+  z-index: 4;
+  pointer-events: none;
 }
 
-.label-wrap-handle:hover {
-  opacity: 1;
+.label-box > * {
+  pointer-events: auto;
 }
 
 /* The panel a card's components have. */
@@ -3595,6 +3583,19 @@ a.button.primary:hover {
   border-color: var(--line);
   background: var(--panel-2);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+/* Far from the board, one line of a size that still shows, like a far card's title. */
+.label.far {
+  overflow: hidden;
+  font-size: 20px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas.far .label.with-background {
+  box-shadow: none;
 }
 
 .label.selected,

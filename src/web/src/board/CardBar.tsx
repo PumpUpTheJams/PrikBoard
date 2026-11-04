@@ -1,9 +1,8 @@
 import type { CSSProperties } from 'react'
-import type { InkColor, CardComponentKind, LabelSize } from '../api/types'
+import type { InkColor, CardComponentKind } from '../api/types'
 import { inkColor } from './drawings'
 import { PenOptions } from './DrawingView'
 import { EraserIcon, ImageIcon, LabelIcon, PenIcon, TrashIcon } from './icons'
-import { LabelOptions } from './LabelView'
 import { componentKinds } from './componentKinds'
 
 /** The card's pen: whether it is on, its ink and size, and whether it erases. */
@@ -18,14 +17,10 @@ export interface CardPen {
   onEraserChange: (eraser: boolean) => void
 }
 
-/** The card's label tool: whether it is on (the next click adds a label), and the ink and size new labels get. */
+/** The card's label tool: whether it is on (the next click adds a label). */
 export interface CardLabelTool {
   on: boolean
   onToggle: () => void
-  ink: InkColor
-  onInkChange: (ink: InkColor) => void
-  size: LabelSize
-  onSizeChange: (size: LabelSize) => void
 }
 
 interface CardBarProps {
@@ -83,11 +78,6 @@ export function CardBar({ onAdd, onAddImage, pen, label, onDelete }: CardBarProp
         <button type="button" className="rail-button" aria-label="Label" title="Label (T): click on the card and type" aria-pressed={label.on} onClick={label.onToggle}>
           <LabelIcon />
         </button>
-        {label.on && (
-          <div className="card-pen-flyout" role="group" aria-label="Label color and size">
-            <LabelOptions ink={label.ink} onInkChange={label.onInkChange} size={label.size} onSizeChange={label.onSizeChange} />
-          </div>
-        )}
       </div>
       <span className="rail-divider" aria-hidden="true" />
       <button type="button" className="rail-button danger" aria-label="Delete card" title="Delete card" onClick={onDelete}>

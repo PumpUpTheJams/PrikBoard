@@ -81,11 +81,12 @@ public sealed record BoardOverview(
 /// <param name="CardId">The card it is on; left out for a label on the board.</param>
 /// <param name="WrapWidth">The width its text wraps at; left out when it doesn't wrap.</param>
 /// <param name="Background">True when it has a background of its own; left out when it doesn't.</param>
-public sealed record LabelView(Guid Id, string Markdown, InkColor Ink, LabelSize Size, int X, int Y, string? Bucket, Guid? CardId, int? WrapWidth = null, bool? Background = null)
+/// <param name="MinHeight">The height it keeps with little text; left out when it is as tall as its text.</param>
+public sealed record LabelView(Guid Id, string Markdown, InkColor Ink, LabelSize Size, int X, int Y, string? Bucket, Guid? CardId, int? WrapWidth = null, bool? Background = null, int? MinHeight = null)
 {
     public static LabelView From(LabelDetail label, IReadOnlyDictionary<Guid, string> bucketNames) =>
         new(label.Id, LabelMarkdown.From(label.Content), label.Ink, label.Size, label.X, label.Y,
-            label.BucketId is { } id ? bucketNames.GetValueOrDefault(id) : null, label.CardId, label.WrapWidth, label.Background ? true : null);
+            label.BucketId is { } id ? bucketNames.GetValueOrDefault(id) : null, label.CardId, label.WrapWidth, label.Background ? true : null, label.MinHeight);
 }
 
 /// <summary>A board you can use.</summary>

@@ -183,13 +183,14 @@ public record ClippedLabel(
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int Y,
     [property: Required, MaxLength(BoardLabel.MaxBlocks)] List<LabelBlock> Content,
     InkColor Ink = InkColor.Chalk,
-    LabelSize Size = LabelSize.M,
+    LabelSize Size = LabelSize.S,
     [property: Range(1, BoardLabel.MaxSize)] int? Width = null,
     [property: Range(1, BoardLabel.MaxSize)] int? Height = null,
     Guid? BucketId = null,
     Guid? Id = null,
     [property: Range(1, BoardLabel.MaxSize)] int? WrapWidth = null,
-    bool? Background = null);
+    bool? Background = null,
+    [property: Range(1, BoardLabel.MaxSize)] int? MinHeight = null);
 
 /// <summary>What to copy, all on the board in the path. A bucket comes with the cards, images, drawings and labels in it.</summary>
 /// <param name="CardIds">Cards.</param>

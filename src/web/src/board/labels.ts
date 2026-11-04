@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react'
 import { cardRoute, cardPath } from '../api/cardLinks'
-import { labelInks, labelSizes, type InkColor, type LabelBlock, type LabelRun, type LabelSize } from '../api/types'
+import type { InkColor, LabelBlock, LabelRun, LabelSize } from '../api/types'
 import { inkColor } from './drawings'
 
 /** The font size of a label size, in canvas pixels (BoardLabel.Pixels on the server). */
@@ -12,7 +11,7 @@ export type LabelListKind = 'Bullet' | 'Numbered'
 /** The kinds of block the toolbar turns text into while editing. */
 export type LabelBlockTool = 'Heading' | 'Task' | 'Quote' | 'Code' | 'Table'
 
-/** What text wraps at when nobody chose a width: the mobile layout's new labels. BoardLabel.DefaultWrapWidth on the server. */
+/** What text wraps at when nobody chose a width: a label started with a click, and the mobile layout's new ones. BoardLabel.DefaultWrapWidth on the server. */
 export const DEFAULT_WRAP_WIDTH = 340
 
 /** What the toolbar asks of the editor (`LabelEditor`), which is loaded only when someone edits a label. */
@@ -96,28 +95,11 @@ export function groupedBlocks(blocks: LabelBlock[]) {
   return groups
 }
 
+/** The narrowest box the label tool draws: BoardLabel.MinWrapWidth on the server. */
+export const MIN_LABEL_BOX = 60
+
 /** Where a label's text starts from its corner: its border and padding (`.label`; BoardLabel.PaddingX and PaddingY on the server). */
 export const LABEL_INSET = { x: 15, y: 11 }
 
-/** The ink and size new labels get, kept for the next visit. */
-export function useLabelStyle(key: string) {
-  const [style, setStyle] = useState<{ ink: InkColor; size: LabelSize }>(() => {
-    try {
-      const value = JSON.parse(localStorage.getItem(key) ?? 'null') as { ink?: unknown; size?: unknown } | null
-      return { ink: labelInks.find((c) => c === value?.ink) ?? 'Theme', size: labelSizes.find((s) => s === value?.size) ?? 'M' }
-    } catch {
-      return { ink: 'Theme', size: 'M' }
-    }
-  })
-  useEffect(() => {
-    try {
-      localStorage.setItem(key, JSON.stringify(style))
-    } catch {
-      // Private windows may refuse: the choice only lasts this visit then.
-    }
-  }, [key, style])
-  return { ...style, setInk: (ink: InkColor) => setStyle((s) => ({ ...s, ink })), setSize: (size: LabelSize) => setStyle((s) => ({ ...s, size })) }
-}
-
-export const LABEL_BOARD_STYLE = 'prikboard.label'
-export const LABEL_CARD_STYLE = 'prikboard.cardLabel'
+/** The ink and size a new label starts with; everything else is done while editing it. */
+export const NEW_LABEL_STYLE: { ink: InkColor; size: LabelSize } = { ink: 'Theme', size: 'S' }

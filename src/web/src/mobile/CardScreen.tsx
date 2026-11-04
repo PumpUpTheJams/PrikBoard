@@ -101,7 +101,7 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
       return
     }
     const wrapWidth = label ? label.wrapWidth : DEFAULT_WRAP_WIDTH
-    const box = measureLabel(document.body, content, size, wrapWidth)
+    const box = measureLabel(document.body, content, size, { wrapWidth, minHeight: label?.minHeight ?? null })
     const saved = label
       ? await run(...ops.editLabel(label, { content, ink, size, background, ...box }, 'Edit label', ['content', 'ink', 'size', 'background', 'width', 'height']))
       : await run(...ops.addLabel(board.id, { content, ink, size, background, cardId: card.id, wrapWidth: DEFAULT_WRAP_WIDTH, ...spotFor(box), ...box }))
@@ -248,7 +248,7 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
           label ? (
             <div key={label.id} className="m-label">
               {/* Links work by the browser's own click here, and the text takes the width of the screen. */}
-              <LabelView label={{ ...label, wrapWidth: null }} readOnly />
+              <LabelView label={{ ...label, wrapWidth: null, minHeight: null }} readOnly />
               {!readOnly && (
                 <button type="button" className="band-button icon" aria-label="Edit label" title="Edit label" onClick={() => setEditingLabel(label)}>
                   <PencilIcon />

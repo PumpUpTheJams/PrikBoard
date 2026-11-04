@@ -1,15 +1,16 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { labelInks, labelSizes, type InkColor, type LabelDetail, type LabelSize, type Point, type Rect } from '../api/types'
+import { labelSizes, type InkColor, type LabelDetail, type LabelSize, type Point, type Rect, type ResizeHandle } from '../api/types'
 import { inkColor } from './drawings'
 import { keepPress } from './gesture'
 import { LabelText } from './LabelText'
 import { LinkIcon, ListBulletIcon, ListNumberIcon, TrashIcon } from './icons'
 import { InkSwatches } from './DrawingView'
-import { labelPixels, type LabelBlockTool, type LabelFormat, type LabelListKind } from './labels'
+import { labelPixels, MIN_LABEL_BOX, type LabelBlockTool, type LabelFormat, type LabelListKind } from './labels'
+import { ResizeHandles } from './ResizeHandles'
 
 interface LabelViewProps {
-  label: Pick<LabelDetail, 'id' | 'ink' | 'size' | 'content' | 'wrapWidth' | 'background'>
+  label: Pick<LabelDetail, 'id' | 'ink' | 'size' | 'content' | 'wrapWidth' | 'minHeight' | 'background'>
   /** Where it is shown; its size comes from its text. Without a place it takes its turn in a list, as in the mobile layout. */
   at?: Point
   selected?: boolean
@@ -29,13 +30,41 @@ export function LabelView({ label, at, selected, lifted, matched, readOnly, onPo
     <div
       className={`label${selected ? ' selected' : ''}${lifted ? ' lifted' : ''}${matched ? ' matched' : ''}${label.wrapWidth ? ' wraps' : ''}${label.background ? ' with-background' : ''}`}
       data-label={label.id}
-      style={{ left: at?.x, top: at?.y, width: label.wrapWidth ?? undefined, color: inkColor[label.ink], fontSize: labelPixels[label.size] }}
+      style={{ left: at?.x, top: at?.y, width: label.wrapWidth ?? undefined, minHeight: label.minHeight ?? undefined, color: inkColor[label.ink], fontSize: labelPixels[label.size] }}
       onPointerDown={onPointerDown}
       onPointerEnter={onHover && ((e) => e.pointerType !== 'touch' && onHover(true))}
       onPointerLeave={onHover && ((e) => e.pointerType !== 'touch' && onHover(false))}
       onClick={readOnly ? undefined : (e) => e.preventDefault()}
     >
       <LabelText content={label.content} />
+    </div>
+  )
+}
+
+interface FarLabelProps {
+  label: LabelDetail
+  at: Point
+  selected: boolean
+  lifted: boolean
+  onPointerDown: (e: PointerEvent<HTMLDivElement>) => void
+  onHover: (over: boolean) => void
+}
+
+/**
+ * A label when the board is zoomed far out (`FarCard` is the same for cards): one element, at its size, with its first line
+ * of text. Its text can't be read there, and a board of labels would be thousands of elements for it.
+ */
+export function FarLabel({ label, at, selected, lifted, onPointerDown, onHover }: FarLabelProps) {
+  return (
+    <div
+      className={`label far${selected ? ' selected' : ''}${lifted ? ' lifted' : ''}${label.background ? ' with-background' : ''}`}
+      data-label={label.id}
+      style={{ left: at.x, top: at.y, width: label.width, height: label.height, color: inkColor[label.ink] }}
+      onPointerDown={onPointerDown}
+      onPointerEnter={(e) => e.pointerType !== 'touch' && onHover(true)}
+      onPointerLeave={(e) => e.pointerType !== 'touch' && onHover(false)}
+    >
+      {label.text.trimStart().split('\n', 1)[0]}
     </div>
   )
 }
@@ -77,17 +106,6 @@ export function LabelSizes({ value, onChange }: { value: LabelSize | null; onCha
         </button>
       ))}
     </div>
-  )
-}
-
-/** The flyout of the label tool: the ink and size new labels get. */
-export function LabelOptions({ ink, onInkChange, size, onSizeChange }: { ink: InkColor; onInkChange: (ink: InkColor) => void; size: LabelSize; onSizeChange: (size: LabelSize) => void }) {
-  return (
-    <>
-      <InkSwatches value={ink} onChange={onInkChange} inks={labelInks} />
-      <span className="toolbar-divider" aria-hidden="true" />
-      <LabelSizes value={size} onChange={onSizeChange} />
-    </>
   )
 }
 
@@ -267,7 +285,6 @@ function LabelColor({ ink, onChange }: { ink: InkColor | null; onChange: (ink: I
         <div ref={popup} className={`label-color-popup${upwards ? ' up' : ''}`}>
           <InkSwatches
             value={ink}
-            inks={labelInks}
             onChange={(picked) => {
               onChange(picked)
               setOpen(false)
@@ -436,60 +453,112 @@ export function LabelBar({ rect, zoom, background, onEdit, onDelete, onPointerEn
   )
 }
 
-/** Screen pixels of the handle that sets where a selected label's text wraps. */
-const WRAP_HANDLE = 10
-
-/**
- * The handle on the right edge of a selected label: dragged, the text wraps at that width (shown on the label itself until
- * the reload brings it), and double-clicked it stops wrapping.
- */
-export function LabelWrapHandle({ id, rect, zoom, onWrap }: { id: string; rect: Rect; zoom: number; onWrap: (width: number) => void }) {
-  const handle = useRef<HTMLDivElement>(null)
-  const drag = useRef<{ startX: number; width: number; moved: boolean } | null>(null)
-  const labelEl = () => handle.current?.parentElement?.querySelector<HTMLElement>(`[data-label="${id}"]`) ?? null
-  // As tall as the label is on the page: what an agent wrote only has an estimate stored.
-  useLayoutEffect(() => {
-    const el = labelEl()
-    if (el && handle.current) handle.current.style.height = `${el.offsetHeight}px`
-  })
-  return (
-    <div
-      ref={handle}
-      className="label-wrap-handle"
-      title="Drag to wrap the text; double-click to stop wrapping"
-      style={{ left: rect.x + rect.width, top: rect.y, height: rect.height, width: WRAP_HANDLE / zoom }}
-      onPointerDown={(e) => {
-        keepPress(e)
-        if (e.button !== 0) return
-        e.currentTarget.setPointerCapture(e.pointerId)
-        drag.current = { startX: e.clientX, width: rect.width, moved: false }
-      }}
-      onPointerMove={(e) => {
-        const d = drag.current
-        if (!d) return
-        const width = Math.max(MIN_WRAP_WIDTH, Math.round(rect.width + (e.clientX - d.startX) / zoom))
-        if (width === d.width) return
-        drag.current = { ...d, width, moved: true }
-        const el = labelEl()
-        if (el) {
-          el.classList.add('wraps')
-          el.style.width = `${width}px`
-        }
-        e.currentTarget.style.left = `${rect.x + width}px`
-        e.currentTarget.style.height = `${el?.offsetHeight ?? rect.height}px`
-      }}
-      onPointerUp={() => {
-        const d = drag.current
-        drag.current = null
-        if (d?.moved) onWrap(d.width)
-      }}
-      onDoubleClick={(e) => {
-        e.stopPropagation()
-        onWrap(0)
-      }}
-    />
-  )
+/** A label's box: its corner, the width its text wraps at, and the height it keeps with little text. */
+export interface LabelBox {
+  x: number
+  y: number
+  width: number
+  minHeight: number | null
 }
 
-/** BoardLabel.MinWrapWidth on the server. */
-const MIN_WRAP_WIDTH = 60
+const LABEL_GRID = 20
+const MIN_BOX_HEIGHT = 20
+const onGrid = (value: number) => Math.round(value / LABEL_GRID) * LABEL_GRID
+
+interface LabelBoxHandlesProps {
+  /** The label selected, by its id; without one, the label being edited, in the element around these handles. */
+  id?: string
+  at: Point
+  minHeight: number | null
+  zoom: number
+  onResize: (box: LabelBox) => void
+  /** A double-click on a handle: back to as wide and as tall as its text. */
+  onReset?: () => void
+}
+
+/**
+ * The handles of a label's box, on its corners and edges like those of an image, but free in both directions: its text wraps
+ * in the box, and it grows past the box when the text doesn't fit. The label follows on the page until `onResize` is done with it.
+ */
+export function LabelBoxHandles({ id, at, minHeight, zoom, onResize, onReset }: LabelBoxHandlesProps) {
+  const root = useRef<HTMLDivElement>(null)
+  const labelEl = () => root.current?.parentElement?.querySelector<HTMLElement>(id ? `[data-label="${id}"]` : '.label.editing') ?? null
+
+  // As big as the label is on the page, which its text decides as much as its box.
+  useLayoutEffect(() => {
+    const el = labelEl()
+    if (!el) return
+    const fit = () => {
+      root.current!.style.width = `${el.offsetWidth}px`
+      root.current!.style.height = `${el.offsetHeight}px`
+    }
+    fit()
+    const observer = new ResizeObserver(fit)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [id])
+
+  function press(e: PointerEvent<HTMLElement>, handle: ResizeHandle) {
+    keepPress(e)
+    const el = labelEl()
+    if (e.button !== 0 || !el) return
+    const grip = e.currentTarget
+    grip.setPointerCapture(e.pointerId)
+    const start = { clientX: e.clientX, clientY: e.clientY, width: el.offsetWidth, height: el.offsetHeight }
+    const positioned = id ? el : (root.current!.parentElement as HTMLElement)
+    let box: LabelBox | null = null
+
+    const move = (m: globalThis.PointerEvent) => {
+      const dx = (m.clientX - start.clientX) / zoom
+      const dy = (m.clientY - start.clientY) / zoom
+      const [right, bottom] = [at.x + start.width, at.y + start.height]
+      let [x, y, width, height] = [at.x, at.y, start.width, start.height]
+      if (handle.includes('Right')) width = Math.max(MIN_LABEL_BOX, onGrid(right + dx) - at.x)
+      if (handle.includes('Left')) {
+        x = Math.min(onGrid(at.x + dx), right - MIN_LABEL_BOX)
+        width = right - x
+      }
+      if (handle.includes('Bottom')) height = Math.max(MIN_BOX_HEIGHT, onGrid(bottom + dy) - at.y)
+      if (handle.includes('Top')) {
+        y = Math.min(onGrid(at.y + dy), bottom - MIN_BOX_HEIGHT)
+        height = bottom - y
+      }
+      const sized = handle.includes('Top') || handle.includes('Bottom')
+      box = { x, y, width, minHeight: sized ? height : minHeight }
+      positioned.style.left = `${x}px`
+      positioned.style.top = `${y}px`
+      el.classList.add('wraps')
+      el.style.width = `${width}px`
+      if (sized) el.style.minHeight = `${height}px`
+      if (id) {
+        root.current!.style.left = `${x}px`
+        root.current!.style.top = `${y}px`
+      }
+    }
+    const end = () => {
+      grip.removeEventListener('pointermove', move)
+      grip.removeEventListener('pointerup', end)
+      grip.removeEventListener('pointercancel', end)
+      if (box) onResize(box)
+    }
+    grip.addEventListener('pointermove', move)
+    grip.addEventListener('pointerup', end)
+    grip.addEventListener('pointercancel', end)
+  }
+
+  return (
+    <div
+      ref={root}
+      className="label-box"
+      style={id ? { left: at.x, top: at.y } : { left: 0, top: 0 }}
+      // Keeps the text selected in the label being edited.
+      onMouseDown={(e) => e.preventDefault()}
+      onDoubleClick={(e) => {
+        e.stopPropagation()
+        onReset?.()
+      }}
+    >
+      <ResizeHandles onPointerDown={press} />
+    </div>
+  )
+}

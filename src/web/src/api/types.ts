@@ -211,6 +211,8 @@ export interface LabelDetail {
   height: number
   /** The width its text wraps at; null when each line is as long as it is. */
   wrapWidth: number | null
+  /** The height it keeps with little text; null when it is as tall as its text. */
+  minHeight: number | null
   /** Whether it has a background of its own. */
   background: boolean
   ink: InkColor
@@ -237,6 +239,7 @@ export interface NewLabel extends DropBucket {
   wrapWidth?: number
   /** Without it: on on a card, off on the board. */
   background?: boolean
+  minHeight?: number
 }
 
 /** A PATCH of a label. x and y are on the canvas it ends up on (give both when detaching). */
@@ -252,6 +255,8 @@ export interface LabelChanges extends DropBucket {
   detach?: boolean
   /** 0 stops wrapping. */
   wrapWidth?: number
+  /** 0 makes it as tall as its text. */
+  minHeight?: number
   background?: boolean
 }
 
@@ -491,6 +496,7 @@ export interface ClippedLabel {
   width?: number | null
   height?: number | null
   wrapWidth?: number | null
+  minHeight?: number | null
   background?: boolean | null
 }
 

@@ -19,8 +19,8 @@ import { DrawingToolbar, PenRing, StrokeSvg } from './DrawingView'
 import { dropTargetsFor, NO_DROPS, released, useDropProbe, type DropTargets } from './dropTargets'
 import { ExpandedCard, type ExpandedCardHandle } from './ExpandedCard'
 import { isDrag } from './gesture'
-import { followLabelLink, LABEL_BOARD_STYLE, LABEL_INSET, labelPixels, useLabelStyle } from './labels'
-import { LabelBar, LabelWrapHandle } from './LabelView'
+import { DEFAULT_WRAP_WIDTH, followLabelLink, LABEL_INSET, labelPixels, MIN_LABEL_BOX, NEW_LABEL_STYLE } from './labels'
+import { LabelBar, LabelBoxHandles } from './LabelView'
 import { MAX_COORDINATE, MIN_BUCKET_HEIGHT, MIN_BUCKET_WIDTH, MIN_COORDINATE, backToFront, bucketAtPointer, bucketUnderCard, collapsedRect, intersects, isLooseDrawing, layersBackToFront, snapPoint, spanRect } from './layout'
 import { activeDrags, draggingOf, gridFor, itemKindOf, liveGeometry, sentDrag } from './liveGeometry'
 import { ops, recordingRun, settling } from './ops'
@@ -64,7 +64,7 @@ const hints: Partial<Record<Tool, string>> = {
   card: 'Click anywhere to stick a card',
   bucket: 'Drag across the board to draw a bucket',
   pen: 'Draw anywhere on the board. Esc or V to stop',
-  label: 'Click anywhere to add a label. Esc or V to stop',
+  label: 'Drag a box for the label, or click to just type. Esc or V to stop',
 }
 
 /** How long a click on a selected label's link waits for a second click, which edits the label instead. */
@@ -175,7 +175,6 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   /** The pen's ink and size, kept for the next visit. */
   const { ink, setInk, width: strokeWidth, setWidth: setStrokeWidth, eraser: penErases, setEraser: setPenErases } = usePen(BOARD_PEN)
   /** The ink and size new labels get, kept for the next visit. */
-  const labelStyle = useLabelStyle(LABEL_BOARD_STYLE)
   /** The ring under the pointer that shows the pen's size. */
   const penRing = useRef<HTMLDivElement>(null)
   const { selected, setSelected, selection, setSelection, unselect, isSelected } = useSelection<Selection>()
@@ -576,12 +575,9 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       edits.stickCard(snapPoint(toCanvas(e)), toCanvas(e))
     } else if (tool === 'label') {
       if (readOnly) return
-      // Focus goes to the new label, once it is there; the tool has done its work.
       e.preventDefault()
       setSelection(null)
-      setTool('select')
-      const at = toCanvas(e)
-      labelEdit.startNew(snapPoint({ x: at.x - LABEL_INSET.x, y: at.y - LABEL_INSET.y - labelPixels[labelStyle.size] / 2 }), labelStyle, null, dropBucket(at))
+      beginGesture(e, { kind: 'drawLabel' })
     } else if (readOnly) {
       setSelection(null)
     } else {
@@ -645,6 +641,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         return releaseGroup(gesture, client)
       case 'draw':
         return releaseDraw(gesture)
+      case 'drawLabel':
+        return releaseDrawLabel(gesture)
       default:
         return releaseItem(gesture, client)
     }
@@ -678,6 +676,18 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     }
     setGesture({ ...g, done: true })
     edits.addBucket(rect)
+  }
+
+  /** Starts the label the label tool drew: in the box dragged out, or where it was clicked. Focus goes to it once it is there; the tool has done its work. */
+  function releaseDrawLabel(g: Extract<Gesture, { kind: 'drawLabel' }>) {
+    setGesture(null)
+    setTool('select')
+    if (!isDrag(g)) {
+      labelEdit.startNew(snapPoint({ x: g.start.x - LABEL_INSET.x, y: g.start.y - LABEL_INSET.y - labelPixels[NEW_LABEL_STYLE.size] / 2 }), NEW_LABEL_STYLE, null, dropBucket(g.start), { width: DEFAULT_WRAP_WIDTH })
+      return
+    }
+    const box = spanRect(snapPoint(g.start), snapPoint(g.current))
+    labelEdit.startNew(box, NEW_LABEL_STYLE, null, dropBucket(g.start), { width: Math.max(box.width, MIN_LABEL_BOX), height: box.height })
   }
 
   /** Ends a drag of one item, on what dropTargetsFor found. A click on a card's title edits it, the text cursor where the click was. */
@@ -956,6 +966,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const arrangingInto = arrangeDrop && !dragging?.done ? arrangeDrop.bucket.id : null
   /** The new bucket being drawn. */
   const draft = gesture?.kind === 'draw' && !gesture.done ? spanRect(snapPoint(gesture.start), snapPoint(gesture.current)) : null
+  /** The box of a new label being drawn. */
+  const labelBox = gesture?.kind === 'drawLabel' && isDrag(gesture) ? spanRect(snapPoint(gesture.start), snapPoint(gesture.current)) : null
   /** The selection rectangle being dragged out. */
   const marquee = gesture?.kind === 'select' && isDrag(gesture) ? spanRect(gesture.start, gesture.current) : null
   /** While a card or several items are dragged, or a new card carried, the rail's card button is a trash can. */
@@ -1028,7 +1040,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       ...group.labels
         .filter(({ label, rect }) => label.id !== beingEdited && onPage(label.id, rect))
         .map(({ label, rect }) => (
-          <BoardLabel key={label.id} label={label} x={rect.x} y={rect.y} selected={isSelected('label', label.id)} lifted={lifting(label.id)} readOnly={readOnly} handlers={itemHandlers} />
+          <BoardLabel key={label.id} label={label} far={far} x={rect.x} y={rect.y} selected={isSelected('label', label.id)} lifted={lifting(label.id)} readOnly={readOnly} handlers={itemHandlers} />
         )),
     ]
   }
@@ -1168,7 +1180,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
                   zoom={zoom}
                   {...labelEdit.selectedActions(selectedLabel.label, () => deleteLabel(selectedLabel.label.id))}
                 />
-                <LabelWrapHandle id={selectedLabel.label.id} rect={selectedLabel.rect} zoom={zoom} onWrap={(width) => labelEdit.wrap(selectedLabel.label, width)} />
+                <LabelBoxHandles key={selectedLabel.label.id} id={selectedLabel.label.id} at={selectedLabel.rect} minHeight={selectedLabel.label.minHeight} zoom={zoom} onResize={(box) => labelEdit.resize(selectedLabel.label, box)} onReset={() => labelEdit.unbox(selectedLabel.label)} />
               </>
             )}
 
@@ -1196,6 +1208,8 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
             {cursors && onCursor && (
               <RemoteCursors cursors={cursors} viewers={viewers} drags={remoteDrags} placeOf={pinPlace} near={near} zoom={zoom} focused={focusedTack} />
             )}
+
+            {labelBox && <div className="bucket-draft" aria-hidden="true" style={{ left: labelBox.x, top: labelBox.y, width: labelBox.width, height: labelBox.height }} />}
 
             {marquee && (
               <div className="marquee" aria-hidden="true" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />
@@ -1240,10 +1254,6 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         onStrokeWidthChange={setStrokeWidth}
         eraser={penErases}
         onEraserChange={setPenErases}
-        labelInk={labelStyle.ink}
-        onLabelInkChange={labelStyle.setInk}
-        labelSize={labelStyle.size}
-        onLabelSizeChange={labelStyle.setSize}
         onCardPointerDown={newCard.onPointerDown}
         trash={trashShown ? (overTrash ? 'over' : 'shown') : undefined}
         trashRef={trashRef}

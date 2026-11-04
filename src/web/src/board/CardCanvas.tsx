@@ -7,8 +7,8 @@ import { eraserRadius, inkColor, movePenRing, CARD_PEN, usePen } from './drawing
 import { DrawingGhost, DrawingToolbar, DrawingView, IncomingDrawingView, PenRing, StrokeSvg } from './DrawingView'
 import { delta, isDrag } from './gesture'
 import { ImageInspector } from './Inspector'
-import { followLabelLink, LABEL_CARD_STYLE, LABEL_INSET, labelPixels, useLabelStyle } from './labels'
-import { LabelBar, LabelGhost, LabelView, LabelWrapHandle } from './LabelView'
+import { DEFAULT_WRAP_WIDTH, followLabelLink, LABEL_INSET, labelPixels, MIN_LABEL_BOX, NEW_LABEL_STYLE } from './labels'
+import { LabelBar, LabelBoxHandles, LabelGhost, LabelView } from './LabelView'
 import { componentSize, defaultComponentSize, freeSpot, onCardCanvas, resizeFrom, resizeImage, snapPoint, spanRect } from './layout'
 import { ComponentFrame, ChecklistComponent, LinksComponent } from './CardComponents'
 import { CardBar } from './CardBar'
@@ -76,8 +76,8 @@ const LINK_DELAY_MS = 300
 
 /** A press on a component, image or drawing, in card pixels. */
 interface Gesture {
-  /** `group`: several selected items moved together; `select`: the selection rectangle. */
-  kind: Kind | 'group' | 'select'
+  /** `group`: several selected items moved together; `select`: the selection rectangle; `drawLabel`: the box of a new label. */
+  kind: Kind | 'group' | 'select' | 'drawLabel'
   /** The item pressed (empty for the selection rectangle). */
   id: string
   /** For group: the items moving. For select: the selection it adds to. */
@@ -161,7 +161,6 @@ export function CardCanvas(props: CardCanvasProps) {
   const drawingOn = !readOnly && penOn
   /** The card's label tool: on, the next press adds a label there. */
   const [labelOn, setLabelOn] = useState(false)
-  const labelStyle = useLabelStyle(LABEL_CARD_STYLE)
   /** The link a press on a selected label was on: released without a drag, it is followed, unless a second press makes it a double-click. */
   const labelLink = useRef<string | null>(null)
   const labelLinkTimer = useRef(0)
@@ -344,7 +343,7 @@ export function CardCanvas(props: CardCanvasProps) {
   }
 
   // Live geometry: the server's layout with your gesture applied, snapped as the server will.
-  const dragging = gesture && gesture.kind !== 'select' && isDrag(gesture) ? gesture : null
+  const dragging = gesture && gesture.kind !== 'select' && gesture.kind !== 'drawLabel' && isDrag(gesture) ? gesture : null
   /** Whether an item moves with the drag in progress: the one dragged, or one of several selected moving together. */
   const moves = (id: string) => !!dragging && (dragging.kind === 'group' ? !!dragging.items?.some((i) => i.id === id) : dragging.id === id)
   /** An image, drawing or label dragged out of the window, to drop on the board. */
@@ -437,22 +436,35 @@ export function CardCanvas(props: CardCanvasProps) {
     else pen.start(e, cardPen.ink, cardPen.width)
   }
 
-  /** With the label tool on, a press anywhere on the canvas adds a label there, or edits the label pressed. */
+  /** With the label tool on, a press on the canvas draws the box of a new label, or edits the label pressed. */
   function onLabelPointerDown(e: PointerEvent) {
     if (!labelOn || readOnly || e.button !== 0) return
     e.stopPropagation()
     e.preventDefault()
     labelEdit.commit()
-    setLabelOn(false)
     setSelection(null)
     const pressed = e.target instanceof Element ? e.target.closest('[data-label]')?.getAttribute('data-label') : null
     const label = pressed && labels.find((l) => l.id === pressed)
     if (label) {
+      setLabelOn(false)
       labelEdit.edit(label)
       return
     }
-    const at = toCard({ x: e.clientX, y: e.clientY })
-    labelEdit.startNew(onCardCanvas({ x: at.x - LABEL_INSET.x, y: at.y - LABEL_INSET.y - labelPixels[labelStyle.size] / 2 }, { width: 0, height: 0 }), labelStyle, card.id)
+    beginGesture(e, { kind: 'drawLabel', id: '', handle: 'BottomRight' })
+  }
+
+  /** Starts the label the label tool drew: in the box dragged out, or where it was clicked. */
+  function releaseDrawLabel(g: Gesture) {
+    setGesture(null)
+    setLabelOn(false)
+    if (isDrag(g)) {
+      const box = spanRect(snapPoint(g.start), snapPoint(g.current))
+      const size = { width: Math.max(box.width, MIN_LABEL_BOX), height: box.height }
+      labelEdit.startNew(onCardCanvas(box, size), NEW_LABEL_STYLE, card.id, undefined, size)
+      return
+    }
+    const at = g.start
+    labelEdit.startNew(onCardCanvas({ x: at.x - LABEL_INSET.x, y: at.y - LABEL_INSET.y - labelPixels[NEW_LABEL_STYLE.size] / 2 }, { width: 0, height: 0 }), NEW_LABEL_STYLE, card.id, undefined, { width: DEFAULT_WRAP_WIDTH })
   }
 
   /** Turns the card's label tool on or off. */
@@ -527,6 +539,10 @@ export function CardCanvas(props: CardCanvasProps) {
     }
     if (pan.end()) return
     if (!gesture || gesture.done) return
+    if (gesture.kind === 'drawLabel') {
+      releaseDrawLabel(gesture)
+      return
+    }
     if (gesture.kind === 'select') {
       // A click without a drag keeps only the selection it was adding to (none without Shift or Ctrl/Cmd).
       setGesture(null)
@@ -621,6 +637,8 @@ export function CardCanvas(props: CardCanvasProps) {
   const leavingImage = leaving && images.find((i) => i.id === leaving.id)
   const leavingDrawing = leaving && drawings.find((d) => d.id === leaving.id)
   const leavingLabel = leaving && labels.find((l) => l.id === leaving.id)
+  /** The box of a new label being drawn. */
+  const labelBox = gesture?.kind === 'drawLabel' && isDrag(gesture) ? spanRect(snapPoint(gesture.start), snapPoint(gesture.current)) : null
   /** The selection rectangle being dragged out. */
   const marquee = gesture?.kind === 'select' && isDrag(gesture) ? spanRect(gesture.start, gesture.current) : null
   const selectedImage = !readOnly && selection?.kind === 'image' ? images.find((i) => i.id === selection.id) : undefined
@@ -810,7 +828,7 @@ export function CardCanvas(props: CardCanvasProps) {
             {selectedLabel && !labelEdit.draft && !labelEdit.saving && !(dragging?.id === selectedLabel.label.id && !dragging.done) && (
               <>
                 <LabelBar rect={selectedLabel.rect} zoom={zoom} {...labelEdit.selectedActions(selectedLabel.label, () => remove('label', selectedLabel.label.id))} />
-                <LabelWrapHandle id={selectedLabel.label.id} rect={selectedLabel.rect} zoom={zoom} onWrap={(width) => labelEdit.wrap(selectedLabel.label, width)} />
+                <LabelBoxHandles key={selectedLabel.label.id} id={selectedLabel.label.id} at={selectedLabel.rect} minHeight={selectedLabel.label.minHeight} zoom={zoom} onResize={(box) => labelEdit.resize(selectedLabel.label, box)} onReset={() => labelEdit.unbox(selectedLabel.label)} />
               </>
             )}
 
@@ -853,6 +871,8 @@ export function CardCanvas(props: CardCanvasProps) {
             )}
 
             {drawingOn && <PenRing ringRef={penRing} width={cardPen.width} zoom={zoom} eraser={cardPen.eraser} />}
+
+            {labelBox && <div className="bucket-draft" aria-hidden="true" style={{ left: labelBox.x, top: labelBox.y, width: labelBox.width, height: labelBox.height }} />}
 
             {marquee && (
               <div className="marquee" aria-hidden="true" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />
@@ -900,10 +920,6 @@ export function CardCanvas(props: CardCanvasProps) {
           label={{
             on: labelOn,
             onToggle: toggleLabel,
-            ink: labelStyle.ink,
-            onInkChange: labelStyle.setInk,
-            size: labelStyle.size,
-            onSizeChange: labelStyle.setSize,
           }}
           onDelete={onDeleteCard}
         />

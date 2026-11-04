@@ -55,9 +55,9 @@ public class LabelApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
 
         // Without a measured size it estimates one from the text; ink and size have defaults.
         var plain = await Create(board.Id, new { x = 0, y = 0, content = Words("Short") });
-        Assert.Equal((InkColor.Theme, LabelSize.M), (plain.Ink, plain.Size));
+        Assert.Equal((InkColor.Theme, LabelSize.S), (plain.Ink, plain.Size));
         Assert.InRange(plain.Width, 40, 120);
-        Assert.InRange(plain.Height, 40, 60);
+        Assert.InRange(plain.Height, 30, 50);
     }
 
     [Fact]
@@ -706,6 +706,29 @@ public class LabelApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var label = Assert.Single((await Board(board.Id)).Labels, l => l.CardId == copy.Id);
         Assert.Equal((40, 60, 400, true), (label.X, label.Y, label.WrapWidth!.Value, label.Background));
         Assert.Equal("### Why\n\n**Because** of this.", LabelMarkdown.From(label.Content));
+    }
+
+    [Fact]
+    public async Task A_label_keeps_the_height_of_its_box_and_grows_past_it()
+    {
+        var board = await _client.CreateBoardAsync("Boxes");
+        var boxed = await Create(board.Id, new { markdown = "Few words", x = 0, y = 0, wrapWidth = 300, minHeight = 200 });
+        Assert.Equal((300, 200, 200), (boxed.Width, boxed.Height, boxed.MinHeight!.Value));
+
+        var longer = await Update(boxed.Id, new { markdown = string.Join("\n\n", Enumerable.Repeat("A line", 40)) });
+        Assert.Equal(200, longer.MinHeight);
+        Assert.True(longer.Height > 200, $"Height {longer.Height}");
+
+        var cleared = await Update(boxed.Id, new { markdown = "Few words", minHeight = 0 });
+        Assert.Null(cleared.MinHeight);
+        Assert.True(cleared.Height < 200, $"Height {cleared.Height}");
+
+        await Update(boxed.Id, new { minHeight = 160 });
+        var clip = await CopyAsync(board.Id, new { labelIds = new[] { boxed.Id } });
+        Assert.Contains("\"minHeight\":160", clip);
+        var pasted = await _client.PostAsync($"/api/boards/{board.Id}/paste", Json($$"""{"clip":{{clip}},"x":1000,"y":1000}"""));
+        Assert.Equal(HttpStatusCode.OK, pasted.StatusCode);
+        Assert.Equal(160, (await pasted.Content.ReadFromJsonAsync<PastedItems>())!.Labels!.Single().MinHeight);
     }
 
     [Fact]

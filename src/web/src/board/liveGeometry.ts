@@ -15,7 +15,7 @@ export interface ActiveDrag {
 }
 
 /** A gesture that drags items (not drawing a bucket or the selection rectangle). */
-export type DragGesture = Exclude<Gesture, { kind: 'draw' | 'select' }>
+export type DragGesture = Exclude<Gesture, { kind: 'draw' | 'drawLabel' | 'select' }>
 
 const fromDragKind: Record<Exclude<DragKind, 'Group'>, ItemGesture> = {
   Card: 'card',
@@ -41,7 +41,7 @@ export const itemKindOf: Record<ItemGesture, SelectionKind> = {
 
 /** Your gesture when it drags items and has gone far enough to be a drag; else null. */
 export function draggingOf(gesture: Gesture | null): DragGesture | null {
-  if (!gesture || gesture.kind === 'draw' || gesture.kind === 'select') return null
+  if (!gesture || gesture.kind === 'draw' || gesture.kind === 'drawLabel' || gesture.kind === 'select') return null
   return isDrag(gesture) ? gesture : null
 }
 

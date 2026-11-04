@@ -51,12 +51,14 @@ public class BoardLabel : ICanvasItem
     public int Height { get; set; }
     /// <summary>The width its text wraps at, in canvas pixels; null keeps each line as long as it is.</summary>
     public int? WrapWidth { get; set; }
+    /// <summary>The height it keeps with little text, in canvas pixels, as its box was drawn; null is as tall as its text.</summary>
+    public int? MinHeight { get; set; }
     /// <summary>Whether it has a background of its own, the panel a card's components have. Set when it is added: on on a card, off on the board.</summary>
     public bool Background { get; set; }
     /// <summary>The ink of text that doesn't set its own.</summary>
     public InkColor Ink { get; set; } = InkColor.Theme;
     /// <summary>The size of text that doesn't set its own.</summary>
-    public LabelSize Size { get; set; } = LabelSize.M;
+    public LabelSize Size { get; set; } = LabelSize.S;
     public List<LabelBlock> Content { get; set; } = [];
     /// <summary>The text without its formatting, kept in step with <see cref="Content"/> (see <see cref="SetContent"/>).</summary>
     public string Text { get; set; } = "";
@@ -81,6 +83,9 @@ public class BoardLabel : ICanvasItem
 
     /// <summary>Sets the width its text wraps at; null or 0 stops wrapping.</summary>
     public void SetWrap(int? width) => WrapWidth = width is > 0 ? Math.Clamp(width.Value, MinWrapWidth, MaxSize) : null;
+
+    /// <summary>Sets the height it keeps with little text; null or 0 makes it as tall as its text.</summary>
+    public void SetMinHeight(int? height) => MinHeight = height is > 0 ? Math.Min(height.Value, MaxSize) : null;
 
     /// <summary>Estimates the size of text nobody measured, wrapping it at <see cref="DefaultWrapWidth"/> when it has no width of its own and is wider than that.</summary>
     public void EstimateAndWrap()
@@ -140,7 +145,7 @@ public class BoardLabel : ICanvasItem
             }
             Line(indent, line, tallest);
         }
-        SetSize((inner is null ? (int)Math.Ceiling(width) + PaddingX * 2 : WrapWidth!.Value), (int)Math.Ceiling(height) + PaddingY * 2);
+        SetSize((inner is null ? (int)Math.Ceiling(width) + PaddingX * 2 : WrapWidth!.Value), Math.Max((int)Math.Ceiling(height) + PaddingY * 2, MinHeight ?? 0));
     }
 
     /// <summary>How much larger than the label's size a heading of a level is. The web app has the same table in <c>index.css</c>.</summary>

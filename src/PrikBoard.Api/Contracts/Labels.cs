@@ -13,6 +13,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="Width">Width of its text in canvas pixels, as last measured by the web app, or an estimate.</param>
 /// <param name="Height">Height of its text in canvas pixels, as last measured by the web app, or an estimate.</param>
 /// <param name="WrapWidth">The width its text wraps at, in canvas pixels; null when each line is as long as it is.</param>
+/// <param name="MinHeight">The height it keeps with little text, in canvas pixels; null when it is as tall as its text.</param>
 /// <param name="Background">Whether it has a background of its own.</param>
 /// <param name="Ink">Ink of text that doesn't set its own: Theme follows the theme's text color; the others keep their colors in every theme, so some are hard to read on some boards.</param>
 /// <param name="Size">Size of text that doesn't set its own: S (14 px), M (21), L (35) or XL (56).</param>
@@ -32,6 +33,7 @@ public record LabelDetail(
     int Width,
     int Height,
     int? WrapWidth,
+    int? MinHeight,
     bool Background,
     InkColor Ink,
     LabelSize Size,
@@ -43,7 +45,7 @@ public record LabelDetail(
     DateTimeOffset UpdatedAt)
 {
     public static LabelDetail From(BoardLabel label) =>
-        new(label.Id, label.BoardId, label.CardId, label.BucketId, label.X, label.Y, label.Width, label.Height, label.WrapWidth, label.Background, label.Ink, label.Size,
+        new(label.Id, label.BoardId, label.CardId, label.BucketId, label.X, label.Y, label.Width, label.Height, label.WrapWidth, label.MinHeight, label.Background, label.Ink, label.Size,
             label.Content, label.Text, label.AddedBy?.ShownName ?? "Unknown", label.AddedById, label.CreatedAt, label.UpdatedAt);
 }
 
@@ -56,10 +58,11 @@ public record LabelDetail(
 /// <param name="X">Left edge: on the board (-100000 to 100000), or on the card's canvas with cardId. Snapped to the grid. Give it with y.</param>
 /// <param name="Y">Top edge, like x.</param>
 /// <param name="Ink">Ink of text that doesn't set its own; default Theme, the theme's own text color.</param>
-/// <param name="Size">Size of text that doesn't set its own: S (14 px), M (21, the default), L (35) or XL (56).</param>
+/// <param name="Size">Size of text that doesn't set its own: S (14 px, the default), M (21), L (35) or XL (56).</param>
 /// <param name="Width">Width of the text as measured, in canvas pixels. Give it with height.</param>
 /// <param name="Height">Height of the text as measured, in canvas pixels. Give it with width.</param>
 /// <param name="WrapWidth">The width its text wraps at, in canvas pixels. Without one, text nobody measured wraps at 340 when it is wider than that.</param>
+/// <param name="MinHeight">The height it keeps with little text, in canvas pixels; it grows with more. Without one it is as tall as its text.</param>
 /// <param name="Background">Whether it has a background of its own. Without this, on a card's canvas it has one, and on the board it doesn't.</param>
 /// <param name="CardId">Put it on this card's own canvas (on the same board) instead of on the board.</param>
 /// <param name="BucketId">With x and y on the board: the bucket it joins, which it must overlap (without one it joins the topmost one containing its center).</param>
@@ -70,14 +73,15 @@ public record CreateLabelRequest(
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X = null,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? Y = null,
     InkColor Ink = InkColor.Theme,
-    LabelSize Size = LabelSize.M,
+    LabelSize Size = LabelSize.S,
     [property: Range(1, BoardLabel.MaxSize)] int? Width = null,
     [property: Range(1, BoardLabel.MaxSize)] int? Height = null,
     Guid? CardId = null,
     Guid? BucketId = null,
     bool? Loose = null,
     [property: Range(1, BoardLabel.MaxSize)] int? WrapWidth = null,
-    bool? Background = null);
+    bool? Background = null,
+    [property: Range(1, BoardLabel.MaxSize)] int? MinHeight = null);
 
 /// <summary>
 /// Changes a label, or moves it between the board and a card. Omitted (null) fields stay unchanged. X and Y are on wherever
@@ -97,6 +101,7 @@ public record CreateLabelRequest(
 /// <param name="Loose">With x and y on the board: true to join no bucket, even over one. Do not combine with bucketId.</param>
 /// <param name="WrapWidth">The width its text wraps at, in canvas pixels; 0 stops wrapping.</param>
 /// <param name="Background">Whether it has a background of its own. It stays as it is when the label moves between the board and a card.</param>
+/// <param name="MinHeight">The height it keeps with little text, in canvas pixels; 0 makes it as tall as its text.</param>
 /// <param name="AppendText">Markdown to add at the end, keeping the formatting of what is there. May come with content or markdown, after which it goes.</param>
 public record UpdateLabelRequest(
     [property: MaxLength(BoardLabel.MaxBlocks)] List<LabelBlock>? Content = null,
@@ -113,4 +118,5 @@ public record UpdateLabelRequest(
     bool? Loose = null,
     [property: Range(0, BoardLabel.MaxSize)] int? WrapWidth = null,
     bool? Background = null,
-    [property: StringLength(BoardLabel.MaxTextLength * 2)] string? AppendText = null);
+    [property: StringLength(BoardLabel.MaxTextLength * 2)] string? AppendText = null,
+    [property: Range(0, BoardLabel.MaxSize)] int? MinHeight = null);

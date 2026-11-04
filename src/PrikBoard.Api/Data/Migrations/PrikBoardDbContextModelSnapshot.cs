@@ -407,6 +407,9 @@ namespace PrikBoard.Api.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<int?>("MinHeight")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Size")
                         .IsRequired()
                         .HasMaxLength(10)
