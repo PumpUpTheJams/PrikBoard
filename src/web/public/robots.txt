@@ -1,0 +1,6 @@
+# The app lives at / and routes in the URL hash, so / is the only page there is to crawl. Boards are members-only.
+User-agent: *
+Disallow: /api/
+Disallow: /openapi/
+Disallow: /scalar
+Disallow: /mcp

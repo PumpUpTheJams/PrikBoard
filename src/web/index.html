@@ -15,9 +15,10 @@
     <!--
       Link previews in chat apps. Crawlers fetch links anonymously and never send the part after #, so every PrikBoard
       link (board, card, invite) looks like / to them and gets this same preview, which therefore names nothing. No
-      og:url, so the preview links to what was pasted. See docs/discord.md.
+      og:url, so the preview links to what was pasted. Chat apps read og:description; the plain description is for search
+      engines and describes PrikBoard itself. See docs/discord.md.
     -->
-    <meta name="description" content="Neither you nor a PrikBoard integration is signed in here. Open the link to sign in and see it." />
+    <meta name="description" content="PrikBoard is a board of cards for small projects: buckets, cards, checklists and drawings on a freeform canvas, shared live with your team and with AI agents." />
     <meta property="og:site_name" content="PrikBoard" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="PrikBoard link" />
