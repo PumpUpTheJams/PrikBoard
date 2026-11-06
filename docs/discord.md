@@ -69,7 +69,7 @@ The integration gets around both limits. The bot reads the link from the message
 
 ```html
 <title>PrikBoard</title>
-<meta name="description" content="Neither you nor a PrikBoard integration is signed in here. Open the link to sign in and see it.">
+<meta name="description" content="PrikBoard is a board of cards for small projects: buckets, cards, checklists and drawings on a freeform canvas, shared live with your team and with AI agents.">
 <meta property="og:site_name" content="PrikBoard">
 <meta property="og:type" content="website">
 <meta property="og:title" content="PrikBoard link">
@@ -82,6 +82,7 @@ The integration gets around both limits. The bot reads the link from the message
 <meta name="theme-color" content="#ffd54f">
 ```
 
+- **Two descriptions.** Chat apps read `og:description`, the signed-out text. The plain `description` is for search engines and describes PrikBoard itself, since `/` is the one page they index (`robots.txt` keeps them off `/api`, `/openapi`, `/scalar` and `/mcp`).
 - **Small card.** `twitter:card` `summary` with a square image gives the small thumbnail on the right of the card, not a large banner.
 - **No `og:url`.** It would tell the chat app that every link is the home page. Without it, the card links to what was pasted.
 - **The image** (`src/web/public/og-signed-out.png`, 256 × 256) is the card logo on the Night shift background, with a small round badge in a corner. It is a PNG because many crawlers don't render SVG. `icon-512.png` and `apple-touch-icon.png` sit next to it, and the bot uses the icon.
