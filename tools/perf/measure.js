@@ -187,11 +187,33 @@
       return { ...result, cards: selected.length }
     })
 
-  /** One pointer move while dragging the biggest bucket (it carries its cards). */
-  const bucket = () =>
+  /** One pointer move while dragging a label on its own. */
+  const label = () =>
     guarded(async () => {
-      const b = bucketNamed('Bucket 1')
-      if (!b) return { skipped: 'not a make-board.mjs board' }
+      const home = bucketNamed('Labels')
+      if (!home) return { skipped: 'a board without --labels' }
+      await bringIntoView(home)
+      await flush()
+      const held = [...document.querySelectorAll('.label')].find(onScreen)
+      if (!held) return { skipped: 'no label on screen' }
+      const r = held.getBoundingClientRect()
+      let x = r.left + r.width / 2
+      const y = r.top + r.height / 2
+      held.dispatchEvent(pointer('pointerdown', x, y))
+      await flush()
+      const result = await time(() => {
+        x += 3
+        canvas().dispatchEvent(pointer('pointermove', x, y))
+      }, 30)
+      await cancel(x, y)
+      return result
+    })
+
+  /** One pointer move while dragging the biggest bucket (it carries its cards), or the bucket of labels. */
+  const bucket = (prefix = 'Bucket 1') =>
+    guarded(async () => {
+      const b = bucketNamed(prefix)
+      if (!b) return { skipped: prefix === 'Labels' ? 'a board without --labels' : 'not a make-board.mjs board' }
       await bringIntoView(b)
       const name = b.querySelector('.bucket-name')
       const r = name.getBoundingClientRect()
@@ -277,6 +299,7 @@
     all: document.querySelectorAll('*').length,
     canvas: document.querySelectorAll('.canvas *').length,
     cards: document.querySelectorAll('.canvas .card').length,
+    labels: document.querySelectorAll('.canvas .label').length,
   })
 
   async function run({ withOpen = true, withReload = true } = {}) {
@@ -290,6 +313,8 @@
     note('drag', await drag())
     note('group', await group())
     note('bucket', await bucket())
+    note('label', await label())
+    note('labelBucket', await bucket('Labels'))
     note('zoom', await zoom())
     if (withReload) note('reload', await reload())
     if (withOpen) note('open', await open())
@@ -297,7 +322,7 @@
     return results
   }
 
-  window.prikPerf = { run, scroll, drag, group, bucket, zoom, reload, open, nodes }
+  window.prikPerf = { run, scroll, drag, group, bucket, label, zoom, reload, open, nodes }
   console.info('prikPerf: measuring; prikPerf.run() measures again.')
   // Loaded through a script tag, the results are still there to await.
   window.prikPerf.last = run()

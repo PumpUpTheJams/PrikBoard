@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react'
 import type { InkColor, CardComponentKind } from '../api/types'
 import { inkColor } from './drawings'
 import { PenOptions } from './DrawingView'
-import { EraserIcon, ImageIcon, PenIcon, TrashIcon } from './icons'
+import { EraserIcon, ImageIcon, LabelIcon, PenIcon, TrashIcon } from './icons'
 import { componentKinds } from './componentKinds'
 
 /** The card's pen: whether it is on, its ink and size, and whether it erases. */
@@ -17,21 +17,28 @@ export interface CardPen {
   onEraserChange: (eraser: boolean) => void
 }
 
+/** The card's label tool: whether it is on (the next click adds a label). */
+export interface CardLabelTool {
+  on: boolean
+  onToggle: () => void
+}
+
 interface CardBarProps {
   /** Adds a component of a kind in a free spot in view. */
   onAdd: (kind: CardComponentKind) => void
   /** Opens the file picker to attach images. */
   onAddImage: () => void
   pen: CardPen
+  label: CardLabelTool
   /** Deletes the whole card, without asking first (undo brings it back). */
   onDelete: () => void
 }
 
 /** The expanded card's tool bar, styled like the board's tool rail but lying along the bottom. */
-export function CardBar({ onAdd, onAddImage, pen, onDelete }: CardBarProps) {
+export function CardBar({ onAdd, onAddImage, pen, label, onDelete }: CardBarProps) {
   return (
     <div className="rail card-bar" role="toolbar" aria-label="Card tools">
-      {(['Text', 'Checklist', 'Links'] as const).map((kind) => {
+      {(['Checklist', 'Links'] as const).map((kind) => {
         const { label, Icon } = componentKinds[kind]
         return (
           <button key={kind} type="button" className="rail-button" aria-label={`Add ${label.toLowerCase()}`} title={`Add ${label.toLowerCase()}`} onClick={() => onAdd(kind)}>
@@ -66,6 +73,11 @@ export function CardBar({ onAdd, onAddImage, pen, onDelete }: CardBarProps) {
             />
           </div>
         )}
+      </div>
+      <div className="card-pen">
+        <button type="button" className="rail-button" aria-label="Label" title="Label (T): click on the card and type" aria-pressed={label.on} onClick={label.onToggle}>
+          <LabelIcon />
+        </button>
       </div>
       <span className="rail-divider" aria-hidden="true" />
       <button type="button" className="rail-button danger" aria-label="Delete card" title="Delete card" onClick={onDelete}>

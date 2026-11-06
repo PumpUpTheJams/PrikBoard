@@ -93,7 +93,7 @@ export function useBoardClipboard(options: BoardClipboardOptions) {
     }
     copying?.abort.abort()
     const ids = (kind: SelectionKind) => selected.filter((s) => s.kind === kind).map((s) => s.id)
-    const what = { cardIds: ids('card'), bucketIds: ids('bucket'), imageIds: ids('image'), drawingIds: ids('drawing'), cut }
+    const what = { cardIds: ids('card'), bucketIds: ids('bucket'), imageIds: ids('image'), drawingIds: ids('drawing'), labelIds: ids('label'), cut }
     const abort = new AbortController()
     const mine = (c: Copying | null) => c?.abort === abort
     setCopying({ cut, progress: null, ready: null, abort })
@@ -144,6 +144,7 @@ export function useBoardClipboard(options: BoardClipboardOptions) {
       ...clip.cards.filter(loose).map((n) => ({ kind: 'card' as const, ...n })),
       ...clip.images.filter((i) => !i.cardId && loose(i)).map((i) => ({ kind: 'image' as const, id: i.id ?? '', x: i.x, y: i.y, width: i.width, height: i.height ?? undefined })),
       ...clip.drawings.filter((d) => !d.cardId && loose(d)).map((d) => ({ kind: 'drawing' as const, ...d, id: d.id ?? '' })),
+      ...(clip.labels ?? []).filter((l) => !l.cardId && loose(l)).map((l) => ({ kind: 'label' as const, id: l.id ?? '', x: l.x, y: l.y, width: l.width ?? undefined, height: l.height ?? undefined })),
     ]
     const here = itemLists(board)
     const members = tops.filter((t) => here[t.kind].some((x) => x.id === t.id)).map((t): Selection => ({ kind: t.kind, id: t.id }))
@@ -166,6 +167,7 @@ export function useBoardClipboard(options: BoardClipboardOptions) {
       ...pasted.cards.filter(outside).map((n): Selection => ({ kind: 'card', id: n.id })),
       ...pasted.images.filter((i) => !i.cardId && outside(i)).map((i): Selection => ({ kind: 'image', id: i.id })),
       ...pasted.drawings.filter((d) => !d.cardId && outside(d)).map((d): Selection => ({ kind: 'drawing', id: d.id })),
+      ...(pasted.labels ?? []).filter((l) => !l.cardId && outside(l)).map((l): Selection => ({ kind: 'label', id: l.id })),
     ])
   }
 

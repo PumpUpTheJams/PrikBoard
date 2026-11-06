@@ -1,7 +1,7 @@
 import type { MouseEvent, PointerEvent } from 'react'
 import type { BucketDetail, Rect, ResizeHandle } from '../api/types'
 import { plural } from '../components/plural'
-import { CardIcon, ChevronDownIcon, ChevronUpIcon, ImageIcon, PenIcon } from './icons'
+import { CardIcon, ChevronDownIcon, ChevronUpIcon, ImageIcon, LabelIcon, PenIcon } from './icons'
 import { collapsedRect } from './layout'
 import { ResizeHandles } from './ResizeHandles'
 
@@ -10,18 +10,20 @@ export interface BucketCount {
   cards: number
   images: number
   drawings: number
+  labels: number
 }
 
 /**
  * The counts a bucket shows, each with its icon and label: a zero is left out, but an empty bucket shows 0 cards. The
  * bucket's label joins them ("3 cards, 1 image").
  */
-function contentsOf({ cards, images, drawings }: BucketCount) {
+function contentsOf({ cards, images, drawings, labels }: BucketCount) {
   const shown = [
     { kind: 'cards', n: cards, label: plural(cards, 'card', 'cards'), Icon: CardIcon },
     { kind: 'images', n: images, label: plural(images, 'image', 'images'), Icon: ImageIcon },
     { kind: 'drawings', n: drawings, label: plural(drawings, 'drawing', 'drawings'), Icon: PenIcon },
-  ].filter((c) => c.n > 0 || (c.kind === 'cards' && images === 0 && drawings === 0))
+    { kind: 'labels', n: labels, label: plural(labels, 'label', 'labels'), Icon: LabelIcon },
+  ].filter((c) => c.n > 0 || (c.kind === 'cards' && images === 0 && drawings === 0 && labels === 0))
   return { shown, label: shown.map((c) => c.label).join(', ') }
 }
 

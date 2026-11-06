@@ -1,4 +1,4 @@
-export type Tool = 'select' | 'card' | 'bucket' | 'pen'
+export type Tool = 'select' | 'card' | 'bucket' | 'pen' | 'label'
 
 /** Single-key shortcuts, as shown in the tool tips. */
-export const toolKeys: Record<string, Tool> = { v: 'select', c: 'card', b: 'bucket', p: 'pen' }
+export const toolKeys: Record<string, Tool> = { v: 'select', c: 'card', b: 'bucket', p: 'pen', t: 'label' }

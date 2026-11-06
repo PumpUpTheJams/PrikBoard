@@ -12,17 +12,17 @@ namespace PrikBoard.Api.Mcp;
 /// <param name="Tags">Its tags; left out when it has none.</param>
 /// <param name="Assignees">The names of the people and agents on it (their ids are in the board's people); left out when nobody is.</param>
 /// <param name="Checklist">Progress over all its checklists as "done/total"; left out without checklist items.</param>
-/// <param name="HasContent">True when the card has content (text, checklist items or links), which get_card reads; left out otherwise.</param>
+/// <param name="HasContent">True when the card has content (labels, checklist items or links), which get_card reads; left out otherwise.</param>
 /// <param name="AgentWorking">True when an agent is working on it right now; left out otherwise.</param>
 /// <param name="CreatedBy">Who created it; left out when unknown.</param>
 public sealed record CardSummary(
     Guid Id, string ReadableId, string Title, CardColor Color, IReadOnlyList<string>? Tags, IReadOnlyList<string>? Assignees,
     string? Checklist, bool? HasContent, bool? AgentWorking, string? CreatedBy)
 {
-    public static CardSummary From(CardDetail n)
+    public static CardSummary From(CardDetail n, bool hasLabels)
     {
         var items = n.Components.SelectMany(b => b.Items ?? []).ToList();
-        var hasContent = n.Components.Any(b => !string.IsNullOrEmpty(b.Text) || b.Items is { Count: > 0 } || b.Links is { Count: > 0 });
+        var hasContent = hasLabels || n.Components.Any(b => b.Items is { Count: > 0 } || b.Links is { Count: > 0 });
         return new(n.Id, n.ReadableId, n.Title, n.Color,
             n.Tags.Count == 0 ? null : n.Tags,
             n.Assignees.Count == 0 ? null : n.Assignees.Select(a => a.Name).ToList(),
@@ -64,10 +64,30 @@ public sealed record BoardPersonSummary(Guid PrincipalId, string Name, AssigneeK
 /// <param name="Images">How many images the board has, on the board itself and on its cards.</param>
 /// <param name="Tags">The board's tags with how many cards use each. Reuse these when tagging cards.</param>
 /// <param name="People">Who can be assigned to cards; tools take their names.</param>
+/// <param name="Labels">How many labels the board has, on the board itself and on its cards, when it has any; list_labels has their text.</param>
 public sealed record BoardOverview(
     Guid Id, string ShortId, string Key, string Name, string? Description, BoardRole YourRole, string? Rules, DateTimeOffset? RulesUpdatedAt,
     IReadOnlyList<BucketOverview> Buckets,
-    IReadOnlyList<CardSummary>? LooseCards, int Images, IReadOnlyList<BoardTagDetail> Tags, IReadOnlyList<BoardPersonSummary> People);
+    IReadOnlyList<CardSummary>? LooseCards, int Images, IReadOnlyList<BoardTagDetail> Tags, IReadOnlyList<BoardPersonSummary> People, int? Labels = null);
+
+/// <summary>A label as agents read it: its text in Markdown. Underline, and ink or size on single words, don't show; they are lost when you write new markdown.</summary>
+/// <param name="Id">The label's id, for update_label and delete_label.</param>
+/// <param name="Markdown">Its text in Markdown.</param>
+/// <param name="Ink">Ink of text that doesn't set its own.</param>
+/// <param name="Size">Size of text that doesn't set its own: S (14 px), M (21), L (35) or XL (56).</param>
+/// <param name="X">Left edge, on the board or on the card's canvas.</param>
+/// <param name="Y">Top edge, on the board or on the card's canvas.</param>
+/// <param name="Bucket">The bucket it sits in, by name; left out when it is loose or on a card.</param>
+/// <param name="CardId">The card it is on; left out for a label on the board.</param>
+/// <param name="WrapWidth">The width its text wraps at; left out when it doesn't wrap.</param>
+/// <param name="Background">True when it has a background of its own; left out when it doesn't.</param>
+/// <param name="MinHeight">The height it keeps with little text; left out when it is as tall as its text.</param>
+public sealed record LabelView(Guid Id, string Markdown, InkColor Ink, LabelSize Size, int X, int Y, string? Bucket, Guid? CardId, int? WrapWidth = null, bool? Background = null, int? MinHeight = null)
+{
+    public static LabelView From(LabelDetail label, IReadOnlyDictionary<Guid, string> bucketNames) =>
+        new(label.Id, LabelMarkdown.From(label.Content), label.Ink, label.Size, label.X, label.Y,
+            label.BucketId is { } id ? bucketNames.GetValueOrDefault(id) : null, label.CardId, label.WrapWidth, label.Background ? true : null, label.MinHeight);
+}
 
 /// <summary>A board you can use.</summary>
 /// <param name="Id">The board id.</param>
@@ -95,33 +115,43 @@ public sealed record BoardListing(Guid Id, string ShortId, string Key, string Na
 /// <param name="CreatedBy">Who created it, when known.</param>
 /// <param name="CreatedAt">When it was created (UTC); from get_card.</param>
 /// <param name="DeletedAt">When it was deleted (UTC), for cards in the trash.</param>
+/// <param name="Labels">The labels on it; left out when it has none.</param>
 public sealed record CardView(
     Guid Id, string ReadableId, string Path, Guid BoardId, Guid? BucketId, string? Bucket, string Title, CardColor Color,
     IReadOnlyList<string>? Tags, IReadOnlyList<string>? Assignees, bool? AgentWorking, IReadOnlyList<ComponentView>? Components,
-    string? CreatedBy, DateTimeOffset? CreatedAt, DateTimeOffset? DeletedAt)
+    string? CreatedBy, DateTimeOffset? CreatedAt, DateTimeOffset? DeletedAt, IReadOnlyList<CardLabelView>? Labels = null)
 {
-    /// <summary>The card, with its components' content when <paramref name="content"/> (get_card), or only their ids and titles (writes).</summary>
-    public static CardView From(CardDetail n, string? bucket, bool content) => new(
+    /// <summary>The card, with its components' and labels' content when <paramref name="content"/> (get_card), or only their ids and titles (writes).</summary>
+    public static CardView From(CardDetail n, string? bucket, bool content, IReadOnlyList<BoardLabel> labels) => new(
         n.Id, n.ReadableId, n.Path, n.BoardId, n.BucketId, bucket, n.Title, n.Color,
         n.Tags.Count == 0 ? null : n.Tags,
         n.Assignees.Count == 0 ? null : n.Assignees.Select(a => a.Name).ToList(),
         n.AgentWorking ? true : null,
         n.Components.Count == 0 ? null : n.Components.Select(c => content ? ComponentView.From(c) : ComponentView.Brief(c)).ToList(),
-        n.CreatedBy, content ? n.CreatedAt : null, n.DeletedAt);
+        n.CreatedBy, content ? n.CreatedAt : null, n.DeletedAt,
+        labels.Count == 0 ? null : labels.Select(l => new CardLabelView(l.Id, content ? LabelMarkdown.From(l.Content) : null)).ToList());
 }
 
+/// <summary>A label on a card: where its text is.</summary>
+/// <param name="Id">The label's id, for update_card_component, delete_card_component and update_label.</param>
+/// <param name="Markdown">Its text in Markdown (get_card only).</param>
+public sealed record CardLabelView(Guid Id, string? Markdown);
+
 /// <summary>A component of a card: a Text, Checklist or Links component.</summary>
-/// <param name="Id">The component id; tools also take its title, or its kind when the card has one of that kind.</param>
-/// <param name="Kind">Text, Checklist or Links.</param>
+/// <param name="Id">The component id, or the label's id for text; tools also take its title, or its kind when the card has one of that kind.</param>
+/// <param name="Kind">Checklist or Links, or Text for a label on the card.</param>
 /// <param name="Title">Its heading, if any.</param>
-/// <param name="Text">The text of a Text component, in Markdown.</param>
+/// <param name="Text">The text, in Markdown.</param>
 /// <param name="Items">The items of a Checklist component.</param>
 /// <param name="Links">The links of a Links component.</param>
 public sealed record ComponentView(Guid Id, CardComponentKind Kind, string? Title, string? Text, IReadOnlyList<ChecklistItem>? Items, IReadOnlyList<CardLink>? Links)
 {
-    public static ComponentView From(CardComponentDetail c) => new(c.Id, c.Kind, c.Title, c.Text, c.Items, c.Links);
+    public static ComponentView From(CardComponentDetail c) => new(c.Id, c.Kind, c.Title, null, c.Items, c.Links);
 
     public static ComponentView Brief(CardComponentDetail c) => new(c.Id, c.Kind, c.Title, null, null, null);
+
+    /// <summary>A label, as the component tools answer about the text they wrote.</summary>
+    public static ComponentView OfLabel(LabelDetail label) => new(label.Id, CardComponentKind.Text, null, LabelMarkdown.From(label.Content), null, null);
 }
 
 /// <summary>A new card for create_cards.</summary>

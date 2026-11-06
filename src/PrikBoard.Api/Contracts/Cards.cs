@@ -104,6 +104,7 @@ public record CardLink(
 /// <param name="Tags">Tag names; trimmed, lower-cased, hyphenated and de-duplicated, each at most 30 characters. Prefer the board's tags (tags in getBoard); new names are added to the board.</param>
 /// <param name="AssigneeIds">Principal ids of people and agents to assign, from people in getBoard (at most 10).</param>
 /// <param name="Components">Initial content: text, checklists and lists of links. Components without X and Y are laid out automatically.</param>
+/// <param name="Body">The card's text in Markdown, as a label with a background at the top of its canvas; components without X and Y go around it. At most 4000 characters of text.</param>
 /// <param name="AgentWorking">Set to true when the calling agent starts working on the card right away.</param>
 /// <param name="Loose">With X and Y: true to join no bucket, even over one (a card dropped outside every bucket in the web app). Do not combine with bucketId.</param>
 public record CreateCardRequest(
@@ -116,7 +117,8 @@ public record CreateCardRequest(
     [property: MaxLength(10)] List<Guid>? AssigneeIds = null,
     [property: MaxLength(CardComponent.MaxComponents)] List<NewCardComponent>? Components = null,
     bool? AgentWorking = null,
-    bool? Loose = null);
+    bool? Loose = null,
+    [property: StringLength(BoardLabel.MaxTextLength * 2)] string? Body = null);
 
 /// <summary>Creates several cards at once (createCards), in the order given.</summary>
 /// <param name="Cards">The cards, each as createCard takes one; at most 50.</param>

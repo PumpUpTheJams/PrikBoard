@@ -441,7 +441,7 @@ public class SlackApiTests(SlackApiFactory factory) : IClassFixture<SlackApiFact
             var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
             var card = await db.Cards.SingleAsync(c => c.BoardId == board.Id);
             Assert.Equal(("Login on Safari", doing.Id, ownerId), (card.Title, card.BucketId, card.CreatedById));
-            var text = card.Components.Single(c => c.Kind == CardComponentKind.Text).Text!;
+            var text = LabelMarkdown.From((await db.Labels.SingleAsync(l => l.CardId == card.Id)).Content);
             Assert.StartsWith("> Login breaks on *Safari* & Edge, says @Ada (admin): [the log](https://example.com/log)\n> Second line", text);
             Assert.Contains("From **Jimmy** in #saves", text);
             var link = Assert.Single(card.Components.Single(c => c.Kind == CardComponentKind.Links).Links);

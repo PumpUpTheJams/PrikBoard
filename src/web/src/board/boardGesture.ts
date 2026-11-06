@@ -2,7 +2,7 @@ import type { Point, Rect, ResizeHandle } from '../api/types'
 import type { Selection, SelectionKind } from './boardItems'
 
 /** A press that drags one item on the board: moving it, or resizing it from a corner or edge. */
-export type ItemGesture = 'card' | 'bucket' | 'resize' | 'image' | 'image-resize' | 'drawing'
+export type ItemGesture = 'card' | 'bucket' | 'resize' | 'image' | 'image-resize' | 'drawing' | 'label'
 
 /** What a pointer gesture on the board does. */
 export type GestureTarget =
@@ -14,6 +14,8 @@ export type GestureTarget =
     }
   /** Drawing a new bucket with the bucket tool. */
   | { kind: 'draw' }
+  /** The box of a new label, with the label tool. */
+  | { kind: 'drawLabel' }
   | {
       /** Moving several selected items at once. */
       kind: 'group'

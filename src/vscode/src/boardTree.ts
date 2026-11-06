@@ -11,6 +11,7 @@ import type {
   CardDetail,
   CardLink,
 } from '../../web/src/api/types'
+import { labelText } from '../../web/src/api/types'
 import { cardPath, cardRoute, type CardRoute } from '../../web/src/api/cardLinks'
 import { webUrl } from './auth'
 
@@ -303,7 +304,7 @@ export class BoardTree implements vscode.TreeDataProvider<Node>, vscode.Disposab
     // appendText escapes markdown, so a card cannot format or link its own tooltip.
     const tooltip = new vscode.MarkdownString()
     tooltip.appendText(titleOf(card))
-    for (const component of card.components) if (component.kind === 'Text' && component.text) tooltip.appendText(`\n\n${component.text}`)
+    for (const label of this.details.get(card.boardId)?.labels ?? []) if (label.cardId === card.id) tooltip.appendText(`\n\n${labelText(label)}`)
     item.tooltip = tooltip
     return item
   }

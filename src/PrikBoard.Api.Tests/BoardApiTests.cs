@@ -409,7 +409,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     {
         var board = await CreateBoard("Search");
         await CreateCard(board.Id, new { title = "Design LOGO" });
-        await CreateCard(board.Id, new { title = "Write copy", components = new[] { new { kind = "Text", text = "Mention the logo" } } });
+        await CreateCard(board.Id, new { title = "Write copy", body = "Mention the logo" });
         await CreateCard(board.Id, new { title = "Print", components = new[] { new { kind = "Checklist", items = new[] { new { text = "Logo on the cover" } } } } });
         await CreateCard(board.Id, new { title = "Brand", components = new[] { new { kind = "Links", links = new[] { new { title = "Logo files", url = "https://example.com" } } } } });
         await CreateCard(board.Id, new { title = "Book venue" });
@@ -459,7 +459,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         Assert.Equal(["backend", "ingest", "tile-index"], created.Tags);
         Assert.Equal([new Assignee(me.Id, me.DisplayName, AssigneeKind.Person, null)], created.Assignees);
         var (checklist, links) = (created.Components[0], created.Components[1]);
-        Assert.Equal((CardComponentKind.Checklist, "Acceptance criteria", null), (checklist.Kind, checklist.Title, checklist.Text));
+        Assert.Equal((CardComponentKind.Checklist, "Acceptance criteria"), (checklist.Kind, checklist.Title));
         Assert.Equal([new ChecklistItem("Backoff with jitter", true), new ChecklistItem("Exhausted tiles go to the DLQ")], checklist.Items!);
         Assert.Null(checklist.Links);
         Assert.Equal([new CardLink("PR #412", "https://example.com/pulls/412")], links.Links!);
@@ -515,7 +515,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
         var stranger = await _client.PostAsJsonAsync(cardsUrl, new { title = "Ok", assigneeIds = new[] { Guid.NewGuid() } });
         var tooManyPeople = await _client.PostAsJsonAsync(cardsUrl, new { title = "Ok", assigneeIds = Enumerable.Range(0, 11).Select(_ => Guid.NewGuid()) });
         var tooManyTags = await _client.PostAsJsonAsync(cardsUrl, new { title = "Ok", tags = Enumerable.Range(0, 11).Select(i => $"t{i}") });
-        var misfit = await _client.PostAsJsonAsync(cardsUrl, new { title = "Ok", components = new object[] { new { kind = "Text" }, new { kind = "Text", items = new[] { new { text = "x" } } } } });
+        var misfit = await _client.PostAsJsonAsync(cardsUrl, new { title = "Ok", components = new object[] { new { kind = "Links" }, new { kind = "Links", items = new[] { new { text = "x" } } } } });
         var longItem = await _client.PostAsJsonAsync(cardsUrl, new { title = "Ok", components = new[] { new { kind = "Checklist", items = new[] { new { text = new string('x', 301) } } } } });
 
         Assert.Equal(HttpStatusCode.BadRequest, scriptLink.StatusCode);
@@ -586,6 +586,7 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
                 "uploadImage", "getImageContent", "updateImage", "deleteImage", "restoreImage",
                 "copyItems", "pasteItems", "checkPaste", "uploadPasteImage", "deleteItems", "restoreItems",
                 "createDrawing", "getDrawingContent", "addDrawingStroke", "deleteDrawingStroke", "transformDrawing", "setDrawingStrokes", "updateDrawing", "deleteDrawing", "restoreDrawing",
+                "createLabel", "updateLabel", "deleteLabel", "restoreLabel",
                 "adminListBoards", "adminDeleteBoard", "adminListUsers", "adminSetBoardMember", "adminRemoveBoardMember",
                 "adminUpdateUser", "adminDeleteUser",
                 "getDiscordBot", "setDiscordBot", "deleteDiscordBot", "leaveDiscordServer", "getDiscordAccount", "previewDiscordAccountLink", "linkDiscordAccount", "unlinkDiscordAccount",
@@ -656,27 +657,23 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     {
         var card = await NewCard();
 
-        var text = await AddComponent(card.Id, new { kind = "Text", text = "Retry tiles", title = "  Context " });
+        var first = await AddComponent(card.Id, new { kind = "Links", title = "  Context " });
         var checklist = await AddComponent(card.Id, new { kind = "Checklist" });
         var links = await AddComponent(card.Id, new { kind = "Links" });
 
-        Assert.Equal((20, 20, 340, 220, "Context", "Retry tiles"), (text.X, text.Y, text.Width, text.Height, text.Title, text.Text));
-        Assert.Equal((380, 20, 340, 260), (checklist.X, checklist.Y, checklist.Width, checklist.Height));
-        // 740 + 360 still fits the 1100 px row.
-        Assert.Equal((740, 20, 360, 220), (links.X, links.Y, links.Width, links.Height));
-        Assert.Null(checklist.Text);
+        Assert.Equal((20, 20, 360, 220, "Context"), (first.X, first.Y, first.Width, first.Height, first.Title));
+        Assert.Equal((400, 20, 340, 260), (checklist.X, checklist.Y, checklist.Width, checklist.Height));
+        // 760 + 360 doesn't fit the 1100 px row.
+        Assert.Equal((20, 260), (links.X, links.Y));
         Assert.Empty(checklist.Items!);
         Assert.Null(checklist.Links);
-
-        var fourth = await AddComponent(card.Id, new { kind = "Text" });
-        Assert.Equal((20, 260), (fourth.X, fourth.Y));
     }
 
     [Fact]
     public async Task Components_move_and_resize_on_the_grid_within_limits()
     {
         var card = await NewCard();
-        var component = await AddComponent(card.Id, new { kind = "Text", x = 131, y = 289, width = 401, height = 50 });
+        var component = await AddComponent(card.Id, new { kind = "Links", x = 131, y = 289, width = 401, height = 50 });
         Assert.Equal((140, 280, 400, 80), (component.X, component.Y, component.Width, component.Height));
 
         var moved = await UpdateComponent(card.Id, component.Id, new { x = 10_000, y = 9, width = 150 });
@@ -688,19 +685,23 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     public async Task Content_must_fit_the_kind_and_can_be_cleared()
     {
         var card = await NewCard();
-        var text = await AddComponent(card.Id, new { kind = "Text", text = "Draft", title = "Cards" });
-        var url = $"/api/cards/{card.Id}/components/{text.Id}";
+        var links = await AddComponent(card.Id, new { kind = "Links", title = "Cards" });
+        var url = $"/api/cards/{card.Id}/components/{links.Id}";
 
         var items = await _client.PatchAsJsonAsync(url, new { items = new[] { new { text = "x" } } });
         var noKind = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { text = "x" });
-        var xOnly = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Text", x = 40 });
-        var cleared = await UpdateComponent(card.Id, text.Id, new { text = "", title = " " });
+        var xOnly = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Links", x = 40 });
+        var text = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Text", text = "A note" });
+        var cleared = await UpdateComponent(card.Id, links.Id, new { title = " " });
 
         Assert.Equal(HttpStatusCode.BadRequest, items.StatusCode);
         Assert.Contains("items", await items.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.BadRequest, noKind.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, xOnly.StatusCode);
-        Assert.Equal(("", null), (cleared.Text, cleared.Title));
+        // Text on a card is a label now, and the request says so.
+        Assert.Equal(HttpStatusCode.BadRequest, text.StatusCode);
+        Assert.Contains("createLabel", await text.Content.ReadAsStringAsync());
+        Assert.Null(cleared.Title);
     }
 
     [Fact]
@@ -720,9 +721,9 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     public async Task A_card_holds_at_most_thirty_components()
     {
         var card = await NewCard();
-        for (var i = 0; i < CardComponent.MaxComponents; i++) await AddComponent(card.Id, new { kind = "Text" });
+        for (var i = 0; i < CardComponent.MaxComponents; i++) await AddComponent(card.Id, new { kind = "Links" });
 
-        var response = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Text" });
+        var response = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Links" });
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
@@ -732,11 +733,11 @@ public class BoardApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     {
         var card = await NewCard();
         var components = new List<CardComponentDetail>();
-        for (var i = 0; i < 6; i++) components.Add(await AddComponent(card.Id, new { kind = "Text" }));
+        for (var i = 0; i < 6; i++) components.Add(await AddComponent(card.Id, new { kind = "Links" }));
 
-        await Task.WhenAll(components.Select((b, i) => _client.PatchAsJsonAsync($"/api/cards/{card.Id}/components/{b.Id}", new { text = $"Edit {i}" })));
+        await Task.WhenAll(components.Select((b, i) => _client.PatchAsJsonAsync($"/api/cards/{card.Id}/components/{b.Id}", new { title = $"Edit {i}" })));
 
-        Assert.Equal(Enumerable.Range(0, 6).Select(i => $"Edit {i}"), (await GetCard(card.Id)).Components.Select(b => b.Text));
+        Assert.Equal(Enumerable.Range(0, 6).Select(i => $"Edit {i}"), (await GetCard(card.Id)).Components.Select(b => b.Title));
     }
 
     private async Task<BoardDetail> CreateBoard(string name)

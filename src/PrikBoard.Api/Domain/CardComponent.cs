@@ -6,7 +6,10 @@ namespace PrikBoard.Api.Domain;
 [JsonConverter(typeof(JsonStringEnumConverter<CardComponentKind>))]
 public enum CardComponentKind
 {
-    /// <summary>Free text, such as a description or notes.</summary>
+    /// <summary>
+    /// Only in clips from before text on a card became labels, and for the MCP tools' add_card_component, which adds a label. Stored
+    /// ones became labels (<see cref="Data.NoteMigration"/>), and a request for a new one is refused.
+    /// </summary>
     Text,
     /// <summary>A checklist, such as acceptance criteria.</summary>
     Checklist,
@@ -23,7 +26,6 @@ public class CardComponent
 {
     public const int MaxComponents = 30;
     public const int MaxTitleLength = 100;
-    public const int MaxTextLength = 4000;
     public const int MaxItems = 50;
     public const int MaxLinks = 20;
 
@@ -35,21 +37,18 @@ public class CardComponent
     public int Height { get; set; }
     /// <summary>Optional heading, e.g. "Acceptance criteria".</summary>
     public string? Title { get; set; }
-    /// <summary>The text of a Text component.</summary>
-    public string? Text { get; set; }
     /// <summary>The items of a Checklist component.</summary>
     public List<ChecklistEntry> Items { get; set; } = [];
     /// <summary>The links of a Links component.</summary>
     public List<LinkEntry> Links { get; set; } = [];
 
-    /// <summary>Whether it holds no text at all: no title, text, items or links.</summary>
+    /// <summary>Whether it holds no text at all: no title, items or links.</summary>
     public bool IsBlank() => SearchText().All(string.IsNullOrWhiteSpace);
 
     /// <summary>Every piece of text in the component, for search.</summary>
     public IEnumerable<string> SearchText()
     {
         if (Title is not null) yield return Title;
-        if (Text is not null) yield return Text;
         foreach (var item in Items) yield return item.Text;
         foreach (var link in Links)
         {

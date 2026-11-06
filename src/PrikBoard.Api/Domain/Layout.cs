@@ -399,6 +399,14 @@ public static class Layout
         return (Snap(right + Gap * 2), Gap * 2);
     }
 
+    /// <summary>Where a new label goes when no position is given: to the right of everything on the board.</summary>
+    public static (int X, int Y) NextLabelSpot(
+        IReadOnlyCollection<Bucket> buckets, IReadOnlyCollection<Card> cards, IReadOnlyCollection<BoardImage> images, IReadOnlyCollection<BoardLabel> labels)
+    {
+        var (x, y) = NextImageSpot(buckets, cards, images);
+        return labels.Count == 0 ? (x, y) : (Math.Max(x, Snap(labels.Max(l => l.X + l.Width) + Gap * 2)), y);
+    }
+
     /// <summary>Where a new bucket goes when no position is given: to the right of the existing ones.</summary>
     public static (int X, int Y) NextBucketSpot(IReadOnlyCollection<Bucket> buckets) =>
         (buckets.Count == 0 ? Gap * 2 : buckets.Max(b => b.X + b.Width) + Gap * 2, Gap * 2);
@@ -426,7 +434,7 @@ public static class Layout
 
     /// <summary>
     /// The first grid slot on a card's canvas, row by row, where a <paramref name="width"/> by <paramref name="height"/>
-    /// rectangle keeps a gap from everything already there (its components and attached images).
+    /// rectangle keeps a gap from everything already there (its components, attached images and labels).
     /// </summary>
     public static (int X, int Y) NextCardSpot(IReadOnlyCollection<(int X, int Y, int Width, int Height)> taken, int width, int height)
     {
@@ -441,9 +449,22 @@ public static class Layout
         return (Gap, Gap);
     }
 
-    /// <summary>What is on a card's canvas: its components, and the images attached to it.</summary>
-    public static List<(int X, int Y, int Width, int Height)> TakenOnCard(Card card, IEnumerable<BoardImage> attached) =>
-        [.. card.Components.Select(b => (b.X, b.Y, b.Width, b.Height)), .. attached.Select(i => (i.X, i.Y, i.Width, i.Height))];
+    /// <summary>Snaps x and y; on a card, also keeps the item on its canvas, at the last grid line that fits.</summary>
+    public static void Put(ICanvasItem item, int x, int y)
+    {
+        static int OnCard(int value, int size) =>
+            Math.Clamp(Snap(value), 0, Math.Max(0, (CardCanvasMax - size) / Grid * Grid));
+
+        (item.X, item.Y) = item.CardId is null ? (Snap(x), Snap(y)) : (OnCard(x, item.Width), OnCard(y, item.Height));
+    }
+
+    /// <summary>What is on a card's canvas: its components, the images attached to it, and its labels.</summary>
+    public static List<(int X, int Y, int Width, int Height)> TakenOnCard(Card card, IEnumerable<BoardImage> attached, IEnumerable<BoardLabel>? labels = null) =>
+        [
+            .. card.Components.Select(b => (b.X, b.Y, b.Width, b.Height)),
+            .. attached.Select(i => (i.X, i.Y, i.Width, i.Height)),
+            .. (labels ?? []).Select(l => (l.X, l.Y, l.Width, l.Height)),
+        ];
 
     public static bool Intersects((int X, int Y, int Width, int Height) a, (int X, int Y, int Width, int Height) b) =>
         a.X < b.X + b.Width && b.X < a.X + a.Width && a.Y < b.Y + b.Height && b.Y < a.Y + a.Height;

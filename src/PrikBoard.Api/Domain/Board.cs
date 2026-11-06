@@ -47,6 +47,8 @@ public partial class Board
     public List<BoardImage> Images { get; set; } = [];
     /// <summary>Freehand drawings on the canvas and on cards.</summary>
     public List<BoardDrawing> Drawings { get; set; } = [];
+    /// <summary>Rich text on the canvas and on cards.</summary>
+    public List<BoardLabel> Labels { get; set; } = [];
     /// <summary>The tags cards on this board can have.</summary>
     public List<BoardTag> Tags { get; set; } = [];
     /// <summary>Who may see and change the board; there is always at least one owner.</summary>

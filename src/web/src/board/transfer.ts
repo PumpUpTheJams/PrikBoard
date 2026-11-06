@@ -30,7 +30,7 @@ const BIG_CLIP_ITEMS = 50
 export const isBigClip = (clip: BoardClip, size: number) =>
   size > BIG_CLIP_CHARS ||
   (clip.buckets?.length ?? 0) > 0 ||
-  clip.cards.length + clip.images.filter((i) => !i.cardId).length + clip.drawings.filter((d) => !d.cardId).length > BIG_CLIP_ITEMS
+  clip.cards.length + clip.images.filter((i) => !i.cardId).length + clip.drawings.filter((d) => !d.cardId).length + (clip.labels ?? []).filter((l) => !l.cardId).length > BIG_CLIP_ITEMS
 
 /** Runs `work` on every item, PARALLEL at a time; the first failure (or an abort) stops the rest. */
 async function inParallel<T>(items: T[], work: (item: T, index: number) => Promise<void>, signal: AbortSignal) {
@@ -185,6 +185,7 @@ export function clipShape(clip: BoardClip): ClipShape {
           height: Math.max(1, ...points.map((p) => p.y)),
         }
       }),
+    ...(clip.labels ?? []).filter((l) => !l.cardId).map((l) => ({ x: snap(l.x), y: snap(l.y), width: l.width ?? 100, height: l.height ?? 30 })),
   ]
   const all = [...buckets, ...cards, ...others]
   const left = Math.min(...all.map((r) => r.x))

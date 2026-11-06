@@ -2,7 +2,7 @@ import type { ComponentType, CSSProperties, PointerEvent, Ref } from 'react'
 import { cardColors, type InkColor, type CardColor } from '../api/types'
 import { inkColor } from './drawings'
 import { PenOptions } from './DrawingView'
-import { BucketToolIcon, EraserIcon, ImageIcon, PenIcon, CardIcon, SearchIcon, SelectIcon, TrashIcon } from './icons'
+import { BucketToolIcon, EraserIcon, ImageIcon, LabelIcon, PenIcon, CardIcon, SearchIcon, SelectIcon, TrashIcon } from './icons'
 import type { Tool } from './tools'
 
 interface ToolDef {
@@ -135,6 +135,9 @@ export function ToolRail(props: ToolRailProps) {
                 />
               </div>
             )}
+          </div>
+          <div className="rail-anchor">
+            {button({ tool: 'label', label: 'Label', shortcut: 'T', Icon: LabelIcon, title: 'Label (T): click on the board and type' })}
           </div>
         </>
       )}

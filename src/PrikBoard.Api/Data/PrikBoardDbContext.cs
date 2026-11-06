@@ -35,6 +35,9 @@ public class PrikBoardDbContext : DbContext
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
     public DbSet<BoardDrawing> Drawings => Set<BoardDrawing>();
     public DbSet<DrawingContent> DrawingContents => Set<DrawingContent>();
+    public DbSet<NoteBackup> NoteBackups => Set<NoteBackup>();
+    public DbSet<DataMigration> DataMigrations => Set<DataMigration>();
+    public DbSet<BoardLabel> Labels => Set<BoardLabel>();
     public DbSet<CardChange> CardChanges => Set<CardChange>();
     public DbSet<ChatWorkspace> ChatWorkspaces => Set<ChatWorkspace>();
     public DbSet<ChatBoardChannels> ChatBoardChannels => Set<ChatBoardChannels>();
@@ -163,6 +166,30 @@ public class PrikBoardDbContext : DbContext
         {
             content.HasKey(c => c.DrawingId);
             content.Property(c => c.Strokes).HasColumnType("jsonb").HasConversion(DrawingStrokesJson.Converter, DrawingStrokesJson.Comparer);
+        });
+
+        modelBuilder.Entity<DataMigration>().HasKey(m => m.Name);
+        modelBuilder.Entity<NoteBackup>(backup =>
+        {
+            backup.HasOne<Card>().WithMany().HasForeignKey(b => b.CardId).OnDelete(DeleteBehavior.Cascade);
+            backup.HasIndex(b => b.CardId);
+        });
+
+        modelBuilder.Entity<BoardLabel>(label =>
+        {
+            label.Property(l => l.Ink).HasConversion<string>().HasMaxLength(20);
+            label.Property(l => l.Size).HasConversion<string>().HasMaxLength(10);
+            label.Property(l => l.Content).HasColumnType("jsonb").HasConversion(LabelContentJson.Converter, LabelContentJson.Comparer);
+            label.HasOne(l => l.AddedBy).WithMany().HasForeignKey(l => l.AddedById).OnDelete(DeleteBehavior.SetNull);
+            label.HasOne(l => l.Board).WithMany(b => b.Labels).HasForeignKey(l => l.BoardId).OnDelete(DeleteBehavior.Cascade);
+            // A label on a card goes when its card goes.
+            label.HasOne<Card>().WithMany().HasForeignKey(l => l.CardId).OnDelete(DeleteBehavior.Cascade);
+            // Like a card, a label in a purged bucket stays on the board, loose.
+            label.HasOne<Bucket>().WithMany().HasForeignKey(l => l.BucketId).OnDelete(DeleteBehavior.SetNull);
+            label.ToTable(t => t.HasCheckConstraint("CK_Labels_CardOrBucket", "\"CardId\" IS NULL OR \"BucketId\" IS NULL"));
+            label.HasIndex(l => l.BoardId);
+            label.HasIndex(l => l.CardId);
+            label.HasQueryFilter(SoftDelete, l => l.DeletedAt == null);
         });
 
         // Users and agents share one table, so memberships, invites and images point at a single kind of id.

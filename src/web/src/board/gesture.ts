@@ -22,3 +22,8 @@ export function isDrag(g: { start: Point; current: Point; dragged?: boolean }) {
 export function keepPress(e: { button: number; stopPropagation: () => void }) {
   if (e.button !== 1) e.stopPropagation()
 }
+
+/** A press on a toolbar keeps the text selected in what is being edited, except in the toolbar's own fields. */
+export function keepTextSelected(e: { target: EventTarget; preventDefault: () => void }) {
+  if (!(e.target instanceof HTMLInputElement)) e.preventDefault()
+}

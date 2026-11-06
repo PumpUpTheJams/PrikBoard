@@ -1,3 +1,5 @@
+using System.IO.Compression;
+using Microsoft.AspNetCore.ResponseCompression;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
@@ -36,6 +38,14 @@ builder.Services.AddHealthChecks();
 builder.AddPrikBoardAuth();
 // A Select or Group drag may list DragUpdate.MaxItems ids, about 40 KB: more than the default 32 KB, which drops the
 // connection (and the web app's reconnect sends the selection again).
+// Only for what the API reads out (see the middleware below); a board can be megabytes of JSON.
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.MimeTypes = ["application/json"];
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(options => options.Level = CompressionLevel.Fastest);
+builder.Services.Configure<GzipCompressionProviderOptions>(options => options.Level = CompressionLevel.Fastest);
 builder.Services.AddSignalR(options => options.MaximumReceiveMessageSize = 64 * 1024)
     .AddJsonProtocol(options => options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton<IUserIdProvider, PrincipalUserIds>();
@@ -203,6 +213,9 @@ await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<PrikBoardDbContext>();
     await StartupMigration.RunAsync(db, CancellationToken.None);
+    // Notes became labels: once, for what is still stored as a note.
+    var notes = await NoteMigration.RunOnceAsync(db, CancellationToken.None);
+    if (notes.Cards > 0) app.Logger.LogInformation("Turned the notes on {Cards} cards into {Labels} labels ({Empty} without text, {PlainText} kept as plain text); the originals are in NoteBackups.", notes.Cards, notes.Labels, notes.Empty, notes.PlainText);
     // The sign-in providers' schemes, from configuration and from the setup.
     await app.Services.GetRequiredService<SignInProviders>().LoadAsync(db, CancellationToken.None);
     // The Discord bot, when configured or set up; it connects in the background.
@@ -218,6 +231,11 @@ await using (var scope = app.Services.CreateAsyncScope())
 app.UsePrikBoardRequestLogging();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+// Reads only: no response that echoes a request next to a secret, which is what makes compressing over HTTPS unsafe (BREACH).
+// The live hub stays out, as SignalR streams.
+app.UseWhen(
+    context => HttpMethods.IsGet(context.Request.Method) && context.Request.Path.StartsWithSegments("/api") && !context.Request.Path.StartsWithSegments("/api/live"),
+    branch => branch.UseResponseCompression());
 // The container image serves the built web app from wwwroot; in development Vite serves it. Routing is in the URL hash,
 // so only / needs index.html and unknown paths stay 404.
 if (app.Environment.WebRootFileProvider.GetFileInfo("index.html").Exists)
@@ -278,6 +296,7 @@ api.MapCardComponentEndpoints();
 api.MapTagEndpoints();
 api.MapImageEndpoints();
 api.MapDrawingEndpoints();
+api.MapLabelEndpoints();
 api.MapMemberEndpoints();
 api.MapInviteEndpoints();
 api.MapAccessTokenEndpoints();

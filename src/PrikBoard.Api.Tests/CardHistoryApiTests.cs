@@ -85,7 +85,7 @@ public class CardHistoryApiTests(PrikBoardApiFactory factory) : IClassFixture<Pr
         var card = await _client.CreateCardAsync(board.Id, "Start");
         // Named right after creating it, so part of the Created change.
         await Patch(card.Id, new { title = "Named" });
-        (await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Text" })).EnsureSuccessStatusCode();
+        (await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Links" })).EnsureSuccessStatusCode();
 
         await Patch(card.Id, new { title = "One" });
         await Patch(card.Id, new { title = "Two", color = "Mint" });
@@ -105,7 +105,7 @@ public class CardHistoryApiTests(PrikBoardApiFactory factory) : IClassFixture<Pr
     {
         var board = await _client.CreateBoardAsync("Quiet moves");
         var card = await _client.CreateCardAsync(board.Id, "Stays put");
-        var component = await Ok<CardComponentDetail>(await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Text" }));
+        var component = await Ok<CardComponentDetail>(await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Links" }));
 
         (await _client.PostAsJsonAsync($"/api/cards/{card.Id}/move", new { x = card.X + 20, y = card.Y })).EnsureSuccessStatusCode();
         (await _client.PatchAsJsonAsync($"/api/cards/{card.Id}/components/{component.Id}", new { x = 100, y = 100 })).EnsureSuccessStatusCode();

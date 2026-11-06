@@ -1786,6 +1786,14 @@ main {
   cursor: pointer;
 }
 
+.minimap-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 150px;
+  height: 96px;
+}
+
 .minimap-bucket {
   position: absolute;
   border-radius: 2px;
@@ -2471,43 +2479,6 @@ input.editable {
 
 .kind-text .component-body {
   padding: 0;
-}
-
-.component-text {
-  flex: 1;
-  min-height: 0;
-  padding: 2px 14px 14px;
-  overflow-y: auto;
-  border-radius: 0 0 12px 12px;
-  color: var(--text-body);
-  font-size: 14px;
-  line-height: 1.55;
-}
-
-.component-text:focus-visible {
-  outline: none;
-}
-
-.component-text::-webkit-scrollbar-track {
-  margin-bottom: 10px;
-}
-
-.component-text::placeholder {
-  color: var(--subtle);
-}
-
-/* A text component's rendered Markdown; a click edits it. */
-.component-view {
-  cursor: text;
-}
-
-.component-view .markdown {
-  font-size: inherit;
-  line-height: inherit;
-}
-
-.component-plain {
-  white-space: pre-wrap;
 }
 
 .card-canvas .board-image {
@@ -3459,6 +3430,412 @@ a.button.primary:hover {
   box-shadow: var(--float-shadow);
   transform-origin: top left;
   cursor: default;
+}
+
+/* Labels: text placed freely, without a background. Drawn at their own size from the font size set on them. */
+/* The same padding and border with a background or without, so its text stays where it is when that is switched. */
+.label {
+  position: absolute;
+  width: max-content;
+  padding: 10px 14px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  font-weight: 500;
+  line-height: 1.15;
+  white-space: pre;
+  cursor: grab;
+  user-select: none;
+}
+
+/* Whatever a label holds is spaced alike whether it is drawn or being edited; only the gap between blocks has a margin. */
+.label :where(p, ul, ol, h1, h2, h3, h4, h5, h6, blockquote, pre, table, hr) {
+  margin: 0;
+}
+
+.label p {
+  min-height: 1lh;
+}
+
+.label ul,
+.label ol {
+  padding-left: 1.3em;
+}
+
+.label a {
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.label.wraps,
+.label.wraps .tiptap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.label > * + *,
+.label .tiptap > * + * {
+  margin-top: 0.4em;
+}
+
+.label h1,
+.label h2,
+.label h3,
+.label h4,
+.label h5,
+.label h6 {
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* BoardLabel.HeadingScale on the server. */
+.label h1 { font-size: 1.6em; }
+.label h2 { font-size: 1.35em; }
+.label h3 { font-size: 1.15em; }
+.label h4,
+.label h5,
+.label h6 { font-size: 1em; }
+
+.label code {
+  padding: 0 0.25em;
+  border-radius: 4px;
+  background: var(--chip);
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+
+.label pre {
+  padding: 0.4em 0.6em;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  white-space: pre-wrap;
+}
+
+.label pre code {
+  padding: 0;
+  background: none;
+}
+
+.label blockquote {
+  padding-left: 0.6em;
+  border-left: 3px solid var(--line-strong);
+  color: var(--muted);
+}
+
+.label hr {
+  min-width: 40px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.label table {
+  border-collapse: collapse;
+}
+
+.label th,
+.label td {
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  font-weight: inherit;
+  text-align: left;
+  vertical-align: top;
+}
+
+.label th {
+  background: var(--panel-2);
+  font-weight: 700;
+}
+
+.label li.task,
+.label ul[data-type='taskList'] > li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3em;
+  margin-left: -1.3em;
+  list-style: none;
+}
+
+.label ul[data-type='taskList'] > li > label {
+  display: flex;
+}
+
+.label input[type='checkbox'] {
+  width: auto;
+  height: auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.label.matched {
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+
+/* Only the handles in it take presses: the label under it stays selectable and draggable. */
+.label-box {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.label-box > * {
+  pointer-events: auto;
+}
+
+/* The panel a card's components have. */
+.label.with-background {
+  border-color: var(--line);
+  background: var(--panel-2);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+.label.far {
+  background-repeat: no-repeat;
+}
+
+.label.far.with-background:not(.selected) {
+  box-shadow: none;
+}
+
+.label.selected,
+.label.editing {
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+
+.label.lifted {
+  z-index: 2;
+}
+
+.label-editing {
+  position: absolute;
+  z-index: 6;
+  cursor: text;
+  user-select: text;
+}
+
+.label.editing {
+  position: static;
+  min-width: 12px;
+  cursor: text;
+  user-select: text;
+}
+
+.label.editing .tiptap {
+  outline: none;
+  white-space: pre;
+}
+
+.label.editing.wraps .tiptap {
+  white-space: pre-wrap;
+}
+
+.label-ghost {
+  transform-origin: top left;
+  color: var(--text);
+}
+
+.incoming-label {
+  opacity: 0.8;
+}
+
+.canvas.tool-label,
+.card-canvas.placing-label,
+.card-canvas.placing-label .label {
+  cursor: text;
+}
+
+.minimap-label {
+  position: absolute;
+  border-radius: 1px;
+  background: var(--subtle);
+  opacity: 0.4;
+}
+
+.label-bar {
+  width: max-content;
+  gap: 4px;
+  padding: 4px;
+}
+
+.label-toolbar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  width: max-content;
+  padding: 6px;
+  transform-origin: top left;
+}
+
+/* What styles text on one row, and what shapes blocks on the other. */
+.label-tool-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Buttons that belong together: a row too narrow for them all wraps between these. */
+.label-tool-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.label-tool-end {
+  flex: 1;
+}
+
+.label-tool-end .drawing-delete {
+  margin-left: auto;
+}
+
+.m-label-tools .label-tool-row > .toolbar-divider {
+  display: none;
+}
+
+.m-label-tools .label-tool-row {
+  column-gap: 12px;
+}
+
+.label-tool {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.label-text-tool {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: auto;
+  padding: 0 8px;
+}
+
+.label-color {
+  position: relative;
+}
+
+.label-sizes {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.label-sizes-caption {
+  padding-right: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.label-color-dot {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+}
+
+/* The text selected has several inks. */
+.label-color-dot.mixed {
+  border-style: dashed;
+}
+
+.label-color-popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 1;
+  width: max-content;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--float-shadow);
+}
+
+.label-color-popup.up {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
+.label-tool:hover {
+  background: var(--tool-hover);
+}
+
+.label-tool[aria-pressed='true'] {
+  background: var(--accent-bg);
+}
+
+.label-bold {
+  font-weight: 700;
+}
+
+.label-italic {
+  font-style: italic;
+}
+
+.label-underline {
+  text-decoration: underline;
+}
+
+.label-strike {
+  text-decoration: line-through;
+}
+
+.label-link-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.label-link-field input {
+  flex: 1 1 200px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  user-select: text;
+}
+
+.label-link-field input:focus {
+  border-color: var(--accent);
+}
+
+.label-link-field button {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.label-link-field button:hover {
+  background: var(--tool-hover);
+}
+
+.label-link-error {
+  flex-basis: 100%;
+  color: var(--danger);
+  font-size: 12px;
 }
 
 /* Above several selected cards, centered, at the same size on screen at any zoom (anchored at its bottom middle). */
@@ -6815,11 +7192,6 @@ button.picker-color:hover,
   overflow: visible;
 }
 
-.card-component.stacked .component-text {
-  min-height: 120px;
-  overflow: visible;
-}
-
 .card-component.stacked .checklist label {
   min-height: 44px;
   align-items: center;
@@ -6886,10 +7258,6 @@ button.picker-color:hover,
 
 .m-editor .component-remove {
   display: none;
-}
-
-.m-editor .card-component.stacked .component-text {
-  min-height: 40dvh;
 }
 
 /* Sheets from the bottom: add to a card, move it. */
@@ -7195,4 +7563,47 @@ button.picker-color:hover,
   .avatar.agent-at-work {
     animation: none;
   }
+}
+
+/* A label on the mobile layout's card: in its turn in the list, at the width of the screen. */
+.m-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.m-label .label {
+  position: static;
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: default;
+}
+
+.m-label .band-button {
+  color: var(--text);
+}
+
+.m-label-editor {
+  flex: 1;
+  min-height: 160px;
+}
+
+.m-label-editor .label {
+  width: auto;
+}
+
+.m-label-editor .tiptap {
+  min-height: 160px;
+}
+
+.m-label-tools {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
 }

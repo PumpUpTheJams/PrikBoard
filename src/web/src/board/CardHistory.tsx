@@ -93,7 +93,7 @@ export function CardHistory({ card, attached }: CardHistoryProps) {
   )
 }
 
-const componentNames: Record<string, string> = { Text: 'note', Checklist: 'checklist', Links: 'list of links' }
+const componentNames: Record<string, string> = { Text: 'text', Checklist: 'checklist', Links: 'list of links' }
 
 /** A name or title in quotes. */
 const q = (text: string) => <q>{text}</q>
@@ -169,6 +169,12 @@ function describe(entry: CardChangeEntry): ReactNode {
       return 'added a drawing'
     case 'DrawingRemoved':
       return 'removed a drawing'
+    case 'LabelAdded':
+      return 'added a label'
+    case 'LabelRemoved':
+      return 'removed a label'
+    case 'LabelChanged':
+      return 'edited a label'
 
     case 'Deleted':
       return 'deleted it'

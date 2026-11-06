@@ -22,4 +22,6 @@ public enum InkColor
     Ocean,
     Brick,
     Violet,
+    /// <summary>The theme's own text color, so it stays readable in every theme. Only for labels.</summary>
+    Theme,
 }
