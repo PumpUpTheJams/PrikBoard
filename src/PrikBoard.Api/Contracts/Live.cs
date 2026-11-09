@@ -22,11 +22,14 @@ public enum DragKind
     /// <summary>Resizing an image from one of its corners or edges (see <see cref="ResizeHandle"/>).</summary>
     ImageResize,
 
-    /// <summary>Moving several selected items together: cards, buckets, images and drawings, listed in <c>Items</c>.</summary>
+    /// <summary>Moving several selected items together: cards, buckets, images, drawings and labels, listed in <c>Items</c>.</summary>
     Group,
 
     /// <summary>Moving a drawing.</summary>
     Drawing,
+
+    /// <summary>Moving a label.</summary>
+    Label,
 }
 
 /// <summary>

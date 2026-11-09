@@ -1,4 +1,4 @@
-import type { CardColor, CardComponent, CardDetail } from '../api/types'
+import { labelText, type CardColor, type CardComponent, type CardDetail, type LabelDetail } from '../api/types'
 import { componentKinds } from './componentKinds'
 
 /*
@@ -210,9 +210,9 @@ export function fieldRanges(text: string, terms: SearchTerm[], kind: SearchField
 /** Whether a card is found by its number: a term that is its number (`415`, `#415`). */
 export const foundByNumber = (card: CardDetail, terms: SearchTerm[]) => terms.some((t) => isNumber(t.text) && found(t, 'id', card.readableId))
 
-/** The text in a component: its title, text, checklist items, and its links' titles and web addresses. */
+/** The text in a component: its title, checklist items, and its links' titles and web addresses. */
 function componentTexts(component: CardComponent): string[] {
-  const texts = [component.title, component.text, ...(component.items ?? []).map((i) => i.text)]
+  const texts = [component.title, ...(component.items ?? []).map((i) => i.text)]
   for (const link of component.links ?? []) texts.push(link.title, /^https?:/i.test(link.url) ? link.url : null)
   return texts.filter((t): t is string => !!t)
 }
@@ -220,7 +220,21 @@ function componentTexts(component: CardComponent): string[] {
 export const componentMatches = (component: CardComponent, terms: SearchTerm[]) =>
   componentTexts(component).some((text) => terms.some((t) => found(t, 'component', text)))
 
-function cardFields(card: CardDetail): SearchField[] {
+export const labelMatches = (label: LabelDetail, terms: SearchTerm[]) => terms.some((t) => found(t, 'component', labelText(label)) || (!!label.title && found(t, 'component', label.title)))
+
+/** The labels on each card, for `matchCard`. */
+export function labelsByCard(labels: LabelDetail[]) {
+  const byCard = new Map<string, LabelDetail[]>()
+  for (const label of labels) {
+    if (!label.cardId) continue
+    const list = byCard.get(label.cardId)
+    if (list) list.push(label)
+    else byCard.set(label.cardId, [label])
+  }
+  return byCard
+}
+
+function cardFields(card: CardDetail, labels: LabelDetail[] = []): SearchField[] {
   const fields: SearchField[] = [
     { kind: 'title', label: 'Title', text: card.title },
     { kind: 'id', label: 'ID', text: card.readableId },
@@ -233,12 +247,13 @@ function cardFields(card: CardDetail): SearchField[] {
     const label = component.title ?? componentKinds[component.kind].label
     for (const text of componentTexts(component)) fields.push({ kind: 'component', label, text })
   }
+  for (const label of labels) fields.push({ kind: 'component', label: label.title ?? 'Label', text: labelText(label) })
   return fields
 }
 
 /** The fields where any of the terms occur, or null when some term occurs nowhere on the card. */
-export function matchCard(card: CardDetail, terms: SearchTerm[]): SearchField[] | null {
-  const fields = cardFields(card)
+export function matchCard(card: CardDetail, terms: SearchTerm[], labels?: Map<string, LabelDetail[]>): SearchField[] | null {
+  const fields = cardFields(card, labels?.get(card.id))
   if (!terms.every((t) => fields.some((f) => found(t, f.kind, f.text)))) return null
   return fields.filter((f) => terms.some((t) => found(t, f.kind, f.text)))
 }

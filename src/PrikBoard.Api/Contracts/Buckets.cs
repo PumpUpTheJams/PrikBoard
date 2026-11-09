@@ -58,6 +58,9 @@ public record CreateBucketRequest(
 /// <param name="CarryDrawingIds">
 /// Like carryCardIds, for drawings on the board: exactly these move along, instead of the drawings in the bucket.
 /// </param>
+/// <param name="CarryLabelIds">
+/// Like carryCardIds, for labels on the board: exactly these move along, instead of the labels in the bucket.
+/// </param>
 public record UpdateBucketRequest(
     [property: StringLength(100, MinimumLength = 1)] string? Name = null,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int? X = null,
@@ -67,10 +70,11 @@ public record UpdateBucketRequest(
     [property: MaxLength(2000)] List<Guid>? CarryCardIds = null,
     [property: MaxLength(2000)] List<Guid>? CarryImageIds = null,
     [property: MaxLength(2000)] List<Guid>? CarryDrawingIds = null,
-    bool? Collapsed = null);
+    bool? Collapsed = null,
+    [property: MaxLength(2000)] List<Guid>? CarryLabelIds = null);
 
 /// <summary>
-/// Puts cards, images and drawings into a bucket, in its free room row by row (cards first, then images, then drawings,
+/// Puts cards, images, drawings and labels into a bucket, in its free room row by row (cards first, then images, drawings and labels,
 /// each in the order given), a grid step clear of what is already there (its own items and loose ones). When they don't
 /// fit, the bucket grows towards <c>grow</c> a row or column at a time, over neighboring buckets too.
 /// </summary>
@@ -78,13 +82,15 @@ public record UpdateBucketRequest(
 /// <param name="ImageIds">Images on the bucket's board itself (not attached to a card).</param>
 /// <param name="DrawingIds">Drawings on the bucket's board itself (not on a card).</param>
 /// <param name="Grow">The side the bucket grows towards when it is full: Down (default), Right, Left or Up. Left and Up move its left or top edge out; what is in it stays.</param>
-/// <param name="OnlyCardsTakeRoom">True when only cards count as being in the way: images and drawings already there don't, so the items may go over them (what the web app does with items dropped on a bucket).</param>
+/// <param name="OnlyCardsTakeRoom">True when only cards count as being in the way: images, drawings and labels already there don't, so the items may go over them (what the web app does with items dropped on a bucket).</param>
+/// <param name="LabelIds">Labels on the bucket's board itself (not on a card).</param>
 public record PlaceItemsRequest(
     [property: MaxLength(PlaceItemsRequest.MaxEach)] List<Guid>? CardIds = null,
     [property: MaxLength(PlaceItemsRequest.MaxEach)] List<Guid>? ImageIds = null,
     [property: MaxLength(PlaceItemsRequest.MaxEach)] List<Guid>? DrawingIds = null,
     GrowSide? Grow = null,
-    bool? OnlyCardsTakeRoom = null)
+    bool? OnlyCardsTakeRoom = null,
+    [property: MaxLength(PlaceItemsRequest.MaxEach)] List<Guid>? LabelIds = null)
 {
     /// <summary>The most ids each list takes.</summary>
     public const int MaxEach = 2000;
@@ -95,4 +101,5 @@ public record PlaceItemsRequest(
 /// <param name="Cards">The cards in their new places, in the order given.</param>
 /// <param name="Images">The images in their new places, in the order given.</param>
 /// <param name="Drawings">The drawings in their new places, in the order given.</param>
-public record PlacedItems(BucketDetail Bucket, List<CardDetail> Cards, List<ImageDetail> Images, List<DrawingDetail> Drawings);
+/// <param name="Labels">The labels in their new places, in the order given.</param>
+public record PlacedItems(BucketDetail Bucket, List<CardDetail> Cards, List<ImageDetail> Images, List<DrawingDetail> Drawings, List<LabelDetail> Labels);

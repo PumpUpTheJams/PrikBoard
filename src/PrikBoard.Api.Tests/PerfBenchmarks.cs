@@ -35,7 +35,8 @@ public class PerfBenchmarks(PrikBoardApiFactory factory, ITestOutputHelper outpu
         var clip = JsonNode.Parse(await File.ReadAllTextAsync(BoardFile()))!.AsObject();
         var board = await client.CreateBoardAsync("Perf");
         // Its top-left where it was, so the layout stays as make-board.mjs drew it.
-        var corners = new[] { "cards", "buckets", "images", "drawings" }.SelectMany(list => clip[list]?.AsArray() ?? []).ToList();
+        var corners = new[] { "cards", "buckets", "images", "drawings", "labels" }.SelectMany(list => clip[list]?.AsArray() ?? [])
+            .Where(IsOnBoard).ToList();
         var (x, y) = (corners.Min(c => (int)c!["x"]!), corners.Min(c => (int)c!["y"]!));
 
         var sw = Stopwatch.StartNew();
@@ -99,6 +100,93 @@ public class PerfBenchmarks(PrikBoardApiFactory factory, ITestOutputHelper outpu
         Report("moveCard", move);
     }
 
+    /// <summary>Whether a clip's item sits on the board, not on a card's canvas.</summary>
+    private static bool IsOnBoard(JsonNode? item) => item?["cardId"] is null;
+
+    /// <summary>
+    /// Many labels: <c>PRIKBOARD_PERF_LABELS_BOARD</c>, or make-board.mjs with <c>--labels=3000</c>. What a label's own requests
+    /// cost on a board full of them, and what they add to reading the board: allocations too, which swing less than times.
+    /// </summary>
+    [PerfFact]
+    public async Task Server_with_many_labels()
+    {
+        var client = await factory.CreateSignedInClientAsync();
+        var clip = JsonNode.Parse(await File.ReadAllTextAsync(
+            Environment.GetEnvironmentVariable("PRIKBOARD_PERF_LABELS_BOARD") is { Length: > 0 } given ? given : MadeBoard("--labels=3000", "--images=0", "--drawings=0")))!.AsObject();
+        var board = await client.CreateBoardAsync("Perf labels");
+        var corners = new[] { "cards", "buckets", "labels" }.SelectMany(list => clip[list]?.AsArray() ?? []).Where(IsOnBoard).ToList();
+        var (x, y) = (corners.Min(c => (int)c!["x"]!), corners.Min(c => (int)c!["y"]!));
+
+        var sw = Stopwatch.StartNew();
+        var pasted = await client.PostAsJsonAsync($"/api/boards/{board.Id}/paste", new { clip, x, y });
+        var body = await pasted.Content.ReadAsStringAsync();
+        Assert.True(pasted.IsSuccessStatusCode, body);
+        Report("pasteItems", sw.Elapsed.TotalMilliseconds, $"{clip["labels"]!.AsArray().Count} labels in the clip");
+
+        string json = "";
+        var read = await Median(async () => json = await client.GetStringAsync($"/api/boards/{board.Id}"));
+        Report("getBoard", read, $"{json.Length / 1024} KiB");
+        long zipped = 0;
+        var compressedRead = await Median(async () =>
+        {
+            using var asking = new HttpRequestMessage(HttpMethod.Get, $"/api/boards/{board.Id}");
+            asking.Headers.AcceptEncoding.ParseAdd("br");
+            zipped = (await (await client.SendAsync(asking)).Content.ReadAsByteArrayAsync()).Length;
+        });
+        Report("getBoard, Brotli", compressedRead, $"{zipped / 1024} KiB");
+        var before = GC.GetTotalAllocatedBytes(true);
+        await client.GetStringAsync($"/api/boards/{board.Id}");
+        Report("getBoard allocations", (GC.GetTotalAllocatedBytes(true) - before) / 1024d / 1024d, "MiB, shown as ms");
+        if (Environment.GetEnvironmentVariable("PRIKBOARD_PERF_SNAPSHOT") is { Length: > 0 } snapshot) await File.WriteAllTextAsync(snapshot, json);
+
+        board = (await client.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
+        var looseLabels = board.Labels.Where(l => l.CardId is null && l.BucketId is null).ToList();
+        var inBucket = board.Labels.Where(l => l.BucketId is not null).ToList();
+        var card = board.Cards[0];
+        Report("labels on the board", board.Labels.Count, $"{looseLabels.Count} loose, {inBucket.Count} in a bucket, {board.Labels.Count(l => l.CardId is not null)} on cards");
+
+        // A board without them (--labels=0) only gives the reads above to compare with.
+        if (looseLabels.Count == 0) return;
+
+        Report("createLabel at a place", await Median(async () =>
+            (await client.PostAsJsonAsync($"/api/boards/{board.Id}/labels", new { markdown = "A new label", x = -50_000, y = -50_000 })).EnsureSuccessStatusCode()));
+        Report("createLabel in a free spot", await Median(async () =>
+            (await client.PostAsJsonAsync($"/api/boards/{board.Id}/labels", new { markdown = "A new label" })).EnsureSuccessStatusCode()));
+        Report("createLabel on a card", await Median(async () =>
+            (await client.PostAsJsonAsync($"/api/boards/{board.Id}/labels", new { markdown = "On a card", cardId = card.Id })).EnsureSuccessStatusCode(), runs: 5));
+
+        var one = looseLabels[0];
+        Report("updateLabel text", await Median(async () =>
+            (await client.PatchAsJsonAsync($"/api/labels/{one.Id}", new { markdown = "## Changed\n\nSome **new** text." })).EnsureSuccessStatusCode()));
+        Report("updateLabel move", await Median(async () =>
+            (await client.PatchAsJsonAsync($"/api/labels/{one.Id}", new { x = one.X + 20, y = one.Y })).EnsureSuccessStatusCode()));
+        Report("updateLabel box", await Median(async () =>
+            (await client.PatchAsJsonAsync($"/api/labels/{one.Id}", new { wrapWidth = 300, minHeight = 200, width = 300, height = 200 })).EnsureSuccessStatusCode()));
+
+        if (inBucket.Count > 0)
+        {
+            var bucket = board.Buckets.Single(b => b.Id == inBucket[0].BucketId);
+            var step = 0;
+            Report($"updateBucket carrying {inBucket.Count} labels", await Median(async () =>
+                (await client.PatchAsJsonAsync($"/api/buckets/{bucket.Id}", new { x = bucket.X + 20 * (++step % 2), y = bucket.Y })).EnsureSuccessStatusCode(), runs: 5));
+        }
+
+        var someIds = looseLabels.Skip(1).Take(500).Select(l => l.Id).ToList();
+        sw.Restart();
+        (await client.PostAsJsonAsync($"/api/boards/{board.Id}/items/delete", new { labelIds = someIds })).EnsureSuccessStatusCode();
+        Report($"deleteItems {someIds.Count} labels", sw.Elapsed.TotalMilliseconds);
+        sw.Restart();
+        (await client.PostAsJsonAsync($"/api/boards/{board.Id}/items/restore", new { labelIds = someIds })).EnsureSuccessStatusCode();
+        Report($"restoreItems {someIds.Count} labels", sw.Elapsed.TotalMilliseconds);
+
+        Report("listCards search through label text", await Median(async () =>
+            await client.GetStringAsync($"/api/boards/{board.Id}/cards?search=pointer"), runs: 5));
+        sw.Restart();
+        var copied = await client.PostAsJsonAsync($"/api/boards/{board.Id}/copy", new { labelIds = looseLabels.Select(l => l.Id) });
+        copied.EnsureSuccessStatusCode();
+        Report($"copyItems {looseLabels.Count} labels", sw.Elapsed.TotalMilliseconds);
+    }
+
     /// <summary>The gap between items in a bucket (Layout.Gap).</summary>
     private const int Gap = 20;
 
@@ -153,14 +241,17 @@ public class PerfBenchmarks(PrikBoardApiFactory factory, ITestOutputHelper outpu
     }
 
     /// <summary>The clip to paste: <c>PRIKBOARD_PERF_BOARD</c>, or a fresh one from make-board.mjs (needs Node).</summary>
-    private static string BoardFile()
+    private static string BoardFile() =>
+        Environment.GetEnvironmentVariable("PRIKBOARD_PERF_BOARD") is { Length: > 0 } given ? given : MadeBoard();
+
+    /// <summary>A fresh board from make-board.mjs (needs Node), with these options.</summary>
+    private static string MadeBoard(params string[] options)
     {
-        if (Environment.GetEnvironmentVariable("PRIKBOARD_PERF_BOARD") is { Length: > 0 } given) return given;
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "tools", "perf", "make-board.mjs"))) dir = dir.Parent;
         if (dir is null) throw new InvalidOperationException("tools/perf/make-board.mjs not found; set PRIKBOARD_PERF_BOARD to a clip file.");
         var file = Path.Combine(Path.GetTempPath(), $"prikboard-perf-{Guid.NewGuid():N}.json");
-        using var node = Process.Start(new ProcessStartInfo("node", ["tools/perf/make-board.mjs", $"--out={file}"])
+        using var node = Process.Start(new ProcessStartInfo("node", ["tools/perf/make-board.mjs", $"--out={file}", .. options])
         {
             WorkingDirectory = dir.FullName,
             RedirectStandardOutput = true,

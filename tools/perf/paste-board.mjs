@@ -36,11 +36,11 @@ for (const image of clip.images) {
   image.data = ''
 }
 // The clip keeps its layout, with its top-left at the same place.
-const corners = [...clip.cards, ...(clip.buckets ?? []), ...clip.images.filter((i) => !i.cardId), ...clip.drawings.filter((d) => !d.cardId)]
+const corners = [...clip.cards, ...(clip.buckets ?? []), ...clip.images.filter((i) => !i.cardId), ...clip.drawings.filter((d) => !d.cardId), ...(clip.labels ?? []).filter((l) => !l.cardId)]
 const x = Math.min(...corners.map((c) => c.x))
 const y = Math.min(...corners.map((c) => c.y))
 const pasted = await call('POST', `/boards/${board.id}/paste`, { clip, x, y, imageFiles })
 console.log(
-  `Pasted ${pasted.cards.length} cards, ${pasted.buckets.length} buckets, ${pasted.images.length} images and ${pasted.drawings.length} drawings ` +
+  `Pasted ${pasted.cards.length} cards, ${pasted.buckets.length} buckets, ${pasted.images.length} images, ${pasted.drawings.length} drawings and ${(pasted.labels ?? []).length} labels ` +
     `into "${board.name}" (${server}/#/boards/${board.shortId}) in ${((Date.now() - started) / 1000).toFixed(1)} s`,
 )

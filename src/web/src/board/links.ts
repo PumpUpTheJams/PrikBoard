@@ -76,6 +76,16 @@ export const imageInHash = () => window.location.hash.match(IMAGE_HASH)?.[1]?.to
 /** The card a link points at: a card's path, or its full address on this site. Null for anything else. */
 export const cardRoute = (url: string): CardRoute | null => routeIn(url, window.location.origin)
 
+/** The address only when it is http(s), so a link can never run script. */
+export function webUrl(value: string): URL | null {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url : null
+  } catch {
+    return null
+  }
+}
+
 export const isCardId = (value: string) => ID.test(value)
 
 /** Puts text on the clipboard. Falls back to a hidden text area where the Clipboard API is missing or refused. */

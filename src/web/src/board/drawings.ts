@@ -5,7 +5,7 @@ import { inkColors, type DrawingDetail, type DrawingStroke, type InkColor, type 
 import { GRID, MAX_COORDINATE, MIN_COORDINATE } from './layout'
 
 /** The inks' colors: the `--ink-*` tokens in index.css, which each color scheme sets (use them in `style`, not SVG attributes). */
-export const inkColor = Object.fromEntries(inkColors.map((ink) => [ink, `var(--ink-${ink.toLowerCase()})`])) as Record<InkColor, string>
+export const inkColor = { ...Object.fromEntries(inkColors.map((ink) => [ink, `var(--ink-${ink.toLowerCase()})`])), Theme: 'var(--text)' } as Record<InkColor, string>
 
 /** The pen's base widths, with the size of the dot that shows each in the flyout. */
 export const strokeSizes = [

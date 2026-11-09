@@ -421,4 +421,53 @@ public class McpCardTests(PrikBoardApiFactory factory) : McpTestBase, IClassFixt
         Assert.Contains("cards[1].bucketId", await response.Content.ReadAsStringAsync());
         Assert.Equal(3, (await owner.GetFromJsonAsync<List<CardDetail>>($"/api/boards/{board.Id}/cards"))!.Count);
     }
+
+    [Fact]
+    public async Task A_cards_text_is_written_and_read_as_labels()
+    {
+        var owner = await factory.CreateSignedInClientAsync("mcp-card-text@example.com");
+        var board = await owner.CreateBoardAsync("MCP text");
+        var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor));
+
+        var created = await CallAsync(mcp, "create_card", new() { ["board"] = board.Id, ["title"] = "Told", ["body"] = "## Plan\n\nDo it.", ["checklist"] = new[] { new { text = "Check", done = false } } });
+        var cardId = created.GetProperty("id").GetGuid();
+        Assert.Single(created.GetProperty("labels").EnumerateArray());
+        Assert.False(created.GetProperty("labels")[0].TryGetProperty("markdown", out _));
+        var read = await CallAsync(mcp, "get_card", new() { ["card"] = cardId });
+        Assert.Equal("## Plan\n\nDo it.", read.GetProperty("labels")[0].GetProperty("markdown").GetString());
+        Assert.Equal("Checklist", Assert.Single(read.GetProperty("components").EnumerateArray().ToList()).GetProperty("kind").GetString());
+
+        // In the card's own save, with the checklist clear of it and nothing more in the history than creating it.
+        var shown = (await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
+        var label = Assert.Single(shown.Labels);
+        Assert.Equal((cardId, true, LabelSize.S), (label.CardId!.Value, label.Background, label.Size));
+        var checklist = Assert.Single(shown.Cards).Components[0];
+        Assert.True(checklist.X >= label.X + label.Width || checklist.Y >= label.Y + label.Height, $"Checklist at {checklist.X},{checklist.Y}");
+        Assert.Single((await owner.GetFromJsonAsync<List<CardChangeDetail>>($"/api/cards/{cardId}/history"))!);
+
+        var appended = await CallAsync(mcp, "update_card_component", new() { ["card"] = cardId, ["component"] = "Text", ["appendText"] = "Done." });
+        Assert.Equal("## Plan\n\nDo it.\n\nDone.", appended.GetProperty("text").GetString());
+        var replaced = await CallAsync(mcp, "update_card_component", new() { ["card"] = cardId, ["component"] = label.Id, ["text"] = "New" });
+        Assert.Equal("New", replaced.GetProperty("text").GetString());
+        var titled = await CallAsync(mcp, "update_card_component", new() { ["card"] = cardId, ["component"] = "Text", ["title"] = "Head" });
+        Assert.Equal(("Head", "New"), (titled.GetProperty("title").GetString(), titled.GetProperty("text").GetString()));
+        Assert.Equal("Head", (await CallAsync(mcp, "get_card", new() { ["card"] = cardId })).GetProperty("labels")[0].GetProperty("title").GetString());
+
+        var second = await CallAsync(mcp, "add_card_component", new() { ["card"] = cardId, ["kind"] = "Text", ["title"] = "Why", ["text"] = "Because." });
+        Assert.Equal(("Why", "Because."), (second.GetProperty("title").GetString(), second.GetProperty("text").GetString()));
+        var several = await CallRawAsync(mcp, "update_card_component", new() { ["card"] = cardId, ["component"] = "Text", ["appendText"] = "x" });
+        Assert.True(several.IsError);
+        Assert.Contains("Several labels", Text(several));
+
+        // An empty text deletes it; with no label left, appendText writes a new one.
+        await CallAsync(mcp, "update_card_component", new() { ["card"] = cardId, ["component"] = label.Id, ["text"] = "" });
+        Assert.Equal("Deleted.", Text(await CallRawAsync(mcp, "delete_card_component", new() { ["card"] = cardId, ["component"] = "Text" })));
+        Assert.False((await CallAsync(mcp, "get_card", new() { ["card"] = cardId })).TryGetProperty("labels", out _));
+        var fresh = await CallAsync(mcp, "update_card_component", new() { ["card"] = cardId, ["component"] = "Text", ["appendText"] = "Summary." });
+        Assert.Equal("Summary.", fresh.GetProperty("text").GetString());
+
+        Assert.True((await CallRawAsync(mcp, "create_card", new() { ["board"] = board.Id, ["title"] = "Long", ["body"] = new string('x', BoardLabel.MaxTextLength + 1) })).IsError);
+        var labelled = await CallAsync(mcp, "update_label", new() { ["label"] = fresh.GetProperty("id").GetGuid(), ["appendText"] = "More." });
+        Assert.Equal("Summary.\n\nMore.", labelled.GetProperty("markdown").GetString());
+    }
 }

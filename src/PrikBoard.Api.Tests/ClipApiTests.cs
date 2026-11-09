@@ -32,7 +32,6 @@ public class ClipApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
             y = 600,
             components = new object[]
             {
-                new { kind = "Text", title = "Why", text = "Because." },
                 new
                 {
                     kind = "Links",
@@ -74,9 +73,8 @@ public class ClipApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         Assert.Equal((2000 + first.X - minX, 2000 + first.Y - minY), (copy.X, copy.Y));
         Assert.Equal((2000 + second.X - minX, 2000 + second.Y - minY), (copy2.X, copy2.Y));
 
-        Assert.Equal("Because.", copy.Components[0].Text);
         Assert.Equal([("Web", "https://example.com/"), ("Second", copy2.Path), ("Left", left.Path)],
-            copy.Components[1].Links!.Select(l => (l.Title, l.Url)));
+            copy.Components[0].Links!.Select(l => (l.Title, l.Url)));
 
         var pastedImage = Assert.Single(pasted.Images);
         Assert.Equal((copy.Id, "shot.png", image.X, image.Y, image.Width), (pastedImage.CardId, pastedImage.FileName, pastedImage.X, pastedImage.Y, pastedImage.Width));

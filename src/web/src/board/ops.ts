@@ -14,16 +14,20 @@ import type {
   DrawingStroke,
   ImageChanges,
   ImageDetail,
+  LabelChanges,
+  LabelDetail,
   NewCardComponent,
+  NewLabel,
   PastedItems,
   PastePlace,
   Point,
   TagColor,
 } from '../api/types'
+import { CANVAS_KINDS, itemLists, PLURAL, type CanvasItem, type CanvasKind, type ItemOfKind } from './boardItems'
 import { countList } from './clipboard'
 import { loadDrawingStrokes, type Reshape } from './drawings'
 import { onBoard } from './layout'
-import { cardEdit, componentEdit, created, deleted, patched, reshaped, snap, step, target, type RecordingRun, type UndoChange, type UndoEntry, type UndoTarget } from './undo'
+import { canvasKinds, cardEdit, componentEdit, created, deleted, itemCreated, itemDeleted, itemPatched, patched, reshaped, snap, step, target, type ItemPlace, type RecordingRun, type UndoChange, type UndoEntry, type UndoTarget } from './undo'
 
 /**
  * A change: its request, and a function that builds its undo step from the result. Spread it into a RecordingRun,
@@ -38,6 +42,7 @@ export const pastedSummary = (pasted: PastedItems) =>
     [pasted.cards.length, 'card'],
     [pasted.images.filter((i) => !i.cardId).length, 'image'],
     [pasted.drawings.filter((d) => !d.cardId).length, 'drawing'],
+    [(pasted.labels ?? []).filter((l) => !l.cardId).length, 'label'],
   ])
 
 /** A change that failed partway: `done` is the result so far, which a recording run still records before it fails. */
@@ -122,17 +127,17 @@ export async function allOf(requests: Promise<unknown>[]) {
  */
 export function bucketMove(board: BoardDetail, bucket: BucketDetail, moved: BucketDetail): (UndoChange | null)[] {
   const carried = board.cards.filter((n) => n.bucketId === bucket.id)
-  const carriedImages = board.images.filter((i) => i.bucketId === bucket.id)
-  const carriedDrawings = board.drawings.filter((d) => d.bucketId === bucket.id)
+  const carriedItems = CANVAS_KINDS.flatMap((kind) => itemLists(board)[kind].filter((i) => i.bucketId === bucket.id).map((item) => ({ kind, item })))
   const d = { x: moved.x - bucket.x, y: moved.y - bucket.y }
-  const along = (item: Point) => ({ x: onBoard(item.x + d.x), y: onBoard(item.y + d.y) })
-  const carry = { cards: carried.map((n) => n.id), images: carriedImages.map((i) => i.id), drawings: carriedDrawings.map((d) => d.id) }
+  const idsOf = (kind: CanvasKind) => carriedItems.flatMap((c) => (c.kind === kind ? [c.item.id] : []))
+  const carry = { cards: carried.map((n) => n.id), images: idsOf('image'), drawings: idsOf('drawing'), labels: idsOf('label') }
+  // An item's place always comes with its bucket (see `patched`), and a carried item stays in this one.
+  const along = (t: UndoTarget, item: Point & { bucketId: string | null }) =>
+    patched(t, { x: item.x, y: item.y, bucketId: item.bucketId }, { x: onBoard(item.x + d.x), y: onBoard(item.y + d.y), bucketId: item.bucketId }, ['x', 'y'], true)
   return [
     patched(target.bucket(bucket.id, carry), snap.bucket(bucket), snap.bucket(moved), ['x', 'y']),
-    // A card's place always comes with its bucket (see `patched`), and a carried card stays in this one.
-    ...carried.map((n) => patched(target.card(n.id), { x: n.x, y: n.y, bucketId: n.bucketId }, { ...along(n), bucketId: n.bucketId }, ['x', 'y'], true)),
-    ...carriedImages.map((i) => patched(target.image(i.id), { x: i.x, y: i.y }, along(i), ['x', 'y'], true)),
-    ...carriedDrawings.map((dr) => patched(target.drawing(dr.id), { x: dr.x, y: dr.y }, along(dr), ['x', 'y'], true)),
+    ...carried.map((n) => along(target.card(n.id), n)),
+    ...carriedItems.map(({ kind, item }) => along(target[kind](item.id), item)),
   ]
 }
 
@@ -148,14 +153,13 @@ export function bucketDelete(board: BoardDetail, bucket: BucketDetail): (UndoCha
   })
   return [
     ...board.cards.filter((n) => n.bucketId === bucket.id).map((n) => left(target.card(n.id), n)),
-    ...board.images.filter((i) => i.cardId === null && i.bucketId === bucket.id).map((i) => left(target.image(i.id), i)),
-    ...board.drawings.filter((d) => d.cardId === null && d.bucketId === bucket.id).map((d) => left(target.drawing(d.id), d)),
+    ...CANVAS_KINDS.flatMap((kind) => itemLists(board)[kind].filter((i) => i.cardId === null && i.bucketId === bucket.id).map((i) => left(target[kind](i.id), i))),
     deleted(target.bucket(bucket.id), snap.bucket(bucket)),
   ]
 }
 
 /** Whether a component is empty. Removing an empty one shows no undo toast, though it can still be undone. */
-export const isEmptyComponent = (c: CardComponent) => !c.text && !c.items?.length && !c.links?.length && !c.title
+export const isEmptyComponent = (c: CardComponent) => !c.items?.length && !c.links?.length && !c.title
 
 const blank = (text: string | null | undefined) => !text?.trim()
 
@@ -163,17 +167,24 @@ const blank = (text: string | null | undefined) => !text?.trim()
  * Whether a card has nothing on it (Card.IsBlank on the server, plus no images or drawings): deleting it deletes it
  * for good, so there is nothing to undo.
  */
-export function isBlankCard(board: Pick<BoardDetail, 'images' | 'drawings'>, card: CardDetail) {
+export function isBlankCard(board: Pick<BoardDetail, 'images' | 'drawings' | 'labels'>, card: CardDetail) {
   const blankComponent = (c: CardComponent) =>
-    blank(c.title) && blank(c.text) && (c.items ?? []).every((i) => blank(i.text)) && (c.links ?? []).every((l) => blank(l.title) && blank(l.url))
+    blank(c.title) && (c.items ?? []).every((i) => blank(i.text)) && (c.links ?? []).every((l) => blank(l.title) && blank(l.url))
   return (
     blank(card.title) &&
     card.tags.length === 0 &&
     card.assignees.length === 0 &&
     card.components.every(blankComponent) &&
     !board.images.some((i) => i.cardId === card.id) &&
-    !board.drawings.some((d) => d.cardId === card.id)
+    !board.drawings.some((d) => d.cardId === card.id) &&
+    !board.labels.some((l) => l.cardId === card.id)
   )
+}
+
+/** A change to a canvas item as a step named `label` over the fields in `keys`. */
+function editOp<K extends CanvasKind>(kind: K, item: ItemOfKind[K], changes: Parameters<(typeof canvasKinds)[K]['update']>[1], label: string, keys: string[]): Op<ItemOfKind[K]> {
+  const save = canvasKinds[kind].update as (id: string, changes: unknown) => Promise<ItemOfKind[K]>
+  return [() => save(item.id, changes), (after) => step(label, [itemPatched(kind, item, after, keys)])]
 }
 
 export const ops = {
@@ -203,8 +214,7 @@ export const ops = {
         ? [
             ...moved.buckets.map((b) => away(deleted(target.bucket(b.id), snap.bucket(b)))),
             ...moved.cards.map((n) => away(deleted(target.card(n.id), snap.card(n)))),
-            ...moved.images.map((i) => away(deleted(target.image(i.id), snap.image(i)))),
-            ...moved.drawings.map((d) => away(deleted(target.drawing(d.id), snap.drawing(d)))),
+            ...CANVAS_KINDS.flatMap((kind) => (moved[PLURAL[kind]] ?? []).map((item) => away(itemDeleted(kind, item)))),
           ]
         : []
       const toast = moved
@@ -217,8 +227,7 @@ export const ops = {
         [
           ...pasted.buckets.map((b) => created(target.bucket(b.id), snap.bucket(b))),
           ...pasted.cards.map((card) => created(target.card(card.id), snap.card(card))),
-          ...pasted.images.filter((i) => !i.cardId).map((i) => created(target.image(i.id), snap.image(i))),
-          ...pasted.drawings.filter((d) => !d.cardId).map((d) => created(target.drawing(d.id), snap.drawing(d))),
+          ...CANVAS_KINDS.flatMap((kind) => (pasted[PLURAL[kind]] ?? []).filter((item) => !item.cardId).map((item) => itemCreated(kind, item))),
           ...originals,
         ],
         label === 'Paste' ? { toast } : undefined,
@@ -227,7 +236,7 @@ export const ops = {
   ],
 
   /** Deletes a card into the trash; one with nothing on it (`isBlankCard`) goes for good, without an undo step. */
-  deleteCard: (card: CardDetail, board: Pick<BoardDetail, 'images' | 'drawings'>): Op<void> => [
+  deleteCard: (card: CardDetail, board: Pick<BoardDetail, 'images' | 'drawings' | 'labels'>): Op<void> => [
     () => api.deleteCard(card.id),
     () => (isBlankCard(board, card) ? null : step('Delete card', [deleted(target.card(card.id), snap.card(card))], { toast: 'Card deleted' })),
   ],
@@ -257,9 +266,15 @@ export const ops = {
   ],
 
   /** Changes an image (moves, resizes, recaptions or attaches it) as a step named `label` over the fields in `keys`. */
-  editImage: (image: ImageDetail, changes: ImageChanges, label: string, keys: string[]): Op<ImageDetail> => [
-    () => api.updateImage(image.id, changes),
-    (after) => step(label, [patched(target.image(image.id), snap.image(image), snap.image(after), keys)]),
+  editImage: (image: ImageDetail, changes: ImageChanges, label: string, keys: string[]) => editOp('image', image, changes, label, keys),
+
+  /** Moves or attaches any canvas item, whichever kind it is. */
+  placeItem: (kind: CanvasKind, item: CanvasItem, place: ItemPlace, label: string, keys: string[]) => editOp(kind, item, place, label, keys),
+
+  /** Deletes any canvas item, with a toast. */
+  deleteItem: (kind: CanvasKind, item: CanvasItem): Op<void> => [
+    () => canvasKinds[kind].remove(item.id),
+    () => step(`Delete ${kind}`, [itemDeleted(kind, item)], { toast: `${kind[0].toUpperCase()}${kind.slice(1)} deleted` }),
   ],
 
   /**
@@ -275,21 +290,16 @@ export const ops = {
     ({ after, before, strokes }) => reshaped(rotation !== 0 ? 'Rotate drawing' : 'Resize drawing', drawing, before, after, strokes),
   ],
 
-  deleteImage: (image: ImageDetail): Op<void> => [
-    () => api.deleteImage(image.id),
-    () => step('Delete image', [deleted(target.image(image.id), snap.image(image))], { toast: 'Image deleted' }),
-  ],
-
   /** Changes a drawing (moves, recolors or attaches it) as a step named `label` over the fields in `keys`. */
-  editDrawing: (drawing: DrawingDetail, changes: DrawingChanges, label: string, keys: string[]): Op<DrawingDetail> => [
-    () => api.updateDrawing(drawing.id, changes),
-    (after) => step(label, [patched(target.drawing(drawing.id), snap.drawing(drawing), snap.drawing(after), keys)]),
+  editDrawing: (drawing: DrawingDetail, changes: DrawingChanges, label: string, keys: string[]) => editOp('drawing', drawing, changes, label, keys),
+
+  addLabel: (boardId: string, label: NewLabel): Op<LabelDetail> => [
+    () => api.createLabel(boardId, label),
+    (added) => step('Add label', [itemCreated('label', added)]),
   ],
 
-  deleteDrawing: (drawing: DrawingDetail): Op<void> => [
-    () => api.deleteDrawing(drawing.id),
-    () => step('Delete drawing', [deleted(target.drawing(drawing.id), snap.drawing(drawing))], { toast: 'Drawing deleted' }),
-  ],
+  /** Changes a label (its text, ink or size, or moves or attaches it) as a step named `label` over the fields in `keys`. */
+  editLabel: (item: LabelDetail, changes: LabelChanges, label: string, keys: string[]) => editOp('label', item, changes, label, keys),
 
   renameBucket: (bucket: BucketDetail, name: string): Op<BucketDetail> => [
     () => api.updateBucket(bucket.id, { name }),

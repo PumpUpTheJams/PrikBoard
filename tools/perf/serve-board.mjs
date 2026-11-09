@@ -36,7 +36,7 @@ const caller = {
   isAdmin: false,
   avatarUrl: null,
 }
-const summary = (({ cards, buckets, images, drawings, tags, people, ...rest }) => rest)(board)
+const summary = (({ cards, buckets, images, drawings, labels, tags, people, ...rest }) => rest)(board)
 
 // Content by the order the snapshot lists items in; any image or drawing of the clip will do for measuring.
 const imageBytes = clip.images.map((i) => Buffer.from(i.data, 'base64'))

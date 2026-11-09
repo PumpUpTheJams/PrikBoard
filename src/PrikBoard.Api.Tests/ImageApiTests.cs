@@ -251,14 +251,14 @@ public class ImageApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     public async Task Images_on_a_card_have_a_place_on_its_canvas_clear_of_its_components()
     {
         var board = await CreateBoard("Card canvas");
-        var cardResponse = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Canvas", components = new[] { new { kind = "Text" } } });
+        var cardResponse = await _client.PostAsJsonAsync($"/api/boards/{board.Id}/cards", new { title = "Canvas", components = new[] { new { kind = "Checklist" } } });
         var card = (await cardResponse.Content.ReadFromJsonAsync<CardDetail>())!;
 
         var placed = await Upload(board.Id, TestImages.Png(300, 200), "image/png", $"?cardId={card.Id}&x=505&y=611");
         var free = await Upload(board.Id, TestImages.Png(300, 200), "image/png", $"?cardId={card.Id}");
 
         Assert.Equal((500, 620), (placed.X, placed.Y));
-        // The text component takes 20..360 by 20..240, so the next free spot in the row is right of it.
+        // The checklist takes 20..360 by 20..280, so the next free spot in the row is right of it.
         Assert.Equal((380, 20), (free.X, free.Y));
     }
 

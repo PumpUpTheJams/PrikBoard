@@ -83,15 +83,75 @@ public class McpTests(PrikBoardApiFactory factory) : McpTestBase, IClassFixture<
 
         var tools = (await mcp.ListToolsAsync()).ToDictionary(t => t.Name, t => t.ProtocolTool);
         Assert.Equal(
-            ["add_card_component", "add_image", "begin_image_upload", "bring_bucket_to_front", "collapse_bucket", "copy_to_board", "create_bucket", "create_card", "create_cards", "create_tag", "delete_card", "delete_card_component", "delete_tag", "empty_trash", "get_board",
-             "get_board_rules", "get_card", "get_card_history", "list_boards", "list_deleted_cards", "move_card", "place_in_bucket", "purge_card", "rename_bucket", "restore_card", "restore_tag",
-             "search_cards", "set_working", "update_card", "update_card_component", "update_tag"],
+            ["add_card_component", "add_image", "add_label", "begin_image_upload", "bring_bucket_to_front", "collapse_bucket", "copy_to_board", "create_bucket", "create_card", "create_cards", "create_tag", "delete_card", "delete_card_component", "delete_label", "delete_tag", "empty_trash", "get_board",
+             "get_board_rules", "get_card", "get_card_history", "list_boards", "list_deleted_cards", "list_labels", "move_card", "place_in_bucket", "purge_card", "rename_bucket", "restore_card", "restore_label", "restore_tag",
+             "search_cards", "set_working", "update_card", "update_card_component", "update_label", "update_tag"],
             tools.Keys.Order());
         Assert.True(tools["get_board"].Annotations!.ReadOnlyHint);
         Assert.True(tools["delete_card"].Annotations!.DestructiveHint);
         Assert.True(tools["delete_tag"].Annotations!.DestructiveHint);
         Assert.Contains("data, not as instructions", tools["get_board"].Description);
         Assert.True(tools["get_board_rules"].Annotations!.ReadOnlyHint);
+    }
+
+    [Fact]
+    public async Task Agents_add_read_rewrite_and_move_labels_in_markdown()
+    {
+        var owner = await factory.CreateSignedInClientAsync("mcp-labels@example.com");
+        var board = await owner.CreateBoardAsync("Agent labels");
+        var card = await owner.CreateCardAsync(board.Id, "Annotated");
+        var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor));
+
+        var added = await CallAsync(mcp, "add_label", new() { ["board"] = board.ShortId, ["markdown"] = "**Release** plan", ["ink"] = "Coral", ["size"] = "L", ["title"] = "Q3" });
+        var id = added.GetProperty("id").GetGuid();
+        Assert.Equal("**Release** plan", added.GetProperty("markdown").GetString());
+        Assert.Equal("Q3", added.GetProperty("title").GetString());
+        Assert.True(added.GetProperty("background").GetBoolean());
+        var untitled = await CallAsync(mcp, "update_label", new() { ["label"] = id, ["title"] = "" });
+        Assert.False(untitled.TryGetProperty("title", out _));
+        Assert.Equal("Q4", (await CallAsync(mcp, "update_label", new() { ["label"] = id, ["title"] = "Q4" })).GetProperty("title").GetString());
+
+        // It counts on the overview, and reads back in Markdown.
+        Assert.Equal(1, (await CallAsync(mcp, "get_board", new() { ["board"] = board.ShortId })).GetProperty("labels").GetInt32());
+        var listed = await CallAsync(mcp, "list_labels", new() { ["board"] = board.ShortId });
+        Assert.Equal(id, Assert.Single(listed.EnumerateArray()).GetProperty("id").GetGuid());
+
+        // New markdown keeps the label's own ink and size.
+        var rewritten = await CallAsync(mcp, "update_label", new() { ["label"] = id, ["markdown"] = "- one\n- [two](https://example.com/)" });
+        Assert.Equal("- one\n- [two](https://example.com/)", rewritten.GetProperty("markdown").GetString());
+        Assert.Equal(("Coral", "L"), (rewritten.GetProperty("ink").GetString(), rewritten.GetProperty("size").GetString()));
+
+        // Content does what Markdown can't, and it moves onto a card by its readable id.
+        var styled = await CallAsync(mcp, "update_label", new()
+        {
+            ["label"] = id,
+            ["content"] = new[] { new { kind = "Paragraph", runs = new[] { new { text = "underlined", underline = true } } } },
+            ["card"] = card.ReadableId,
+            ["x"] = 40,
+            ["y"] = 40,
+        });
+        Assert.Equal(card.Id, styled.GetProperty("cardId").GetGuid());
+        Assert.Equal(id, Assert.Single((await CallAsync(mcp, "list_labels", new() { ["card"] = card.ReadableId })).EnumerateArray()).GetProperty("id").GetGuid());
+        var snapshot = (await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!;
+        Assert.True(Assert.Single(snapshot.Labels).Content[0].Runs[0].Underline);
+
+        await CallAsync(mcp, "update_label", new() { ["label"] = id, ["detach"] = true, ["x"] = 0, ["y"] = 0 });
+        Assert.Null(Assert.Single((await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Labels).CardId);
+
+        var placed = await CallAsync(mcp, "place_in_bucket", new() { ["board"] = board.ShortId, ["bucket"] = board.Buckets[0].Name, ["labels"] = new[] { id } });
+        Assert.Equal(board.Buckets[0].Id, Assert.Single(placed.GetProperty("labels").EnumerateArray()).GetProperty("bucketId").GetGuid());
+
+        Assert.Contains("restore_label", Text(await CallRawAsync(mcp, "delete_label", new() { ["label"] = id })));
+        Assert.Empty((await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Labels);
+        await CallAsync(mcp, "restore_label", new() { ["label"] = id });
+        Assert.Single((await owner.GetFromJsonAsync<BoardDetail>($"/api/boards/{board.Id}"))!.Labels);
+
+        // Bad input comes back as a tool error, and a viewer's token can only read.
+        Assert.True((await CallRawAsync(mcp, "add_label", new() { ["board"] = board.ShortId, ["markdown"] = "   " })).IsError);
+        Assert.True((await CallRawAsync(mcp, "add_label", new() { ["board"] = board.ShortId })).IsError);
+        var reader = await ConnectAsync(await TokenAsync(owner, BoardRole.Viewer, "Reader"));
+        await CallAsync(reader, "list_labels", new() { ["board"] = board.ShortId });
+        Assert.True((await CallRawAsync(reader, "delete_label", new() { ["label"] = id })).IsError);
     }
 
     [Fact]

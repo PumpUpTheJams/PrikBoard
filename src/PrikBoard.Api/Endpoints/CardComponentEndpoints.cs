@@ -21,7 +21,7 @@ public static class CardComponentEndpoints
             .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
             .WithName("addCardComponent")
             .WithSummary("Add a component to a card")
-            .WithDescription("Adds a Text, Checklist or Links component to the card. Without x and y it goes in the first " +
+            .WithDescription("Adds a Checklist or Links component to the card (text on a card is a label: createLabel). Without x and y it goes in the first " +
                              $"free spot on the card's canvas. A card has at most {CardComponent.MaxComponents} components (409 when full). " +
                              "To put back a removed component, send it with the id it had (409 when the card already has that id).")
             .ProducesValidationProblem()
@@ -31,9 +31,9 @@ public static class CardComponentEndpoints
             .RequireBoardRole(BoardRole.Editor, BoardScope.Card)
             .WithName("updateCardComponent")
             .WithSummary("Edit, move or resize a component")
-            .WithDescription("Changes any of a component's title, content (text, checklist items or links, whichever fits its kind; " +
+            .WithDescription("Changes any of a component's title, content (checklist items or links, whichever fits its kind; " +
                              "other content is a 400), position and size. Omitted fields stay unchanged; a list that is given replaces " +
-                             "the component's whole list. appendText, addItems, checkItems and uncheckItems change a Text or Checklist " +
+                             "the component's whole list. addItems, checkItems and uncheckItems change a Checklist " +
                              "component without sending its content back; checkItems and uncheckItems name items by their text, ignoring case.")
             .ProducesValidationProblem();
 
@@ -57,7 +57,9 @@ public static class CardComponentEndpoints
                 detail: $"The card already has {CardComponent.MaxComponents} components; remove one first.");
         }
 
-        var taken = Layout.TakenOnCard(card, await db.Images.AsNoTracking().Where(i => i.CardId == cardId).ToListAsync(ct));
+        var taken = Layout.TakenOnCard(card,
+            await db.Images.AsNoTracking().Where(i => i.CardId == cardId).ToListAsync(ct),
+            await LabelEndpoints.BoxesOnCardAsync(db, cardId, ct));
         if (Build(request, taken, "") is not { } component) return InvalidComponent(request, "");
         if (Check(component, "") is { } invalid) return invalid;
         await ShortenLinksAsync(db, card.BoardId, [component], ct);
@@ -85,9 +87,8 @@ public static class CardComponentEndpoints
         if (await CardEndpoints.LockedCardAsync(db, cardId, ct) is not { } card) return TypedResults.NotFound();
         if (card.Components.Find(b => b.Id == componentId) is not { } component) return TypedResults.NotFound();
 
-        if (Misfit(component.Kind, request.Text, request.Items, request.Links, "") is { } misfit) return misfit;
+        if (Misfit(component.Kind, null, request.Items, request.Links, "") is { } misfit) return misfit;
         component.Title = Clean(PatchText.Apply(component.Title, request.Title));
-        if (component.Kind == CardComponentKind.Text) component.Text = PatchText.Apply(component.Text, request.Text);
         if (request.Items is not null) component.Items = Items(request.Items);
         if (request.Links is not null) component.Links = Links(request.Links);
         if (ApplyIncrements(component, request) is { } increment) return increment;
@@ -123,9 +124,9 @@ public static class CardComponentEndpoints
     /// "components[i].field", after <paramref name="keyPrefix"/>) for a missing kind, content that does not fit the kind,
     /// X without Y or an invalid link.
     /// </summary>
-    internal static ValidationProblem? BuildAll(Card card, IReadOnlyList<NewCardComponent> requests, string keyPrefix = "")
+    internal static ValidationProblem? BuildAll(Card card, IReadOnlyList<NewCardComponent> requests, string keyPrefix = "", BoardLabel? body = null)
     {
-        var taken = Layout.TakenOnCard(card, []);
+        var taken = Layout.TakenOnCard(card, [], body is null ? null : [body]);
         for (var i = 0; i < requests.Count; i++)
         {
             var prefix = $"{keyPrefix}components[{i}].";
@@ -151,7 +152,6 @@ public static class CardComponentEndpoints
         {
             Kind = kind,
             Title = Clean(PatchText.Apply(null, request.Title)),
-            Text = kind == CardComponentKind.Text ? PatchText.Apply(null, request.Text) : null,
             Items = Items(request.Items ?? []),
             Links = Links(request.Links ?? []),
             Width = request.Width ?? width,
@@ -164,23 +164,11 @@ public static class CardComponentEndpoints
     }
 
     /// <summary>
-    /// Applies appendText, addItems, checkItems and uncheckItems, which change part of a component's content in place. Returns a
-    /// problem when they don't fit its kind, the result is too long, or an item to tick doesn't exist.
+    /// Applies addItems, checkItems and uncheckItems, which change part of a component's content in place. Returns a
+    /// problem when they don't fit its kind or an item to tick doesn't exist.
     /// </summary>
     private static ValidationProblem? ApplyIncrements(CardComponent component, UpdateCardComponentRequest request)
     {
-        if (!string.IsNullOrWhiteSpace(request.AppendText))
-        {
-            if (component.Kind != CardComponentKind.Text) return Problems.Invalid("appendText", $"A {component.Kind} component has no text; use a Text component.");
-            var added = request.AppendText.Trim();
-            var text = string.IsNullOrWhiteSpace(component.Text) ? added : $"{component.Text.TrimEnd()}\n\n{added}";
-            if (text.Length > CardComponent.MaxTextLength)
-            {
-                return Problems.Invalid("appendText", $"The text would be longer than {CardComponent.MaxTextLength} characters.");
-            }
-            component.Text = text;
-        }
-
         if (request is { AddItems: null, CheckItems: null, UncheckItems: null }) return null;
         if (component.Kind != CardComponentKind.Checklist)
         {
@@ -213,7 +201,7 @@ public static class CardComponentEndpoints
     /// <summary>Why <see cref="Build"/> returned null.</summary>
     private static ValidationProblem InvalidComponent(NewCardComponent request, string prefix)
     {
-        if (request.Kind is not { } kind) return Problems.Invalid(prefix + "kind", "Give the kind: Text, Checklist or Links.");
+        if (request.Kind is not { } kind) return Problems.Invalid(prefix + "kind", "Give the kind: Checklist or Links.");
         return Misfit(kind, request.Text, request.Items, request.Links, prefix)
             ?? Problems.Invalid(prefix + (request.X is null ? "x" : "y"), "Give X and Y together.");
     }
@@ -221,10 +209,8 @@ public static class CardComponentEndpoints
     /// <summary>A problem when content is given that does not fit a component of <paramref name="kind"/>.</summary>
     private static ValidationProblem? Misfit(CardComponentKind kind, string? text, List<ChecklistItem>? items, List<CardLink>? links, string prefix)
     {
-        if (kind != CardComponentKind.Text && !string.IsNullOrEmpty(text))
-        {
-            return Problems.Invalid(prefix + "text", $"A {kind} component has no text; use a Text component.");
-        }
+        if (kind == CardComponentKind.Text) return Problems.Invalid(prefix + "kind", "Text on a card is a label: use createLabel with cardId, or body in createCard.");
+        if (!string.IsNullOrEmpty(text)) return Problems.Invalid(prefix + "text", $"A {kind} component has no text; text on a card is a label.");
         if (kind != CardComponentKind.Checklist && items is { Count: > 0 })
         {
             return Problems.Invalid(prefix + "items", $"A {kind} component has no checklist items; use a Checklist component.");
@@ -255,15 +241,21 @@ public static class CardComponentEndpoints
         }
         if (links.Count == 0) return;
 
-        var ids = links.Select(l => l.CardId).Distinct().ToList();
-        var paths = await db.Cards.AsNoTracking().WithDeleted()
-            .Where(n => n.BoardId == boardId && ids.Contains(n.Id))
-            .Select(n => new { n.Id, n.Number, n.Board!.ShortId })
-            .ToDictionaryAsync(n => n.Id, n => CardLinks.CardPath(n.ShortId, n.Number), ct);
+        var paths = await CardPathsAsync(db, boardId, [.. links.Select(l => l.CardId)], ct);
         foreach (var (link, cardId) in links)
         {
             if (paths.TryGetValue(cardId, out var path)) link.Url = path;
         }
+    }
+
+    /// <summary>The paths of those of <paramref name="cardIds"/> on <paramref name="boardId"/>, deleted cards included.</summary>
+    internal static Task<Dictionary<Guid, string>> CardPathsAsync(PrikBoardDbContext db, Guid boardId, IReadOnlyCollection<Guid> cardIds, CancellationToken ct)
+    {
+        var ids = cardIds.Distinct().ToList();
+        return db.Cards.AsNoTracking().WithDeleted()
+            .Where(n => n.BoardId == boardId && ids.Contains(n.Id))
+            .Select(n => new { n.Id, n.Number, n.Board!.ShortId })
+            .ToDictionaryAsync(n => n.Id, n => CardLinks.CardPath(n.ShortId, n.Number), ct);
     }
 
     private static string? Clean(string? title) => title?.Trim();

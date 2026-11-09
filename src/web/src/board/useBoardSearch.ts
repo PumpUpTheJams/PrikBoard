@@ -4,7 +4,7 @@ import type { SearchResult } from './BoardSearch'
 import { keyTargetIgnored, shortcut } from './keys'
 import { CARD_HEIGHT, CARD_WIDTH } from './layout'
 import { reducedMotion } from './motion'
-import { foundByNumber, matchCard, searchTerms, type SearchField } from './search'
+import { foundByNumber, labelsByCard, matchCard, searchTerms, type SearchField } from './search'
 
 /** A scroll to a card asked for, done after the next render (see useReveal). */
 interface Reveal {
@@ -54,7 +54,7 @@ export function useBoardSearch({ board, visibleCards, collapsedIds, filterFaded,
         }
         return
       }
-      if (keyTargetIgnored(e.target, { inCard: true })) return
+      if (keyTargetIgnored(e.target, { editable: true, inCard: true })) return
       e.preventDefault()
       open()
     }
@@ -72,15 +72,16 @@ export function useBoardSearch({ board, visibleCards, collapsedIds, filterFaded,
   })
 
   const terms = useMemo(() => searchTerms(search?.query ?? ''), [search?.query])
+  const cardLabels = useMemo(() => labelsByCard(board.labels), [board.labels])
   const matches = useMemo(() => {
     const found = new Map<string, SearchField[]>()
     if (terms.length === 0) return found
     for (const card of visibleCards) {
-      const fields = matchCard(card, terms)
+      const fields = matchCard(card, terms, cardLabels)
       if (fields) found.set(card.id, fields)
     }
     return found
-  }, [visibleCards, terms])
+  }, [visibleCards, terms, cardLabels])
   // The results are the matches the filters let through, in board order (bucket by bucket, loose cards last), after
   // the cards found by their number.
   const shown = board.cards.filter((n) => matches.has(n.id) && !filterFaded(n))
@@ -89,7 +90,7 @@ export function useBoardSearch({ board, visibleCards, collapsedIds, filterFaded,
     fields: matches.get(card.id)!,
   }))
   /** Cards folded away in collapsed buckets that would be results. */
-  const folded = terms.length === 0 ? [] : board.cards.filter((n) => n.bucketId && collapsedIds.has(n.bucketId) && !filterFaded(n) && matchCard(n, terms))
+  const folded = terms.length === 0 ? [] : board.cards.filter((n) => n.bucketId && collapsedIds.has(n.bucketId) && !filterFaded(n) && matchCard(n, terms, cardLabels))
   /** How many matching cards each bucket holds, so the search marks it: the results in it, or the folded ones. */
   const hits = new Map<string, number>()
   for (const { bucketId } of [...results.map((r) => r.card), ...folded]) {

@@ -171,6 +171,13 @@ public class LiveApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoard
         var drawing = await viewerDrags.NextAsync();
         Assert.Equal((DragKind.Drawing, drawingId, 60d), (drawing.Kind, drawing.Id, drawing.Dx));
 
+        // And so do labels.
+        await Task.Delay(60);
+        var labelId = Guid.NewGuid();
+        await ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Label, labelId, 40, 20));
+        var label = await viewerDrags.NextAsync();
+        Assert.Equal((DragKind.Label, labelId, 40d), (label.Kind, label.Id, label.Dx));
+
         // Several selected items moving together list them all; a group of none is no drag.
         await Task.Delay(60);
         await ownerLive.Connection.InvokeAsync("Drag", new DragUpdate(DragKind.Group, card.Id, 20, 20, Items: [card.Id, bucketId]));

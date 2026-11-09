@@ -8,7 +8,7 @@ import { isDrag } from './gesture'
 import { CloseIcon, SearchIcon, TrashIcon } from './icons'
 import { fitGrid, GRID, CARD_HEIGHT, CARD_WIDTH } from './layout'
 import { Card } from './Card'
-import { matchCard, searchTerms } from './search'
+import { labelsByCard, matchCard, searchTerms } from './search'
 import type { TagColors } from './tagColors'
 import { useFloatingWindow } from './useFloatingWindow'
 import { WindowResizeHandles } from './WindowResizeHandles'
@@ -133,7 +133,8 @@ export function TrashWindow(props: TrashWindowProps) {
 
   const terms = useMemo(() => searchTerms(query), [query])
   const all = (contents?.cards ?? []).filter((n) => !gone.has(n.id))
-  const shown = all.filter((n) => terms.length === 0 || matchCard(n, terms) !== null)
+  const trashedLabels = useMemo(() => labelsByCard(contents?.labels ?? []), [contents])
+  const shown = all.filter((n) => terms.length === 0 || matchCard(n, terms, trashedLabels) !== null)
   /** The grid fits what is visible of the canvas, so zooming out fits more columns. */
   const width = Math.max(CARD_WIDTH + 2 * GRID, Math.floor(view.width / zoom))
   const spots = fitGrid(shown.length, width)
@@ -280,6 +281,7 @@ export function TrashWindow(props: TrashWindowProps) {
                     card={card}
                     point={spots[i]}
                     images={imagesOf(card.id).length}
+                    labels={trashedLabels.get(card.id)?.length ?? 0}
                     tagColors={tagColors}
                     selected={selected === card.id}
                     lifted={false}

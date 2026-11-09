@@ -77,6 +77,16 @@ export const SelectIcon = ({ size = 18 }: IconProps) => (
   </Icon>
 )
 
+/** An open hand: the tool that only moves the view. */
+export const HandIcon = ({ size = 18 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12" />
+    <path d="M11 11.5v-7a1.5 1.5 0 0 1 3 0V12" />
+    <path d="M14 6.5a1.5 1.5 0 0 1 3 0V12" />
+    <path d="M17 8.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-2a6 6 0 0 1-4.8-2.4L4.5 15a1.6 1.6 0 0 1 2.5-2L8 14" />
+  </Icon>
+)
+
 export const BucketToolIcon = ({ size = 18 }: IconProps) => (
   <Icon size={size}>
     <rect x="3" y="4" width="18" height="16" rx="2" />
@@ -181,12 +191,6 @@ export const PlusIcon = ({ size = 14 }: IconProps) => (
 export const MinusIcon = ({ size = 14 }: IconProps) => (
   <Icon size={size}>
     <path d="M5 12h14" />
-  </Icon>
-)
-
-export const TextIcon = ({ size = 16 }: IconProps) => (
-  <Icon size={size}>
-    <path d="M5 4h14v16H5zM9 9h6M9 13h6M9 17h3" />
   </Icon>
 )
 
@@ -310,5 +314,24 @@ export const SearchIcon = ({ size = 15 }: IconProps) => (
 export const FilterIcon = ({ size = 15 }: IconProps) => (
   <Icon size={size}>
     <path d="M4 5h16l-6 8v5l-4 2v-7z" />
+  </Icon>
+)
+
+/** The label tool: text placed freely. */
+export const LabelIcon = ({ size = 18 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M5 7V5h14v2M12 5v14M9 19h6" />
+  </Icon>
+)
+
+export const ListBulletIcon = ({ size = 15 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01" />
+  </Icon>
+)
+
+export const ListNumberIcon = ({ size = 15 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M10 6h10M10 12h10M10 18h10M4 5l1-1v5M4 14a1.5 1.5 0 1 1 2.5 1L4 18h3" />
   </Icon>
 )

@@ -44,6 +44,7 @@ export function shareBoard(prev: BoardDetail | null, next: BoardDetail): BoardDe
     cards: shareList(prev.cards, next.cards, byId),
     images: shareList(prev.images, next.images, byId),
     drawings: shareList(prev.drawings, next.drawings, byId),
+    labels: shareList(prev.labels, next.labels, byId),
     tags: shareList(prev.tags, next.tags, byId),
     people: shareList(prev.people, next.people, (p) => p.principalId),
   }

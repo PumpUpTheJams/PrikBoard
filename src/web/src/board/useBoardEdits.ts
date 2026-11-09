@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { api } from '../api/client'
 import type { BoardDetail, BoardTag, BucketDetail, CardChanges, CardColor, CardDetail, DrawingDetail, DropBucket, InkColor, Point, Rect, TagColor } from '../api/types'
-import { bucketOf, type Selection } from './boardItems'
+import { bucketOf, isCanvasKind, itemLists, type CanvasKind, type Selection } from './boardItems'
 import { pickImageFiles } from './files'
 import { CARD_HEIGHT, CARD_WIDTH, snapPoint } from './layout'
 import { ops, runAll } from './ops'
@@ -53,18 +53,11 @@ export function useBoardEdits(options: BoardEditsOptions) {
     return settle(...ops.deleteCard(card, board))
   }
 
-  function deleteImage(id: string) {
-    const image = board.images.find((i) => i.id === id)
-    if (!image) return
+  function deleteItem(kind: CanvasKind, id: string) {
+    const item = itemLists(board)[kind].find((x) => x.id === id)
+    if (!item) return
     unselect(id)
-    void settle(...ops.deleteImage(image))
-  }
-
-  function deleteDrawing(id: string) {
-    const drawing = board.drawings.find((d) => d.id === id)
-    if (!drawing) return
-    unselect(id)
-    void settle(...ops.deleteDrawing(drawing))
+    void settle(...ops.deleteItem(kind, item))
   }
 
   /**
@@ -97,16 +90,14 @@ export function useBoardEdits(options: BoardEditsOptions) {
     tagSaving,
     uploads,
     deleteCard,
-    deleteImage,
-    deleteDrawing,
+    deleteItem,
     addImages,
     /** Edits a card's fields. */
     editCard: (card: CardDetail, changes: CardChanges) => settle(...ops.editCard(card, changes)),
-    /** Deletes one selected card, image or drawing (a bucket goes from its panel). */
+    /** Deletes one selected card, image, drawing or label (a bucket goes from its panel). */
     deleteOne(item: Selection) {
       if (item.kind === 'card') void deleteCard(item.id)
-      else if (item.kind === 'image') deleteImage(item.id)
-      else if (item.kind === 'drawing') deleteDrawing(item.id)
+      else if (isCanvasKind(item.kind)) deleteItem(item.kind, item.id)
     },
     recolorDrawing(drawing: DrawingDetail, color: InkColor) {
       void settle(...ops.editDrawing(drawing, { color }, 'Change ink', ['colors']))

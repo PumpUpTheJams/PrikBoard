@@ -13,14 +13,12 @@ public static partial class CardPreview
     public const int MaxLength = 300;
 
     /// <summary>The card's description, or null when it has neither text nor checklist items.</summary>
-    public static string? Describe(Card card)
+    public static string? Describe(Card card, IEnumerable<BoardLabel>? labels = null)
     {
-        var note = card.Components
-            .Where(c => c.Kind == CardComponentKind.Text)
-            .OrderBy(c => c.Y).ThenBy(c => c.X)
-            .Select(c => PlainText(c.Text ?? ""))
-            .FirstOrDefault(text => text.Length > 0);
-        if (note is not null) return Cut(note);
+        var text = (labels ?? []).OrderBy(l => l.Y).ThenBy(l => l.X)
+            .Select(l => Space().Replace(l.Text, " ").Trim())
+            .FirstOrDefault(t => t.Length > 0);
+        if (text is not null) return Cut(text);
 
         var items = card.Components.Where(c => c.Kind == CardComponentKind.Checklist).SelectMany(c => c.Items).ToList();
         return items.Count == 0 ? null : $"{items.Count(i => i.Done)}/{items.Count} done";

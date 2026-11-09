@@ -137,12 +137,8 @@ public static class DrawingEndpoints
                 detail: $"A board holds at most {BoardDrawing.MaxPerBoard} drawings. Delete some first.");
         }
 
-        // On a card: saved under its lock, so the card can't be deleted in between and leave this drawing live.
-        await using var transaction = drawing.CardId is null ? null : await db.Database.BeginTransactionAsync(ct);
-        if (drawing.CardId is { } cardId && !await CardEndpoints.LockLiveCardAsync(db, cardId, boardId, ct)) return Problems.CardNotOnBoard();
         db.Drawings.Add(drawing);
-        await db.SaveChangesAsync(ct);
-        if (transaction is not null) await transaction.CommitAsync(ct);
+        if (!await CanvasItems.SaveOntoAsync(db, drawing.CardId, boardId, ct)) return Problems.CardNotOnBoard();
         return TypedResults.Created($"/api/drawings/{drawing.Id}", DrawingDetail.From(drawing));
     }
 
@@ -170,7 +166,7 @@ public static class DrawingEndpoints
             return Problems.Invalid($"{prefix}strokes", $"A drawing has at most {BoardDrawing.MaxTotalPoints} points.");
         }
         drawing.SetStrokes(checkedStrokes, [.. strokes.Select(s => s.Color)]);
-        Place(drawing, x, y);
+        Layout.Put(drawing, x, y);
         return null;
     }
 
@@ -185,15 +181,6 @@ public static class DrawingEndpoints
         var (rounded, bad) = BoardDrawing.CheckPoints(points);
         return bad is { } b ? (null, Problems.Invalid($"{prefix}points[{b.Index}]", b.Message)) : (new DrawingStroke(width, rounded!), null);
     }
-
-    /// <summary>Snaps x and y; on a card, also keeps the drawing on its canvas, at the last grid line that fits.</summary>
-    private static void Place(BoardDrawing drawing, int x, int y) =>
-        (drawing.X, drawing.Y) = drawing.CardId is null
-            ? (Layout.Snap(x), Layout.Snap(y))
-            : (OnCard(x, drawing.Width), OnCard(y, drawing.Height));
-
-    private static int OnCard(int value, int size) =>
-        Math.Clamp(Layout.Snap(value), 0, Math.Max(0, (Layout.CardCanvasMax - size) / Layout.Grid * Layout.Grid));
 
     private static async Task<Results<Ok<DrawingContentDetail>, NotFound>> GetDrawingContent(
         Guid drawingId, int? v, HttpResponse response, PrikBoardDbContext db, CancellationToken ct)
@@ -217,56 +204,30 @@ public static class DrawingEndpoints
         if (drawing is null) return TypedResults.NotFound();
 
         var detach = request.Detach == true;
-        if (request.CardId is not null && detach) return Problems.Invalid("detach", "Give either a cardId or detach, not both.");
+        if (CanvasItems.CardOrDetach(request.CardId, detach) is { } both) return both;
         if (request.Color is not null && request.Colors is not null) return Problems.Invalid("colors", "Give either a color or colors, not both.");
         if (request.Colors is { } colors && colors.Count != drawing.Colors.Count)
         {
             return Problems.Invalid("colors", $"The drawing has {drawing.Colors.Count} strokes; give an ink for each.");
         }
-        var moving = (request.CardId is { } to && to != drawing.CardId) || (detach && drawing.CardId is not null);
+        var moving = CanvasItems.ChangesCanvas(drawing, request.CardId, detach);
         if (moving && (request.X is null || request.Y is null))
         {
             return Problems.Invalid(request.X is null ? "x" : "y", "Give x and y on the new canvas when moving between the board and a card.");
         }
-        var dropped = request.BucketId is not null || request.Loose == true;
         if (Problems.Drop(request.BucketId, request.Loose, request.X is not null && request.Y is not null) is { } drop) return drop;
-        if (moving && !detach)
-        {
-            if (!await db.Cards.AnyAsync(n => n.Id == request.CardId && n.BoardId == drawing.BoardId, ct))
-            {
-                return Problems.CardNotOnBoard();
-            }
-            drawing.CardId = request.CardId;
-        }
-        else if (moving)
-        {
-            drawing.CardId = null;
-        }
+        if (moving && !await CanvasItems.ChangeCanvasAsync(db, drawing, request.CardId, detach, ct)) return Problems.CardNotOnBoard();
 
-        Place(drawing, request.X ?? drawing.X, request.Y ?? drawing.Y);
-        // A drawing that moved joins the bucket it now sits in (or the one the pointer was in when it was dropped in the
-        // web app), on top; only a new color leaves it where it is.
-        if (dropped)
-        {
-            if (drawing.CardId is not null) return Problems.Invalid(request.BucketId is null ? "loose" : "bucketId", "Only for a drawing on the board.");
-            if (BucketEndpoints.DropIn(drawing, request.BucketId, await BucketEndpoints.StackAsync(db, drawing.BoardId, ct)) is { } outside) return outside;
-            drawing.ToFront();
-        }
-        else if (moving || request.X is not null || request.Y is not null)
-        {
-            Layout.Place(drawing, await BucketEndpoints.StackAsync(db, drawing.BoardId, ct));
-            drawing.ToFront();
-        }
+        Layout.Put(drawing, request.X ?? drawing.X, request.Y ?? drawing.Y);
+        // A drawing that moved comes on top; only a new color leaves it where it is.
+        var moved = moving || request.X is not null || request.Y is not null;
+        if (await CanvasItems.JoinBucketAsync(db, drawing, request.BucketId, request.Loose, moved, "a drawing", ct) is { } outside) return outside;
+        if (moved || request.BucketId is not null || request.Loose == true) drawing.ToFront();
         if (request.Color is { } color) drawing.Colors = [.. drawing.Colors.Select(_ => color)];
         if (request.Colors is { } inks) drawing.Colors = [.. inks];
         drawing.UpdatedAt = DateTimeOffset.UtcNow;
 
-        // Onto a card: saved under its lock, so the card can't be deleted in between and leave this drawing live.
-        var onto = moving ? drawing.CardId : null;
-        await using var transaction = onto is null ? null : await db.Database.BeginTransactionAsync(ct);
-        if (onto is { } cardId && !await CardEndpoints.LockLiveCardAsync(db, cardId, drawing.BoardId, ct)) return Problems.CardNotOnBoard();
-        await db.SaveChangesAsync(ct);
-        if (transaction is not null) await transaction.CommitAsync(ct);
+        if (!await CanvasItems.SaveOntoAsync(db, moving ? drawing.CardId : null, drawing.BoardId, ct)) return Problems.CardNotOnBoard();
         return TypedResults.Ok(DrawingDetail.From(drawing));
     }
 
@@ -374,7 +335,7 @@ public static class DrawingEndpoints
     /// </summary>
     private static async Task SettleAsync(PrikBoardDbContext db, BoardDrawing drawing, CancellationToken ct)
     {
-        Place(drawing, drawing.X, drawing.Y);
+        Layout.Put(drawing, drawing.X, drawing.Y);
         Layout.Place(drawing, await BucketEndpoints.StackAsync(db, drawing.BoardId, ct));
         drawing.ToFront();
         drawing.UpdatedAt = DateTimeOffset.UtcNow;

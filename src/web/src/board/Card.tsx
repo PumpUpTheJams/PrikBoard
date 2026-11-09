@@ -12,13 +12,13 @@ import { keepPress } from './gesture'
 import { tagColorClass, type TagColors } from './tagColors'
 import { useCopyLink } from './useCopy'
 
-/** What the card holds inside, by kind, e.g. "2 notes, 1 checklist, 1 image". */
-function contentSummary(card: CardDetail, images: number) {
+/** What the card holds inside, by kind, e.g. "2 labels, 1 checklist, 1 image". */
+function contentSummary(card: CardDetail, images: number, labels: number) {
   const count = (kind: string) => card.components.filter((b) => b.kind === kind).length
   const parts = [
-    [count('Text'), 'note', 'notes'],
     [count('Checklist'), 'checklist', 'checklists'],
     [count('Links'), 'link list', 'link lists'],
+    [labels, 'label', 'labels'],
     [images, 'image', 'images'],
   ] as const
   return parts
@@ -40,6 +40,8 @@ interface CardProps {
   point?: Point
   /** How many images are attached to it (counted with its components in the corner). */
   images?: number
+  /** How many labels are on its canvas (counted with its components in the corner). */
+  labels?: number
   /** The board's tag colors; tags without one are a shade of the fill. */
   tagColors?: TagColors
   selected: boolean
@@ -81,7 +83,7 @@ interface CardProps {
  * expand button, with copy link (its tooltip names the readable id) below it.
  */
 export function Card(props: CardProps) {
-  const { card, point, images = 0, tagColors, selected, lifted, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
+  const { card, point, images = 0, labels = 0, tagColors, selected, lifted, dimmed, highlight, current, dropTarget, onPointerDown, onExpand, onEditTags, onEditAssignees } = props
   const { editingTitle, titleCaret, onRenameTitle, onTitleDone, onPutBack, onPurge } = props
   /** A title just saved, shown until the reload brings it (while the card still has the old title, `from`). */
   const [saved, setSaved] = useState<{ title: string; from: string } | null>(null)
@@ -118,8 +120,8 @@ export function Card(props: CardProps) {
     ) : (
       <span className="avatar-slot" aria-hidden="true" />
     )
-  const contents = card.components.length + images
-  const summary = contentSummary(card, images)
+  const contents = card.components.length + images + labels
+  const summary = contentSummary(card, images, labels)
   // The corner's buttons act on their own click: pressing one doesn't start a drag (keepPress still lets the middle
   // button pan), and double-clicking one doesn't also expand the card.
 

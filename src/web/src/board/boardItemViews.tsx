@@ -1,5 +1,5 @@
 import { memo, type CSSProperties, type MouseEvent, type PointerEvent } from 'react'
-import type { BucketDetail, CardDetail, DrawingDetail, ImageDetail, Point, Rect, ResizeHandle } from '../api/types'
+import type { BucketDetail, CardDetail, DrawingDetail, ImageDetail, LabelDetail, Point, Rect, ResizeHandle } from '../api/types'
 import type { ItemGesture } from './boardGesture'
 import { BoardImageView } from './BoardImageView'
 import { BucketView, CollapsedBucketView, type BucketCount } from './BucketView'
@@ -9,6 +9,7 @@ import { CARD_HEIGHT, CARD_WIDTH } from './layout'
 import { cardLabel } from './links'
 import type { InkedStrokes, Reshape } from './drawings'
 import { DrawingView } from './DrawingView'
+import { FarLabel, LabelView } from './LabelView'
 import type { SearchTerm } from './search'
 import { tagColorClass, type TagColors } from './tagColors'
 
@@ -26,6 +27,8 @@ export interface BoardItemHandlers {
   titleDone: () => void
   quickEdit: (cardId: string, kind: 'tags' | 'people', anchor: DOMRect) => void
   deleteImage: (imageId: string) => void
+  /** A mouse came over a label or left it. */
+  hoverLabel: (labelId: string, over: boolean) => void
   reshapeDrawing: (drawing: DrawingDetail, reshape: Reshape) => Promise<unknown>
   /** A press inside a bucket, away from its rim. */
   bucketPress: (e: PointerEvent<HTMLElement>, bucket: BucketDetail) => void
@@ -37,6 +40,7 @@ interface BoardCardProps {
   card: CardDetail
   point: Point
   images: number | undefined
+  labels: number | undefined
   tagColors: TagColors
   selected: boolean
   lifted: boolean
@@ -169,6 +173,14 @@ export const BoardDrawing = memo(function BoardDrawing({ drawing, rect, selected
       erased={erased}
     />
   )
+})
+
+/** A label on the board. Its place comes from `x` and `y`, so what doesn't move keeps equal props. */
+export const BoardLabel = memo(function BoardLabel({ label, x, y, selected, lifted, readOnly, far, handlers: h }: { label: LabelDetail; x: number; y: number; selected: boolean; lifted: boolean; readOnly: boolean; far: boolean; handlers: BoardItemHandlers }) {
+  const press = (e: PointerEvent<HTMLDivElement>) => h.pointerDown(e, 'label', label.id)
+  const hover = (over: boolean) => h.hoverLabel(label.id, over)
+  if (far) return <FarLabel label={label} at={{ x, y }} selected={selected} lifted={lifted} onPointerDown={press} onHover={hover} />
+  return <LabelView label={label} at={{ x, y }} selected={selected} lifted={lifted} readOnly={readOnly} onPointerDown={press} onHover={hover} />
 })
 
 interface BoardBucketProps {

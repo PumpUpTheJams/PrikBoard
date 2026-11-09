@@ -1,4 +1,4 @@
-import type { BoardDetail, BoardTag, BucketChanges, BucketDetail, CardChanges, CardDetail, ImageChanges, ImageDetail, TagColor } from '../api/types'
+import type { BoardDetail, BoardTag, BucketChanges, BucketDetail, CardChanges, CardDetail, ImageChanges, ImageDetail, Rect, TagColor } from '../api/types'
 import { AssigneePicker } from './AssigneePicker'
 import { BucketInspector, ImageInspector } from './Inspector'
 import type { TagColorPreview, TagColors } from './tagColors'
@@ -11,20 +11,60 @@ export interface QuickEdit {
   anchor: DOMRect
 }
 
-interface BoardPanelsProps {
+interface ItemPanelsProps {
   board: BoardDetail
-  tagColors: TagColors
-  /** The bucket selected by itself, with its panel; `fresh`: just added, its name ready to type. */
-  bucket: BucketDetail | undefined
+  zoom: number
+  /** The bucket selected by itself, where it is shown, with its panel; `fresh`: just added, its name ready to type. */
+  bucket: { bucket: BucketDetail; rect: Rect } | undefined
   fresh: boolean
   onSaveBucket: (bucket: BucketDetail, changes: BucketChanges) => Promise<boolean>
   onDeleteBucket: (bucket: BucketDetail) => void
-  /** The image selected by itself, with its panel. */
-  image: ImageDetail | undefined
+  /** The image selected by itself, where it is shown, with its panel. */
+  image: { image: ImageDetail; rect: Rect } | undefined
   onSaveImage: (image: ImageDetail, changes: ImageChanges) => Promise<boolean>
   onDeleteImage: (image: ImageDetail) => void
   /** Closes the panel (letting go of the selection). */
   onClose: () => void
+}
+
+/** The selected bucket's or image's panel, on the canvas just above it. */
+export function ItemPanels(props: ItemPanelsProps) {
+  const { board, zoom, bucket, image } = props
+  return (
+    <>
+      {bucket && (
+        <BucketInspector
+          // A new name (from an undo, or someone else) resets the field.
+          key={`${bucket.bucket.id}:${bucket.bucket.name}`}
+          rect={bucket.rect}
+          zoom={zoom}
+          bucket={bucket.bucket}
+          cardCount={board.cards.filter((n) => n.bucketId === bucket.bucket.id).length}
+          autoFocus={props.fresh}
+          onSave={(changes) => props.onSaveBucket(bucket.bucket, changes)}
+          onDelete={() => props.onDeleteBucket(bucket.bucket)}
+          onClose={props.onClose}
+        />
+      )}
+
+      {image && (
+        <ImageInspector
+          key={`${image.image.id}:${image.image.caption}`}
+          rect={image.rect}
+          zoom={zoom}
+          image={image.image}
+          onSave={(changes) => props.onSaveImage(image.image, changes)}
+          onDelete={() => props.onDeleteImage(image.image)}
+          onClose={props.onClose}
+        />
+      )}
+    </>
+  )
+}
+
+interface BoardPanelsProps {
+  board: BoardDetail
+  tagColors: TagColors
   quickEdit: QuickEdit | null
   onCloseQuickEdit: () => void
   editCard: (card: CardDetail, changes: CardChanges) => Promise<boolean>
@@ -34,35 +74,12 @@ interface BoardPanelsProps {
   onDeleteTag: (tag: BoardTag) => Promise<boolean>
 }
 
-/** The selected bucket's or image's panel, and the tag or people window opened from a card on the board. */
+/** The tag or people window opened from a card on the board. */
 export function BoardPanels(props: BoardPanelsProps) {
-  const { board, tagColors, bucket, image, quickEdit, editCard } = props
+  const { board, tagColors, quickEdit, editCard } = props
   const quickCard = quickEdit && board.cards.find((n) => n.id === quickEdit.cardId)
   return (
     <>
-      {bucket && (
-        <BucketInspector
-          // A new name (from an undo, or someone else) resets the field.
-          key={`${bucket.id}:${bucket.name}`}
-          bucket={bucket}
-          cardCount={board.cards.filter((n) => n.bucketId === bucket.id).length}
-          autoFocus={props.fresh}
-          onSave={(changes) => props.onSaveBucket(bucket, changes)}
-          onDelete={() => props.onDeleteBucket(bucket)}
-          onClose={props.onClose}
-        />
-      )}
-
-      {image && (
-        <ImageInspector
-          key={`${image.id}:${image.caption}`}
-          image={image}
-          onSave={(changes) => props.onSaveImage(image, changes)}
-          onDelete={() => props.onDeleteImage(image)}
-          onClose={props.onClose}
-        />
-      )}
-
       {quickCard && quickEdit.kind === 'tags' && (
         <TagPicker
           key={quickCard.id}

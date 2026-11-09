@@ -43,7 +43,7 @@ public class MembershipApiTests(MembershipApiTests.Factory factory) : IClassFixt
         var image = await (await Upload(owner, board.Id)).Content.ReadFromJsonAsync<ImageDetail>();
         var tag = (await (await owner.PostAsJsonAsync($"/api/boards/{board.Id}/tags", new { name = "matrix" })).Content.ReadFromJsonAsync<BoardTagDetail>())!;
 
-        var component = (await (await owner.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Text" })).Content.ReadFromJsonAsync<CardComponentDetail>())!;
+        var component = (await (await owner.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Links" })).Content.ReadFromJsonAsync<CardComponentDetail>())!;
 
         (string Method, string Url, Func<HttpContent?> Body, BoardRole Needs)[] cases =
         [

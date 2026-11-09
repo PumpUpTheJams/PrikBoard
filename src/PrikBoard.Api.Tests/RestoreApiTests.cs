@@ -22,7 +22,7 @@ public class RestoreApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     public async Task A_deleted_card_is_hidden_everywhere_and_comes_back_whole_with_its_images()
     {
         var board = await _client.CreateBoardAsync("Restore a card");
-        var created = await CreateCard(board.Id, new { title = "Ship the beta", tags = new[] { "release" }, components = new[] { new { kind = "Text", text = "Checklist for launch" } } });
+        var created = await CreateCard(board.Id, new { title = "Ship the beta", tags = new[] { "release" }, body = "Checklist for launch" });
         var card = await Card(created.Id); // as stored, with CreatedAt in microseconds
         var attached = await Upload(board.Id, $"?cardId={card.Id}");
         var removedEarlier = await Upload(board.Id, $"?cardId={card.Id}");
@@ -49,7 +49,7 @@ public class RestoreApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
         Assert.Equal((card.Id, card.CreatedById, card.CreatedAt, card.X, card.Y), (restored.Id, restored.CreatedById, restored.CreatedAt, restored.X, restored.Y));
         Assert.Equal(card.BucketId, restored.BucketId);
         Assert.Equal(["release"], restored.Tags);
-        Assert.Equal(card.Components.Single().Id, Assert.Single(restored.Components).Id);
+        Assert.Contains((await Board(board.Id)).Labels, l => l.CardId == card.Id && l.Content[0].Runs[0].Text == "Checklist for launch");
         var back = await Board(board.Id);
         Assert.Equal(card.Id, Assert.Single(back.Cards).Id);
         Assert.Equal(attached.Id, Assert.Single(back.Images).Id); // the image deleted on its own earlier stays deleted
@@ -186,7 +186,7 @@ public class RestoreApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
 
         Assert.Equal(HttpStatusCode.NotFound, (await _client.PatchAsJsonAsync($"/api/cards/{card.Id}", new { title = "x" })).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await _client.PostAsJsonAsync($"/api/cards/{card.Id}/move", new { x = 0, y = 0 })).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Text" })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { kind = "Links" })).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await _client.DeleteAsync($"/api/cards/{card.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await _client.PatchAsJsonAsync($"/api/images/{image.Id}", new { x = 0, y = 0 })).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await _client.PatchAsJsonAsync($"/api/buckets/{bucket.Id}", new { name = "x" })).StatusCode);
@@ -270,18 +270,18 @@ public class RestoreApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBo
     public async Task A_removed_component_can_be_put_back_with_its_id()
     {
         var board = await _client.CreateBoardAsync("Component back");
-        var card = await CreateCard(board.Id, new { title = "Components", components = new[] { new { kind = "Text", text = "Keep me" } } });
+        var card = await CreateCard(board.Id, new { title = "Components", components = new[] { new { kind = "Links", title = "Keep me" } } });
         var component = card.Components.Single();
         (await _client.DeleteAsync($"/api/cards/{card.Id}/components/{component.Id}")).EnsureSuccessStatusCode();
 
         var back = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components",
-            new { id = component.Id, kind = "Text", text = component.Text, x = component.X, y = component.Y, width = component.Width, height = component.Height });
-        var twice = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { id = component.Id, kind = "Text" });
+            new { id = component.Id, kind = "Links", title = component.Title, x = component.X, y = component.Y, width = component.Width, height = component.Height });
+        var twice = await _client.PostAsJsonAsync($"/api/cards/{card.Id}/components", new { id = component.Id, kind = "Links" });
 
         Assert.Equal(HttpStatusCode.Created, back.StatusCode);
         var restored = (await back.Content.ReadFromJsonAsync<CardComponentDetail>())!;
-        Assert.Equal((component.Id, component.Text, component.X, component.Y, component.Width, component.Height),
-            (restored.Id, restored.Text, restored.X, restored.Y, restored.Width, restored.Height));
+        Assert.Equal((component.Id, component.Title, component.X, component.Y, component.Width, component.Height),
+            (restored.Id, restored.Title, restored.X, restored.Y, restored.Width, restored.Height));
         Assert.Equal(HttpStatusCode.Conflict, twice.StatusCode);
     }
 

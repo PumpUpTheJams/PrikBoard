@@ -1,8 +1,24 @@
-import { useState, type FormEvent } from 'react'
-import type { BucketChanges, BucketDetail, ImageChanges, ImageDetail } from '../api/types'
+import { useState, type FormEvent, type ReactNode } from 'react'
+import type { BucketChanges, BucketDetail, ImageChanges, ImageDetail, Rect } from '../api/types'
+import { AboveItem } from './AboveItem'
 import { CloseIcon, ExternalIcon, TrashIcon } from './icons'
 
-interface BucketInspectorProps {
+/** Where an item's panel goes: just above the item on its canvas, at the same size on screen at any zoom. */
+interface Placement {
+  rect: Rect
+  zoom: number
+}
+
+/** The panel of a selected item, floating just above it on the canvas, on top of everything there. */
+function InspectorPanel({ rect, zoom, label, children }: Placement & { label: string; children: ReactNode }) {
+  return (
+    <AboveItem at={rect} height={() => rect.height} zoom={zoom} measureKey={`${rect.x} ${rect.y} ${rect.width} ${rect.height} ${zoom}`} className="inspector" role="dialog" label={label}>
+      {children}
+    </AboveItem>
+  )
+}
+
+interface BucketInspectorProps extends Placement {
   bucket: BucketDetail
   cardCount: number
   /** Focus and select the name, for a bucket that was just drawn. */
@@ -13,7 +29,7 @@ interface BucketInspectorProps {
 }
 
 /** A small panel for the selected bucket: rename it or delete it. */
-export function BucketInspector({ bucket, cardCount, autoFocus, onSave, onDelete, onClose }: BucketInspectorProps) {
+export function BucketInspector({ bucket, cardCount, autoFocus, onSave, onDelete, onClose, ...place }: BucketInspectorProps) {
   const [name, setName] = useState(bucket.name)
   const dirty = name.trim() !== bucket.name
 
@@ -23,7 +39,7 @@ export function BucketInspector({ bucket, cardCount, autoFocus, onSave, onDelete
   }
 
   return (
-    <aside className="inspector" aria-label="Bucket details">
+    <InspectorPanel {...place} label="Bucket details">
       <header className="inspector-header">
         <h2>Bucket</h2>
         <span className="inspector-meta">
@@ -53,13 +69,13 @@ export function BucketInspector({ bucket, cardCount, autoFocus, onSave, onDelete
         </div>
         <p className="inspector-hint">Deleting a bucket keeps its cards on the board.</p>
       </form>
-    </aside>
+    </InspectorPanel>
   )
 }
 
 const fileSize = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`)
 
-interface ImageInspectorProps {
+interface ImageInspectorProps extends Placement {
   image: ImageDetail
   onSave: (changes: ImageChanges) => Promise<boolean>
   /** Deletes the image, without asking first (undo brings it back). */
@@ -68,7 +84,7 @@ interface ImageInspectorProps {
 }
 
 /** A small panel for the selected image: caption it, open the original or delete it. */
-export function ImageInspector({ image, onSave, onDelete, onClose }: ImageInspectorProps) {
+export function ImageInspector({ image, onSave, onDelete, onClose, ...place }: ImageInspectorProps) {
   const [caption, setCaption] = useState(image.caption ?? '')
   const dirty = caption.trim() !== (image.caption ?? '')
 
@@ -78,7 +94,7 @@ export function ImageInspector({ image, onSave, onDelete, onClose }: ImageInspec
   }
 
   return (
-    <aside className="inspector" aria-label="Image details">
+    <InspectorPanel {...place} label="Image details">
       <header className="inspector-header">
         <h2>Image</h2>
         <span className="inspector-meta">
@@ -107,6 +123,6 @@ export function ImageInspector({ image, onSave, onDelete, onClose }: ImageInspec
           </button>
         </div>
       </form>
-    </aside>
+    </InspectorPanel>
   )
 }
