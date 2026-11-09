@@ -5,7 +5,7 @@ import type { CursorStore, LiveDrag } from '../live/useLive'
 import { Toast } from '../components/Toast'
 import { BoardFilters } from './BoardFilters'
 import { CardGhost, NewCardGhost, RemoteDragOutlines, Slot } from './BoardGhosts'
-import { BoardPanels, type QuickEdit } from './BoardPanels'
+import { BoardPanels, ItemPanels, type QuickEdit } from './BoardPanels'
 import { bucketCounts, bucketOf, cardBox, countByCard, drawOrder, itemsById, NOTHING_IN, type Selection } from './boardItems'
 import type { Gesture, GestureTarget, GroupGesture, ItemDrag, ItemGesture } from './boardGesture'
 import { BoardSearch } from './BoardSearch'
@@ -483,7 +483,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     // With Space held, the press goes on to the canvas, which pans.
     if (e.button !== 0 || tool !== 'select' || spaceHeld) return
     cardPresses.current = [cardPresses.current[1], kind === 'card' || kind === 'label' ? id : null]
-    labelEdit.pressLink(kind === 'label' && isSelected('label', id) ? linkUnder(e.target) : null)
+    labelEdit.pressLabel(kind === 'label' ? e : null)
     // Viewers follow a label's links by the browser's own click, since nothing holds the pointer for them.
     if (readOnly && kind === 'label' && linkUnder(e.target)) return
     e.stopPropagation()
@@ -655,6 +655,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
     setSelection({ kind: g.held, id: g.id })
     const onTitle = g.held === 'card' && titlePress.current === g.id
     if (onTitle) setTitleEdit({ id: g.id, caret: caretAt(client.x, client.y) })
+    if (g.held === 'label') clickedLabel(g.id, client)
   }
 
   /** Adds the bucket drawn with the bucket tool, unless it is too small. */
@@ -686,10 +687,16 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       setGesture(null)
       const id = titlePress.current
       if (g.kind === 'card' && id === g.id) setTitleEdit({ id, caret: caretAt(client.x, client.y) })
-      if (g.kind === 'label') labelEdit.followLink()
+      if (g.kind === 'label') clickedLabel(g.id, client)
       return
     }
     drop.dropItem(g, client)
+  }
+
+  /** A click on a label: its link opens, or a click on its text edits it there. */
+  function clickedLabel(id: string, client: Point) {
+    const label = board.labels.find((l) => l.id === id)
+    if (label) labelEdit.clicked(label, client, readOnly)
   }
 
   // Buckets are drawn as they stack, so where they overlap the one on top covers the others. What was dropped on the
@@ -955,6 +962,11 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
   const selectedImage = selection?.kind === 'image' ? board.images.find((i) => i.id === selection.id) : undefined
   const selectedDrawing = selection?.kind === 'drawing' ? drawings.find((d) => d.drawing.id === selection.id) : undefined
   const selectedLabel = selection?.kind === 'label' ? labels.find((l) => l.label.id === selection.id) : undefined
+  /** The selected bucket or image with its panel above it, where it is shown (a collapsed bucket's square); none while it is dragged. */
+  const heldNow = (id: string) => dragging?.id === id && !dragging.done
+  const shownBucket = selectedBucket && !heldNow(selectedBucket.id) ? bucketsById.get(selectedBucket.id) : undefined
+  const panelBucket = shownBucket && { bucket: selectedBucket!, rect: selectedBucket!.collapsed ? collapsedRect(shownBucket.rect) : shownBucket.rect }
+  const panelImage = selectedImage && !heldNow(selectedImage.id) ? images.find((i) => i.image.id === selectedImage.id) : undefined
   const expandedCard = address.openCard
   const countIn = (bucketId: string): BucketCount => counts.get(bucketId) ?? NOTHING_IN
   /** Cards the filters or the search fade. */
@@ -1031,7 +1043,7 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
         >
           <div
             ref={canvasRef}
-            className={`canvas tool-${tool}${far ? ' far' : ''}${pan.panning ? ' panning' : spaceHeld ? ' space-pan' : ''}`}
+            className={`canvas tool-${tool}${readOnly ? ' read-only' : ''}${far ? ' far' : ''}${pan.panning ? ' panning' : spaceHeld ? ' space-pan' : ''}`}
             style={{
               left: origin.x,
               top: origin.y,
@@ -1047,6 +1059,16 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               } as CSSProperties),
               // The canvas holds the pointer during a resize, so it shows the handle's cursor.
               cursor: resizing?.handle ? resizeCursor[resizing.handle] : undefined,
+            }}
+            // The hand pans from anywhere, over items too, before they see the press; the panel above an item keeps its own.
+            onPointerDownCapture={(e) => {
+              if (tool !== 'hand' || e.button !== 0 || (e.target instanceof Element && e.target.closest('.above-item'))) return
+              e.stopPropagation()
+              e.preventDefault()
+              labelEdit.commit()
+              cardPresses.current = [cardPresses.current[1], null]
+              if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+              pan.start(e)
             }}
             onPointerDown={onCanvasPointerDown}
             // A double-click on a card opens it; anywhere else on the board it closes the open card.
@@ -1154,6 +1176,24 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
               labelAt: (id) => (id === selectedLabel?.label.id ? undefined : labels.find((l) => l.label.id === id)),
               onDelete: (id) => deleteItem('label', id),
             })}
+
+            {!readOnly && (
+              <ItemPanels
+                board={board}
+                zoom={zoom}
+                bucket={panelBucket}
+                fresh={!!selection?.fresh}
+                onSaveBucket={(bucket, { name = bucket.name }) => settle(...ops.renameBucket(bucket, name))}
+                onDeleteBucket={(bucket) => {
+                  setSelection(null)
+                  void settle(...ops.deleteBucket(board, bucket))
+                }}
+                image={panelImage}
+                onSaveImage={(image, changes) => settle(...ops.editImage(image, changes, 'Edit caption', ['caption']))}
+                onDeleteImage={(image) => deleteItem('image', image.id)}
+                onClose={() => setSelection(null)}
+              />
+            )}
 
             {selectedDrawing && !readOnly && !(dragging?.id === selectedDrawing.drawing.id && !dragging.done) && (
               <DrawingToolbar
@@ -1285,17 +1325,6 @@ export function BoardCanvas({ board, run, undoHistory, setPaused, remoteDrags = 
       <BoardPanels
         board={board}
         tagColors={tagColors}
-        bucket={selectedBucket}
-        fresh={!!selection?.fresh}
-        onSaveBucket={(bucket, { name = bucket.name }) => settle(...ops.renameBucket(bucket, name))}
-        onDeleteBucket={(bucket) => {
-          setSelection(null)
-          void settle(...ops.deleteBucket(board, bucket))
-        }}
-        image={selectedImage}
-        onSaveImage={(image, changes) => settle(...ops.editImage(image, changes, 'Edit caption', ['caption']))}
-        onDeleteImage={(image) => deleteItem('image', image.id)}
-        onClose={() => setSelection(null)}
         quickEdit={quickEdit}
         onCloseQuickEdit={() => setQuickEdit(null)}
         editCard={editCard}

@@ -449,10 +449,12 @@ public class McpCardTests(PrikBoardApiFactory factory) : McpTestBase, IClassFixt
         Assert.Equal("## Plan\n\nDo it.\n\nDone.", appended.GetProperty("text").GetString());
         var replaced = await CallAsync(mcp, "update_card_component", new() { ["card"] = cardId, ["component"] = label.Id, ["text"] = "New" });
         Assert.Equal("New", replaced.GetProperty("text").GetString());
-        Assert.True((await CallRawAsync(mcp, "update_card_component", new() { ["card"] = cardId, ["component"] = "Text", ["title"] = "x" })).IsError);
+        var titled = await CallAsync(mcp, "update_card_component", new() { ["card"] = cardId, ["component"] = "Text", ["title"] = "Head" });
+        Assert.Equal(("Head", "New"), (titled.GetProperty("title").GetString(), titled.GetProperty("text").GetString()));
+        Assert.Equal("Head", (await CallAsync(mcp, "get_card", new() { ["card"] = cardId })).GetProperty("labels")[0].GetProperty("title").GetString());
 
         var second = await CallAsync(mcp, "add_card_component", new() { ["card"] = cardId, ["kind"] = "Text", ["title"] = "Why", ["text"] = "Because." });
-        Assert.Equal("### Why\n\nBecause.", second.GetProperty("text").GetString());
+        Assert.Equal(("Why", "Because."), (second.GetProperty("title").GetString(), second.GetProperty("text").GetString()));
         var several = await CallRawAsync(mcp, "update_card_component", new() { ["card"] = cardId, ["component"] = "Text", ["appendText"] = "x" });
         Assert.True(several.IsError);
         Assert.Contains("Several labels", Text(several));

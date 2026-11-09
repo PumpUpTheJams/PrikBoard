@@ -151,6 +151,7 @@ public static class BoardEndpoints
             WrapWidth = l.WrapWidth,
             MinHeight = l.MinHeight,
             Background = l.Background,
+            Title = l.Title,
             Ink = l.Ink,
             Size = l.Size,
             Content = l.Content,

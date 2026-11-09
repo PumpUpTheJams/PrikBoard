@@ -1,18 +1,30 @@
-import { useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore, type PointerEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type PointerEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { labelSizes, labelText, type InkColor, type LabelDetail, type LabelSize, type Point, type Rect, type ResizeHandle } from '../api/types'
+import { AboveItem } from './AboveItem'
+import { floatingOver, overlaps, scrollerOf } from './placeOnCanvas'
 import { inkColor } from './drawings'
 import { keepPress, keepTextSelected } from './gesture'
 import { LabelText } from './LabelText'
-import { LinkIcon, ListBulletIcon, ListNumberIcon, TrashIcon } from './icons'
+import { CloseIcon, LabelIcon, LinkIcon, ListBulletIcon, ListNumberIcon, TrashIcon } from './icons'
 import { InkSwatches } from './DrawingView'
 import { snap } from './layout'
-import { farBars, labelPixels, MIN_LABEL_BOX, type LabelBlockTool, type LabelFormat, type LabelListKind } from './labels'
+import { farBars, labelClasses, labelPixels, MAX_LABEL_TITLE, MIN_LABEL_BOX, type LabelBlockTool, type LabelFormat, type LabelListKind } from './labels'
 import { ResizeHandles } from './ResizeHandles'
 import type { LabelHover } from './useLabelHover'
 
+/** A label's caption: its kind's icon and the title, as a component's header shows them. */
+export function LabelHead({ title }: { title: string }) {
+  return (
+    <header className="label-head">
+      <LabelIcon size={14} />
+      <span className="label-title">{title}</span>
+    </header>
+  )
+}
+
 interface LabelViewProps {
-  label: Pick<LabelDetail, 'id' | 'ink' | 'size' | 'content' | 'wrapWidth' | 'minHeight' | 'background'>
+  label: Pick<LabelDetail, 'id' | 'ink' | 'size' | 'content' | 'wrapWidth' | 'minHeight' | 'background' | 'title'>
   /** Where it is shown; its size comes from its text. Without a place it takes its turn in a list, as in the mobile layout. */
   at?: Point
   selected?: boolean
@@ -30,7 +42,7 @@ interface LabelViewProps {
 export function LabelView({ label, at, selected, lifted, matched, readOnly, onPointerDown, onHover }: LabelViewProps) {
   return (
     <div
-      className={`label${selected ? ' selected' : ''}${lifted ? ' lifted' : ''}${matched ? ' matched' : ''}${label.wrapWidth ? ' wraps' : ''}${label.background ? ' with-background' : ''}`}
+      className={`label${selected ? ' selected' : ''}${lifted ? ' lifted' : ''}${matched ? ' matched' : ''}${labelClasses(label)}`}
       data-label={label.id}
       style={{ left: at?.x, top: at?.y, width: label.wrapWidth ?? undefined, minHeight: label.minHeight ?? undefined, color: inkColor[label.ink], fontSize: labelPixels[label.size] }}
       onPointerDown={onPointerDown}
@@ -38,6 +50,7 @@ export function LabelView({ label, at, selected, lifted, matched, readOnly, onPo
       onPointerLeave={onHover && ((e) => e.pointerType !== 'touch' && onHover(false))}
       onClick={readOnly ? undefined : (e) => e.preventDefault()}
     >
+      {label.title && <LabelHead title={label.title} />}
       <LabelText content={label.content} />
     </div>
   )
@@ -59,7 +72,7 @@ interface FarLabelProps {
 export function FarLabel({ label, at, selected, lifted, onPointerDown, onHover }: FarLabelProps) {
   return (
     <div
-      className={`label far${selected ? ' selected' : ''}${lifted ? ' lifted' : ''}${label.background ? ' with-background' : ''}`}
+      className={`label far${selected ? ' selected' : ''}${lifted ? ' lifted' : ''}${labelClasses(label)}`}
       data-label={label.id}
       role="img"
       aria-label={labelText(label)}
@@ -161,6 +174,8 @@ export interface LabelToolsProps {
   style: LabelToolbarStyle
   /** Its background, on or off. */
   background: { on: boolean; onToggle: () => void }
+  /** Its caption, typed in the toolbar. */
+  caption: { value: string; onChange: (value: string) => void; onDone: () => void }
   /** Turning text into other blocks. */
   blocks: { isActive: (kind: LabelBlockTool) => boolean; onToggle: (kind: LabelBlockTool) => void }
 }
@@ -173,116 +188,21 @@ interface LabelToolbarStyle {
   onSize: (size: LabelSize) => void
 }
 
-/** Screen pixels kept between the toolbar and its label, and between it and the edge of the view. */
-const TOOLBAR_GAP = 12
-const TOOLBAR_MARGIN = 8
-/** What floats over a canvas. Nothing on a zoomed canvas can be drawn above it, so the toolbar moves clear of it. */
-const FLOATING = ':scope > .rail, :scope > .view-controls, :scope > .board-filters'
-
-interface Box {
-  left: number
-  top: number
-  right: number
-  bottom: number
-}
-
-const overlaps = (a: Box, b: Box) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
-const moved = (box: Box, x: number, y: number): Box => ({ left: box.left + x, top: box.top + y, right: box.right + x, bottom: box.bottom + y })
-
-/** How far a toolbar at `box` moves to clear what floats over the canvas: sideways if that stays in `view`, else up as far as there is room. */
-function clearOfFloating(box: Box, floating: Box[], view: Box) {
-  let x = 0
-  let y = 0
-  for (let pass = 0; pass <= 2 * floating.length; pass++) {
-    const at = moved(box, x, y)
-    const hit = floating.find((f) => overlaps(at, f))
-    if (!hit) break
-    const sideways = [hit.left - TOOLBAR_MARGIN - at.right, hit.right + TOOLBAR_MARGIN - at.left]
-      .filter((dx) => {
-        const to = moved(at, dx, 0)
-        return to.left >= view.left + TOOLBAR_MARGIN && to.right <= view.right - TOOLBAR_MARGIN && !floating.some((f) => overlaps(to, f))
-      })
-      .sort((a, b) => Math.abs(a) - Math.abs(b))[0]
-    if (sideways !== undefined) {
-      x += sideways
-      continue
-    }
-    const up = Math.max(hit.top - TOOLBAR_MARGIN - at.bottom, view.top + TOOLBAR_MARGIN - at.top)
-    if (up >= 0) break
-    y += up
-  }
-  return { x, y: Math.max(y, view.top + TOOLBAR_MARGIN - box.top) }
-}
-
-const scrollerOf = (el: Element) => el.closest('.board-scroll, .card-scroll')
-const floatingOver = (scroller: Element) => [...scroller.parentElement!.querySelectorAll(FLOATING)].map((f) => f.getBoundingClientRect())
-
-/**
- * Where something above a zoomed canvas goes, worked out from the page by `measure` after a render and a scroll or resize of the
- * canvas (scrolling doesn't render it). It settles because a place that stays the same renders nothing. With a `key`, it only
- * measures when that says something changed: measuring lays out the canvas, which costs a lot on a big board in the middle of a drag.
- */
-function usePlaceOnCanvas<P extends Record<string, number | boolean>>(initial: P, measure: (el: HTMLDivElement, scroller: Element, place: P) => P, key?: string) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [place, setPlace] = useState(initial)
-  const [moves, moved] = useReducer((n: number) => n + 1, 0)
-  const measured = useRef<string | null>(null)
-  useEffect(() => {
-    const scroller = scrollerOf(ref.current!)
-    if (!scroller) return
-    scroller.addEventListener('scroll', moved, { passive: true })
-    const observer = new ResizeObserver(moved)
-    observer.observe(scroller)
-    return () => {
-      scroller.removeEventListener('scroll', moved)
-      observer.disconnect()
-    }
-  }, [])
-  const settle = (next: P) => {
-    if (Object.keys(next).some((name) => next[name] !== place[name])) setPlace(next)
-  }
-  useLayoutEffect(() => {
-    const inputs = key === undefined ? null : `${key} ${moves} ${JSON.stringify(place)}`
-    if (inputs !== null && inputs === measured.current) return
-    measured.current = inputs
-    const scroller = scrollerOf(ref.current!)
-    if (scroller) settle(measure(ref.current!, scroller, place))
-  })
-  return [ref, place] as const
-}
-
 /** The toolbar above a label being edited, at the same size on screen at any zoom. */
 export function LabelToolbar({ zoom, ...tools }: LabelToolsProps & { zoom: number }) {
-  /** How far it slides to stay in view and clear of what floats over the canvas, in screen pixels, and whether it goes below the label for lack of room above. */
-  const [toolbar, place] = usePlaceOnCanvas({ x: 0, y: 0, below: 0 }, (el, scroller, place) => {
-    const view = scroller.getBoundingClientRect()
-    const box = el.getBoundingClientRect()
-    const left = box.left - place.x
-    const right = left + box.width
-    // The label being edited grows, so its height comes from the page.
-    const height = el.parentElement!.offsetHeight
-    const above = box.top - place.y - place.below
-    const below = above < view.top + TOOLBAR_MARGIN ? height * zoom + box.height + 2 * TOOLBAR_GAP : 0
-    const top = above + below
-    const edge = view.left + scroller.clientWidth - TOOLBAR_MARGIN
-    const inView = left < view.left + TOOLBAR_MARGIN ? view.left + TOOLBAR_MARGIN - left : right > edge ? Math.max(view.left + TOOLBAR_MARGIN - left, edge - right) : 0
-    const clear = clearOfFloating({ left: left + inView, top, right: right + inView, bottom: top + box.height }, floatingOver(scroller), { left: view.left, top: view.top, right: edge + TOOLBAR_MARGIN, bottom: view.bottom })
-    // Whole pixels, or rounding in the scale could keep it from ever settling.
-    return { x: Math.round(inView + clear.x), y: Math.round(clear.y), below }
-  })
   return (
-    <div
-      ref={toolbar}
+    <AboveItem
       className="drawing-toolbar label-toolbar"
       role="toolbar"
-      aria-label="Label"
-      style={{ left: 0, top: 0, transform: `scale(${1 / zoom}) translate(${place.x}px, calc(-100% - ${TOOLBAR_GAP}px + ${place.below + place.y}px))` }}
-      // A press here keeps the text selected in the label being edited, except in the link's own field.
-      onPointerDown={keepPress}
+      label="Label"
+      // The label being edited grows, so its height comes from the page.
+      height={(el) => el.parentElement!.offsetHeight}
+      zoom={zoom}
+      // A press here keeps the text selected in the label being edited, except in the toolbar's own fields.
       onMouseDown={keepTextSelected}
     >
       <LabelTools {...tools} />
-    </div>
+    </AboveItem>
   )
 }
 
@@ -344,97 +264,109 @@ function ToolButton({ name, pressed, className, onClick, children }: { name: str
   )
 }
 
-function BackgroundButton({ on, onToggle }: { on: boolean; onToggle: () => void }) {
-  return (
-    <button type="button" className="label-tool label-text-tool" aria-pressed={on} onClick={onToggle}>
-      Background
-    </button>
-  )
-}
-
-function DeleteButton({ onDelete }: { onDelete: () => void }) {
-  return (
-    <button type="button" className="drawing-delete" aria-label="Delete label" title="Delete label (Del)" onClick={onDelete}>
-      <TrashIcon size={15} />
-    </button>
-  )
-}
-
-/** The buttons of a label's toolbar, on a canvas or on the mobile layout's own screen. */
-export function LabelTools({ isActive, onToggle, listActive, onToggleList, linkActive, onLink, onDelete, link, style, blocks, background }: LabelToolsProps) {
+/** The buttons of a label's toolbar, on a canvas or on the mobile layout's own screen: what styles its text, then what the label itself has. */
+export function LabelTools({ isActive, onToggle, listActive, onToggleList, linkActive, onLink, onDelete, link, style, blocks, background, caption }: LabelToolsProps) {
   return (
     <>
-      <div className="label-tool-row" role="group" aria-label="Text">
-        <div className="label-tool-group">
-          {FORMATS.map(({ format, letter, name, className }) => (
-            <ToolButton key={format} name={name} className={className} pressed={isActive(format)} onClick={() => onToggle(format)}>
-              {letter}
+      <div className="label-tool-section" role="group" aria-label="Text">
+        <div className="label-tool-row">
+          <div className="label-tool-group">
+            {FORMATS.map(({ format, letter, name, className }) => (
+              <ToolButton key={format} name={name} className={className} pressed={isActive(format)} onClick={() => onToggle(format)}>
+                {letter}
+              </ToolButton>
+            ))}
+            <ToolButton name="Link" pressed={linkActive} onClick={onLink}>
+              <LinkIcon />
             </ToolButton>
-          ))}
-          <ToolButton name="Link" pressed={linkActive} onClick={onLink}>
-            <LinkIcon />
-          </ToolButton>
-        </div>
-        <span className="toolbar-divider" aria-hidden="true" />
-        <div className="label-tool-group">
-          <LabelColor ink={style.ink} onChange={style.onInk} />
+          </div>
           <span className="toolbar-divider" aria-hidden="true" />
-          <LabelSizes value={style.size} onChange={style.onSize} />
+          <div className="label-tool-group">
+            <LabelColor ink={style.ink} onChange={style.onInk} />
+            <span className="toolbar-divider" aria-hidden="true" />
+            <LabelSizes value={style.size} onChange={style.onSize} />
+          </div>
         </div>
-      </div>
-      <div className="label-tool-row" role="group" aria-label="Blocks">
-        <div className="label-tool-group">
-          {BLOCKS.map(({ kind, letter, name }) => (
-            <ToolButton key={kind} name={name} pressed={blocks.isActive(kind)} onClick={() => blocks.onToggle(kind)}>
-              {letter}
+        <div className="label-tool-row">
+          <div className="label-tool-group">
+            {BLOCKS.map(({ kind, letter, name }) => (
+              <ToolButton key={kind} name={name} pressed={blocks.isActive(kind)} onClick={() => blocks.onToggle(kind)}>
+                {letter}
+              </ToolButton>
+            ))}
+          </div>
+          <span className="toolbar-divider" aria-hidden="true" />
+          <div className="label-tool-group">
+            <ToolButton name="Bulleted list" pressed={listActive('Bullet')} onClick={() => onToggleList('Bullet')}>
+              <ListBulletIcon />
             </ToolButton>
-          ))}
-          <span className="toolbar-divider" aria-hidden="true" />
-          <ToolButton name="Bulleted list" pressed={listActive('Bullet')} onClick={() => onToggleList('Bullet')}>
-            <ListBulletIcon />
-          </ToolButton>
-          <ToolButton name="Numbered list" pressed={listActive('Numbered')} onClick={() => onToggleList('Numbered')}>
-            <ListNumberIcon />
-          </ToolButton>
-          <ToolButton name="Task list" pressed={blocks.isActive('Task')} onClick={() => blocks.onToggle('Task')}>
-            ☑
-          </ToolButton>
-          <span className="toolbar-divider" aria-hidden="true" />
-          <ToolButton name="Table" pressed={blocks.isActive('Table')} onClick={() => blocks.onToggle('Table')}>
-            ▦
-          </ToolButton>
+            <ToolButton name="Numbered list" pressed={listActive('Numbered')} onClick={() => onToggleList('Numbered')}>
+              <ListNumberIcon />
+            </ToolButton>
+            <ToolButton name="Task list" pressed={blocks.isActive('Task')} onClick={() => blocks.onToggle('Task')}>
+              ☑
+            </ToolButton>
+          </div>
         </div>
-        <span className="toolbar-divider" aria-hidden="true" />
-        <div className="label-tool-group label-tool-end">
-          <BackgroundButton {...background} />
-          <DeleteButton onDelete={onDelete} />
-        </div>
+        {link && (
+          <div className="label-link-field">
+            <input
+              type="text"
+              autoFocus
+              aria-label="Link address"
+              placeholder="https://example.com or a card link"
+              value={link.value}
+              onChange={(e) => link.onChange(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  link.onApply()
+                } else if (e.key === 'Escape') {
+                  e.preventDefault()
+                  link.onCancel()
+                }
+              }}
+            />
+            <button type="button" onClick={link.onApply}>Apply</button>
+            {link.existing && <button type="button" onClick={link.onRemove}>Remove</button>}
+            {link.error && <span className="label-link-error">Enter an http(s) link or a card link.</span>}
+          </div>
+        )}
       </div>
-      {link && (
-        <div className="label-link-field">
+      <div className="label-tool-section label-own-tools" role="group" aria-label="Label">
+        <div className="label-caption">
           <input
+            className="label-caption-field"
             type="text"
-            autoFocus
-            aria-label="Link address"
-            placeholder="https://example.com or a card link"
-            value={link.value}
-            onChange={(e) => link.onChange(e.target.value)}
+            aria-label="Caption"
+            placeholder="Caption"
+            value={caption.value}
+            maxLength={MAX_LABEL_TITLE}
+            onChange={(e) => caption.onChange(e.target.value)}
             onKeyDown={(e) => {
               e.stopPropagation()
+              // Back to the text, or done with the label.
               if (e.key === 'Enter') {
                 e.preventDefault()
-                link.onApply()
-              } else if (e.key === 'Escape') {
-                e.preventDefault()
-                link.onCancel()
+                caption.onDone()
               }
             }}
           />
-          <button type="button" onClick={link.onApply}>Apply</button>
-          {link.existing && <button type="button" onClick={link.onRemove}>Remove</button>}
-          {link.error && <span className="label-link-error">Enter an http(s) link or a card link.</span>}
+          {caption.value && (
+            // One click takes the caption off; the text being edited keeps its selection.
+            <button type="button" className="label-caption-clear" aria-label="Remove caption" title="Remove caption" onClick={() => caption.onChange('')}>
+              <CloseIcon size={12} />
+            </button>
+          )}
         </div>
-      )}
+        <button type="button" className="label-tool label-text-tool" aria-pressed={background.on} title="A panel behind the label, like a component's" onClick={background.onToggle}>
+          Background
+        </button>
+        <button type="button" className="drawing-delete" aria-label="Delete label" title="Delete label (Del)" onClick={onDelete}>
+          <TrashIcon size={15} />
+        </button>
+      </div>
     </>
   )
 }
@@ -442,55 +374,31 @@ export function LabelTools({ isActive, onToggle, listActive, onToggleList, linkA
 /** Screen pixels between the Color button and its palette. */
 const POPUP_GAP = 6
 
-/** Screen pixels between the bar of a label and the label's corner. */
-const BAR_INSET = 8
-
-interface LabelBarProps {
+interface LabelTrashProps {
   rect: Rect
-  zoom: number
-  background: { on: boolean; onToggle: () => void }
-  onEdit: () => void
   onDelete: () => void
   onPointerEnter?: () => void
   onPointerLeave?: () => void
 }
 
-/**
- * The bar of a selected or hovered label, in its top-right corner like the delete button of an image, at the same size on screen at any
- * zoom: styling is for editing. It goes above a label too small to hold it, whose text it would cover.
- */
-export function LabelBar({ rect, zoom, background, onEdit, onDelete, onPointerEnter, onPointerLeave }: LabelBarProps) {
-  const [bar, place] = usePlaceOnCanvas({ x: 0, y: 0, above: false as boolean }, (el, scroller, place) => {
-    const box = el.getBoundingClientRect()
-    const above = rect.height * zoom < box.height + 2 * BAR_INSET || rect.width * zoom < box.width + 2 * BAR_INSET
-    // Where it would be with nothing moving it.
-    const left = box.left - place.x
-    const top = box.top - place.y + (above === place.above ? 0 : above ? -box.height - 2 * BAR_INSET : box.height + 2 * BAR_INSET)
-    const view = scroller.getBoundingClientRect()
-    const clear = clearOfFloating({ left, top, right: left + box.width, bottom: top + box.height }, floatingOver(scroller), { left: view.left, top: view.top, right: view.left + scroller.clientWidth, bottom: view.bottom })
-    return { x: Math.round(clear.x), y: Math.round(clear.y), above }
-  }, `${rect.x} ${rect.y} ${rect.width} ${rect.height} ${zoom}`)
+/** The delete button of a selected or hovered label, in its top-right corner like a component's: everything else is done while editing it. */
+export function LabelTrash({ rect, onDelete, onPointerEnter, onPointerLeave }: LabelTrashProps) {
   return (
-    <div
-      ref={bar}
-      className="drawing-toolbar label-bar"
-      role="toolbar"
-      aria-label="Label"
-      style={{
-        left: rect.x + rect.width,
-        top: rect.y,
-        transform: `scale(${1 / zoom}) translate(calc(-100% - ${BAR_INSET}px + ${place.x}px), calc(${place.above ? '-100% - ' : ''}${BAR_INSET}px + ${place.y}px))`,
-      }}
+    <button
+      type="button"
+      className="label-trash"
+      aria-label="Delete label"
+      title="Delete label (Del)"
+      style={{ left: rect.x + rect.width, top: rect.y }}
+      // Not a drag: the canvas would otherwise take the pointer and the click with it.
       onPointerDown={keepPress}
+      onDoubleClick={(e) => e.stopPropagation()}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
+      onClick={onDelete}
     >
-      <BackgroundButton {...background} />
-      <button type="button" className="label-tool label-text-tool" onClick={onEdit}>
-        Edit
-      </button>
-      <DeleteButton onDelete={onDelete} />
-    </div>
+      <TrashIcon size={13} />
+    </button>
   )
 }
 
@@ -500,20 +408,18 @@ export interface PlacedLabel {
   rect: Rect
 }
 
-interface HoveredLabelBarProps {
+interface HoveredLabelTrashProps {
   hover: LabelHover
   labelAt: (id: string) => PlacedLabel | undefined
-  zoom: number
-  barOf: (label: LabelDetail) => Pick<LabelBarProps, 'background' | 'onEdit' | 'onDelete'>
+  onDelete: (id: string) => void
 }
 
-/** The bar of the label the mouse is over: the only thing that renders as the mouse moves over labels. */
-export function HoveredLabelBar({ hover, labelAt, zoom, barOf }: HoveredLabelBarProps) {
+/** The delete button of the label the mouse is over: the only thing that renders as the mouse moves over labels. */
+export function HoveredLabelTrash({ hover, labelAt, onDelete }: HoveredLabelTrashProps) {
   const id = useSyncExternalStore(hover.subscribe, hover.get)
   const placed = id ? labelAt(id) : undefined
-  return placed ? <LabelBar key={placed.label.id} rect={placed.rect} zoom={zoom} {...hover.barHover} {...barOf(placed.label)} /> : null
+  return placed ? <LabelTrash key={placed.label.id} rect={placed.rect} {...hover.barHover} onDelete={() => onDelete(placed.label.id)} /> : null
 }
-
 /** A label's box: its corner, the width its text wraps at, and the height it keeps with little text. */
 export interface LabelBox {
   x: number

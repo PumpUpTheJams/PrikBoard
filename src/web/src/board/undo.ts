@@ -131,7 +131,7 @@ export const snap = {
   bucket: (b: BucketDetail): Snapshot => ({ name: b.name, x: b.x, y: b.y, width: b.width, height: b.height, collapsed: b.collapsed }),
   image: (i: ImageDetail): Snapshot => ({ cardId: i.cardId, x: i.x, y: i.y, bucketId: i.bucketId, width: i.width, caption: i.caption }),
   drawing: (d: DrawingDetail): Snapshot => ({ cardId: d.cardId, x: d.x, y: d.y, bucketId: d.bucketId, colors: d.colors }),
-  label: (l: LabelDetail): Snapshot => ({ cardId: l.cardId, x: l.x, y: l.y, bucketId: l.bucketId, ink: l.ink, size: l.size, content: l.content, width: l.width, height: l.height, wrapWidth: l.wrapWidth, minHeight: l.minHeight, background: l.background }),
+  label: (l: LabelDetail): Snapshot => ({ cardId: l.cardId, x: l.x, y: l.y, bucketId: l.bucketId, ink: l.ink, size: l.size, content: l.content, width: l.width, height: l.height, wrapWidth: l.wrapWidth, minHeight: l.minHeight, background: l.background, title: l.title ?? null }),
   /**
    * A drawing's corner, strokes as loaded here (null when they aren't loaded, as after someone else changed them) and
    * inks: erasing can change how many strokes it has, so writing it back sends the inks too.
@@ -493,6 +493,7 @@ async function write(t: UndoTarget, from: Snapshot | null, to: Snapshot | null, 
       if ('wrapWidth' in to) changes.wrapWidth = (to.wrapWidth as number | null) ?? 0
       if ('minHeight' in to) changes.minHeight = (to.minHeight as number | null) ?? 0
       if ('background' in to) changes.background = to.background as boolean
+      if ('title' in to) changes.title = (to.title as string | null) ?? ''
       // Measured with the text, so they go back with it.
       if ('width' in to) Object.assign(changes, { width: to.width, height: to.height })
       await api.updateLabel(t.id, changes)

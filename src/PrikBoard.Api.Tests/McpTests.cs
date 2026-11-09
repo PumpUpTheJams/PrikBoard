@@ -102,9 +102,14 @@ public class McpTests(PrikBoardApiFactory factory) : McpTestBase, IClassFixture<
         var card = await owner.CreateCardAsync(board.Id, "Annotated");
         var mcp = await ConnectAsync(await TokenAsync(owner, BoardRole.Editor));
 
-        var added = await CallAsync(mcp, "add_label", new() { ["board"] = board.ShortId, ["markdown"] = "**Release** plan", ["ink"] = "Coral", ["size"] = "L" });
+        var added = await CallAsync(mcp, "add_label", new() { ["board"] = board.ShortId, ["markdown"] = "**Release** plan", ["ink"] = "Coral", ["size"] = "L", ["title"] = "Q3" });
         var id = added.GetProperty("id").GetGuid();
         Assert.Equal("**Release** plan", added.GetProperty("markdown").GetString());
+        Assert.Equal("Q3", added.GetProperty("title").GetString());
+        Assert.True(added.GetProperty("background").GetBoolean());
+        var untitled = await CallAsync(mcp, "update_label", new() { ["label"] = id, ["title"] = "" });
+        Assert.False(untitled.TryGetProperty("title", out _));
+        Assert.Equal("Q4", (await CallAsync(mcp, "update_label", new() { ["label"] = id, ["title"] = "Q4" })).GetProperty("title").GetString());
 
         // It counts on the overview, and reads back in Markdown.
         Assert.Equal(1, (await CallAsync(mcp, "get_board", new() { ["board"] = board.ShortId })).GetProperty("labels").GetInt32());

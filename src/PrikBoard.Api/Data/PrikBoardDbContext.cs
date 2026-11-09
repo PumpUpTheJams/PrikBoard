@@ -179,6 +179,7 @@ public class PrikBoardDbContext : DbContext
         {
             label.Property(l => l.Ink).HasConversion<string>().HasMaxLength(20);
             label.Property(l => l.Size).HasConversion<string>().HasMaxLength(10);
+            label.Property(l => l.Title).HasMaxLength(BoardLabel.MaxTitleLength);
             label.Property(l => l.Content).HasColumnType("jsonb").HasConversion(LabelContentJson.Converter, LabelContentJson.Comparer);
             label.HasOne(l => l.AddedBy).WithMany().HasForeignKey(l => l.AddedById).OnDelete(DeleteBehavior.SetNull);
             label.HasOne(l => l.Board).WithMany(b => b.Labels).HasForeignKey(l => l.BoardId).OnDelete(DeleteBehavior.Cascade);

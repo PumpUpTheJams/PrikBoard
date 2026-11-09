@@ -77,6 +77,16 @@ export const SelectIcon = ({ size = 18 }: IconProps) => (
   </Icon>
 )
 
+/** An open hand: the tool that only moves the view. */
+export const HandIcon = ({ size = 18 }: IconProps) => (
+  <Icon size={size}>
+    <path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12" />
+    <path d="M11 11.5v-7a1.5 1.5 0 0 1 3 0V12" />
+    <path d="M14 6.5a1.5 1.5 0 0 1 3 0V12" />
+    <path d="M17 8.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-2a6 6 0 0 1-4.8-2.4L4.5 15a1.6 1.6 0 0 1 2.5-2L8 14" />
+  </Icon>
+)
+
 export const BucketToolIcon = ({ size = 18 }: IconProps) => (
   <Icon size={size}>
     <rect x="3" y="4" width="18" height="16" rx="2" />

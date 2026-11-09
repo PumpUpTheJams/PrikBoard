@@ -34,6 +34,10 @@ public class BoardLabel : ICanvasItem
     public const int MaxLinkLength = 2000;
     /// <summary>A label's measured size reaches at most this far from its corner.</summary>
     public const int MaxSize = Layout.CardCanvasMax;
+    /// <summary>Most characters of a label's title, like a card component's (<see cref="CardComponent.MaxTitleLength"/>).</summary>
+    public const int MaxTitleLength = 100;
+    /// <summary>How much taller a title makes a label, in canvas pixels: its header above the text. The web app's <c>.label-head</c> has the same height.</summary>
+    public const int TitleHeight = 30;
 
     public Guid Id { get; set; } = Guid.CreateVersion7();
     public Guid BoardId { get; set; }
@@ -53,8 +57,10 @@ public class BoardLabel : ICanvasItem
     public int? WrapWidth { get; set; }
     /// <summary>The height it keeps with little text, in canvas pixels, as its box was drawn; null is as tall as its text.</summary>
     public int? MinHeight { get; set; }
-    /// <summary>Whether it has a background of its own, the panel a card's components have. Set when it is added: on on a card, off on the board.</summary>
+    /// <summary>Whether it has a background of its own, the panel a card's components have. On unless it is added without one.</summary>
     public bool Background { get; set; }
+    /// <summary>An optional caption, shown as a header above its text (at most <see cref="MaxTitleLength"/> characters); null when it has none.</summary>
+    public string? Title { get; set; }
     /// <summary>The ink of text that doesn't set its own.</summary>
     public InkColor Ink { get; set; } = InkColor.Theme;
     /// <summary>The size of text that doesn't set its own.</summary>
@@ -145,6 +151,7 @@ public class BoardLabel : ICanvasItem
             }
             Line(indent, line, tallest);
         }
+        if (Title is not null) height += TitleHeight;
         SetSize((inner is null ? (int)Math.Ceiling(width) + PaddingX * 2 : WrapWidth!.Value), Math.Max((int)Math.Ceiling(height) + PaddingY * 2, MinHeight ?? 0));
     }
 
@@ -266,9 +273,10 @@ public class BoardLabel : ICanvasItem
 
     // What Estimate goes by; the web app measures instead.
     private const double CharacterWidth = 0.55;
-    private const double LineHeight = 1.15;
+    // The web app's .label line height and gap between blocks (FAR_LINE, FAR_BLOCK_GAP in labels.ts).
+    private const double LineHeight = 1.55;
     private const double ListIndent = 1.3;
-    private const double BlockGap = 0.4;
+    private const double BlockGap = 0.75;
     private const int CellPadding = 12;
     // A label's border and padding, the same with a background or without (.label in the web app).
     private const int PaddingX = 15;

@@ -161,7 +161,7 @@ public static class CardEndpoints
         if (!string.IsNullOrWhiteSpace(search))
         {
             var labels = (await db.Labels.AsNoTracking().Where(l => l.BoardId == boardId && l.CardId != null)
-                .Select(l => new { l.CardId, l.Text }).ToListAsync(ct)).ToLookup(l => l.CardId!.Value, l => l.Text);
+                .Select(l => new { l.CardId, l.Title, l.Text }).ToListAsync(ct)).ToLookup(l => l.CardId!.Value, l => LabelSearchText(l.Title, l.Text));
             (cards, numbered) = Search(cards, search, board.Key, labels);
         }
         if (tag is not null && CardTags.Normalize(tag) is { Count: > 0 } wanted)
@@ -531,6 +531,9 @@ public static class CardEndpoints
         || card.Components.Any(b => b.SearchText().Any(t => t.Contains(text, StringComparison.OrdinalIgnoreCase)))
         || labels[card.Id].Any(t => t.Contains(text, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>What a search looks for in a label on a card: its title and its text.</summary>
+    internal static string LabelSearchText(string? title, string text) => title is null ? text : title + "\n" + text;
+
     /// <summary>
     /// The cards a search finds, as listCards and listDeletedCards search, and the one it names by its number. A number
     /// (<c>224</c>, leading zeros aside) finds that card and the cards with that text; <c>#224</c> or the readable id
@@ -569,9 +572,9 @@ public static class CardEndpoints
             var deletedAt = cards.ToDictionary(n => n.Id, n => n.DeletedAt);
             var searched = deletedAt.Keys.ToList();
             var labels = (await db.Labels.AsNoTracking().WithDeleted().Where(l => l.BoardId == boardId && l.CardId != null && l.DeletedAt != null && searched.Contains(l.CardId.Value))
-                    .Select(l => new { l.CardId, l.Text, l.DeletedAt }).ToListAsync(ct))
+                    .Select(l => new { l.CardId, l.Title, l.Text, l.DeletedAt }).ToListAsync(ct))
                 .Where(l => deletedAt.GetValueOrDefault(l.CardId!.Value) == l.DeletedAt)
-                .ToLookup(l => l.CardId!.Value, l => l.Text);
+                .ToLookup(l => l.CardId!.Value, l => LabelSearchText(l.Title, l.Text));
             (cards, numbered) = Search(cards, search, board.Key, labels);
         }
         cards = NumberedFirst(cards.OrderByDescending(n => n.DeletedAt).ThenByDescending(n => n.Id).ToList(), numbered);

@@ -7,15 +7,19 @@ interface LabelToolsOptions {
   ink: InkColor
   size: LabelSize
   background: boolean
+  title: string
   onDelete: () => void
+  /** Enter in the caption's field: done with the label. Without it, the text gets the focus back. */
+  onDone?: () => void
 }
 
 /** What the tools of a label being edited work on and show, on a canvas or on the mobile layout's own screen. */
-export function useLabelTools({ ink: startInk, size: startSize, background: startBackground, onDelete }: LabelToolsOptions) {
+export function useLabelTools({ ink: startInk, size: startSize, background: startBackground, title: startTitle, onDelete, onDone }: LabelToolsOptions) {
   const [handle, setHandle] = useState<LabelEditorHandle | null>(null)
   const [ink, setInk] = useState(startInk)
   const [size, setSize] = useState(startSize)
   const [background, setBackground] = useState(startBackground)
+  const [title, setTitle] = useState(startTitle)
   /** The selection changed: what the toolbar shows follows it. */
   const [, setTick] = useState(0)
   const [link, setLink] = useState<{ value: string; error: boolean; existing: boolean } | null>(null)
@@ -56,8 +60,9 @@ export function useLabelTools({ ink: startInk, size: startSize, background: star
       onSize: (value) => (handle && !handle.isEmpty() ? handle.setSize(value) : setSize(value)),
     },
     background: { on: background, onToggle: () => setBackground((on) => !on) },
+    caption: { value: title, onChange: setTitle, onDone: () => (onDone ? onDone() : handle?.focus()) },
     onDelete,
     link: field,
   }
-  return { handle, ink, size, background, onReady: setHandle, onChange, tools }
+  return { handle, ink, size, background, title, onReady: setHandle, onChange, tools }
 }

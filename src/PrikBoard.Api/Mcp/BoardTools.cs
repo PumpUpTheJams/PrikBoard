@@ -52,6 +52,7 @@ public sealed partial class BoardTools
     private const string LabelSizeHelp = "Size of text that doesn't set its own: S (14 px, the default), M (21), L (35) or XL (56).";
     private const string LabelXHelp = "Left edge, on the board or on the card's canvas; snapped to the 20 px grid. Give it with y.";
     private const string LabelYHelp = "Top edge, like x. Give it with x.";
+    private const string LabelTitleHelp = "A title, shown as a header above its text (at most 100 characters).";
     private const string ImageCardHelp = "Attach the image to this card: " + CardForms;
     private const string ImageBoardHelp = "The board to put it on, not needed with card (nor when your token works on one board only): " + BoardForms;
     private const string ImageFileNameHelp = "File name, e.g. \"ingest-errors.png\". Default: image.<format>.";
@@ -260,7 +261,7 @@ public sealed partial class BoardTools
 
     [McpServerTool(Name = "add_card_component", Title = "Add a component to a card", OpenWorld = false)]
     [Description("Adds to a card, in a free spot on its canvas: text (kind Text, a label with a background) or a Checklist or Links component. " +
-                 "Give only the content of that kind: text, items or links. A title on text becomes a heading in it. Needs the Editor role.")]
+                 "Give only the content of that kind: text, items or links. A title on text is the label's title, shown above it. Needs the Editor role.")]
     public static async Task<ComponentView> AddCardComponent(
         IHttpContextAccessor accessor,
         [Description(CardHelp)] string card,
@@ -275,7 +276,7 @@ public sealed partial class BoardTools
         if (kind == CardComponentKind.Text)
         {
             if (items is not null || links is not null) throw new McpException("Text takes text, not items or links; use a Checklist or Links component.");
-            var added = await AddCardTextAsync(http, db, boardId, cardId, LabelMarkdown.Titled(title, text), ct);
+            var added = await AddCardTextAsync(http, db, boardId, cardId, text ?? "", ct, title);
             await McpCall.AnnounceAsync(http, boardId);
             return ComponentView.OfLabel(added);
         }
@@ -308,12 +309,11 @@ public sealed partial class BoardTools
         var (labelId, noLabelYet) = await ResolveTextLabelAsync(db, cardId, component, ct);
         if (labelId is not null || (noLabelYet && (!string.IsNullOrWhiteSpace(text) || !string.IsNullOrWhiteSpace(appendText))))
         {
-            if (title is not null) throw new McpException("A label has no title; write it in the text as a heading.");
             if (items is not null || links is not null || addItems is not null || checkItems is not null || uncheckItems is not null)
             {
                 throw new McpException("A label has no checklist items or links; use a Checklist or Links component.");
             }
-            var written = await WriteCardTextAsync(http, db, boardId, cardId, labelId, text, appendText, ct);
+            var written = await WriteCardTextAsync(http, db, boardId, cardId, labelId, title, text, appendText, ct);
             await McpCall.AnnounceAsync(http, boardId);
             return written;
         }
@@ -330,21 +330,21 @@ public sealed partial class BoardTools
         return ComponentView.From(updated);
     }
 
-    /// <summary>A label with the text of a card, placed in a free spot on its canvas.</summary>
-    private static async Task<LabelDetail> AddCardTextAsync(HttpContext http, PrikBoardDbContext db, Guid boardId, Guid cardId, string markdown, CancellationToken ct)
+    /// <summary>A label with the text of a card, and its title if any, placed in a free spot on its canvas.</summary>
+    private static async Task<LabelDetail> AddCardTextAsync(HttpContext http, PrikBoardDbContext db, Guid boardId, Guid cardId, string markdown, CancellationToken ct, string? title = null)
     {
-        var request = new CreateLabelRequest(Markdown: markdown, Size: BoardLabel.CardTextSize, CardId: cardId);
+        var request = new CreateLabelRequest(Markdown: markdown, Size: BoardLabel.CardTextSize, CardId: cardId, Title: title);
         McpCall.Validate(request);
         return McpCall.Value<LabelDetail>(await LabelEndpoints.CreateLabel(boardId, request, http.User, db, ct));
     }
 
     /// <summary>The card's text changed in its label, or added as a new label without one; an empty text deletes the label.</summary>
-    private static async Task<ComponentView> WriteCardTextAsync(HttpContext http, PrikBoardDbContext db, Guid boardId, Guid cardId, Guid? labelId, string? text, string? appendText, CancellationToken ct)
+    private static async Task<ComponentView> WriteCardTextAsync(HttpContext http, PrikBoardDbContext db, Guid boardId, Guid cardId, Guid? labelId, string? title, string? text, string? appendText, CancellationToken ct)
     {
         if (labelId is not { } id)
         {
             var parts = new[] { text, appendText }.Where(p => !string.IsNullOrWhiteSpace(p));
-            return ComponentView.OfLabel(await AddCardTextAsync(http, db, boardId, cardId, string.Join("\n\n", parts), ct));
+            return ComponentView.OfLabel(await AddCardTextAsync(http, db, boardId, cardId, string.Join("\n\n", parts), ct, title));
         }
         var cleared = text is not null && string.IsNullOrWhiteSpace(text) && string.IsNullOrWhiteSpace(appendText);
         if (cleared)
@@ -352,7 +352,7 @@ public sealed partial class BoardTools
             McpCall.Succeeded(await LabelEndpoints.DeleteLabel(id, http.User, db, ct));
             return new ComponentView(id, CardComponentKind.Text, null, null, null, null);
         }
-        var request = new UpdateLabelRequest(Markdown: string.IsNullOrWhiteSpace(text) ? null : text, AppendText: appendText);
+        var request = new UpdateLabelRequest(Markdown: string.IsNullOrWhiteSpace(text) ? null : text, AppendText: appendText, Title: title);
         McpCall.Validate(request);
         return ComponentView.OfLabel(McpCall.Value<LabelDetail>(await LabelEndpoints.UpdateLabel(id, request, db, ct)));
     }
@@ -397,7 +397,7 @@ public sealed partial class BoardTools
     }
 
     [McpServerTool(Name = "add_label", Title = "Add a label", OpenWorld = false)]
-    [Description("Adds free text to a board, without a background unless you ask for one, or to a card's canvas with card, with one unless you say otherwise: to name an area, annotate something or describe the card. " +
+    [Description("Adds free text, with a background unless you say otherwise and an optional title above it, to a board, or to a card's canvas with card: to name an area, annotate something or describe the card. " +
                  "Write it in markdown (with headings, nested lists, tasks, quotes, code and tables), or give content for " +
                  "underline, or ink and size on single words. It goes in a free spot unless you give x and y; on the board it joins " +
                  "the bucket its center lands in. Needs the Editor role.")]
@@ -412,13 +412,14 @@ public sealed partial class BoardTools
         [Description(LabelXHelp)] int? x = null,
         [Description(LabelYHelp)] int? y = null,
         [Description(LabelWrapHelp)] int? wrapWidth = null,
-        [Description("Whether it has a background of its own. Without this, on a card it has one, and on the board it doesn't.")] bool? background = null,
+        [Description("Whether it has a background of its own; it has one unless this is false.")] bool? background = null,
         [Description("The height it keeps with little text, in pixels; it grows with more.")] int? minHeight = null,
+        [Description(LabelTitleHelp)] string? title = null,
         CancellationToken ct = default)
     {
         var http = McpCall.Http(accessor);
         var (target, cardId) = await LabelTargetAsync(http, card, board, BoardRole.Editor, ct);
-        var request = new CreateLabelRequest(content, markdown, x, y, ink, size, CardId: cardId, WrapWidth: wrapWidth, Background: background, MinHeight: minHeight);
+        var request = new CreateLabelRequest(content, markdown, x, y, ink, size, CardId: cardId, WrapWidth: wrapWidth, Background: background, MinHeight: minHeight, Title: title);
         McpCall.Validate(request);
         var db = Db(http);
         var label = McpCall.Value<LabelDetail>(await LabelEndpoints.CreateLabel(target, request, http.User, db, ct));
@@ -427,7 +428,7 @@ public sealed partial class BoardTools
     }
 
     [McpServerTool(Name = "update_label", Title = "Change or move a label", OpenWorld = false)]
-    [Description("Changes a label's text, ink, size or place, or moves it between the board and a card (card with x and y on its canvas, or " +
+    [Description("Changes a label's text, title, ink, size or place, or moves it between the board and a card (card with x and y on its canvas, or " +
                  "detach with x and y on the board). Only what you give changes. New markdown keeps the label's own ink and size, but loses " +
                  "underline and any ink or size on single words; give content to keep those. Needs the Editor role.")]
     public static async Task<LabelView> UpdateLabel(
@@ -445,12 +446,13 @@ public sealed partial class BoardTools
         [Description("Whether it has a background of its own.")] bool? background = null,
         [Description("Markdown to add at the end, keeping the formatting of what is there.")] string? appendText = null,
         [Description("The height it keeps with little text, in pixels; 0 makes it as tall as its text.")] int? minHeight = null,
+        [Description(LabelTitleHelp + " An empty string removes it.")] string? title = null,
         CancellationToken ct = default)
     {
         var http = McpCall.Http(accessor);
         Guid? cardId = card is null ? null : await ResolveCardAsync(http, card, ct);
         var boardId = await McpCall.AuthorizeAsync(http, BoardScope.Label, label, BoardRole.Editor);
-        var request = new UpdateLabelRequest(content, markdown, x, y, ink, size, CardId: cardId, Detach: detach, WrapWidth: wrapWidth, Background: background, AppendText: appendText, MinHeight: minHeight);
+        var request = new UpdateLabelRequest(content, markdown, x, y, ink, size, CardId: cardId, Detach: detach, WrapWidth: wrapWidth, Background: background, AppendText: appendText, MinHeight: minHeight, Title: title);
         McpCall.Validate(request);
         var db = Db(http);
         var updated = McpCall.Value<LabelDetail>(await LabelEndpoints.UpdateLabel(label, request, db, ct));

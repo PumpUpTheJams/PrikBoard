@@ -24,6 +24,7 @@ namespace PrikBoard.Api.Contracts;
 /// <param name="AddedById">Principal id of whoever added it, or null once they no longer exist.</param>
 /// <param name="CreatedAt">When it was added (UTC).</param>
 /// <param name="UpdatedAt">When its text, place, ink or size last changed (UTC).</param>
+/// <param name="Title">Its caption, shown as a header above its text; null when it has none.</param>
 public record LabelDetail(
     Guid Id,
     Guid BoardId,
@@ -43,11 +44,12 @@ public record LabelDetail(
     string AddedBy,
     Guid? AddedById,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt)
+    DateTimeOffset UpdatedAt,
+    string? Title)
 {
     public static LabelDetail From(BoardLabel label) =>
         new(label.Id, label.BoardId, label.CardId, label.BucketId, label.X, label.Y, label.Width, label.Height, label.WrapWidth, label.MinHeight, label.Background, label.Ink, label.Size,
-            label.Content, label.Text, label.AddedBy?.ShownName ?? "Unknown", label.AddedById, label.CreatedAt, label.UpdatedAt);
+            label.Content, label.Text, label.AddedBy?.ShownName ?? "Unknown", label.AddedById, label.CreatedAt, label.UpdatedAt, label.Title);
 
     /// <summary>A label as getBoard lists it, which a board can hold thousands of: without the text its content already says.</summary>
     public static LabelDetail OnBoard(BoardLabel label) => From(label) with { Text = null };
@@ -67,10 +69,11 @@ public record LabelDetail(
 /// <param name="Height">Height of the text as measured, in canvas pixels. Give it with width.</param>
 /// <param name="WrapWidth">The width its text wraps at, in canvas pixels. Without one, text nobody measured wraps at 340 when it is wider than that.</param>
 /// <param name="MinHeight">The height it keeps with little text, in canvas pixels; it grows with more. Without one it is as tall as its text.</param>
-/// <param name="Background">Whether it has a background of its own. Without this, on a card's canvas it has one, and on the board it doesn't.</param>
+/// <param name="Background">Whether it has a background of its own; it has one unless this is false.</param>
 /// <param name="CardId">Put it on this card's own canvas (on the same board) instead of on the board.</param>
 /// <param name="BucketId">With x and y on the board: the bucket it joins, which it must overlap (without one it joins the topmost one containing its center).</param>
 /// <param name="Loose">With x and y on the board: true to join no bucket, even over one. Do not combine with bucketId.</param>
+/// <param name="Title">An optional caption, shown as a header above its text (at most 100 characters). Empty or whitespace is none.</param>
 public record CreateLabelRequest(
     [property: MaxLength(BoardLabel.MaxBlocks)] List<LabelBlock>? Content = null,
     [property: StringLength(BoardLabel.MaxTextLength * 2)] string? Markdown = null,
@@ -85,7 +88,8 @@ public record CreateLabelRequest(
     bool? Loose = null,
     [property: Range(1, BoardLabel.MaxSize)] int? WrapWidth = null,
     bool? Background = null,
-    [property: Range(1, BoardLabel.MaxSize)] int? MinHeight = null);
+    [property: Range(1, BoardLabel.MaxSize)] int? MinHeight = null,
+    [property: StringLength(BoardLabel.MaxTitleLength)] string? Title = null);
 
 /// <summary>
 /// Changes a label, or moves it between the board and a card. Omitted (null) fields stay unchanged. X and Y are on wherever
@@ -107,6 +111,7 @@ public record CreateLabelRequest(
 /// <param name="Background">Whether it has a background of its own. It stays as it is when the label moves between the board and a card.</param>
 /// <param name="MinHeight">The height it keeps with little text, in canvas pixels; 0 makes it as tall as its text.</param>
 /// <param name="AppendText">Markdown to add at the end, keeping the formatting of what is there. May come with content or markdown, after which it goes.</param>
+/// <param name="Title">New caption, shown as a header above its text (at most 100 characters); empty or whitespace removes it.</param>
 public record UpdateLabelRequest(
     [property: MaxLength(BoardLabel.MaxBlocks)] List<LabelBlock>? Content = null,
     [property: StringLength(BoardLabel.MaxTextLength * 2)] string? Markdown = null,
@@ -123,4 +128,5 @@ public record UpdateLabelRequest(
     [property: Range(0, BoardLabel.MaxSize)] int? WrapWidth = null,
     bool? Background = null,
     [property: StringLength(BoardLabel.MaxTextLength * 2)] string? AppendText = null,
-    [property: Range(0, BoardLabel.MaxSize)] int? MinHeight = null);
+    [property: Range(0, BoardLabel.MaxSize)] int? MinHeight = null,
+    [property: StringLength(BoardLabel.MaxTitleLength)] string? Title = null);

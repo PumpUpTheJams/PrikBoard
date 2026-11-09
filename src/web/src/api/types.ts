@@ -215,6 +215,8 @@ export interface LabelDetail {
   minHeight: number | null
   /** Whether it has a background of its own. */
   background: boolean
+  /** Its caption, shown as a header above its text like a component's title; null when it has none. */
+  title?: string | null
   ink: InkColor
   size: LabelSize
   content: LabelBlock[]
@@ -250,9 +252,11 @@ export interface NewLabel extends DropBucket {
   height?: number
   cardId?: string
   wrapWidth?: number
-  /** Without it: on on a card, off on the board. */
+  /** Without it: on. */
   background?: boolean
   minHeight?: number
+  /** Its caption, up to 100 characters. */
+  title?: string
 }
 
 /** A PATCH of a label. x and y are on the canvas it ends up on (give both when detaching). */
@@ -271,6 +275,8 @@ export interface LabelChanges extends DropBucket {
   /** 0 makes it as tall as its text. */
   minHeight?: number
   background?: boolean
+  /** A new caption; empty removes it. */
+  title?: string
 }
 
 /** Base line widths: fine, medium and bold. */
@@ -511,6 +517,7 @@ export interface ClippedLabel {
   wrapWidth?: number | null
   minHeight?: number | null
   background?: boolean | null
+  title?: string | null
 }
 
 /** What copyItems copies, all on one board. A bucket comes with what is in it. */

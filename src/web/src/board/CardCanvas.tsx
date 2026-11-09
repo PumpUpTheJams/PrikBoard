@@ -130,7 +130,8 @@ export function CardCanvas(props: CardCanvasProps) {
   const lastPointer = useRef<Point | null>(null)
   /** The images the last two presses were on: the canvas holds the pointer, so double-clicks reach it, not the image. */
   const itemPresses = useRef<[string | null, string | null]>([null, null])
-  const { zoom, zoomTo } = useZoom(scrollRef, NO_INSET)
+  // The wheel zooms, as on the board; Shift + wheel and a trackpad's two-finger swipe scroll.
+  const { zoom, zoomTo } = useZoom(scrollRef, NO_INSET, { wheel: 'always' })
   // A zoom moved the scroll position in code: the minimap catches up before the browser paints.
   useLayoutEffect(() => view.refresh())
   /** The card's pen: on or off (while on, a press draws instead of selecting or moving), with an ink and size of its own. */
@@ -140,6 +141,8 @@ export function CardCanvas(props: CardCanvasProps) {
   const drawingOn = !readOnly && penOn
   /** The card's label tool: on, the next press adds a label there. */
   const [labelOn, setLabelOn] = useState(false)
+  /** The hand: on, a press anywhere only moves the view. */
+  const [handOn, setHandOn] = useState(false)
   useEffect(() => () => onBusy(false), [onBusy])
 
   function toCard(client: Point): Point {
@@ -310,7 +313,7 @@ export function CardCanvas(props: CardCanvasProps) {
     // canvas pans.
     if (e.button !== 0 || drawingOn || spaceHeld) return
     itemPresses.current = [itemPresses.current[1], kind === 'image' || kind === 'label' ? id : null]
-    labelEdit.pressLink(kind === 'label' && isSelected('label', id) ? linkUnder(e.target) : null)
+    labelEdit.pressLabel(kind === 'label' ? e : null)
     // Viewers follow a label's links by the browser's own click.
     if (readOnly && kind === 'label' && linkUnder(e.target)) return
     const item: Item = { kind: itemKindOf[kind], id }
@@ -389,6 +392,7 @@ export function CardCanvas(props: CardCanvasProps) {
   function toggleLabel() {
     setLabelOn((on) => !on)
     setPenOn(false)
+    setHandOn(false)
     setSelection(null)
     scrollRef.current?.focus({ preventScroll: true })
   }
@@ -397,9 +401,30 @@ export function CardCanvas(props: CardCanvasProps) {
   function togglePen() {
     setPenOn((on) => !on)
     setLabelOn(false)
+    setHandOn(false)
     setSelection(null)
     movePenRing(penRing.current, null)
     scrollRef.current?.focus({ preventScroll: true })
+  }
+
+  /** Back to selecting (`hand` false), or to the hand that only moves the view: either puts the pen and the label tool away. */
+  function pickNavigation(hand: boolean) {
+    setHandOn(hand)
+    setPenOn(false)
+    setLabelOn(false)
+    movePenRing(penRing.current, null)
+    scrollRef.current?.focus({ preventScroll: true })
+  }
+
+  /** With the hand, a press anywhere on the canvas (over components and images too) pans; a panel above an item keeps its own. */
+  function onHandPointerDown(e: PointerEvent) {
+    if (!handOn || e.button !== 0 || (e.target instanceof Element && e.target.closest('.above-item'))) return
+    e.stopPropagation()
+    e.preventDefault()
+    labelEdit.commit()
+    if (document.activeElement instanceof HTMLElement && document.activeElement.closest('.card-scroll')) document.activeElement.blur()
+    scrollRef.current!.focus({ preventScroll: true })
+    pan.start(e)
   }
 
   /** A press on empty canvas draws a selection rectangle (viewers: pans). Presses inside components and images are left to them. */
@@ -469,7 +494,9 @@ export function CardCanvas(props: CardCanvasProps) {
       // A click on one of several selected selects just that one.
       const held = gesture.kind === 'group' && gesture.items?.find((i) => i.id === gesture.id)
       if (held) setSelection(held)
-      if (gesture.kind === 'label') labelEdit.followLink()
+      // A click on a label: its link opens, or a click on its text edits it there.
+      const label = (gesture.kind === 'label' || (held && held.kind === 'label')) && labels.find((l) => l.id === gesture.id)
+      if (label) labelEdit.clicked(label, gesture.client, readOnly)
       return
     }
     if (gesture.kind === 'group') {
@@ -569,6 +596,15 @@ export function CardCanvas(props: CardCanvasProps) {
             e.preventDefault()
             e.stopPropagation()
             toggleLabel()
+          } else if ((e.key === 'Escape' && handOn) || (e.key.toLowerCase() === 'v' && !e.ctrlKey && !e.metaKey && !e.altKey)) {
+            // Escape puts the hand away before it closes the card; V picks selecting, as on the board.
+            e.preventDefault()
+            e.stopPropagation()
+            pickNavigation(false)
+          } else if (e.key.toLowerCase() === 'h' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            e.preventDefault()
+            e.stopPropagation()
+            pickNavigation(true)
           } else if (e.key === 'Escape' && penOn) {
             // Escape puts the pen down before it closes the card.
             e.preventDefault()
@@ -596,7 +632,7 @@ export function CardCanvas(props: CardCanvasProps) {
         <div className="canvas-sizer" style={{ width: extent.width * zoom, height: extent.height * zoom }}>
           <div
             ref={canvasRef}
-            className={`card-canvas${pan.panning ? ' panning' : spaceHeld ? ' space-pan' : ''}${drawingOn ? ' pen' : ''}${labelOn ? ' placing-label' : ''}`}
+            className={`card-canvas${pan.panning ? ' panning' : spaceHeld ? ' space-pan' : ''}${drawingOn ? ' pen' : ''}${labelOn ? ' placing-label' : ''}${handOn ? ' hand' : ''}${readOnly ? ' read-only' : ''}`}
             style={{
               width: extent.width,
               height: extent.height,
@@ -605,6 +641,7 @@ export function CardCanvas(props: CardCanvasProps) {
               cursor: gesture && !gesture.done && gesture.kind.endsWith('-resize') ? resizeCursor[gesture.handle] : undefined,
             }}
             onPointerDownCapture={(e) => {
+              onHandPointerDown(e)
               onLabelPointerDown(e)
               onPenPointerDown(e)
             }}
@@ -729,7 +766,7 @@ export function CardCanvas(props: CardCanvasProps) {
               zoom,
               selected: dragging?.id === selectedLabel?.label.id && !dragging?.done ? undefined : selectedLabel,
               // The label the mouse is over shows its bar too, unless something else is going on.
-              hover: !readOnly && !labelOn && !drawingOn && !gesture ? labelHover : null,
+              hover: !readOnly && !labelOn && !drawingOn && !handOn && !gesture ? labelHover : null,
               labelAt: (id) => (id === selectedLabel?.label.id ? undefined : placedLabels.find((l) => l.label.id === id)),
               onDelete: (id) => remove('label', id),
             })}
@@ -737,6 +774,18 @@ export function CardCanvas(props: CardCanvasProps) {
             {pen.strokes.map((s, i) => (
               <StrokeSvg key={i} points={s.points} color={inkColor[s.color]} strokeWidth={s.width} at={{ x: 0, y: 0 }} />
             ))}
+
+            {selectedImage && !(dragging?.id === selectedImage.id && !dragging.done) && (
+              <ImageInspector
+                key={`${selectedImage.id}:${selectedImage.caption}`}
+                rect={imageRect(selectedImage)}
+                zoom={zoom}
+                image={selectedImage}
+                onSave={(changes) => settle(...ops.editImage(selectedImage, changes, 'Edit caption', ['caption']))}
+                onDelete={() => remove('image', selectedImage.id)}
+                onClose={() => setSelection(null)}
+              />
+            )}
 
             {selectedDrawing && !(dragging?.id === selectedDrawing.drawing.id && !dragging.done) && (
               <DrawingToolbar
@@ -797,6 +846,7 @@ export function CardCanvas(props: CardCanvasProps) {
 
       {!readOnly && (
         <CardBar
+          navigation={{ mode: handOn ? 'hand' : penOn || labelOn ? 'tool' : 'select', onSelect: () => pickNavigation(false), onHand: () => pickNavigation(true) }}
           onAdd={addComponent}
           onAddImage={onPickImages}
           pen={{
@@ -814,16 +864,6 @@ export function CardCanvas(props: CardCanvasProps) {
             onToggle: toggleLabel,
           }}
           onDelete={onDeleteCard}
-        />
-      )}
-
-      {selectedImage && (
-        <ImageInspector
-          key={`${selectedImage.id}:${selectedImage.caption}`}
-          image={selectedImage}
-          onSave={(changes) => settle(...ops.editImage(selectedImage, changes, 'Edit caption', ['caption']))}
-          onDelete={() => remove('image', selectedImage.id)}
-          onClose={() => setSelection(null)}
         />
       )}
 

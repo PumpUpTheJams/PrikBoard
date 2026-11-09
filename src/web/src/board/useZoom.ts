@@ -6,9 +6,9 @@ interface ZoomOptions {
   /** Called before every zoom change. */
   onZoom?: () => void
   /**
-   * `always`: the wheel zooms (the board); Shift + wheel, a mostly sideways swipe or a trackpad's two-finger swipe
-   * scrolls instead.
-   * `modifier` (default): only Ctrl/Cmd + wheel zooms, so the wheel still scrolls what is under it (a card's canvas).
+   * `always`: the wheel zooms (the board and a card's canvas); Shift + wheel, a mostly sideways swipe or a trackpad's
+   * two-finger swipe scrolls instead.
+   * `modifier` (default): only Ctrl/Cmd + wheel zooms, so the wheel still scrolls what is under it.
    * A trackpad pinch counts as Ctrl + wheel either way.
    */
   wheel?: 'always' | 'modifier'

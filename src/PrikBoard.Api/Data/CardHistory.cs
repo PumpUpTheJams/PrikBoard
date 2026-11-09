@@ -171,7 +171,7 @@ public sealed class CardHistory(IHttpContextAccessor accessor) : SaveChangesInte
         {
             var label = entry.Entity;
             if (entry.State == EntityState.Modified && label.CardId is { } cardId && entry.Property(l => l.CardId).OriginalValue == cardId
-                && entry.Property(l => l.Content).IsModified)
+                && (entry.Property(l => l.Content).IsModified || entry.Property(l => l.Title).IsModified))
             {
                 Add(cardId, label.BoardId, new(CardChangeKind.LabelChanged, Ref: label.Id));
             }

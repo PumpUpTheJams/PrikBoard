@@ -93,7 +93,7 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
   }
 
   /** Saves a label from its screen; one left with no text isn't added, and one emptied goes. */
-  async function saveLabel(content: LabelBlock[], ink: InkColor, size: LabelSize, background: boolean) {
+  async function saveLabel(content: LabelBlock[], ink: InkColor, size: LabelSize, background: boolean, title: string) {
     const label = editingLabel
     if (isBlankLabel(content)) {
       setEditingLabel(undefined)
@@ -101,10 +101,10 @@ export function CardScreen({ board, card, fresh, onFreshDone, tagColors, run, no
       return
     }
     const wrapWidth = label ? label.wrapWidth : DEFAULT_WRAP_WIDTH
-    const box = measureLabel(document.body, content, size, { wrapWidth, minHeight: label?.minHeight ?? null })
+    const box = measureLabel(document.body, content, size, { wrapWidth, minHeight: label?.minHeight ?? null, title })
     const saved = label
-      ? await run(...ops.editLabel(label, { content, ink, size, background, ...box }, 'Edit label', ['content', 'ink', 'size', 'background', 'width', 'height']))
-      : await run(...ops.addLabel(board.id, { content, ink, size, background, cardId: card.id, wrapWidth: DEFAULT_WRAP_WIDTH, ...spotFor(box), ...box }))
+      ? await run(...ops.editLabel(label, { content, ink, size, background, title, ...box }, 'Edit label', ['content', 'ink', 'size', 'background', 'title', 'width', 'height']))
+      : await run(...ops.addLabel(board.id, { content, ink, size, background, ...(title ? { title } : {}), cardId: card.id, wrapWidth: DEFAULT_WRAP_WIDTH, ...spotFor(box), ...box }))
     if (saved) setEditingLabel(undefined)
   }
 

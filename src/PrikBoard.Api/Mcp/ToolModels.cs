@@ -82,11 +82,12 @@ public sealed record BoardOverview(
 /// <param name="WrapWidth">The width its text wraps at; left out when it doesn't wrap.</param>
 /// <param name="Background">True when it has a background of its own; left out when it doesn't.</param>
 /// <param name="MinHeight">The height it keeps with little text; left out when it is as tall as its text.</param>
-public sealed record LabelView(Guid Id, string Markdown, InkColor Ink, LabelSize Size, int X, int Y, string? Bucket, Guid? CardId, int? WrapWidth = null, bool? Background = null, int? MinHeight = null)
+/// <param name="Title">Its title, shown as a header above its text; left out when it has none.</param>
+public sealed record LabelView(Guid Id, string Markdown, InkColor Ink, LabelSize Size, int X, int Y, string? Bucket, Guid? CardId, int? WrapWidth = null, bool? Background = null, int? MinHeight = null, string? Title = null)
 {
     public static LabelView From(LabelDetail label, IReadOnlyDictionary<Guid, string> bucketNames) =>
         new(label.Id, LabelMarkdown.From(label.Content), label.Ink, label.Size, label.X, label.Y,
-            label.BucketId is { } id ? bucketNames.GetValueOrDefault(id) : null, label.CardId, label.WrapWidth, label.Background ? true : null, label.MinHeight);
+            label.BucketId is { } id ? bucketNames.GetValueOrDefault(id) : null, label.CardId, label.WrapWidth, label.Background ? true : null, label.MinHeight, label.Title);
 }
 
 /// <summary>A board you can use.</summary>
@@ -129,13 +130,14 @@ public sealed record CardView(
         n.AgentWorking ? true : null,
         n.Components.Count == 0 ? null : n.Components.Select(c => content ? ComponentView.From(c) : ComponentView.Brief(c)).ToList(),
         n.CreatedBy, content ? n.CreatedAt : null, n.DeletedAt,
-        labels.Count == 0 ? null : labels.Select(l => new CardLabelView(l.Id, content ? LabelMarkdown.From(l.Content) : null)).ToList());
+        labels.Count == 0 ? null : labels.Select(l => new CardLabelView(l.Id, content ? LabelMarkdown.From(l.Content) : null, l.Title)).ToList());
 }
 
 /// <summary>A label on a card: where its text is.</summary>
 /// <param name="Id">The label's id, for update_card_component, delete_card_component and update_label.</param>
 /// <param name="Markdown">Its text in Markdown (get_card only).</param>
-public sealed record CardLabelView(Guid Id, string? Markdown);
+/// <param name="Title">Its title, shown as a header above its text; left out when it has none.</param>
+public sealed record CardLabelView(Guid Id, string? Markdown, string? Title = null);
 
 /// <summary>A component of a card: a Text, Checklist or Links component.</summary>
 /// <param name="Id">The component id, or the label's id for text; tools also take its title, or its kind when the card has one of that kind.</param>
@@ -151,7 +153,7 @@ public sealed record ComponentView(Guid Id, CardComponentKind Kind, string? Titl
     public static ComponentView Brief(CardComponentDetail c) => new(c.Id, c.Kind, c.Title, null, null, null);
 
     /// <summary>A label, as the component tools answer about the text they wrote.</summary>
-    public static ComponentView OfLabel(LabelDetail label) => new(label.Id, CardComponentKind.Text, null, LabelMarkdown.From(label.Content), null, null);
+    public static ComponentView OfLabel(LabelDetail label) => new(label.Id, CardComponentKind.Text, label.Title, LabelMarkdown.From(label.Content), null, null);
 }
 
 /// <summary>A new card for create_cards.</summary>

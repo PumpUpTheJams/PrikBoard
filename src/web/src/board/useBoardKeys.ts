@@ -52,6 +52,7 @@ export function useBoardKeys(options: BoardKeysOptions) {
         if (!e.repeat) copySelected(true)
       } else if (readOnly) {
         if (e.key.toLowerCase() === 'v') setTool('select')
+        else if (e.key.toLowerCase() === 'h') setTool('hand')
       } else if (deleting && selected.length > 1) {
         // Buckets go too (what is in them stays). The toast's Undo puts them all back.
         e.preventDefault()

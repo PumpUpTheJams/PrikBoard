@@ -4,7 +4,7 @@ import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table
 import { TextStyleKit } from '@tiptap/extension-text-style'
 import { EditorContent, useEditor, type Editor, type JSONContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import type { InkColor, LabelBlock, LabelSize } from '../api/types'
+import type { InkColor, LabelBlock, LabelSize, Point } from '../api/types'
 import { inkColor } from './drawings'
 import { blocksOf, docOf, fontSizeOf, inkOf, sizeOf, type DocNode } from './labelDoc'
 import { parseLabelMarkdown } from './labelMarkdown'
@@ -12,6 +12,8 @@ import { isLabelLink, type LabelBlockTool, type LabelEditorHandle, type LabelFor
 
 interface LabelEditorProps {
   content: LabelBlock[]
+  /** A screen point on its text, where the text cursor starts; without one, at the end. */
+  caret?: Point
   /** The editor has loaded: what the toolbar works through. */
   onReady: (handle: LabelEditorHandle) => void
   /** The selection or text changed, so the toolbar shows what is on there. */
@@ -23,7 +25,7 @@ interface LabelEditorProps {
 const blockNodes: Record<LabelBlockTool, string> = { Heading: 'heading', Task: 'taskList', Quote: 'blockquote', Code: 'codeBlock', Table: 'table' }
 
 /** Lazy loaded: Tiptap is big, and only those who edit a label need it. Viewing one takes `LabelText`. */
-export default function LabelEditor({ content, onReady, onChange, onDone }: LabelEditorProps) {
+export default function LabelEditor({ content, caret, onReady, onChange, onDone }: LabelEditorProps) {
   const editor: Editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -43,7 +45,11 @@ export default function LabelEditor({ content, onReady, onChange, onDone }: Labe
     content: docOf(content) as JSONContent,
     // Not by the autofocus option, which scrolls to the end: the board stays where it is until something is typed. And not from
     // an effect, which can get an editor already destroyed: Tiptap drops the one of a render React gave up on.
-    onCreate: ({ editor: created }) => void created.commands.focus('end', { scrollIntoView: false }),
+    // A click on the text puts the cursor where it was, as the label drawn there showed it.
+    onCreate: ({ editor: created }) => {
+      const at = caret && created.view.posAtCoords({ left: caret.x, top: caret.y })
+      void created.commands.focus(at ? at.pos : 'end', { scrollIntoView: false })
+    },
     onTransaction: onChange,
     editorProps: {
       handleKeyDown(_view, event) {

@@ -594,26 +594,74 @@ public class LabelApiTests(PrikBoardApiFactory factory) : IClassFixture<PrikBoar
     }
 
     [Fact]
-    public async Task A_label_has_a_background_on_a_card_and_none_on_the_board_unless_asked()
+    public async Task A_label_has_a_background_unless_asked_not_to()
     {
         var board = await _client.CreateBoardAsync("Backgrounds");
         var card = await _client.CreateCardAsync(board.Id, "With labels");
 
         var loose = await Create(board.Id, new { markdown = "loose" });
         var onCard = await Create(board.Id, new { cardId = card.Id, markdown = "on a card" });
-        Assert.False(loose.Background);
+        Assert.True(loose.Background);
         Assert.True(onCard.Background);
-        Assert.Equal(loose.Height, (await Create(board.Id, new { markdown = "loose", background = true })).Height);
+        Assert.Equal(loose.Height, (await Create(board.Id, new { markdown = "loose", background = false })).Height);
 
-        Assert.True((await Create(board.Id, new { markdown = "asked", background = true })).Background);
+        Assert.False((await Create(board.Id, new { markdown = "asked", background = false })).Background);
         Assert.False((await Create(board.Id, new { cardId = card.Id, markdown = "asked", background = false })).Background);
 
+        Assert.False((await Update(loose.Id, new { background = false })).Background);
         Assert.True((await Update(loose.Id, new { background = true })).Background);
         Assert.False((await Update(onCard.Id, new { background = false })).Background);
 
         // Moving it between the board and a card leaves it as it is.
         Assert.True((await Update(loose.Id, new { cardId = card.Id })).Background);
         Assert.False((await Update(onCard.Id, new { detach = true, x = 0, y = 0 })).Background);
+    }
+
+    [Fact]
+    public async Task A_labels_title_is_trimmed_changed_cleared_copied_and_found()
+    {
+        var board = await _client.CreateBoardAsync("Titled");
+        var plain = await Create(board.Id, new { x = 0, y = 0, markdown = "Some words" });
+        Assert.Null(plain.Title);
+
+        // A title is a header above the text: the estimate is that much taller.
+        var titled = await Create(board.Id, new { x = 400, y = 0, markdown = "Some words", title = "  Plan  " });
+        Assert.Equal("Plan", titled.Title);
+        Assert.Equal(plain.Height + BoardLabel.TitleHeight, titled.Height);
+        Assert.Equal("Plan", (await Board(board.Id)).Labels.Single(l => l.Id == titled.Id).Title);
+        Assert.Null((await Create(board.Id, new { x = 800, y = 0, markdown = "Blank title", title = "   " })).Title);
+
+        // Null leaves it, new text keeps it, and empty or whitespace clears it.
+        Assert.Equal("Plan", (await Update(titled.Id, new { markdown = "Other words" })).Title);
+        Assert.Equal("Next", (await Update(titled.Id, new { title = " Next" })).Title);
+        var cleared = await Update(titled.Id, new { title = " ", markdown = "Some words" });
+        Assert.Null(cleared.Title);
+        Assert.Equal(plain.Height, cleared.Height);
+        Assert.Null((await Board(board.Id)).Labels.Single(l => l.Id == titled.Id).Title);
+
+        var tooLong = new string('t', BoardLabel.MaxTitleLength + 1);
+        await AssertInvalid($"/api/boards/{board.Id}/labels", new { markdown = "x", title = tooLong }, "title");
+        await AssertPatchInvalid(titled.Id, new { title = tooLong }, "title");
+
+        // Copied and pasted, it keeps its title; a clip with too long a one is refused.
+        await Update(titled.Id, new { title = "Kept" });
+        var clip = await CopyAsync(board.Id, new { labelIds = new[] { titled.Id } });
+        Assert.Contains("\"title\":\"Kept\"", clip);
+        Assert.Contains($"\"version\":{BoardClip.CurrentVersion}", clip);
+        var pasted = await _client.PostAsync($"/api/boards/{board.Id}/paste", Json($$"""{"clip":{{clip}},"x":0,"y":1000}"""));
+        Assert.Equal(HttpStatusCode.OK, pasted.StatusCode);
+        Assert.Equal("Kept", (await pasted.Content.ReadFromJsonAsync<PastedItems>())!.Labels!.Single().Title);
+        var bad = clip.Replace("\"title\":\"Kept\"", $"\"title\":\"{tooLong}\"");
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsync($"/api/boards/{board.Id}/paste", Json($$"""{"clip":{{bad}},"x":0,"y":1000}"""))).StatusCode);
+
+        // On a card, a new title is a change of its text in the history, and search finds the card by it.
+        var card = await _client.CreateCardAsync(board.Id, "Plain card");
+        var onCard = await Create(board.Id, new { cardId = card.Id, markdown = "body" });
+        await Update(onCard.Id, new { title = "haystack" });
+        var history = (await _client.GetFromJsonAsync<List<CardChangeDetail>>($"/api/cards/{card.Id}/history"))!;
+        Assert.Equal(1, history.SelectMany(h => h.Entries).Count(e => e.Kind == CardChangeKind.LabelChanged));
+        var found = (await _client.GetFromJsonAsync<List<CardDetail>>($"/api/boards/{board.Id}/cards?search=haystack"))!;
+        Assert.Equal(card.Id, Assert.Single(found).Id);
     }
 
     private async Task<Guid> CardWithRawComponents(Guid boardId, string title, string componentsJson, bool deleted = false)

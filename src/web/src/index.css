@@ -846,6 +846,23 @@ main {
   cursor: grabbing;
 }
 
+/* The hand only moves the view: a press anywhere grabs the canvas itself, and nothing on it reacts to the pointer (no hover
+   growth, no buttons showing). Only a panel above a selected item still works. */
+.canvas.tool-hand,
+.card-canvas.hand {
+  cursor: grab;
+}
+
+.canvas.tool-hand :not(.above-item, .above-item *),
+.card-canvas.hand :not(.above-item, .above-item *) {
+  pointer-events: none !important;
+}
+
+.canvas.tool-hand.panning,
+.card-canvas.hand.panning {
+  cursor: grabbing;
+}
+
 .canvas:not(.tool-select) .card,
 .canvas:not(.tool-select) .bucket-head {
   cursor: inherit;
@@ -1846,17 +1863,22 @@ main {
   background: var(--tool-hover);
 }
 
-/* Bucket inspector */
+/* A panel just above an item on a canvas, at the same size on screen at any zoom (AboveItem). */
+.above-item {
+  position: absolute;
+  z-index: 7;
+  transform-origin: top left;
+}
+
+/* The selected bucket's or image's panel, above it */
 
 .inspector {
-  position: absolute;
-  top: 16px;
-  right: calc(16px + var(--scrollbar));
-  z-index: 6;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: min(300px, calc(100% - 32px));
+  width: 300px;
+  cursor: default;
+  user-select: none;
   padding: 12px 12px 14px 16px;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -2674,9 +2696,11 @@ input.editable {
   background: var(--hover);
 }
 
-.checklist label {
+.checklist label,
+.checklist-row {
   display: flex;
   flex: 1;
+  min-width: 0;
   align-items: flex-start;
   gap: 10px;
   padding: 7px 6px;
@@ -2686,17 +2710,46 @@ input.editable {
   cursor: pointer;
 }
 
-.checklist input {
+.checklist input[type='checkbox'] {
   flex: none;
   width: 16px;
   height: 16px;
   margin: 2px 0 0;
   accent-color: #8fd1b5;
+  cursor: pointer;
 }
 
 .checklist li.done span {
   color: var(--subtle);
   text-decoration: line-through;
+}
+
+/* An item's text, which a click edits in place: the text cursor says so. */
+.checklist-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+
+/* The field it turns into, looking like the text it replaces. */
+.checklist-text-input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  height: auto;
+  margin: -2px -4px;
+  padding: 1px 3px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  line-height: inherit;
+}
+
+.checklist-text-input:focus {
+  outline: none;
 }
 
 .row-remove {
@@ -3440,8 +3493,9 @@ a.button.primary:hover {
   padding: 10px 14px;
   border: 1px solid transparent;
   border-radius: 12px;
-  font-weight: 500;
-  line-height: 1.15;
+  /* As a card's notes read before labels: regular weight, roomy lines (FAR_LINE in labels.ts, BoardLabel.LineHeight). */
+  font-weight: 400;
+  line-height: 1.55;
   white-space: pre;
   cursor: grab;
   user-select: none;
@@ -3467,15 +3521,22 @@ a.button.primary:hover {
   cursor: pointer;
 }
 
+/* A click on a label's words edits it there, so they show the text cursor (with Select, for those who may edit; not on links). */
+.canvas.tool-select:not(.read-only) .label:not(.far) :is(span:not(.label-title), code):not(a *),
+.card-canvas:not(.pen, .placing-label, .hand, .read-only) .label :is(span:not(.label-title), code):not(a *) {
+  cursor: text;
+}
+
 .label.wraps,
 .label.wraps .tiptap {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
+/* FAR_BLOCK_GAP in labels.ts, BoardLabel.BlockGap on the server. */
 .label > * + *,
 .label .tiptap > * + * {
-  margin-top: 0.4em;
+  margin-top: 0.75em;
 }
 
 .label h1,
@@ -3651,22 +3712,144 @@ a.button.primary:hover {
   opacity: 0.4;
 }
 
-.label-bar {
-  width: max-content;
-  gap: 4px;
-  padding: 4px;
+/* A captioned label: a header like a component's, with the label's icon and its caption. `LABEL_TITLE_*` in labels.ts and
+   BoardLabel.TitleHeight on the server: the header makes it 30 px taller. */
+.label.titled {
+  padding-top: 4px;
+}
+
+.label-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  margin: 0 30px 6px 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.label-head svg {
+  flex: none;
+}
+
+.label-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.label > .label-head + *,
+.label .label-head + * {
+  margin-top: 0;
+}
+
+/* The delete button of a selected or hovered label, in its top-right corner as a component's is. */
+.label-trash {
+  position: absolute;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+  transform: translate(calc(-100% - 6px), 6px);
+}
+
+.label-trash:hover {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
 }
 
 .label-toolbar {
   flex-direction: column;
   align-items: stretch;
-  gap: 4px;
+  gap: 6px;
   width: max-content;
   padding: 6px;
-  transform-origin: top left;
 }
 
-/* What styles text on one row, and what shapes blocks on the other. */
+/* What styles its text, and below it what the label itself has: its caption, background and delete. */
+.label-tool-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.label-own-tools {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+/* The caption's field, with the button that takes the caption off at its end. */
+.label-caption {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 140px;
+}
+
+.label-caption-clear {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--subtle);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.label-caption-clear:hover {
+  background: var(--chip);
+  color: var(--text);
+}
+
+.label-caption-field {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 28px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.label-caption-field::placeholder {
+  color: var(--subtle);
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.label-caption-field:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* A row of buttons: one too narrow for them all wraps between the groups. */
 .label-tool-row {
   display: flex;
   flex-wrap: wrap;
@@ -3674,19 +3857,11 @@ a.button.primary:hover {
   gap: 4px;
 }
 
-/* Buttons that belong together: a row too narrow for them all wraps between these. */
+/* Buttons that belong together. */
 .label-tool-group {
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-.label-tool-end {
-  flex: 1;
-}
-
-.label-tool-end .drawing-delete {
-  margin-left: auto;
 }
 
 .m-label-tools .label-tool-row > .toolbar-divider {
@@ -3932,10 +4107,20 @@ a.button.primary:hover {
   transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 
-/* Hovered, the picture grows a little where it is, as a card does; its caption stays put. */
-.canvas.tool-select .board-image:hover:not(.lifted) .board-image-frame {
-  transform: scale(1.02);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+/*
+ * Hovered with Select, everything but a card gets a light outline, as a collapsed bucket does (only cards grow): a bucket, an
+ * image, a label and a card's component. Not while something else has it: selected, dragged, a drop target or a search hit.
+ */
+.canvas.tool-select:not(.read-only) .bucket:hover:not(.selected, .drop-target, .search-hit),
+.canvas.tool-select:not(.read-only) .label:hover:not(.selected, .lifted, .matched),
+.card-canvas:not(.pen, .placing-label, .hand, .read-only) .label:hover:not(.selected, .lifted, .matched),
+.card-canvas:not(.pen, .placing-label, .hand, .read-only) .card-component:hover:not(.selected, .lifted, .matched) {
+  border-color: var(--subtle);
+}
+
+.canvas.tool-select:not(.read-only) .board-image:hover:not(.selected, .lifted) .board-image-frame,
+.card-canvas:not(.pen, .placing-label, .hand, .read-only) .board-image:hover:not(.selected, .lifted) .board-image-frame {
+  outline: 1px solid var(--subtle);
 }
 
 .board-image-frame img {
@@ -5928,8 +6113,13 @@ button.picker-color:hover,
 
 /* A card's title edited in place: looks like the title itself, as in the expanded card (no box, a thin focus ring) */
 
+/* A click on the title edits it, so it shows the text cursor, as the expanded card's title does (other tools than Select keep theirs). */
 .card-title.editable-title {
-  cursor: pointer;
+  cursor: text;
+}
+
+.canvas:not(.tool-select) .card-title.editable-title {
+  cursor: inherit;
 }
 
 .card-title-input {
@@ -7192,13 +7382,14 @@ button.picker-color:hover,
   overflow: visible;
 }
 
-.card-component.stacked .checklist label {
+.card-component.stacked .checklist label,
+.card-component.stacked .checklist-row {
   min-height: 44px;
   align-items: center;
   font-size: 14px;
 }
 
-.card-component.stacked .checklist input {
+.card-component.stacked .checklist input[type='checkbox'] {
   width: 18px;
   height: 18px;
   margin: 0;

@@ -18,7 +18,7 @@ public static class LabelEndpoints
             .RequireBoardRole(BoardRole.Editor)
             .WithName("createLabel")
             .WithSummary("Add a label")
-            .WithDescription("Adds rich text to the board, without a background unless you ask for one, or to a card's own canvas with cardId, with one unless you say otherwise. Give its text as content " +
+            .WithDescription("Adds rich text, with a background unless you say otherwise and an optional title above it, to the board, or to a card's own canvas with cardId. Give its text as content " +
                              "or markdown, and x and y (snapped to the 20 px grid), or leave them out for a free spot. Give the width and " +
                              "height you measured, if you can; otherwise the server estimates them from the text. " +
                              $"A board holds at most {BoardLabel.MaxPerBoard} labels (409 beyond that).")
@@ -29,7 +29,7 @@ public static class LabelEndpoints
             .RequireBoardRole(BoardRole.Editor, BoardScope.Label)
             .WithName("updateLabel")
             .WithSummary("Change or move a label")
-            .WithDescription("Changes its text, position, ink, size or background, puts it on a card's canvas (cardId, with x and y on that canvas), or puts a " +
+            .WithDescription("Changes its text, title, position, ink, size or background, puts it on a card's canvas (cardId, with x and y on that canvas), or puts a " +
                              "label on a card back on the board (detach, with x and y on the board). Omitted fields stay unchanged. New " +
                              "markdown keeps the label's own ink and size, but loses underline and any ink or size on single words.")
             .ProducesValidationProblem();
@@ -77,7 +77,8 @@ public static class LabelEndpoints
             CardId = request.CardId,
             Ink = request.Ink,
             Size = request.Size,
-            Background = request.Background ?? request.CardId is not null,
+            Background = request.Background ?? true,
+            Title = PatchText.Apply(null, request.Title)?.Trim(),
             AddedBy = await db.Principals.FindAsync([principal.PrincipalId()], ct),
         };
         label.SetWrap(request.WrapWidth);
@@ -127,11 +128,14 @@ public static class LabelEndpoints
         if (request.Size is { } size) label.Size = size;
         if (request.WrapWidth is { } wrap) label.SetWrap(wrap);
         if (request.Background is { } background) label.Background = background;
+        var title = PatchText.Apply(label.Title, request.Title)?.Trim();
+        var titled = title != label.Title;
+        label.Title = title;
         if (request.MinHeight is { } minHeight) label.SetMinHeight(minHeight);
         if (request.Width is not null) Measure(label, request.Width, request.Height);
         // Someone who just stopped it wrapping means it.
         else if (request.WrapWidth == 0) label.Estimate();
-        else if (blocks is not null || request.Size is not null || request.WrapWidth is not null || request.MinHeight is not null) label.EstimateAndWrap();
+        else if (blocks is not null || titled || request.Size is not null || request.WrapWidth is not null || request.MinHeight is not null) label.EstimateAndWrap();
 
         if (moving && !detach && request.X is null) await FreeSpotAsync(db, label, ct);
         else Layout.Put(label, request.X ?? label.X, request.Y ?? label.Y);
@@ -190,6 +194,7 @@ public static class LabelEndpoints
         label.SetWrap(source.WrapWidth);
         label.SetMinHeight(source.MinHeight);
         label.Background = source.Background ?? source.CardId is not null;
+        label.Title = string.IsNullOrWhiteSpace(source.Title) ? null : source.Title.Trim();
         if (source.Width is { } width && source.Height is { } height) label.SetSize(width, height);
         else label.Estimate();
         Layout.Put(label, source.X, source.Y);

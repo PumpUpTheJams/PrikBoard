@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react'
 import type { InkColor, CardComponentKind } from '../api/types'
 import { inkColor } from './drawings'
 import { PenOptions } from './DrawingView'
-import { EraserIcon, ImageIcon, LabelIcon, PenIcon, TrashIcon } from './icons'
+import { EraserIcon, HandIcon, ImageIcon, LabelIcon, PenIcon, SelectIcon, TrashIcon } from './icons'
 import { componentKinds } from './componentKinds'
 
 /** The card's pen: whether it is on, its ink and size, and whether it erases. */
@@ -23,7 +23,15 @@ export interface CardLabelTool {
   onToggle: () => void
 }
 
+/** How a press on the card's canvas works: selects and moves (`select`), only moves the view (`hand`), or does what the pen or label tool does. */
+export interface CardNavigation {
+  mode: 'select' | 'hand' | 'tool'
+  onSelect: () => void
+  onHand: () => void
+}
+
 interface CardBarProps {
+  navigation: CardNavigation
   /** Adds a component of a kind in a free spot in view. */
   onAdd: (kind: CardComponentKind) => void
   /** Opens the file picker to attach images. */
@@ -35,9 +43,16 @@ interface CardBarProps {
 }
 
 /** The expanded card's tool bar, styled like the board's tool rail but lying along the bottom. */
-export function CardBar({ onAdd, onAddImage, pen, label, onDelete }: CardBarProps) {
+export function CardBar({ navigation, onAdd, onAddImage, pen, label, onDelete }: CardBarProps) {
   return (
     <div className="rail card-bar" role="toolbar" aria-label="Card tools">
+      <button type="button" className="rail-button" aria-label="Select" title="Select (V)" aria-pressed={navigation.mode === 'select'} onClick={navigation.onSelect}>
+        <SelectIcon />
+      </button>
+      <button type="button" className="rail-button" aria-label="Hand" title="Hand (H): drag to move around, scroll to zoom" aria-pressed={navigation.mode === 'hand'} onClick={navigation.onHand}>
+        <HandIcon />
+      </button>
+      <span className="rail-divider" aria-hidden="true" />
       {(['Checklist', 'Links'] as const).map((kind) => {
         const { label, Icon } = componentKinds[kind]
         return (

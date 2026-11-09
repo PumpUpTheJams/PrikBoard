@@ -2,7 +2,7 @@ import type { ComponentType, CSSProperties, PointerEvent, Ref } from 'react'
 import { cardColors, type InkColor, type CardColor } from '../api/types'
 import { inkColor } from './drawings'
 import { PenOptions } from './DrawingView'
-import { BucketToolIcon, EraserIcon, ImageIcon, LabelIcon, PenIcon, CardIcon, SearchIcon, SelectIcon, TrashIcon } from './icons'
+import { BucketToolIcon, EraserIcon, HandIcon, ImageIcon, LabelIcon, PenIcon, CardIcon, SearchIcon, SelectIcon, TrashIcon } from './icons'
 import type { Tool } from './tools'
 
 interface ToolDef {
@@ -14,7 +14,10 @@ interface ToolDef {
   title?: string
 }
 
-const navigation: ToolDef[] = [{ tool: 'select', label: 'Select', shortcut: 'V', Icon: SelectIcon }]
+const navigation: ToolDef[] = [
+  { tool: 'select', label: 'Select', shortcut: 'V', Icon: SelectIcon },
+  { tool: 'hand', label: 'Hand', shortcut: 'H', Icon: HandIcon, title: 'Hand (H): drag to move around, scroll to zoom' },
+]
 
 interface ToolRailProps {
   tool: Tool
@@ -68,8 +71,8 @@ export function ToolRail(props: ToolRailProps) {
       aria-pressed={tool === t}
       style={style}
       onPointerDown={onPointerDown}
-      // A second click on the tool you are in puts it away again (as Escape does).
-      onClick={() => onToolChange(tool === t && t !== 'select' ? 'select' : t)}
+      // A second click on the tool you are in puts it away again (as Escape does); the two that only point or look stay.
+      onClick={() => onToolChange(tool === t && t !== 'select' && t !== 'hand' ? 'select' : t)}
     >
       <Icon />
     </button>

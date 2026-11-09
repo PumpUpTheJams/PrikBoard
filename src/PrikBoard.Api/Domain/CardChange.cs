@@ -55,7 +55,7 @@ public enum CardChangeKind
     LabelAdded,
     /// <summary>A label was taken off or deleted.</summary>
     LabelRemoved,
-    /// <summary>A label's text changed.</summary>
+    /// <summary>A label's text or title changed.</summary>
     LabelChanged,
     /// <summary>The card was deleted.</summary>
     Deleted,

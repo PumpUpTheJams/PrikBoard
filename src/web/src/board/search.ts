@@ -220,7 +220,7 @@ function componentTexts(component: CardComponent): string[] {
 export const componentMatches = (component: CardComponent, terms: SearchTerm[]) =>
   componentTexts(component).some((text) => terms.some((t) => found(t, 'component', text)))
 
-export const labelMatches = (label: LabelDetail, terms: SearchTerm[]) => terms.some((t) => found(t, 'component', labelText(label)))
+export const labelMatches = (label: LabelDetail, terms: SearchTerm[]) => terms.some((t) => found(t, 'component', labelText(label)) || (!!label.title && found(t, 'component', label.title)))
 
 /** The labels on each card, for `matchCard`. */
 export function labelsByCard(labels: LabelDetail[]) {
@@ -247,7 +247,7 @@ function cardFields(card: CardDetail, labels: LabelDetail[] = []): SearchField[]
     const label = component.title ?? componentKinds[component.kind].label
     for (const text of componentTexts(component)) fields.push({ kind: 'component', label, text })
   }
-  for (const label of labels) fields.push({ kind: 'component', label: 'Label', text: labelText(label) })
+  for (const label of labels) fields.push({ kind: 'component', label: label.title ?? 'Label', text: labelText(label) })
   return fields
 }
 

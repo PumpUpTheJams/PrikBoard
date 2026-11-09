@@ -3,9 +3,9 @@ import type { CardDetail, InkColor, LabelBlock, LabelDetail, LabelSize } from '.
 import { inkColor } from '../board/drawings'
 import { keepTextSelected } from '../board/gesture'
 import { LabelEditor } from '../board/LabelEditing'
-import { labelPixels, NEW_LABEL_STYLE } from '../board/labels'
+import { labelClasses, labelPixels, NEW_LABEL_STYLE } from '../board/labels'
 import { LabelText } from '../board/LabelText'
-import { LabelTools } from '../board/LabelView'
+import { LabelHead, LabelTools } from '../board/LabelView'
 import { useLabelTools } from '../board/useLabelTools'
 
 interface LabelScreenProps {
@@ -14,7 +14,7 @@ interface LabelScreenProps {
   label?: LabelDetail
   onCancel: () => void
   /** Saves it; the screen closes when that worked. */
-  onSave: (content: LabelBlock[], ink: InkColor, size: LabelSize, background: boolean) => Promise<void>
+  onSave: (content: LabelBlock[], ink: InkColor, size: LabelSize, background: boolean, title: string) => Promise<void>
   onRemove: () => void
 }
 
@@ -22,11 +22,17 @@ interface LabelScreenProps {
 export function LabelScreen({ card, label, onCancel, onSave, onRemove }: LabelScreenProps) {
   const content = label?.content ?? []
   const [busy, setBusy] = useState(false)
-  const { handle, ink, size, background, onReady, onChange, tools } = useLabelTools({ ink: label?.ink ?? NEW_LABEL_STYLE.ink, size: label?.size ?? NEW_LABEL_STYLE.size, background: label?.background ?? true, onDelete: onRemove })
+  const { handle, ink, size, background, title, onReady, onChange, tools } = useLabelTools({
+    ink: label?.ink ?? NEW_LABEL_STYLE.ink,
+    size: label?.size ?? NEW_LABEL_STYLE.size,
+    background: label?.background ?? true,
+    title: label?.title ?? '',
+    onDelete: onRemove,
+  })
 
   function save() {
     setBusy(true)
-    void onSave(handle?.blocks() ?? content, ink, size, background).finally(() => setBusy(false))
+    void onSave(handle?.blocks() ?? content, ink, size, background, title.trim()).finally(() => setBusy(false))
   }
 
   return (
@@ -48,7 +54,8 @@ export function LabelScreen({ card, label, onCancel, onSave, onRemove }: LabelSc
       </div>
       <div className="m-scroll m-stack">
         <div className="m-label-editor">
-          <div className={`label editing wraps${background ? ' with-background' : ''}`} style={{ color: inkColor[ink], fontSize: labelPixels[size] }}>
+          <div className={`label editing wraps${labelClasses({ wrapWidth: null, background, title: title.trim() })}`} style={{ color: inkColor[ink], fontSize: labelPixels[size] }}>
+            {title.trim() && <LabelHead title={title.trim()} />}
             <Suspense fallback={<LabelText content={content} />}>
               <LabelEditor content={content} onReady={onReady} onChange={onChange} onDone={onCancel} />
             </Suspense>

@@ -10,7 +10,7 @@ namespace PrikBoard.Api.Contracts;
 /// is assigned to cards, which only mean something on this server; other ids in it are only meaningful inside it.
 /// </summary>
 /// <param name="Format">Always "prikboard-clip".</param>
-/// <param name="Version">Version of this format, currently 7 (1 to 6 still paste; bucket colors of 1 to 3 are ignored). A clip with a newer version, or with fields the server doesn't know, is refused.</param>
+/// <param name="Version">Version of this format, currently 9 (1 to 8 still paste; bucket colors of 1 to 3 are ignored). A clip with a newer version, or with fields the server doesn't know, is refused.</param>
 /// <param name="CopiedAt">When it was copied (UTC).</param>
 /// <param name="Source">Where the items were copied from.</param>
 /// <param name="Cards">The cards (also those in the copied buckets), the most recently edited last (they are drawn on top).</param>
@@ -37,7 +37,7 @@ public record BoardClip(
 {
     public const string FormatName = "prikboard-clip";
     /// <summary>Raise it with every change to the clip's fields, so an older server refuses a clip it can't fully read.</summary>
-    public const int CurrentVersion = 8;
+    public const int CurrentVersion = 9;
     /// <summary>A whole board fits in one clip.</summary>
     public const int MaxCards = 2000;
     public const int MaxImages = 200;
@@ -180,6 +180,7 @@ public record ClippedStroke(
 /// <param name="WrapWidth">The width its text wraps at, or null for as wide as its text.</param>
 /// <param name="Background">Whether it has a background. Clips from before this field say nothing: none.</param>
 /// <param name="MinHeight">The height it keeps with little text, or null for as tall as its text.</param>
+/// <param name="Title">Its caption, shown as a header above its text (from version 9), or null for none.</param>
 public record ClippedLabel(
     Guid? CardId,
     [property: Range(Layout.MinCoordinate, Layout.MaxCoordinate)] int X,
@@ -193,7 +194,8 @@ public record ClippedLabel(
     Guid? Id = null,
     [property: Range(1, BoardLabel.MaxSize)] int? WrapWidth = null,
     bool? Background = null,
-    [property: Range(1, BoardLabel.MaxSize)] int? MinHeight = null);
+    [property: Range(1, BoardLabel.MaxSize)] int? MinHeight = null,
+    [property: StringLength(BoardLabel.MaxTitleLength)] string? Title = null);
 
 /// <summary>What to copy, all on the board in the path. A bucket comes with the cards, images, drawings and labels in it.</summary>
 /// <param name="CardIds">Cards.</param>

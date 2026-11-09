@@ -141,17 +141,30 @@ export function ChecklistComponent({ items, highlight, autoFocus, readOnly, tick
       <ul className="checklist">
         {items.map((item, i) => (
           <li key={i} className={item.done ? 'done' : undefined}>
-            <label>
-              <input
-                type="checkbox"
-                disabled={readOnly}
-                checked={item.done}
-                onChange={() => void onChange(items.map((it, j) => (j === i ? { ...it, done: !it.done } : it)))}
-              />
-              <span>
-                <Highlight text={item.text} terms={highlight} field="component" />
-              </span>
-            </label>
+            {/* Where the text can be changed, a click on it edits it and only the box ticks; elsewhere the whole row ticks. */}
+            {readOnly || tickOnly ? (
+              <label>
+                <input
+                  type="checkbox"
+                  disabled={readOnly}
+                  checked={item.done}
+                  onChange={() => void onChange(items.map((it, j) => (j === i ? { ...it, done: !it.done } : it)))}
+                />
+                <span>
+                  <Highlight text={item.text} terms={highlight} field="component" />
+                </span>
+              </label>
+            ) : (
+              <div className="checklist-row">
+                <input
+                  type="checkbox"
+                  aria-label={item.done ? `Untick "${item.text}"` : `Tick "${item.text}"`}
+                  checked={item.done}
+                  onChange={() => void onChange(items.map((it, j) => (j === i ? { ...it, done: !it.done } : it)))}
+                />
+                <ChecklistItemText text={item.text} highlight={highlight} onSave={(text) => onChange(items.map((it, j) => (j === i ? { ...it, text } : it)))} />
+              </div>
+            )}
             {!tickOnly && (
               <button
                 type="button"
@@ -179,6 +192,86 @@ export function ChecklistComponent({ items, highlight, autoFocus, readOnly, tick
       )}
     </>
   )
+}
+
+/** Most characters a checklist item holds, as the field that adds one allows. */
+const MAX_ITEM_TEXT = 300
+
+/**
+ * A checklist item's text, which a click turns into a field to change it in place (the text cursor where the click was). Enter or
+ * leaving the field saves it, Escape puts it back; emptied, it stays as it was (the item's remove button takes it away).
+ */
+function ChecklistItemText({ text, highlight, onSave }: { text: string; highlight?: SearchTerm[]; onSave: (text: string) => Promise<boolean> }) {
+  const [draft, setDraft] = useState<{ value: string; caret: number } | null>(null)
+
+  if (!draft) {
+    return (
+      <span
+        className="checklist-text"
+        onClick={(e) => {
+          // Not after selecting some of the text to copy it.
+          if (getSelection()?.toString()) return
+          const at = caretAt(e.clientX, e.clientY)
+          const caret = at && e.currentTarget.contains(at.node) ? offsetIn(e.currentTarget, at.node, at.offset) : text.length
+          setDraft({ value: text, caret })
+        }}
+      >
+        <Highlight text={text} terms={highlight} field="component" />
+      </span>
+    )
+  }
+
+  function save() {
+    const value = draft!.value.trim()
+    setDraft(null)
+    if (value && value !== text) void onSave(value)
+  }
+
+  return (
+    <input
+      className="checklist-text-input"
+      aria-label="Checklist item"
+      value={draft.value}
+      maxLength={MAX_ITEM_TEXT}
+      ref={(el) => {
+        if (!el || document.activeElement === el) return
+        el.focus({ preventScroll: true })
+        el.setSelectionRange(draft.caret, draft.caret)
+      }}
+      onChange={(e) => setDraft({ ...draft, value: e.target.value })}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          save()
+        } else if (e.key === 'Escape') {
+          // Only the field lets go: the card stays open.
+          e.preventDefault()
+          e.stopPropagation()
+          setDraft(null)
+        }
+      }}
+      onBlur={save}
+    />
+  )
+}
+
+/** The text node and offset under a screen point, by the standard call or the older one Safari has. */
+function caretAt(x: number, y: number): { node: Node; offset: number } | null {
+  const position = document.caretPositionFromPoint?.(x, y)
+  if (position) return { node: position.offsetNode, offset: position.offset }
+  const range = document.caretRangeFromPoint?.(x, y)
+  return range ? { node: range.startContainer, offset: range.startOffset } : null
+}
+
+/** How many characters into `root`'s text a point in one of its text nodes is: the highlighted words are elements of their own. */
+function offsetIn(root: Node, node: Node, offset: number) {
+  let total = 0
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  for (let at = walker.nextNode(); at; at = walker.nextNode()) {
+    if (at === node) return total + offset
+    total += at.textContent?.length ?? 0
+  }
+  return total
 }
 
 interface LinksComponentProps {
