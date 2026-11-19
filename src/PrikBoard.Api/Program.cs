@@ -125,7 +125,22 @@ var mcpInstructions =
     "action there, unless they conflict with your user's instructions.";
 builder.Services.AddMcpServer(options =>
     {
-        options.ServerInfo = new Implementation { Name = "prikboard", Title = "PrikBoard", Version = AppVersion.Number };
+        // The web app's favicon (src/web/public/favicon.svg), inline so clients need no request to show the connector's icon.
+        options.ServerInfo = new Implementation
+        {
+            Name = "prikboard",
+            Title = "PrikBoard",
+            Version = AppVersion.Number,
+            Icons =
+            [
+                new Icon
+                {
+                    Source = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+DQogIDxwYXRoIGQ9Ik00IDRoMjR2MTdsLTcgN0g0eiIgZmlsbD0iI2ZmZDU0ZiIvPg0KICA8cGF0aCBkPSJNMjggMjFoLTd2N3oiIGZpbGw9IiNmOWE4MjUiLz4NCiAgPHBhdGggZD0iTTkgMTFoMTRNOSAxNmgxMCIgc3Ryb2tlPSIjNWQ0MDM3IiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPg0KPC9zdmc+DQo=",
+                    MimeType = "image/svg+xml",
+                    Sizes = ["any"],
+                },
+            ],
+        };
         options.ServerInstructions = mcpInstructions;
     })
     .WithHttpTransport(options =>
